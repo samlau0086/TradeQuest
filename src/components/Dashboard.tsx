@@ -2,12 +2,19 @@ import React from 'react';
 import { useStore } from '../store';
 import { Trophy, Star, History, Flame, ArrowUpCircle, Award, Target, CheckCircle2 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { useTranslation } from '../lib/i18n';
 
 export function Dashboard() {
-  const { userExp, userLevel, userTitle, currentStreak, dailyQuests, expLogs, completeQuest, setView } = useStore();
+  const { userExp, userLevel, userTitle, currentStreak, dailyQuests, expLogs, setView, skipQuest, language } = useStore();
+  const t = useTranslation(language);
 
   const expToNextLevel = 500;
   const progressPercent = (userExp / expToNextLevel) * 100;
+
+  const visibleQuests = dailyQuests.filter(q => {
+    if (!q.skippedUntil) return true;
+    return new Date(q.skippedUntil).getTime() < Date.now();
+  });
 
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin bg-slate-900 border-t border-slate-800 p-8">
@@ -16,8 +23,8 @@ export function Dashboard() {
         {/* Header/Banner */}
         <div className="bg-gradient-to-r from-slate-900 to-slate-800 p-8 rounded-2xl border border-slate-700/50 shadow-xl flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-white mb-2">Agent Dashboard</h1>
-            <p className="text-slate-400">Track your progress and complete daily tasks to level up.</p>
+            <h1 className="text-3xl font-bold text-white mb-2">{t('Agent Dashboard')}</h1>
+            <p className="text-slate-400">{t('Track your progress and complete daily tasks to level up.')}</p>
           </div>
           <div className="flex items-center gap-6">
             <div className="text-right">
@@ -36,10 +43,10 @@ export function Dashboard() {
           <div className="lg:col-span-2 space-y-8">
             <div className="bg-slate-950/50 rounded-2xl p-6 border border-slate-800 shadow-sm">
               <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-                <Star className="w-5 h-5 text-yellow-500" /> Level Progress
+                <Star className="w-5 h-5 text-yellow-500" /> {t('Level Progress')}
               </h2>
               <div className="mb-4 flex justify-between text-sm font-medium">
-                <span className="text-slate-300">Level {userLevel}</span>
+                <span className="text-slate-300">{t('level')} {userLevel}</span>
                 <span className="text-cyan-400">{userExp} / {expToNextLevel} EXP</span>
               </div>
               <div className="w-full bg-slate-800 rounded-full h-4 overflow-hidden shadow-inner mb-6">
@@ -53,14 +60,14 @@ export function Dashboard() {
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 text-center hover:border-cyan-500/30 transition-colors">
                   <Flame className="w-6 h-6 text-orange-500 mx-auto mb-2" />
                   <div className="text-2xl font-bold text-white">{currentStreak}</div>
-                  <div className="text-xs text-slate-500 uppercase font-bold mt-1">Day Streak</div>
+                  <div className="text-xs text-slate-500 uppercase font-bold mt-1">{t('Day Streak')}</div>
                 </div>
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 text-center hover:border-cyan-500/30 transition-colors">
                   <Target className="w-6 h-6 text-red-400 mx-auto mb-2" />
                   <div className="text-2xl font-bold text-white">
-                    {dailyQuests.filter(q => q.completed).length} / {dailyQuests.length}
+                    {visibleQuests.filter(q => q.completed).length} / {visibleQuests.length}
                   </div>
-                  <div className="text-xs text-slate-500 uppercase font-bold mt-1">Quests Done</div>
+                  <div className="text-xs text-slate-500 uppercase font-bold mt-1">{t('questsDone')}</div>
                 </div>
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 text-center hover:border-cyan-500/30 transition-colors">
                   <ArrowUpCircle className="w-6 h-6 text-green-400 mx-auto mb-2" />
@@ -70,12 +77,12 @@ export function Dashboard() {
                       return log.date.startsWith(today) ? sum + log.amount : sum;
                     }, 0)}
                   </div>
-                  <div className="text-xs text-slate-500 uppercase font-bold mt-1">EXP Today</div>
+                  <div className="text-xs text-slate-500 uppercase font-bold mt-1">{t('EXP Today')}</div>
                 </div>
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 text-center hover:border-cyan-500/30 transition-colors">
                   <Award className="w-6 h-6 text-purple-400 mx-auto mb-2" />
                   <div className="text-2xl font-bold text-white">{expLogs.length}</div>
-                  <div className="text-xs text-slate-500 uppercase font-bold mt-1">Lifetime Events</div>
+                  <div className="text-xs text-slate-500 uppercase font-bold mt-1">{t('Lifetime Events')}</div>
                 </div>
               </div>
             </div>
@@ -83,10 +90,10 @@ export function Dashboard() {
             {/* Daily Quests List */}
             <div className="bg-slate-950/50 rounded-2xl p-6 border border-slate-800 shadow-sm">
               <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-                <Target className="w-5 h-5 text-red-500" /> Daily Quests
+                <Target className="w-5 h-5 text-red-500" /> {t('quests')}
               </h2>
               <div className="space-y-3">
-                {dailyQuests.map((quest) => (
+                {visibleQuests.map((quest) => (
                   <div 
                     key={quest.id} 
                     className={cn(
@@ -102,8 +109,8 @@ export function Dashboard() {
                         <CheckCircle2 className="w-5 h-5" />
                       </div>
                       <div>
-                        <div className={cn("font-bold text-sm", quest.completed ? "text-green-400" : "text-white")}>{quest.title}</div>
-                        <div className="text-xs text-slate-400 mt-1">{quest.description}</div>
+                        <div className={cn("font-bold text-sm", quest.completed ? "text-green-400" : "text-white")}>{t(quest.title)}</div>
+                        <div className="text-xs text-slate-400 mt-1">{t(quest.description)}</div>
                       </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -112,23 +119,38 @@ export function Dashboard() {
                       </div>
                       {!quest.completed ? (
                         <div className="flex gap-2">
-                          {quest.id === 'q1' && (
+                          {(quest.id === 'q1' || quest.id === 'q2' || quest.id === 'q3') && (
                             <button
-                               onClick={() => setView('dormant')}
+                               onClick={() => {
+                                 if (quest.id === 'q1') setView('dormant');
+                                 if (quest.id === 'q2') setView('leads');
+                                 if (quest.id === 'q3') setView('followups');
+                               }}
                                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-sm font-bold text-white rounded-lg transition-colors shadow-lg shadow-indigo-600/20"
                             >
-                               View Clients
+                               {t('viewClients')}
                             </button>
                           )}
-                          <button 
-                            onClick={() => completeQuest(quest.id)}
-                            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-sm font-bold text-slate-200 rounded-lg transition-colors border border-slate-700"
+                           <select
+                             onChange={(e) => {
+                               if (e.target.value) {
+                                 skipQuest(quest.id, parseInt(e.target.value, 10));
+                                 e.target.value = "";
+                               }
+                             }}
+                             className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-sm font-bold text-slate-200 rounded-lg transition-colors border border-slate-700 cursor-pointer outline-none"
                           >
-                            Manual Complete
-                          </button>
+                             <option value="">{t('skip')}</option>
+                             <option value="1">{t('skip1')}</option>
+                             <option value="3">{t('skip3')}</option>
+                             <option value="5">{t('skip5')}</option>
+                             <option value="7">{t('skip7')}</option>
+                             <option value="15">{t('skip15')}</option>
+                             <option value="30">{t('skip30')}</option>
+                          </select>
                         </div>
                       ) : (
-                        <span className="text-xs font-bold text-slate-500 uppercase px-4 py-2">Done</span>
+                        <span className="text-xs font-bold text-slate-500 uppercase px-4 py-2">{t('done')}</span>
                       )}
                     </div>
                   </div>

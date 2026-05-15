@@ -1,31 +1,55 @@
 import React, { useState } from 'react';
 import { useStore } from '../store';
 import { cn } from '../lib/utils';
-import { Swords, Trophy, Map as MapIcon, KanbanSquare, Tags, LogOut, Flame, Plus, Mail } from 'lucide-react';
+import { Swords, Trophy, Map as MapIcon, KanbanSquare, Tags, LogOut, Flame, Plus, Mail, Settings as SettingsIcon, Sun, Moon, Languages } from 'lucide-react';
 import { ClientFormModal } from './ClientFormModal';
+import { ExpHistoryModal } from './ExpHistoryModal';
+import { useTranslation } from '../lib/i18n';
 
 export function Sidebar() {
-  const { userExp, userLevel, userTitle, currentStreak, dailyQuests, view, setView } = useStore();
+  const { userExp, userLevel, userTitle, currentStreak, dailyQuests, view, setView, setKanbanSearch, clients, theme, setTheme, language, setLanguage } = useStore();
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showExpHistory, setShowExpHistory] = useState(false);
+  
+  const t = useTranslation(language);
+
+  const allTags = Array.from(new Set(clients.flatMap(c => c.tags)));
 
   return (
-    <aside className="w-64 bg-slate-900 border-r border-slate-800 text-slate-300 flex flex-col pt-6 pb-4">
+    <aside className="w-full h-full bg-slate-900 border-r border-slate-800 text-slate-300 flex flex-col pt-6 pb-4">
       {/* Profile / Gamer Card */}
-      <div className="px-6 mb-8">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-12 h-12 rounded-lg bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+      <div className="px-6 mb-8 cursor-pointer group flex-none" onClick={() => setShowExpHistory(true)} title="View Experience History">
+        <div className="flex items-center gap-3 mb-4 relative">
+          <div className="w-12 h-12 rounded-lg bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20 group-hover:shadow-cyan-500/40 transition-shadow">
             <Swords className="text-white w-6 h-6" />
           </div>
           <div>
-            <h2 className="text-white font-bold text-lg leading-tight">Alex.W</h2>
+            <h2 className="text-white font-bold text-lg leading-tight group-hover:text-cyan-400 transition-colors">Alex.W</h2>
             <div className="text-cyan-400 text-xs font-semibold uppercase tracking-wider">{userTitle}</div>
+          </div>
+          
+          <div className="absolute top-0 right-0 flex gap-1">
+            <button 
+              onClick={(e) => { e.stopPropagation(); setLanguage(language === 'en' ? 'zh' : 'en'); }}
+              className="p-1.5 text-slate-400 hover:text-cyan-400 bg-slate-800/50 hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-slate-700 font-medium text-[10px]"
+              title="Toggle Language"
+            >
+              {language === 'en' ? 'EN' : '中'}
+            </button>
+            <button 
+              onClick={(e) => { e.stopPropagation(); setTheme(theme === 'dark' ? 'light' : 'dark'); }}
+              className="p-1.5 text-slate-400 hover:text-cyan-400 bg-slate-800/50 hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-slate-700"
+              title={`Toggle ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
+            >
+              {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
           </div>
         </div>
         
         {/* EXP Bar & Stats */}
         <div className="space-y-2">
           <div className="flex justify-between text-xs text-slate-400">
-            <span>LVL {userLevel}</span>
+            <span>{t('level')} {userLevel}</span>
             <span>{userExp} / 500 EXP</span>
           </div>
           <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
@@ -49,7 +73,7 @@ export function Sidebar() {
             view === 'dashboard' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
         >
           <Trophy className="w-5 h-5" />
-          Dashboard
+          {t('dashboard')}
         </button>
         <button 
           onClick={() => setView('inbox')}
@@ -63,7 +87,7 @@ export function Sidebar() {
               <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
             </span>
           </div>
-          Inbox
+          {t('inbox')}
         </button>
         <button 
           onClick={() => setView('kanban')}
@@ -71,15 +95,15 @@ export function Sidebar() {
             view === 'kanban' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
         >
           <KanbanSquare className="w-5 h-5" />
-          Pipeline
+          {t('kanbanView')}
         </button>
         <button 
-          onClick={() => setView('map')}
+          onClick={() => setView('settings')}
           className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors", 
-            view === 'map' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
+            view === 'settings' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
         >
-          <MapIcon className="w-5 h-5" />
-          Territory Map
+          <SettingsIcon className="w-5 h-5" />
+          {t('settings')}
         </button>
       </div>
 
@@ -89,11 +113,24 @@ export function Sidebar() {
           <span className="flex items-center gap-2"><Tags className="w-4 h-4" /> Smart Views</span>
         </h3>
         <div className="space-y-2 mb-6">
-          {['#HighValue', '#CantonFair', '#WakeUp'].map(tag => (
-            <button key={tag} className="w-full text-left px-2 py-1.5 rounded text-sm text-slate-400 hover:text-cyan-400 hover:bg-cyan-950/30 transition-colors">
+          {allTags.map(tag => (
+            <button 
+              key={tag}
+              onClick={() => {
+                setView('kanban');
+                setKanbanSearch(tag);
+              }}
+              className="w-full text-left px-2 py-1.5 rounded text-sm text-slate-400 hover:text-cyan-400 hover:bg-cyan-950/30 transition-colors"
+            >
               {tag}
             </button>
           ))}
+          <button 
+            onClick={() => { setView('dormant'); }}
+            className="w-full text-left px-2 py-1.5 rounded text-sm text-slate-400 hover:text-cyan-400 hover:bg-cyan-950/30 transition-colors"
+          >
+            #WakeUp
+          </button>
         </div>
         
         <button 
@@ -101,14 +138,14 @@ export function Sidebar() {
           className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-cyan-400 rounded-lg text-sm font-bold border border-slate-700/50 shadow-sm transition-all hover:border-cyan-500/30"
         >
           <Plus className="w-4 h-4" />
-          Add Target
+          {t('addClient')}
         </button>
       </div>
 
       {/* Daily Quests */}
       <div className="px-6 mt-auto">
         <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-          <Trophy className="w-4 h-4 text-amber-500" /> Daily Quests
+          <Trophy className="w-4 h-4 text-amber-500" /> {t('quests')}
         </h3>
         <div className="space-y-2">
           {dailyQuests.map(quest => (
@@ -125,6 +162,7 @@ export function Sidebar() {
       </div>
 
       {showAddModal && <ClientFormModal onClose={() => setShowAddModal(false)} />}
+      {showExpHistory && <ExpHistoryModal onClose={() => setShowExpHistory(false)} />}
     </aside>
   );
 }

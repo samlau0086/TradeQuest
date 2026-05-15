@@ -1,11 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useStore, EmailMessage } from '../store';
-import { Mail, Send, Reply, Trash2, ArrowLeft, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare } from 'lucide-react';
+import { Mail, Send, Reply, Trash2, ArrowLeft, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, Paperclip, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { CommentItem } from './CommentItem';
+import { AddressInput } from './AddressInput';
+import { getCaretCoordinates } from '../utils/caret';
+import { ClientFormModal } from './ClientFormModal';
+import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'react-resizable-panels';
 
 export function Inbox() {
-  const { emails, markEmailRead, clients, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest } = useStore();
+  const { emails, markEmailRead, clients, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient } = useStore();
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'inbox' | 'sent' | 'scheduled'>('inbox');
   const [searchQuery, setSearchQuery] = useState('');
@@ -15,6 +19,7 @@ export function Inbox() {
   const [isAddingTag, setIsAddingTag] = useState(false);
   const [newTag, setNewTag] = useState('');
   const [commentText, setCommentText] = useState('');
+  const [isCreatingLead, setIsCreatingLead] = useState(false);
 
   const filteredEmails = emails.filter(e => {
     if (e.type !== filter) return false;
@@ -32,23 +37,7 @@ export function Inbox() {
 
   const handleCreateLead = () => {
     if (!selectedEmail || selectedEmail.clientId) return;
-    const name = filter === 'inbox' ? (selectedEmail.senderName || selectedEmail.sender.split('@')[0]) : (selectedEmail.recipient.split('@')[0]);
-    const emailAddr = filter === 'inbox' ? selectedEmail.sender : selectedEmail.recipient;
-    const newClientId = `c${Date.now()}`;
-    addClient({
-      name,
-      company: 'Unknown',
-      country: 'Unknown',
-      status: 'Leads',
-      tags: [],
-      lastContact: new Date().toISOString(),
-      contactMethods: [{ type: 'email', value: emailAddr }]
-    });
-    // The previous action creates an ID async via Date.now(). It's a bit hard to get it identically in Zustand without returning it.
-    // Actually addClient doesn't return ID. We'll update clients and then editEmail but without ID it's tricky.
-    // Let's just rely on the user to link it manually later if we can't reliably get the ID, or we cheat:
-    // Wait, let's look at addClient... it generates `c${Date.now()}`. We can't easily predict it if execution drifts, but typically it works if we use Date.now() directly here, but addClient takes Omit<Client, 'id'>.
-    // Since we can't easily do it perfectly without changing store, let's do a workaround.
+    setIsCreatingLead(true);
   };
 
   const handleAddTag = () => {
@@ -64,9 +53,9 @@ export function Inbox() {
   };
 
   return (
-    <div className="flex-1 flex overflow-hidden bg-slate-900 border-t border-slate-800">
+    <PanelGroup orientation="horizontal" id="inbox-layout" className="flex-1 overflow-hidden bg-slate-900 border-t border-slate-800">
       {/* Sidebar List */}
-      <div className={cn("w-full md:w-80 border-r border-slate-800 flex flex-col shrink-0 transition-transform", selectedEmailId && "hidden md:flex")}>
+      <Panel defaultSize={320} minSize={250} maxSize={500} className={cn("flex flex-col transition-transform relative z-10", selectedEmailId && "hidden md:flex")}>
         <div className="p-4 border-b border-slate-800 flex flex-col gap-3 bg-slate-900">
           <div className="flex justify-between items-center bg-slate-900">
             <div className="flex bg-slate-800/50 rounded-lg p-1 border border-slate-700/50">
@@ -151,10 +140,12 @@ export function Inbox() {
             </div>
           ))}
         </div>
-      </div>
+      </Panel>
+
+      <PanelResizeHandle className="w-1 bg-slate-800 hover:bg-cyan-500 cursor-col-resize transition-colors hidden md:block" />
 
       {/* Reading Pane / Compose Pane */}
-      <div className={cn("flex-1 flex flex-col bg-slate-950/50 relative", !selectedEmailId && !isComposing && "hidden md:flex")}>
+      <Panel className={cn("flex flex-col bg-slate-950/50 relative", !selectedEmailId && !isComposing && "hidden md:flex")}>
         {isComposing ? (
           <ComposeEmail onClose={() => setIsComposing(false)} initialRecipient={composeDefaults?.recipient} initialSubject={composeDefaults?.subject} />
         ) : selectedEmail ? (
@@ -175,7 +166,7 @@ export function Inbox() {
                     <div className="text-[10px] text-slate-500 flex items-center gap-2 mt-1">
                        {filter === 'inbox' ? `From: ${selectedEmail.sender}` : `To: ${selectedEmail.recipient}`}
                        {selectedEmail.clientId ? (
-                         <span className="bg-slate-800 px-2 py-0.5 rounded text-cyan-400 border border-slate-700">
+                         <span onClick={() => selectClient(selectedEmail.clientId!)} className="bg-slate-800 px-2 py-0.5 rounded text-cyan-400 border border-slate-700 cursor-pointer hover:bg-slate-700 transition-colors">
                            {clients.find(c => c.id === selectedEmail.clientId)?.name || 'Linked'}
                          </span>
                        ) : (
@@ -184,6 +175,12 @@ export function Inbox() {
                          </button>
                        )}
                     </div>
+                    {(selectedEmail.cc || selectedEmail.bcc) && (
+                      <div className="text-[10px] text-slate-500 flex items-center gap-2 mt-0.5">
+                        {selectedEmail.cc && <span>Cc: {selectedEmail.cc}</span>}
+                        {selectedEmail.bcc && <span>Bcc: {selectedEmail.bcc}</span>}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -219,6 +216,22 @@ export function Inbox() {
                <div className="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">
                  {selectedEmail.body}
                </div>
+
+               {selectedEmail.attachments && selectedEmail.attachments.length > 0 && (
+                 <div className="mt-8 border-t border-slate-800/50 pt-4">
+                   <div className="flex items-center gap-2 text-xs font-bold text-slate-400 mb-3">
+                     <Paperclip className="w-4 h-4" /> Attachments
+                   </div>
+                   <div className="flex flex-wrap gap-3">
+                     {selectedEmail.attachments.map((att, idx) => (
+                       <a href={att.url} key={idx} className="flex items-center gap-2 bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 px-3 py-2 rounded-lg text-sm text-slate-300 transition-colors">
+                         <Paperclip className="w-3.5 h-3.5 text-slate-500" />
+                         <span>{att.name}</span>
+                       </a>
+                     ))}
+                   </div>
+                 </div>
+               )}
 
                {/* Comments Section */}
                <div className="mt-12 border-t border-slate-800 pt-6">
@@ -256,14 +269,35 @@ export function Inbox() {
             <p className="text-sm">Select an email to read or create a new one.</p>
           </div>
         )}
-      </div>
-    </div>
+      </Panel>
+
+      {isCreatingLead && selectedEmail && (
+        <ClientFormModal
+          onClose={() => setIsCreatingLead(false)}
+          initialData={{
+            name: filter === 'inbox' ? (selectedEmail.senderName || selectedEmail.sender.split('@')[0]) : (selectedEmail.recipient.split('@')[0]),
+            company: 'Unknown',
+            country: 'Unknown',
+            status: 'Leads',
+            tags: [],
+            contactMethods: [{ type: 'email', value: filter === 'inbox' ? selectedEmail.sender : selectedEmail.recipient }]
+          }}
+          onSave={(newClientId) => {
+            editEmail(selectedEmail.id, { clientId: newClientId });
+            selectClient(newClientId);
+          }}
+        />
+      )}
+    </PanelGroup>
   );
 }
 
 function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: { onClose: () => void, initialRecipient?: string, initialSubject?: string }) {
-  const { clients, emails, logs, addEmail, addLog } = useStore();
+  const { clients, emails, logs, addEmail, addLog, outboxConfigs } = useStore();
+  const [selectedOutboxId, setSelectedOutboxId] = useState<string>(outboxConfigs?.[0]?.id || '');
   const [recipient, setRecipient] = useState(initialRecipient);
+  const [cc, setCc] = useState('');
+  const [bcc, setBcc] = useState('');
   const [subject, setSubject] = useState(initialSubject);
   const [body, setBody] = useState('');
   const [purpose, setPurpose] = useState('');
@@ -271,11 +305,54 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
   const [loadingPurpose, setLoadingPurpose] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [scheduleDateTime, setScheduleDateTime] = useState('');
+  const [attachments, setAttachments] = useState<{name: string, size: string}[]>([]);
+  const [showCcBcc, setShowCcBcc] = useState(false);
 
-  // Auto-associate client if recipient matches
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const [caretCoords, setCaretCoords] = useState<{top: number, left: number, matchText: string} | null>(null);
+
+  const updateCaretPosition = () => {
+    if (!bodyRef.current) return;
+    const aiPattern = /\/ai:(.*?)(?=\n|$)/g;
+    const cursorIdx = bodyRef.current.selectionStart;
+    
+    let match;
+    let foundMatch = null;
+    let text = bodyRef.current.value;
+    while ((match = aiPattern.exec(text)) !== null) {
+      const startIdx = match.index;
+      const endIdx = match.index + match[0].length;
+      if (cursorIdx >= startIdx && cursorIdx <= endIdx + 1) {
+        foundMatch = match;
+        break;
+      }
+    }
+
+    if (foundMatch) {
+       const endIdx = foundMatch.index + foundMatch[0].length;
+       const coords = getCaretCoordinates(bodyRef.current, endIdx);
+       setCaretCoords({ top: coords.top + 20, left: coords.left, matchText: foundMatch[0] });
+    } else {
+       setCaretCoords(null);
+    }
+  };
+
+  useEffect(() => {
+    updateCaretPosition();
+  }, [body]);
+
+  // Auto-associate client if recipient matches the first given recipient
+  const firstRecipient = recipient.split(',')[0]?.trim() || '';
   const matchedClient = clients.find(c => 
-    c.contactMethods?.some(m => m.type === 'email' && m.value.toLowerCase() === recipient.toLowerCase())
+    c.contactMethods?.some(m => m.type === 'email' && m.value.toLowerCase() === firstRecipient.toLowerCase())
   );
+
+  const { llmConfigs, activeLLMId, llmMappings, language } = useStore();
+  
+  const getLLMConfig = (module: string) => {
+    const id = llmMappings[module] || activeLLMId;
+    return llmConfigs.find(l => l.id === id) || null;
+  };
 
   const handleGeneratePurpose = async () => {
     if (!matchedClient) return;
@@ -292,8 +369,9 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
           context: { 
              clientLogs: clientLogs.join('\n'), 
              recentEmails: clientEmails.join('\n\n'),
-             userLanguagePreference: navigator.language || 'en'
-          } 
+             userLanguagePreference: language === 'zh' ? 'Chinese' : 'English'
+          },
+          llmConfig: getLLMConfig('drafting')
         })
       });
       const data = await res.json();
@@ -305,19 +383,35 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
     }
   };
 
+  const senderConfig = outboxConfigs.find(c => c.id === selectedOutboxId);
+  const senderEmail = senderConfig?.fromEmail || 'me@soho.com';
+  const senderName = senderConfig?.fromName || 'Alex.W';
+
   const doSchedule = () => {
     if (!recipient || !subject || !scheduleDateTime) return;
     const scheduledAt = new Date(scheduleDateTime).toISOString();
+    
+    // We add attachments if any
+    const attachmentsPayload = attachments.map(a => ({
+      id: `att_${Date.now()}_${Math.random()}`,
+      name: a.name,
+      type: 'document' as const,
+      url: '#'
+    }));
+
     addEmail({
       recipient,
-      sender: 'me@soho.com',
-      senderName: 'Alex.W',
+      cc: cc || undefined,
+      bcc: bcc || undefined,
+      sender: senderEmail,
+      senderName: senderName,
       subject,
       body,
       read: true,
       type: 'scheduled',
       clientId: matchedClient?.id,
-      scheduledAt
+      scheduledAt,
+      attachments: attachmentsPayload.length > 0 ? attachmentsPayload : undefined
     });
     if (matchedClient) {
       addLog(matchedClient.id, `Scheduled Email: ${subject} for ${new Date(scheduledAt).toLocaleString()}${purpose ? ` (Purpose: ${purpose})` : ''}`);
@@ -329,20 +423,74 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
 
   const handleSend = () => {
     if (!recipient || !subject) return;
+
+    const attachmentsPayload = attachments.map(a => ({
+      id: `att_${Date.now()}_${Math.random()}`,
+      name: a.name,
+      type: 'document' as const,
+      url: '#'
+    }));
+
     addEmail({
       recipient,
-      sender: 'me@soho.com',
-      senderName: 'Alex.W',
+      cc: cc || undefined,
+      bcc: bcc || undefined,
+      sender: senderEmail,
+      senderName: senderName,
       subject,
       body,
       read: true,
       type: 'sent',
-      clientId: matchedClient?.id
+      clientId: matchedClient?.id,
+      attachments: attachmentsPayload.length > 0 ? attachmentsPayload : undefined
     });
     if (matchedClient) {
       addLog(matchedClient.id, `Sent Email: ${subject}${purpose ? ` (Purpose: ${purpose})` : ''}`);
     }
     onClose();
+  };
+
+  const handleInlineAI = async (matchText: string) => {
+    const aiPattern = /\/ai:(.*?)(?=\n|$)/;
+    const match = matchText.match(aiPattern);
+    if (!match) {
+      alert("No /ai:prompt found in the email body.");
+      return;
+    }
+    
+    setLoading(true);
+    const prompt = match[1].trim();
+    try {
+      const res = await fetch('/api/chat/magic', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          command: `Write an email snippet or sentence based on this instruction: ${prompt}`,
+          context: { 
+             currentEmailBodyPreview: body.replace(matchText, '[Generate Here]'),
+             userLanguagePreference: language === 'zh' ? 'Chinese' : 'English'
+          },
+          llmConfig: getLLMConfig('drafting')
+        })
+      });
+      const data = await res.json();
+      setBody(prev => prev.replace(matchText, data.result));
+      setCaretCoords(null);
+    } catch(err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const newFiles = Array.from(e.target.files).map(f => ({
+        name: f.name,
+        size: (f.size / 1024 / 1024).toFixed(2) + ' MB'
+      }));
+      setAttachments(prev => [...prev, ...newFiles]);
+    }
   };
 
   const handleMagicDraft = async () => {
@@ -365,7 +513,8 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
             client: matchedClient,
             historicalFollowUpLogs: clientLogs,
             lastReceivedEmailBody: lastEmailReceived?.body || 'No previous received emails'
-          } 
+          },
+          llmConfig: getLLMConfig('drafting')
         })
       });
       const data = await res.json();
@@ -387,41 +536,124 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
         </button>
       </div>
       
-      <div className="p-4 border-b border-slate-800 space-y-3">
-        <div className="flex items-center gap-3">
-          <label className="text-xs font-bold text-slate-500 w-12 text-right">To:</label>
-          <input 
-            type="email" 
-            value={recipient}
-            onChange={e => setRecipient(e.target.value)}
-            className="flex-1 bg-transparent text-sm text-slate-200 focus:outline-none placeholder:text-slate-600" 
-            placeholder="client@company.com" 
-          />
-          {matchedClient && (
-            <span className="text-[10px] bg-slate-800 text-cyan-400 px-2 py-1 rounded border border-slate-700">
-              Matched: {matchedClient.name}
-            </span>
-          )}
+      <div className="p-4 border-b border-slate-800 space-y-2">
+        <div className="flex items-start gap-3 w-full">
+          <div className="flex-1 w-full">
+            <AddressInput 
+              label="To:" 
+              value={recipient} 
+              onChange={setRecipient} 
+              placeholder="Type email or @name" 
+              autoFocus 
+            />
+          </div>
+          <div className="flex items-center gap-2 pt-1.5 shrink-0">
+            {matchedClient && (
+              <span className="text-[10px] bg-slate-800 text-cyan-400 px-2 py-1 rounded border border-slate-700 whitespace-nowrap">
+                Matched: {matchedClient.name}
+              </span>
+            )}
+            <button 
+              onClick={() => setShowCcBcc(!showCcBcc)}
+              className="text-xs text-slate-400 hover:text-white flex items-center gap-0.5"
+            >
+              Cc/Bcc {showCcBcc ? <ChevronUp className="w-3 h-3"/> : <ChevronDown className="w-3 h-3"/>}
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
+
+        {showCcBcc && (
+          <>
+            <div className="flex-1 w-full">
+              <AddressInput 
+                label="Cc:" 
+                value={cc} 
+                onChange={setCc} 
+                placeholder="Type email or @name" 
+              />
+            </div>
+            <div className="flex-1 w-full">
+              <AddressInput 
+                label="Bcc:" 
+                value={bcc} 
+                onChange={setBcc} 
+                placeholder="Type email or @name" 
+              />
+            </div>
+          </>
+        )}
+
+        <div className="flex items-center gap-3 pt-1 border-t border-transparent focus-within:border-indigo-500/30">
+          <label className="text-xs font-bold text-slate-500 w-12 text-right">From:</label>
+          <select 
+            value={selectedOutboxId}
+            onChange={(e) => setSelectedOutboxId(e.target.value)}
+            className="flex-1 bg-transparent text-sm text-slate-200 focus:outline-none focus:ring-0 pb-1 w-full truncate"
+          >
+            {outboxConfigs.map(c => (
+              <option key={c.id} value={c.id} className="bg-slate-900">{c.name} ({c.fromEmail})</option>
+            ))}
+            {outboxConfigs.length === 0 && <option value="" className="bg-slate-900">Default Backend Sender (me@soho.com)</option>}
+          </select>
+        </div>
+        <div className="flex items-center gap-3 pt-1 border-t border-transparent focus-within:border-indigo-500/30">
           <label className="text-xs font-bold text-slate-500 w-12 text-right">Subject:</label>
           <input 
             type="text" 
             value={subject}
             onChange={e => setSubject(e.target.value)}
-            className="flex-1 bg-transparent text-sm text-slate-200 focus:outline-none placeholder:text-slate-600 font-medium" 
+            className="flex-1 bg-transparent text-sm text-slate-200 focus:outline-none placeholder:text-slate-600 font-medium pb-1" 
             placeholder="Enter subject here..." 
           />
         </div>
       </div>
       
-      <div className="flex-1 flex flex-col p-4">
+      <div className="flex-1 flex flex-col p-4 relative overflow-y-auto">
         <textarea 
+          ref={bodyRef}
           value={body}
           onChange={e => setBody(e.target.value)}
-          className="flex-1 w-full bg-transparent text-sm text-slate-300 resize-none focus:outline-none placeholder:text-slate-600 leading-relaxed scrollbar-thin"
-          placeholder="Write your email here..."
+          onClick={updateCaretPosition}
+          onKeyUp={updateCaretPosition}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && caretCoords && !loading) {
+              e.preventDefault();
+              handleInlineAI(caretCoords.matchText);
+            }
+          }}
+          className="flex-1 w-full bg-transparent text-sm text-slate-300 resize-none focus:outline-none placeholder:text-slate-600 leading-relaxed scrollbar-thin relative z-0"
+          placeholder="Write your email here... Type /ai:prompt to generate content inline."
         />
+        {caretCoords && (
+          <div className="absolute z-10" style={{ top: caretCoords.top, left: Math.min(caretCoords.left, document.body.clientWidth - 150) }}>
+             <button 
+                onClick={() => handleInlineAI(caretCoords.matchText)} 
+                disabled={loading}
+                className="text-xs flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-1.5 rounded shadow-[0_0_15px_rgba(79,70,229,0.5)] transition-all font-bold animate-pulse hover:animate-none group disabled:opacity-80 disabled:animate-none"
+                title="Generate with AI"
+              >
+                {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Sparkles className="w-3.5 h-3.5 group-hover:rotate-12 transition-transform"/>}
+                {loading ? 'Generating...' : 'Generate AI'} {!loading && <span className="opacity-70 font-normal ml-1 border border-white/20 px-1 rounded text-[10px]">Enter</span>}
+              </button>
+          </div>
+        )}
+        {attachments.length > 0 && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {attachments.map((att, idx) => (
+              <div key={idx} className="flex items-center gap-2 bg-slate-800 border border-slate-700 px-3 py-1.5 rounded text-xs text-slate-300">
+                <Paperclip className="w-3 h-3" />
+                <span className="max-w-[120px] truncate">{att.name}</span>
+                <span className="text-slate-500">{att.size}</span>
+                <button 
+                  onClick={() => setAttachments(prev => prev.filter((_, i) => i !== idx))}
+                  className="hover:text-red-400 ml-1"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="px-4 py-2 bg-slate-900 border-t border-slate-800 flex flex-col gap-2">
@@ -443,14 +675,24 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
           />
         </div>
         <div className="flex items-center justify-between mt-2">
-          <button 
-            onClick={handleMagicDraft} 
-            disabled={loading || !recipient}
-            className="text-xs flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-cyan-400 px-3 py-1.5 rounded-lg border border-slate-700 transition-colors font-medium"
-          >
-            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Sparkles className="w-3.5 h-3.5"/>}
-            AI Draft
-          </button>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={handleMagicDraft} 
+              disabled={loading || !recipient}
+              className="text-xs flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-cyan-400 px-3 py-1.5 rounded-lg border border-slate-700 transition-colors font-medium"
+            >
+              {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Sparkles className="w-3.5 h-3.5"/>}
+              AI Draft Full Email
+            </button>
+            
+            <label className="text-xs flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700 transition-colors font-medium cursor-pointer">
+              <Paperclip className="w-3.5 h-3.5"/>
+              Attach
+              <input type="file" multiple className="hidden" onChange={handleFileUpload} />
+            </label>
+          </div>
+
+          
           <div className="flex items-center gap-2">
             <div className="relative">
               <button 

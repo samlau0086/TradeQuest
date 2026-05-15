@@ -1,33 +1,58 @@
 import React, { useState } from 'react';
 import { useStore } from '../store';
-import { Terminal, Sparkles, Send, Loader2 } from 'lucide-react';
+import { useAuthStore } from '../authStore';
+import { Terminal, Sparkles, Send, Loader2, LogOut, User } from 'lucide-react';
 
 export function TopBar() {
   const { broadcasts } = useStore();
+  const { profile, signOut } = useAuthStore();
   const latestBroadcast = broadcasts[0];
 
   return (
     <header className="h-14 border-b border-slate-800 bg-slate-900/50 backdrop-blur-md flex items-center justify-between px-6 shrink-0 sticky top-0 z-20">
       <div className="flex-1 flex items-center space-x-4">
-        {/* Magic Command Input Space (Simulated here, actual complex one can be floating) */}
+        {/* Real-time Broadcast left side */}
+        <div className="flex bg-slate-800/80 rounded-full pl-3 pr-4 py-1.5 items-center gap-2 border border-slate-700/50 shadow-sm w-fit">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+          </span>
+          <span className="text-xs font-medium text-slate-300 truncate max-w-[200px] md:max-w-md">
+            {latestBroadcast?.message || "All systems online"}
+          </span>
+        </div>
       </div>
       
-      {/* Real-time Broadcast */}
-      <div className="flex bg-slate-800/80 rounded-full pl-3 pr-4 py-1.5 items-center gap-2 border border-slate-700/50 shadow-sm">
-        <span className="relative flex h-2.5 w-2.5">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
-        </span>
-        <span className="text-xs font-medium text-slate-300">
-          {latestBroadcast?.message || "All systems online"}
-        </span>
+      {/* User Actions */}
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
+          {profile?.avatarUrl ? (
+            <img src={profile.avatarUrl} alt="Avatar" className="w-8 h-8 rounded-full border border-slate-700 object-cover" />
+          ) : (
+            <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center">
+              <User className="w-4 h-4 text-slate-400" />
+            </div>
+          )}
+          <div className="hidden md:block text-xs">
+            <div className="font-bold text-slate-200">{profile?.displayName || 'User'}</div>
+            <div className="text-slate-500 capitalize">{profile?.role}</div>
+          </div>
+        </div>
+        <button 
+          onClick={() => signOut()}
+          title="Sign Out"
+          className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors"
+        >
+          <LogOut className="w-4 h-4" />
+        </button>
       </div>
     </header>
   );
 }
 
 export function MagicCommand() {
-  const { clients } = useStore();
+  const { clients, llmConfigs, activeLLMId, llmMappings } = useStore();
+  const activeLLMConfig = llmConfigs.find(l => l.id === (llmMappings['magic'] || activeLLMId)) || null;
   const [input, setInput] = useState('');
   const [output, setOutput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -120,7 +145,7 @@ export function MagicCommand() {
       const res = await fetch('/api/chat/magic', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: input, context: {} })
+        body: JSON.stringify({ command: input, context: {}, llmConfig: activeLLMConfig })
       });
       const data = await res.json();
       setOutput(data.result);

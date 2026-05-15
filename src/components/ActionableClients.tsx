@@ -1,28 +1,84 @@
 import React, { useState } from 'react';
 import { useStore, Client, DormantClientAnalysis } from '../store';
-import { Briefcase, Clock, Activity, Wand2, Loader2, Mail, Users } from 'lucide-react';
+import { Briefcase, Clock, Activity, Wand2, Loader2, Mail, Users, UserPlus, RefreshCw } from 'lucide-react';
 import { cn } from '../lib/utils';
 
-export function DormantClients() {
-  const { clients, dormantAnalysisList, setDormantAnalysisList, setView, selectClient } = useStore();
-  const [analyzing, setAnalyzing] = useState(false);
-
-  // Consider dormant if lastContact > 30 days ago
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+export function ActionableClients() {
+  const { 
+    view, 
+    clients, 
+    dormantAnalysisList, 
+    setDormantAnalysisList, 
+    leadsAnalysisList, 
+    setLeadsAnalysisList, 
+    followupsAnalysisList, 
+    setFollowupsAnalysisList, 
+    setView, 
+    selectClient,
+    llmConfigs,
+    activeLLMId,
+    llmMappings
+  } = useStore();
   
-  const dormantClients = clients.filter(c => {
-    if (c.isDormant) return true;
-    const lastContact = new Date(c.lastContact);
-    return lastContact < thirtyDaysAgo;
-  });
+  const [analyzing, setAnalyzing] = useState(false);
+  const activeLLMConfig = llmConfigs.find(l => l.id === (llmMappings['analysis'] || activeLLMId)) || null;
+
+  let targetClients: Client[] = [];
+  let title = '';
+  let description = '';
+  let analysisList: DormantClientAnalysis[] | null = null;
+  let setAnalysisList: (list: DormantClientAnalysis[]) => void = () => {};
+  let emptyMessage = '';
+  let Icon = Users;
+
+  if (view === 'dormant') {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    targetClients = clients.filter(c => {
+      if (c.isDormant) return true;
+      const lastContact = new Date(c.lastContact);
+      return lastContact < thirtyDaysAgo;
+    });
+    title = 'Dormant Clients';
+    description = 'Clients with no activity in over 30 days. Awaken them to win rewards!';
+    analysisList = dormantAnalysisList;
+    setAnalysisList = setDormantAnalysisList;
+    emptyMessage = 'No dormant clients found. Good job!';
+  } else if (view === 'leads') {
+    targetClients = clients.filter(c => c.status === 'Leads');
+    title = 'New Leads';
+    description = 'Fresh leads waiting to hear from you. Secure your first blood!';
+    analysisList = leadsAnalysisList;
+    setAnalysisList = setLeadsAnalysisList;
+    emptyMessage = 'No new leads at the moment.';
+    Icon = UserPlus;
+  } else if (view === 'followups') {
+    // Just find people who have been contacted or sent samples but not won/lost, and contacted more than 3 days ago maybe?
+    // Let's just track whoever is Contacted/Sample Sent/Negotiating
+    targetClients = clients.filter(c => ['Contacted', 'Sample Sent', 'Negotiating'].includes(c.status));
+    title = 'Follow-ups Needed';
+    description = 'Clients currently in the pipeline. Keep the conversation going!';
+    analysisList = followupsAnalysisList;
+    setAnalysisList = setFollowupsAnalysisList;
+    emptyMessage = 'No pending follow-ups.';
+    Icon = RefreshCw;
+  }
 
   const handleAIAnalyze = async () => {
     setAnalyzing(true);
     try {
-      const prompt = `Analyze the following dormant clients and describe why they might be dormant and suggest an action to wake them up.
+      let analysisContext = "analyze these clients";
+      if (view === 'dormant') {
+        analysisContext = "describe why they might be dormant and suggest an action to wake them up.";
+      } else if (view === 'leads') {
+        analysisContext = "analyze these new leads and suggest an engaging initial outreach strategy or angle.";
+      } else if (view === 'followups') {
+        analysisContext = "analyze these pipeline clients and suggest the best next follow-up action to move them forward.";
+      }
+
+      const prompt = `Analyze the following clients and ${analysisContext}
       Clients:
-      ${dormantClients.map(c => `- ID: ${c.id}, Name: ${c.name} (${c.company}) from ${c.country}. Status: ${c.status}. Tags: ${c.tags.join(', ')}. Last contact: ${c.lastContact}`).join('\n')}
+      ${targetClients.map(c => `- ID: ${c.id}, Name: ${c.name} (${c.company}) from ${c.country}. Status: ${c.status}. Tags: ${c.tags.join(', ')}. Last contact: ${c.lastContact}`).join('\n')}
       
       Output exactly as a JSON array (no markdown code blocks, just raw JSON) of objects with keys: "clientId" (matching the given ID), "reason" (short string), "suggestedAction" (short string).
       `;
@@ -32,7 +88,8 @@ export function DormantClients() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           command: prompt, 
-          context: {} 
+          context: {},
+          llmConfig: activeLLMConfig
         })
       });
 
@@ -43,10 +100,10 @@ export function DormantClients() {
       if (jsonData.endsWith('\`\`\`')) jsonData = jsonData.slice(0, -3);
       
       const parsed = JSON.parse(jsonData) as DormantClientAnalysis[];
-      setDormantAnalysisList(parsed);
+      setAnalysisList(parsed);
     } catch(err) {
       console.error(err);
-      alert('Failed to analyze dormant clients.');
+      alert('Failed to analyze clients.');
     } finally {
       setAnalyzing(false);
     }
@@ -64,14 +121,14 @@ export function DormantClients() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-white mb-2 flex items-center gap-3">
-                <Users className="w-8 h-8 text-indigo-400" />
-                Dormant Clients
+                <Icon className="w-8 h-8 text-indigo-400" />
+                {title}
               </h1>
-              <p className="text-slate-400">Clients with no activity in over 30 days. Awaken them to win rewards!</p>
+              <p className="text-slate-400">{description}</p>
             </div>
             <button 
               onClick={handleAIAnalyze}
-              disabled={analyzing || dormantClients.length === 0}
+              disabled={analyzing || targetClients.length === 0}
               className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-bold rounded-xl shadow-lg transition-colors"
             >
               {analyzing ? <Loader2 className="w-5 h-5 animate-spin"/> : <Wand2 className="w-5 h-5"/>}
@@ -81,14 +138,14 @@ export function DormantClients() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {dormantClients.length === 0 && (
+          {targetClients.length === 0 && (
             <div className="col-span-full text-center text-slate-500 py-12">
-              No dormant clients found. Good job!
+              {emptyMessage}
             </div>
           )}
           
-          {dormantClients.map(client => {
-            const analysis = dormantAnalysisList?.find(a => a.clientId === client.id);
+          {targetClients.map(client => {
+            const analysis = analysisList?.find(a => a.clientId === client.id);
             return (
               <div 
                 key={client.id} 

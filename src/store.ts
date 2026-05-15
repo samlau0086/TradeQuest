@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type ViewMode = 'kanban' | 'map' | 'inbox' | 'dashboard' | 'dormant';
+export type ViewMode = 'kanban' | 'map' | 'inbox' | 'dashboard' | 'dormant' | 'leads' | 'followups' | 'settings';
 
 export type ClientStatus = 'Leads' | 'Contacted' | 'Sample Sent' | 'Negotiating' | 'Closed Won';
 
@@ -58,6 +58,8 @@ export interface EmailMessage {
   sender: string; 
   senderName?: string;
   recipient: string;
+  cc?: string;
+  bcc?: string;
   subject: string;
   body: string;
   date: string;
@@ -66,6 +68,7 @@ export interface EmailMessage {
   tags?: string[];
   comments?: Comment[];
   scheduledAt?: string;
+  attachments?: Attachment[];
 }
 
 export interface Quest {
@@ -74,6 +77,7 @@ export interface Quest {
   description: string;
   expReward: number;
   completed: boolean;
+  skippedUntil?: string;
 }
 
 export interface DormantClientAnalysis {
@@ -82,12 +86,74 @@ export interface DormantClientAnalysis {
   suggestedAction: string;
 }
 
+export interface InboxConfig {
+  id: string;
+  name: string;
+  type: 'imap' | 'pop3';
+  host: string;
+  port: string;
+  username: string;
+  password: string; // usually should be stored securely but we will keep here for preview
+  secure: boolean;
+}
+
+export interface OutboxConfig {
+  id: string;
+  name: string;
+  type: 'smtp' | 'resend';
+  host?: string;
+  port?: string;
+  username?: string;
+  password?: string;
+  apiKey?: string; // used for resend
+  secure?: boolean;
+  fromEmail: string;
+  fromName: string;
+}
+
+export interface LLMConfig {
+  id: string;
+  name: string;
+  provider: 'gemini' | 'openai' | 'custom_openai';
+  apiKey: string;
+  model: string;
+  baseURL?: string;
+}
+
 export interface StoreState {
+  llmConfigs: LLMConfig[];
+  addLLMConfig: (config: Omit<LLMConfig, 'id'>) => void;
+  updateLLMConfig: (id: string, updates: Partial<LLMConfig>) => void;
+  deleteLLMConfig: (id: string) => void;
+  llmMappings: Record<string, string | null>;
+  setLLMMapping: (module: string, id: string | null) => void;
+  activeLLMId: string | null; // Keep for legacy/fallback
+  setActiveLLMId: (id: string | null) => void;
+
+  inboxConfigs: InboxConfig[];
+  addInboxConfig: (config: Omit<InboxConfig, 'id'>) => void;
+  updateInboxConfig: (id: string, updates: Partial<InboxConfig>) => void;
+  deleteInboxConfig: (id: string) => void;
+
+  outboxConfigs: OutboxConfig[];
+  addOutboxConfig: (config: Omit<OutboxConfig, 'id'>) => void;
+  updateOutboxConfig: (id: string, updates: Partial<OutboxConfig>) => void;
+  deleteOutboxConfig: (id: string) => void;
+  
   view: ViewMode;
   setView: (view: ViewMode) => void;
   
+  kanbanSearch: string;
+  setKanbanSearch: (search: string) => void;
+  
   dormantAnalysisList: DormantClientAnalysis[] | null;
   setDormantAnalysisList: (analysisList: DormantClientAnalysis[]) => void;
+  
+  leadsAnalysisList: DormantClientAnalysis[] | null;
+  setLeadsAnalysisList: (analysisList: DormantClientAnalysis[]) => void;
+
+  followupsAnalysisList: DormantClientAnalysis[] | null;
+  setFollowupsAnalysisList: (analysisList: DormantClientAnalysis[]) => void;
   
   userExp: number;
   userLevel: number;
@@ -97,7 +163,7 @@ export interface StoreState {
   addExp: (amount: number, reason?: string) => void;
   
   clients: Client[];
-  addClient: (client: Omit<Client, 'id'>) => void;
+  addClient: (client: Omit<Client, 'id'>) => string;
   editClient: (id: string, updates: Partial<Omit<Client, 'id'>>) => void;
   deleteClient: (id: string) => void;
   updateClientStatus: (id: string, status: ClientStatus) => void;
@@ -122,9 +188,16 @@ export interface StoreState {
   dailyQuests: Quest[];
   addQuest: (quest: Omit<Quest, 'id' | 'completed'>) => void;
   completeQuest: (id: string) => void;
+  skipQuest: (id: string, days: number) => void;
 
   broadcasts: { id: string, message: string }[];
   addBroadcast: (message: string) => void;
+
+  theme: 'dark' | 'light';
+  setTheme: (theme: 'dark' | 'light') => void;
+
+  language: 'en' | 'zh';
+  setLanguage: (lang: 'en' | 'zh') => void;
 }
 
 const INITIAL_CLIENTS: Client[] = [
@@ -143,12 +216,56 @@ const INITIAL_EMAILS: EmailMessage[] = [
   { id: 'e2', clientId: 'c2', sender: 'me@soho.com', senderName: 'Alex.W', recipient: 'maria@latamimports.com', subject: 'Following up on Canton Fair', body: 'Hi Maria,\\n\\nIt was great meeting you at the fair. I have attached our latest catalog.\\n\\nBest,\\nAlex', date: new Date(Date.now() - 86400000).toISOString(), read: true, type: 'sent' }
 ];
 
-export const useStore = create<StoreState>((set) => ({
+export const useStore = create<StoreState>((set, get) => ({
+  llmConfigs: [],
+  addLLMConfig: (config) => set((state) => ({ llmConfigs: [...state.llmConfigs, { ...config, id: `llm_${Date.now()}` }] })),
+  updateLLMConfig: (id, updates) => set((state) => ({ llmConfigs: state.llmConfigs.map(a => a.id === id ? { ...a, ...updates } : a) })),
+  deleteLLMConfig: (id) => set((state) => {
+    const newMappings = { ...state.llmMappings };
+    Object.keys(newMappings).forEach(key => {
+      if (newMappings[key] === id) newMappings[key] = null;
+    });
+    return { 
+      llmConfigs: state.llmConfigs.filter(a => a.id !== id),
+      activeLLMId: state.activeLLMId === id ? null : state.activeLLMId,
+      llmMappings: newMappings
+    };
+  }),
+  llmMappings: {
+    magic: null,
+    drafting: null,
+    analysis: null
+  },
+  setLLMMapping: (module, id) => set((state) => ({
+    llmMappings: { ...state.llmMappings, [module]: id }
+  })),
+  activeLLMId: null,
+  setActiveLLMId: (id) => set({ activeLLMId: id }),
+
+  inboxConfigs: [],
+  addInboxConfig: (config) => set((state) => ({ inboxConfigs: [...state.inboxConfigs, { ...config, id: `inbox_${Date.now()}` }] })),
+  updateInboxConfig: (id, updates) => set((state) => ({ inboxConfigs: state.inboxConfigs.map(a => a.id === id ? { ...a, ...updates } : a) })),
+  deleteInboxConfig: (id) => set((state) => ({ inboxConfigs: state.inboxConfigs.filter(a => a.id !== id) })),
+
+  outboxConfigs: [],
+  addOutboxConfig: (config) => set((state) => ({ outboxConfigs: [...state.outboxConfigs, { ...config, id: `outbox_${Date.now()}` }] })),
+  updateOutboxConfig: (id, updates) => set((state) => ({ outboxConfigs: state.outboxConfigs.map(a => a.id === id ? { ...a, ...updates } : a) })),
+  deleteOutboxConfig: (id) => set((state) => ({ outboxConfigs: state.outboxConfigs.filter(a => a.id !== id) })),
+
   view: 'kanban',
   setView: (view) => set({ view }),
 
+  kanbanSearch: '',
+  setKanbanSearch: (search) => set({ kanbanSearch: search }),
+
   dormantAnalysisList: null,
   setDormantAnalysisList: (analysisList) => set({ dormantAnalysisList: analysisList }),
+
+  leadsAnalysisList: null,
+  setLeadsAnalysisList: (analysisList) => set({ leadsAnalysisList: analysisList }),
+
+  followupsAnalysisList: null,
+  setFollowupsAnalysisList: (analysisList) => set({ followupsAnalysisList: analysisList }),
 
   userExp: 240,
   userLevel: 3,
@@ -178,9 +295,13 @@ export const useStore = create<StoreState>((set) => ({
   }),
 
   clients: INITIAL_CLIENTS,
-  addClient: (client) => set((state) => ({
-    clients: [...state.clients, { ...client, id: `c${Date.now()}` }]
-  })),
+  addClient: (client) => {
+    const id = `c${Date.now()}`;
+    set((state) => ({
+      clients: [...state.clients, { ...client, id }]
+    }));
+    return id;
+  },
   editClient: (id, updates) => set((state) => ({
     clients: state.clients.map(c => c.id === id ? { ...c, ...updates } : c)
   })),
@@ -242,14 +363,33 @@ export const useStore = create<StoreState>((set) => ({
   }),
 
   logs: INITIAL_LOGS,
-  addLog: (clientId, content) => set((state) => ({
-    logs: [{ id: `log_${Date.now()}`, clientId, date: new Date().toISOString(), content }, ...state.logs]
-  })),
+  addLog: (clientId, content) => {
+    set((state) => {
+      const client = state.clients.find(c => c.id === clientId);
+      if (client && client.isDormant) {
+         setTimeout(() => get().completeQuest('q1'), 0);
+      }
+      return {
+        logs: [{ id: `log_${Date.now()}`, clientId, date: new Date().toISOString(), content }, ...state.logs]
+      };
+    });
+  },
 
   emails: INITIAL_EMAILS,
-  addEmail: (email) => set((state) => ({
-    emails: [{ ...email, id: `e${Date.now()}`, date: new Date().toISOString() }, ...state.emails]
-  })),
+  addEmail: (email) => {
+    set((state) => {
+      if (email.type === 'sent') {
+         setTimeout(() => get().completeQuest('q2'), 0);
+      }
+      const client = state.clients.find(c => c.id === email.clientId);
+      if (client && client.isDormant) {
+         setTimeout(() => get().completeQuest('q1'), 0);
+      }
+      return {
+        emails: [{ ...email, id: `e${Date.now()}`, date: new Date().toISOString() }, ...state.emails]
+      };
+    });
+  },
   editEmail: (id, updates) => set((state) => ({
     emails: state.emails.map(e => e.id === id ? { ...e, ...updates } : e)
   })),
@@ -324,7 +464,8 @@ export const useStore = create<StoreState>((set) => ({
 
   dailyQuests: [
     { id: 'q1', title: 'Wake up Dormant Clients', description: 'Contact 1 client inactive for >30 days.', expReward: 50, completed: false },
-    { id: 'q2', title: 'First Blood', description: 'Send out the first development email of the day.', expReward: 20, completed: false }
+    { id: 'q2', title: 'First Blood', description: 'Send out the first development email of the day.', expReward: 20, completed: false },
+    { id: 'q3', title: 'Follow Up Master', description: 'Complete scheduled follow-ups.', expReward: 80, completed: false }
   ],
   addQuest: (quest) => set((state) => ({
     dailyQuests: [...state.dailyQuests, { ...quest, id: `q${Date.now()}`, completed: false }]
@@ -339,11 +480,30 @@ export const useStore = create<StoreState>((set) => ({
     }
     return state;
   }),
+  skipQuest: (id, days) => set((state) => {
+    const skipUntil = new Date(Date.now() + days * 86400000).toISOString();
+    return {
+      dailyQuests: state.dailyQuests.map(q => q.id === id ? { ...q, skippedUntil: skipUntil } : q)
+    };
+  }),
 
   broadcasts: [
     { id: 'b1', message: '🎉 Sam just closed a Brazil deal! Global 2x EXP for 1hr!' }
   ],
   addBroadcast: (message) => set((state) => ({
     broadcasts: [{ id: Date.now().toString(), message }, ...state.broadcasts].slice(0, 3)
-  }))
+  })),
+  
+  theme: 'dark',
+  setTheme: (theme) => {
+    set({ theme });
+    if (theme === 'light') {
+      document.documentElement.classList.add('light-mode');
+    } else {
+      document.documentElement.classList.remove('light-mode');
+    }
+  },
+  
+  language: 'en',
+  setLanguage: (lang) => set({ language: lang })
 }));

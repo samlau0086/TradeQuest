@@ -21,7 +21,13 @@ function ContactActionBox({ method, client, onClose }: { method: ContactMethod, 
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingPurpose, setLoadingPurpose] = useState(false);
-  const { addLog, logs, emails, userTitle } = useStore();
+  const { addLog, logs, emails, userTitle, outboxConfigs, addEmail, llmConfigs, activeLLMId, llmMappings, language } = useStore();
+  const [selectedOutboxId, setSelectedOutboxId] = useState<string>(outboxConfigs?.[0]?.id || '');
+
+  const getLLMConfig = (module: string) => {
+    const id = llmMappings[module] || activeLLMId;
+    return llmConfigs.find(l => l.id === id) || null;
+  };
 
   const generatePurpose = async () => {
     setLoadingPurpose(true);
@@ -37,8 +43,9 @@ function ContactActionBox({ method, client, onClose }: { method: ContactMethod, 
           context: { 
              clientLogs: clientLogs.join('\n'), 
              recentEmails: clientEmails.join('\n\n'),
-             userLanguagePreference: navigator.language || 'en'
-          } 
+             userLanguagePreference: language === 'zh' ? 'Chinese' : 'English'
+          },
+          llmConfig: getLLMConfig('drafting')
         })
       });
       const data = await res.json();
@@ -59,7 +66,8 @@ function ContactActionBox({ method, client, onClose }: { method: ContactMethod, 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           command: `Draft a very short professional message to the client on ${method.type}. Purpose: ${purpose}`, 
-          context: { client } 
+          context: { client },
+          llmConfig: getLLMConfig('drafting')
         })
       });
       const data = await res.json();
@@ -74,7 +82,22 @@ function ContactActionBox({ method, client, onClose }: { method: ContactMethod, 
   const handleAction = () => {
     const text = draft || purpose;
     if (method.type === 'email') {
-      window.open(`mailto:${method.value}?body=${encodeURIComponent(text)}`);
+      const selectedOutbox = outboxConfigs.find(c => c.id === selectedOutboxId);
+      const senderEmail = selectedOutbox ? selectedOutbox.fromEmail : 'me@soho.com';
+      const senderName = selectedOutbox ? selectedOutbox.fromName : 'Me';
+      
+      addEmail({
+        recipient: method.value,
+        sender: senderEmail,
+        senderName: senderName,
+        subject: purpose || 'Follow up',
+        body: text,
+        read: true,
+        type: 'sent',
+        clientId: client.id,
+      });
+      addLog(client.id, `Sent Email via app: ${purpose || 'Follow up'}`);
+      alert("Email sent successfully!");
     } else if (method.type === 'whatsapp') {
       const phone = method.value.replace(/[^a-zA-Z0-9+]/g, '');
       window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(text)}`, '_blank');
@@ -120,7 +143,23 @@ function ContactActionBox({ method, client, onClose }: { method: ContactMethod, 
          />
        </div>
 
-       <div className="flex justify-end gap-2">
+       {method.type === 'email' && (
+         <div className="flex items-center gap-2 mt-2">
+           <label className="text-[10px] text-slate-500 uppercase font-bold shrink-0">Send From:</label>
+           <select 
+             value={selectedOutboxId}
+             onChange={(e) => setSelectedOutboxId(e.target.value)}
+             className="flex-1 bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 truncate"
+           >
+             {outboxConfigs.map(c => (
+               <option key={c.id} value={c.id}>{c.name} ({c.fromEmail})</option>
+             ))}
+             {outboxConfigs.length === 0 && <option value="">Default Backend Sender (me@soho.com)</option>}
+           </select>
+         </div>
+       )}
+
+       <div className="flex justify-end gap-2 mt-2">
          <button onClick={onClose} className="px-3 py-1 text-xs text-slate-400 hover:text-slate-200 transition-colors">Cancel</button>
          <button onClick={handleAction} className="px-3 py-1 bg-cyan-600 text-white rounded text-xs font-medium hover:bg-cyan-500 flex items-center gap-1 transition-colors">
            <Send className="w-3 h-3"/> 
@@ -132,7 +171,13 @@ function ContactActionBox({ method, client, onClose }: { method: ContactMethod, 
 }
 
 export function ClientDetails() {
-  const { clients, selectedClientId, selectClient, updateClientStatus, deleteClient, addComment, addReply } = useStore();
+  const { clients, selectedClientId, selectClient, updateClientStatus, deleteClient, addComment, addReply, llmConfigs, activeLLMId, llmMappings } = useStore();
+  
+  const getLLMConfig = (module: string) => {
+    const id = llmMappings[module] || activeLLMId;
+    return llmConfigs.find(c => c.id === id) || llmConfigs[0];
+  };
+
   const [loading, setLoading] = useState(false);
   const [aiData, setAiData] = useState<{ sentiment: string, temperature: number, icebreaker: string, summary: string } | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -154,7 +199,8 @@ export function ClientDetails() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           client, 
-          logs: [{ date: client.lastContact, content: "Discussed pricing. Client seemed hesitant but asked for samples. No reply since." }] 
+          logs: [{ date: client.lastContact, content: "Discussed pricing. Client seemed hesitant but asked for samples. No reply since." }],
+          llmConfig: getLLMConfig('analysis')
         })
       });
       const data = await res.json();
@@ -185,7 +231,7 @@ export function ClientDetails() {
   };
 
   return (
-    <div className="w-96 bg-slate-900 border-l border-slate-800 flex flex-col shrink-0 absolute right-0 top-14 bottom-0 z-30 shadow-2xl transition-transform">
+    <div className="w-full h-full bg-slate-900 border-l border-slate-800 flex flex-col shrink-0 shadow-2xl transition-transform">
       {/* Header */}
       <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/50">
         <div>

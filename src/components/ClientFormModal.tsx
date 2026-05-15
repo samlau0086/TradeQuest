@@ -1,23 +1,45 @@
 import React, { useState, useEffect } from 'react';
 import { useStore, Client, ClientStatus, ContactMethod } from '../store';
-import { X, Plus, Trash2 } from 'lucide-react';
+import { X, Plus, Trash2, ChevronDown } from 'lucide-react';
 import { cn } from '../lib/utils';
+
+const COUNTRIES = [
+  "United States", "China", "India", "United Kingdom", "Germany", "France",
+  "Japan", "Canada", "Australia", "Brazil", "South Korea", "Spain",
+  "Italy", "Mexico", "Indonesia", "Netherlands", "Saudi Arabia", "Turkey",
+  "Switzerland", "Sweden", "Poland", "Belgium", "Thailand", "Argentina",
+  "Austria", "United Arab Emirates", "Vietnam", "Malaysia", "Singapore",
+  "Denmark", "Philippines", "South Africa", "Egypt", "Nigeria", "Colombia",
+  "Pakistan", "Chile", "Finland", "New Zealand", "Norway", "Ireland"
+].sort();
 
 interface ClientFormModalProps {
   onClose: () => void;
   clientId?: string; // If provided, we are editing
+  initialData?: Partial<Client>;
+  onSave?: (id: string) => void;
 }
 
-export function ClientFormModal({ onClose, clientId }: ClientFormModalProps) {
+export function ClientFormModal({ onClose, clientId, initialData, onSave }: ClientFormModalProps) {
   const { clients, addClient, editClient } = useStore();
   const existingClient = clientId ? clients.find(c => c.id === clientId) : null;
 
-  const [name, setName] = useState(existingClient?.name || '');
-  const [company, setCompany] = useState(existingClient?.company || '');
-  const [country, setCountry] = useState(existingClient?.country || '');
-  const [status, setStatus] = useState<ClientStatus>(existingClient?.status || 'Leads');
-  const [tags, setTags] = useState<string>(existingClient?.tags.join(', ') || '');
-  const [contactMethods, setContactMethods] = useState<ContactMethod[]>(existingClient?.contactMethods || [{ type: 'email', value: '' }]);
+  const [name, setName] = useState(existingClient?.name || initialData?.name || '');
+  const [company, setCompany] = useState(existingClient?.company || initialData?.company || '');
+  const [country, setCountry] = useState(existingClient?.country || initialData?.country || '');
+  const [isCountryOpen, setIsCountryOpen] = useState(false);
+  const [countrySearch, setCountrySearch] = useState('');
+
+  const [status, setStatus] = useState<ClientStatus>(existingClient?.status || initialData?.status || 'Leads');
+  const [tags, setTags] = useState<string>(existingClient?.tags.join(', ') || initialData?.tags?.join(', ') || '');
+  const [contactMethods, setContactMethods] = useState<ContactMethod[]>(existingClient?.contactMethods || initialData?.contactMethods || [{ type: 'email', value: '' }]);
+
+  // Close country dropdown when clicking outside
+  useEffect(() => {
+    const handleClick = () => setIsCountryOpen(false);
+    window.addEventListener('click', handleClick);
+    return () => window.removeEventListener('click', handleClick);
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,8 +59,10 @@ export function ClientFormModal({ onClose, clientId }: ClientFormModalProps) {
 
     if (existingClient) {
       editClient(existingClient.id, clientData);
+      onSave?.(existingClient.id);
     } else {
-      addClient(clientData);
+      const newId = addClient(clientData);
+      onSave?.(newId);
     }
     onClose();
   };
@@ -79,9 +103,60 @@ export function ClientFormModal({ onClose, clientId }: ClientFormModalProps) {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
+            <div className="space-y-1 relative" onClick={e => e.stopPropagation()}>
               <label className="text-xs font-bold text-slate-400 uppercase">Country</label>
-              <input required value={country} onChange={e => setCountry(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500" placeholder="e.g. USA" />
+              <div 
+                className={`w-full bg-slate-950 border ${isCountryOpen ? 'border-cyan-500 ring-1 ring-cyan-500' : 'border-slate-700'} rounded-lg px-3 py-2 text-sm text-slate-200 flex items-center justify-between cursor-pointer`}
+                onClick={() => {
+                  if (!isCountryOpen) {
+                    setCountrySearch('');
+                  }
+                  setIsCountryOpen(!isCountryOpen);
+                }}
+              >
+                <input 
+                  type="text"
+                  className="bg-transparent border-none outline-none w-full cursor-pointer placeholder-slate-500"
+                  value={isCountryOpen ? countrySearch : country}
+                  onChange={(e) => {
+                    setCountrySearch(e.target.value);
+                    if (!isCountryOpen) setIsCountryOpen(true);
+                  }}
+                  placeholder={isCountryOpen ? "Search country..." : "Select country"}
+                  required={!country}
+                />
+                <ChevronDown className="w-4 h-4 text-slate-500 shrink-0" />
+              </div>
+              
+              {isCountryOpen && (
+                <div className="absolute top-[105%] left-0 w-full max-h-48 overflow-y-auto bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 py-1">
+                  {COUNTRIES.filter(c => c.toLowerCase().includes(countrySearch.toLowerCase())).map(c => (
+                    <button 
+                      key={c}
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-700 text-slate-200"
+                      onClick={() => {
+                        setCountry(c);
+                        setIsCountryOpen(false);
+                      }}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                  {countrySearch && !COUNTRIES.some(c => c.toLowerCase() === countrySearch.toLowerCase()) && (
+                    <button 
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-cyan-900/40 text-cyan-400 border-t border-slate-700/50 mt-1"
+                      onClick={() => {
+                        setCountry(countrySearch);
+                        setIsCountryOpen(false);
+                      }}
+                    >
+                      Use custom: "{countrySearch}"
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
             
             <div className="space-y-1">
