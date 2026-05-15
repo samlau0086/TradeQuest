@@ -35,9 +35,9 @@ jobs:
             cd /opt/1panel/www/sites/ai-crm
             
             # Optional: Write secrets to .env file if uncommented
-            # echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" > .env
-            # echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
-            # echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
+            echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" > .env
+            echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
+            echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
             
             # Rebuild and start the container
             docker compose down || true
