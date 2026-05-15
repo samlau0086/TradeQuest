@@ -1,0 +1,44 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main # Trigger on push to main branch
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Copy repository contents via scp
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_PRIVATE_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          source: "."
+          target: "/opt/1panel/www/sites/ai-crm/"
+          exclude: ".git,node_modules,dist"
+
+      - name: Execute deployment on VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_PRIVATE_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            mkdir -p /opt/1panel/www/sites/ai-crm
+            cd /opt/1panel/www/sites/ai-crm
+            
+            # Optional: Write secrets to .env file if uncommented
+            # echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" > .env
+            # echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
+            # echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
+            
+            # Rebuild and start the container
+            docker compose down || true
+            docker compose up -d --build
