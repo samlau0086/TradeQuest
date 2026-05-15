@@ -43,7 +43,7 @@ async function initDB() {
          VALUES ($1, $2, $3, $4, $5)`,
         [id, superAdminEmail, passwordHash, 'Super Admin', 'superadmin']
       );
-      console.log(\`Default superadmin created: \${superAdminEmail} / admin123456\`);
+      console.log(`Default superadmin created: ${superAdminEmail} / admin123456`);
     }
     
     console.log("Postgres database initialized.");
