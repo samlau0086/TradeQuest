@@ -198,23 +198,15 @@ export interface StoreState {
 
   language: 'en' | 'zh';
   setLanguage: (lang: 'en' | 'zh') => void;
+
+  fetchInitialData: () => Promise<void>;
 }
 
-const INITIAL_CLIENTS: Client[] = [
-  { id: 'c1', name: 'John Smith', company: 'Global Traders LLC', country: 'USA', status: 'Leads', tags: ['#HighValue'], lastContact: '2026-05-10', isDormant: true, contactMethods: [{ type: 'email', value: 'john@globaltraders.com' }, { type: 'whatsapp', value: '+1-555-0101' }] },
-  { id: 'c2', name: 'Maria Garcia', company: 'LatAm Imports', country: 'Brazil', status: 'Negotiating', tags: ['#CantonFair'], lastContact: '2026-05-14', contactMethods: [{ type: 'whatsapp', value: '+55-11-99999-9999' }] },
-  { id: 'c3', name: 'Takeshi Kovacs', company: 'Neo Tokyo Electronics', country: 'Japan', status: 'Sample Sent', tags: ['#Wholesale'], lastContact: '2026-05-12', contactMethods: [{ type: 'email', value: 't.kovacs@nte.co.jp' }, { type: 'telegram', value: '@takeshi_nte' }] },
-  { id: 'c4', name: 'Anna Müller', company: 'EuroTech GmbH', country: 'Germany', status: 'Closed Won', tags: ['#VIP'], lastContact: '2026-05-01', contactMethods: [{ type: 'messenger', value: 'anna.muller.123' }, { type: 'email', value: 'anna@eurotech.de' }] },
-];
+const INITIAL_CLIENTS: Client[] = [];
 
-const INITIAL_LOGS: Log[] = [
-  { id: 'l1', clientId: 'c1', date: '2026-05-10', content: 'System generated: Drafted follow-up regarding 30-day inactivity.' }
-];
+const INITIAL_LOGS: Log[] = [];
 
-const INITIAL_EMAILS: EmailMessage[] = [
-  { id: 'e1', clientId: 'c1', sender: 'john@globaltraders.com', senderName: 'John Smith', recipient: 'me@soho.com', subject: 'Re: Product Samples', body: 'Hi Alex, \\n\\nThe samples look great. Let us discuss pricing for bulk orders.\\n\\nThanks,\\nJohn', date: new Date(Date.now() - 3600000).toISOString(), read: false, type: 'inbox' },
-  { id: 'e2', clientId: 'c2', sender: 'me@soho.com', senderName: 'Alex.W', recipient: 'maria@latamimports.com', subject: 'Following up on Canton Fair', body: 'Hi Maria,\\n\\nIt was great meeting you at the fair. I have attached our latest catalog.\\n\\nBest,\\nAlex', date: new Date(Date.now() - 86400000).toISOString(), read: true, type: 'sent' }
-];
+const INITIAL_EMAILS: EmailMessage[] = [];
 
 export const useStore = create<StoreState>((set, get) => ({
   llmConfigs: [],
@@ -297,38 +289,87 @@ export const useStore = create<StoreState>((set, get) => ({
   clients: INITIAL_CLIENTS,
   addClient: (client) => {
     const id = `c${Date.now()}`;
+    const newClient = { ...client, id };
+    
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch('/api/clients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(newClient)
+      }).catch(console.error);
+    }
+    
     set((state) => ({
-      clients: [...state.clients, { ...client, id }]
+      clients: [...state.clients, newClient]
     }));
     return id;
   },
-  editClient: (id, updates) => set((state) => ({
-    clients: state.clients.map(c => c.id === id ? { ...c, ...updates } : c)
-  })),
-  deleteClient: (id) => set((state) => ({
-    clients: state.clients.filter(c => c.id !== id),
-    selectedClientId: state.selectedClientId === id ? null : state.selectedClientId
-  })),
-  updateClientStatus: (id, status) => set((state) => ({
-    clients: state.clients.map(c => c.id === id ? { ...c, status, isDormant: false } : c)
-  })),
+  editClient: (id, updates) => set((state) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch(`/api/clients/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(updates)
+      }).catch(console.error);
+    }
+    return { clients: state.clients.map(c => c.id === id ? { ...c, ...updates } : c) };
+  }),
+  deleteClient: (id) => set((state) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch(`/api/clients/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).catch(console.error);
+    }
+    return {
+      clients: state.clients.filter(c => c.id !== id),
+      selectedClientId: state.selectedClientId === id ? null : state.selectedClientId
+    };
+  }),
+  updateClientStatus: (id, status) => set((state) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch(`/api/clients/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ status, isDormant: false })
+      }).catch(console.error);
+    }
+    return { clients: state.clients.map(c => c.id === id ? { ...c, status, isDormant: false } : c) };
+  }),
   
-  addComment: (clientId, content, attachments) => set((state) => ({
-    clients: state.clients.map(c => {
-      if (c.id === clientId) {
-        const newComment: Comment = {
-          id: `cmt${Date.now()}`,
-          author: state.userTitle,
-          content,
-          createdAt: new Date().toISOString(),
-          attachments,
-          replies: []
-        };
-        return { ...c, comments: [...(c.comments || []), newComment] };
-      }
-      return c;
-    })
-  })),
+  addComment: (clientId, content, attachments) => set((state) => {
+    const newComment: Comment = {
+      id: `cmt${Date.now()}`,
+      author: state.userTitle,
+      content,
+      createdAt: new Date().toISOString(),
+      attachments,
+      replies: []
+    };
+    
+    const token = localStorage.getItem('token');
+    const client = state.clients.find(c => c.id === clientId);
+    if (client && token) {
+      fetch(`/api/clients/${clientId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ comments: [...(client.comments || []), newComment] })
+      }).catch(console.error);
+    }
+    
+    return {
+      clients: state.clients.map(c => {
+        if (c.id === clientId) {
+          return { ...c, comments: [...(c.comments || []), newComment] };
+        }
+        return c;
+      })
+    };
+  }),
 
   addReply: (clientId, commentId, content, attachments) => set((state) => {
     const addReplyRecursive = (comments: Comment[], targetId: string, reply: Comment): Comment[] => {
@@ -369,8 +410,19 @@ export const useStore = create<StoreState>((set, get) => ({
       if (client && client.isDormant) {
          setTimeout(() => get().completeQuest('q1'), 0);
       }
+      const newLog = { id: `log_${Date.now()}`, clientId, date: new Date().toISOString(), content };
+      
+      const token = localStorage.getItem('token');
+      if (token) {
+        fetch('/api/logs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(newLog)
+        }).catch(console.error);
+      }
+      
       return {
-        logs: [{ id: `log_${Date.now()}`, clientId, date: new Date().toISOString(), content }, ...state.logs]
+        logs: [newLog, ...state.logs]
       };
     });
   },
@@ -385,17 +437,45 @@ export const useStore = create<StoreState>((set, get) => ({
       if (client && client.isDormant) {
          setTimeout(() => get().completeQuest('q1'), 0);
       }
+      
+      const newEmail = { ...email, id: `e${Date.now()}`, date: new Date().toISOString() } as EmailMessage;
+      
+      const token = localStorage.getItem('token');
+      if (token) {
+        fetch('/api/emails', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(newEmail)
+        }).catch(console.error);
+      }
+      
       return {
-        emails: [{ ...email, id: `e${Date.now()}`, date: new Date().toISOString() }, ...state.emails]
+        emails: [newEmail, ...state.emails]
       };
     });
   },
-  editEmail: (id, updates) => set((state) => ({
-    emails: state.emails.map(e => e.id === id ? { ...e, ...updates } : e)
-  })),
-  markEmailRead: (id) => set((state) => ({
-    emails: state.emails.map(e => e.id === id ? { ...e, read: true } : e)
-  })),
+  editEmail: (id, updates) => set((state) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch(`/api/emails/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(updates)
+      }).catch(console.error);
+    }
+    return { emails: state.emails.map(e => e.id === id ? { ...e, ...updates } : e) };
+  }),
+  markEmailRead: (id) => set((state) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch(`/api/emails/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ read: true })
+      }).catch(console.error);
+    }
+    return { emails: state.emails.map(e => e.id === id ? { ...e, read: true } : e) };
+  }),
   addEmailComment: (emailId, content, attachments) => set((state) => ({
     emails: state.emails.map(e => {
       if (e.id === emailId) {
@@ -505,5 +585,26 @@ export const useStore = create<StoreState>((set, get) => ({
   },
   
   language: 'en',
-  setLanguage: (lang) => set({ language: lang })
+  setLanguage: (lang) => set({ language: lang }),
+
+  fetchInitialData: async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    try {
+      const [clientsRes, logsRes, emailsRes] = await Promise.all([
+        fetch('/api/clients', { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch('/api/logs', { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch('/api/emails', { headers: { 'Authorization': `Bearer ${token}` } })
+      ]);
+      
+      const clients = clientsRes.ok ? await clientsRes.json() : [];
+      const logs = logsRes.ok ? await logsRes.json() : [];
+      const emails = emailsRes.ok ? await emailsRes.json() : [];
+
+      set({ clients, logs, emails });
+    } catch (e) {
+      console.error("Failed to fetch initial data", e);
+    }
+  }
 }));

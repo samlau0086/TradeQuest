@@ -14,8 +14,14 @@ import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'reac
 import { Loader2 } from 'lucide-react';
 
 export default function App() {
-  const { view, selectedClientId, checkScheduledEmails } = useStore();
+  const { view, selectedClientId, checkScheduledEmails, fetchInitialData } = useStore();
   const { token, isInitializing } = useAuthStore();
+
+  useEffect(() => {
+    if (token) {
+      fetchInitialData();
+    }
+  }, [token, fetchInitialData]);
 
   useEffect(() => {
     // Check for scheduled emails every 10 seconds

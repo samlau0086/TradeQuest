@@ -29,6 +29,49 @@ async function initDB() {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
+      
+      CREATE TABLE IF NOT EXISTS clients (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        company VARCHAR(255),
+        country VARCHAR(100),
+        status VARCHAR(50) DEFAULT 'Leads',
+        tags JSONB DEFAULT '[]',
+        last_contact TIMESTAMP WITH TIME ZONE,
+        is_dormant BOOLEAN DEFAULT FALSE,
+        contact_methods JSONB DEFAULT '[]',
+        comments JSONB DEFAULT '[]',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS logs (
+        id VARCHAR(128) PRIMARY KEY,
+        client_id VARCHAR(128) REFERENCES clients(id) ON DELETE CASCADE,
+        date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        content TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS emails (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        client_id VARCHAR(128) REFERENCES clients(id) ON DELETE SET NULL,
+        sender VARCHAR(255),
+        sender_name VARCHAR(255),
+        recipient VARCHAR(255),
+        cc VARCHAR(255),
+        bcc VARCHAR(255),
+        subject VARCHAR(255),
+        body TEXT,
+        date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        read BOOLEAN DEFAULT FALSE,
+        type VARCHAR(50) DEFAULT 'inbox',
+        tags JSONB DEFAULT '[]',
+        comments JSONB DEFAULT '[]',
+        scheduled_at TIMESTAMP WITH TIME ZONE,
+        attachments JSONB DEFAULT '[]'
+      );
     `);
     
     // Seed default admin account
@@ -378,6 +421,202 @@ No markdown wrappers, just valid JSON.`;
       res.status(500).json({ error: 'Database error' });
     }
   });
+
+  // Clients API Endpoints
+  app.get('/api/clients', authenticateToken, async (req: any, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM clients WHERE user_id = $1 ORDER BY updated_at DESC', [req.user.uid]);
+      res.json(result.rows.map(row => ({
+        id: row.id,
+        name: row.name,
+        company: row.company,
+        country: row.country,
+        status: row.status,
+        tags: row.tags,
+        lastContact: row.last_contact,
+        isDormant: row.is_dormant,
+        contactMethods: row.contact_methods,
+        comments: row.comments
+      })));
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to fetch clients' });
+    }
+  });
+
+  app.post('/api/clients', authenticateToken, async (req: any, res) => {
+    try {
+      const { id, name, company, country, status, tags, lastContact, isDormant, contactMethods, comments } = req.body;
+      await pool.query(
+        `INSERT INTO clients (id, user_id, name, company, country, status, tags, last_contact, is_dormant, contact_methods, comments)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [id, req.user.uid, name, company, country, status, JSON.stringify(tags || []), lastContact || null, !!isDormant, JSON.stringify(contactMethods || []), JSON.stringify(comments || [])]
+      );
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to insert client' });
+    }
+  });
+
+  app.patch('/api/clients/:id', authenticateToken, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body;
+      
+      const setClauses = [];
+      const values = [id, req.user.uid];
+      let valIdx = 3;
+      
+      const mapping: Record<string, string> = {
+        name: 'name', company: 'company', country: 'country', status: 'status',
+        tags: 'tags', lastContact: 'last_contact', isDormant: 'is_dormant',
+        contactMethods: 'contact_methods', comments: 'comments'
+      };
+      
+      for (const [key, val] of Object.entries(updates)) {
+        if (mapping[key]) {
+          setClauses.push(`${mapping[key]} = $${valIdx}`);
+          values.push((key === 'tags' || key === 'comments' || key === 'contactMethods') ? JSON.stringify(val) : val);
+          valIdx++;
+        }
+      }
+      
+      if (setClauses.length > 0) {
+        setClauses.push(`updated_at = CURRENT_TIMESTAMP`);
+        await pool.query(`UPDATE clients SET ${setClauses.join(', ')} WHERE id = $1 AND user_id = $2`, values);
+      }
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to update client' });
+    }
+  });
+
+  app.delete('/api/clients/:id', authenticateToken, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      await pool.query('DELETE FROM clients WHERE id = $1 AND user_id = $2', [id, req.user.uid]);
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to delete client' });
+    }
+  });
+
+  // Logs API
+  app.get('/api/logs', authenticateToken, async (req: any, res) => {
+    try {
+      // Get all logs for clients owned by this user
+      const result = await pool.query(`
+        SELECT l.* FROM logs l
+        JOIN clients c ON l.client_id = c.id
+        WHERE c.user_id = $1
+        ORDER BY l.date DESC
+      `, [req.user.uid]);
+      
+      res.json(result.rows.map(row => ({
+        id: row.id,
+        clientId: row.client_id,
+        date: row.date,
+        content: row.content
+      })));
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to fetch logs' });
+    }
+  });
+
+  app.post('/api/logs', authenticateToken, async (req: any, res) => {
+    try {
+      const { id, clientId, date, content } = req.body;
+      await pool.query(
+        `INSERT INTO logs (id, client_id, date, content) VALUES ($1, $2, $3, $4)`,
+        [id, clientId, date || new Date().toISOString(), content]
+      );
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to add log' });
+    }
+  });
+
+  // Emails API
+  app.get('/api/emails', authenticateToken, async (req: any, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM emails WHERE user_id = $1 ORDER BY date DESC', [req.user.uid]);
+      res.json(result.rows.map(row => ({
+        id: row.id,
+        clientId: row.client_id,
+        sender: row.sender,
+        senderName: row.sender_name,
+        recipient: row.recipient,
+        cc: row.cc,
+        bcc: row.bcc,
+        subject: row.subject,
+        body: row.body,
+        date: row.date,
+        read: row.read,
+        type: row.type,
+        tags: row.tags,
+        comments: row.comments,
+        scheduledAt: row.scheduled_at,
+        attachments: row.attachments
+      })));
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to fetch emails' });
+    }
+  });
+
+  app.post('/api/emails', authenticateToken, async (req: any, res) => {
+    try {
+      const { id, clientId, sender, senderName, recipient, cc, bcc, subject, body, date, read, type, tags, comments, scheduledAt, attachments } = req.body;
+      
+      await pool.query(
+        `INSERT INTO emails (id, user_id, client_id, sender, sender_name, recipient, cc, bcc, subject, body, date, read, type, tags, comments, scheduled_at, attachments)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+        [id, req.user.uid, clientId || null, sender, senderName, recipient, cc, bcc, subject, body, date || new Date().toISOString(), !!read, type, JSON.stringify(tags || []), JSON.stringify(comments || []), scheduledAt || null, JSON.stringify(attachments || [])]
+      );
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to save email' });
+    }
+  });
+
+  app.patch('/api/emails/:id', authenticateToken, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body;
+      
+      const setClauses = [];
+      const values = [id, req.user.uid];
+      let valIdx = 3;
+      
+      const mapping: Record<string, string> = {
+        read: 'read', type: 'type', tags: 'tags', comments: 'comments', date: 'date'
+      };
+      
+      for (const [key, val] of Object.entries(updates)) {
+        if (mapping[key]) {
+          setClauses.push(`${mapping[key]} = $${valIdx}`);
+          values.push((key === 'tags' || key === 'comments') ? JSON.stringify(val) : val);
+          valIdx++;
+        }
+      }
+      
+      if (setClauses.length > 0) {
+        await pool.query(`UPDATE emails SET ${setClauses.join(', ')} WHERE id = $1 AND user_id = $2`, values);
+      }
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to update email' });
+    }
+  });
+
+
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
