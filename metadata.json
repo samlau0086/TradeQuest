@@ -1,0 +1,6 @@
+{
+  "name": "SOHO Hunter",
+  "description": "A gamified, flat-design CRM for foreign trade professionals featuring AI icebreakers, sentiment analysis, and kanban task flows.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

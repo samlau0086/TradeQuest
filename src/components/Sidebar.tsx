@@ -1,0 +1,130 @@
+import React, { useState } from 'react';
+import { useStore } from '../store';
+import { cn } from '../lib/utils';
+import { Swords, Trophy, Map as MapIcon, KanbanSquare, Tags, LogOut, Flame, Plus, Mail } from 'lucide-react';
+import { ClientFormModal } from './ClientFormModal';
+
+export function Sidebar() {
+  const { userExp, userLevel, userTitle, currentStreak, dailyQuests, view, setView } = useStore();
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  return (
+    <aside className="w-64 bg-slate-900 border-r border-slate-800 text-slate-300 flex flex-col pt-6 pb-4">
+      {/* Profile / Gamer Card */}
+      <div className="px-6 mb-8">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-12 h-12 rounded-lg bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+            <Swords className="text-white w-6 h-6" />
+          </div>
+          <div>
+            <h2 className="text-white font-bold text-lg leading-tight">Alex.W</h2>
+            <div className="text-cyan-400 text-xs font-semibold uppercase tracking-wider">{userTitle}</div>
+          </div>
+        </div>
+        
+        {/* EXP Bar & Stats */}
+        <div className="space-y-2">
+          <div className="flex justify-between text-xs text-slate-400">
+            <span>LVL {userLevel}</span>
+            <span>{userExp} / 500 EXP</span>
+          </div>
+          <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+            <div 
+              className="bg-cyan-500 h-full rounded-full transition-all duration-500 shadow-[0_0_10px_rgba(6,182,212,0.6)]"
+              style={{ width: `${(userExp / 500) * 100}%` }}
+            />
+          </div>
+          <div className="flex items-center gap-1 text-xs text-orange-400 font-medium pt-1">
+            <Flame className="w-4 h-4 fill-orange-400" />
+            {currentStreak} Day Streak (+5% Luck)
+          </div>
+        </div>
+      </div>
+
+      {/* Nav */}
+      <div className="px-3 mb-8 space-y-1">
+        <button 
+          onClick={() => setView('dashboard')}
+          className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors", 
+            view === 'dashboard' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
+        >
+          <Trophy className="w-5 h-5" />
+          Dashboard
+        </button>
+        <button 
+          onClick={() => setView('inbox')}
+          className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors", 
+            view === 'inbox' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
+        >
+          <div className="relative">
+            <Mail className="w-5 h-5" />
+            <span className="absolute -top-1 -right-1 flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
+            </span>
+          </div>
+          Inbox
+        </button>
+        <button 
+          onClick={() => setView('kanban')}
+          className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors", 
+            view === 'kanban' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
+        >
+          <KanbanSquare className="w-5 h-5" />
+          Pipeline
+        </button>
+        <button 
+          onClick={() => setView('map')}
+          className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors", 
+            view === 'map' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
+        >
+          <MapIcon className="w-5 h-5" />
+          Territory Map
+        </button>
+      </div>
+
+      {/* Quick Tags / Slices */}
+      <div className="px-6 mb-8 flex-1">
+        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center justify-between">
+          <span className="flex items-center gap-2"><Tags className="w-4 h-4" /> Smart Views</span>
+        </h3>
+        <div className="space-y-2 mb-6">
+          {['#HighValue', '#CantonFair', '#WakeUp'].map(tag => (
+            <button key={tag} className="w-full text-left px-2 py-1.5 rounded text-sm text-slate-400 hover:text-cyan-400 hover:bg-cyan-950/30 transition-colors">
+              {tag}
+            </button>
+          ))}
+        </div>
+        
+        <button 
+          onClick={() => setShowAddModal(true)}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-cyan-400 rounded-lg text-sm font-bold border border-slate-700/50 shadow-sm transition-all hover:border-cyan-500/30"
+        >
+          <Plus className="w-4 h-4" />
+          Add Target
+        </button>
+      </div>
+
+      {/* Daily Quests */}
+      <div className="px-6 mt-auto">
+        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+          <Trophy className="w-4 h-4 text-amber-500" /> Daily Quests
+        </h3>
+        <div className="space-y-2">
+          {dailyQuests.map(quest => (
+            <div key={quest.id} className={cn("p-3 rounded-lg border text-sm transition-all relative overflow-hidden", 
+              quest.completed ? "bg-green-950/30 border-green-900/50 text-slate-500" : "bg-slate-800/50 border-slate-700/50 hover:border-cyan-500/50")}>
+              <div className="font-medium text-slate-200 mb-1">{quest.title}</div>
+              <div className="text-xs text-slate-400 truncate">{quest.description}</div>
+              {!quest.completed && (
+                <div className="text-cyan-400 text-xs font-bold mt-2">+{quest.expReward} EXP</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {showAddModal && <ClientFormModal onClose={() => setShowAddModal(false)} />}
+    </aside>
+  );
+}

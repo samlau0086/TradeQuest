@@ -1,0 +1,136 @@
+import React, { useState, useEffect } from 'react';
+import { useStore, Client, ClientStatus, ContactMethod } from '../store';
+import { X, Plus, Trash2 } from 'lucide-react';
+import { cn } from '../lib/utils';
+
+interface ClientFormModalProps {
+  onClose: () => void;
+  clientId?: string; // If provided, we are editing
+}
+
+export function ClientFormModal({ onClose, clientId }: ClientFormModalProps) {
+  const { clients, addClient, editClient } = useStore();
+  const existingClient = clientId ? clients.find(c => c.id === clientId) : null;
+
+  const [name, setName] = useState(existingClient?.name || '');
+  const [company, setCompany] = useState(existingClient?.company || '');
+  const [country, setCountry] = useState(existingClient?.country || '');
+  const [status, setStatus] = useState<ClientStatus>(existingClient?.status || 'Leads');
+  const [tags, setTags] = useState<string>(existingClient?.tags.join(', ') || '');
+  const [contactMethods, setContactMethods] = useState<ContactMethod[]>(existingClient?.contactMethods || [{ type: 'email', value: '' }]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const parsedTags = tags.split(',').map(t => t.trim()).filter(Boolean);
+    const validContactMethods = contactMethods.filter(cm => cm.value.trim() !== '');
+
+    const clientData = {
+      name,
+      company,
+      country,
+      status,
+      tags: parsedTags,
+      lastContact: existingClient?.lastContact || new Date().toISOString().split('T')[0],
+      isDormant: existingClient?.isDormant || false,
+      contactMethods: validContactMethods,
+    };
+
+    if (existingClient) {
+      editClient(existingClient.id, clientData);
+    } else {
+      addClient(clientData);
+    }
+    onClose();
+  };
+
+  const addContactMethod = () => {
+    setContactMethods([...contactMethods, { type: 'email', value: '' }]);
+  };
+
+  const updateContactMethod = (index: number, field: keyof ContactMethod, value: string) => {
+    const newMethods = [...contactMethods];
+    newMethods[index] = { ...newMethods[index], [field]: value };
+    setContactMethods(newMethods);
+  };
+
+  const removeContactMethod = (index: number) => {
+    setContactMethods(contactMethods.filter((_, i) => i !== index));
+  };
+
+  return (
+    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+        <div className="flex items-center justify-between p-4 border-b border-slate-800 bg-slate-800/30">
+          <h2 className="text-lg font-bold text-white">{existingClient ? 'Edit Client' : 'New Client Target'}</h2>
+          <button onClick={onClose} className="p-1 text-slate-400 hover:text-white rounded-md hover:bg-slate-800 transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="p-4 space-y-4 max-h-[70vh] overflow-y-auto scrollbar-thin">
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-400 uppercase">Name</label>
+            <input required value={name} onChange={e => setName(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500" placeholder="e.g. John Doe" />
+          </div>
+          
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-400 uppercase">Company</label>
+            <input required value={company} onChange={e => setCompany(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500" placeholder="e.g. Global Tech LLC" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-400 uppercase">Country</label>
+              <input required value={country} onChange={e => setCountry(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500" placeholder="e.g. USA" />
+            </div>
+            
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-400 uppercase">Stage</label>
+              <select value={status} onChange={e => setStatus(e.target.value as ClientStatus)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500">
+                <option value="Leads">Leads</option>
+                <option value="Contacted">Contacted</option>
+                <option value="Sample Sent">Sample Sent</option>
+                <option value="Negotiating">Negotiating</option>
+                <option value="Closed Won">Closed Won</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-400 uppercase">Tags (comma separated)</label>
+            <input value={tags} onChange={e => setTags(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500" placeholder="#HighValue, #CantonFair" />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-slate-400 uppercase">Contact Methods</label>
+            {contactMethods.map((cm, idx) => (
+              <div key={idx} className="flex items-center gap-2">
+                <select value={cm.type} onChange={e => updateContactMethod(idx, 'type', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500">
+                  <option value="email">Email</option>
+                  <option value="whatsapp">WhatsApp</option>
+                  <option value="messenger">Messenger</option>
+                  <option value="telegram">Telegram</option>
+                  <option value="phone">Phone</option>
+                </select>
+                <input value={cm.value} onChange={e => updateContactMethod(idx, 'value', e.target.value)} type="text" className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500" placeholder="Value..." />
+                <button type="button" onClick={() => removeContactMethod(idx)} className="p-2 text-slate-500 hover:text-red-400 rounded-md hover:bg-slate-800 transition-colors">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+            <button type="button" onClick={addContactMethod} className="text-xs flex items-center gap-1 text-cyan-400 hover:text-cyan-300 font-medium py-1">
+              <Plus className="w-3 h-3" /> Add Contact Method
+            </button>
+          </div>
+          
+          <div className="pt-4 border-t border-slate-800 flex justify-end gap-3">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800 rounded-lg transition-colors">Cancel</button>
+            <button type="submit" className="px-4 py-2 text-sm font-bold bg-cyan-600 text-white hover:bg-cyan-500 rounded-lg shadow-lg shadow-cyan-600/20 transition-colors">
+              {existingClient ? 'Save Changes' : 'Create Target'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}

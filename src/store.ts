@@ -1,0 +1,349 @@
+import { create } from 'zustand';
+
+export type ViewMode = 'kanban' | 'map' | 'inbox' | 'dashboard' | 'dormant';
+
+export type ClientStatus = 'Leads' | 'Contacted' | 'Sample Sent' | 'Negotiating' | 'Closed Won';
+
+export interface ContactMethod {
+  type: 'email' | 'whatsapp' | 'messenger' | 'telegram' | 'phone';
+  value: string;
+}
+
+export interface Attachment {
+  id: string;
+  name: string;
+  type: 'image' | 'document' | 'other';
+  url: string;
+}
+
+export interface Comment {
+  id: string;
+  author: string;
+  content: string;
+  createdAt: string;
+  attachments?: Attachment[];
+  replies?: Comment[];
+}
+
+export interface ExpLog {
+  id: string;
+  amount: number;
+  reason: string;
+  date: string;
+}
+
+export interface Client {
+  id: string;
+  name: string;
+  company: string;
+  country: string;
+  status: ClientStatus;
+  tags: string[];
+  lastContact: string;
+  isDormant?: boolean;
+  contactMethods?: ContactMethod[];
+  comments?: Comment[];
+}
+
+export interface Log {
+  id: string;
+  clientId: string;
+  date: string;
+  content: string;
+}
+
+export interface EmailMessage {
+  id: string;
+  clientId?: string; 
+  sender: string; 
+  senderName?: string;
+  recipient: string;
+  subject: string;
+  body: string;
+  date: string;
+  read: boolean;
+  type: 'inbox' | 'sent' | 'scheduled';
+  tags?: string[];
+  comments?: Comment[];
+  scheduledAt?: string;
+}
+
+export interface Quest {
+  id: string;
+  title: string;
+  description: string;
+  expReward: number;
+  completed: boolean;
+}
+
+export interface DormantClientAnalysis {
+  clientId: string;
+  reason: string;
+  suggestedAction: string;
+}
+
+export interface StoreState {
+  view: ViewMode;
+  setView: (view: ViewMode) => void;
+  
+  dormantAnalysisList: DormantClientAnalysis[] | null;
+  setDormantAnalysisList: (analysisList: DormantClientAnalysis[]) => void;
+  
+  userExp: number;
+  userLevel: number;
+  userTitle: string;
+  currentStreak: number;
+  expLogs: ExpLog[];
+  addExp: (amount: number, reason?: string) => void;
+  
+  clients: Client[];
+  addClient: (client: Omit<Client, 'id'>) => void;
+  editClient: (id: string, updates: Partial<Omit<Client, 'id'>>) => void;
+  deleteClient: (id: string) => void;
+  updateClientStatus: (id: string, status: ClientStatus) => void;
+  
+  addComment: (clientId: string, content: string, attachments?: Attachment[]) => void;
+  addReply: (clientId: string, commentId: string, content: string, attachments?: Attachment[]) => void;
+
+  logs: Log[];
+  addLog: (clientId: string, content: string) => void;
+
+  emails: EmailMessage[];
+  addEmail: (email: Omit<EmailMessage, 'id' | 'date'>) => void;
+  editEmail: (id: string, updates: Partial<EmailMessage>) => void;
+  markEmailRead: (id: string) => void;
+  addEmailComment: (emailId: string, content: string, attachments?: Attachment[]) => void;
+  addEmailReply: (emailId: string, commentId: string, content: string, attachments?: Attachment[]) => void;
+  checkScheduledEmails: () => void;
+
+  selectedClientId: string | null;
+  selectClient: (id: string | null) => void;
+
+  dailyQuests: Quest[];
+  addQuest: (quest: Omit<Quest, 'id' | 'completed'>) => void;
+  completeQuest: (id: string) => void;
+
+  broadcasts: { id: string, message: string }[];
+  addBroadcast: (message: string) => void;
+}
+
+const INITIAL_CLIENTS: Client[] = [
+  { id: 'c1', name: 'John Smith', company: 'Global Traders LLC', country: 'USA', status: 'Leads', tags: ['#HighValue'], lastContact: '2026-05-10', isDormant: true, contactMethods: [{ type: 'email', value: 'john@globaltraders.com' }, { type: 'whatsapp', value: '+1-555-0101' }] },
+  { id: 'c2', name: 'Maria Garcia', company: 'LatAm Imports', country: 'Brazil', status: 'Negotiating', tags: ['#CantonFair'], lastContact: '2026-05-14', contactMethods: [{ type: 'whatsapp', value: '+55-11-99999-9999' }] },
+  { id: 'c3', name: 'Takeshi Kovacs', company: 'Neo Tokyo Electronics', country: 'Japan', status: 'Sample Sent', tags: ['#Wholesale'], lastContact: '2026-05-12', contactMethods: [{ type: 'email', value: 't.kovacs@nte.co.jp' }, { type: 'telegram', value: '@takeshi_nte' }] },
+  { id: 'c4', name: 'Anna Müller', company: 'EuroTech GmbH', country: 'Germany', status: 'Closed Won', tags: ['#VIP'], lastContact: '2026-05-01', contactMethods: [{ type: 'messenger', value: 'anna.muller.123' }, { type: 'email', value: 'anna@eurotech.de' }] },
+];
+
+const INITIAL_LOGS: Log[] = [
+  { id: 'l1', clientId: 'c1', date: '2026-05-10', content: 'System generated: Drafted follow-up regarding 30-day inactivity.' }
+];
+
+const INITIAL_EMAILS: EmailMessage[] = [
+  { id: 'e1', clientId: 'c1', sender: 'john@globaltraders.com', senderName: 'John Smith', recipient: 'me@soho.com', subject: 'Re: Product Samples', body: 'Hi Alex, \\n\\nThe samples look great. Let us discuss pricing for bulk orders.\\n\\nThanks,\\nJohn', date: new Date(Date.now() - 3600000).toISOString(), read: false, type: 'inbox' },
+  { id: 'e2', clientId: 'c2', sender: 'me@soho.com', senderName: 'Alex.W', recipient: 'maria@latamimports.com', subject: 'Following up on Canton Fair', body: 'Hi Maria,\\n\\nIt was great meeting you at the fair. I have attached our latest catalog.\\n\\nBest,\\nAlex', date: new Date(Date.now() - 86400000).toISOString(), read: true, type: 'sent' }
+];
+
+export const useStore = create<StoreState>((set) => ({
+  view: 'kanban',
+  setView: (view) => set({ view }),
+
+  dormantAnalysisList: null,
+  setDormantAnalysisList: (analysisList) => set({ dormantAnalysisList: analysisList }),
+
+  userExp: 240,
+  userLevel: 3,
+  userTitle: "Junior SOHO",
+  currentStreak: 4,
+  expLogs: [],
+  addExp: (amount, reason) => set((state) => {
+    let newExp = state.userExp + amount;
+    let newLevel = state.userLevel;
+    let newTitle = state.userTitle;
+    
+    if (newExp >= 500) {
+      newLevel += 1;
+      newExp -= 500;
+      if (newLevel >= 5) newTitle = "Elite Hunter";
+      else if (newLevel >= 10) newTitle = "Trade Master";
+    }
+    
+    const newLog: ExpLog = {
+      id: `exp_${Date.now()}`,
+      amount,
+      reason: reason || 'Task Completed',
+      date: new Date().toISOString()
+    };
+    
+    return { userExp: newExp, userLevel: newLevel, userTitle: newTitle, expLogs: [newLog, ...state.expLogs] };
+  }),
+
+  clients: INITIAL_CLIENTS,
+  addClient: (client) => set((state) => ({
+    clients: [...state.clients, { ...client, id: `c${Date.now()}` }]
+  })),
+  editClient: (id, updates) => set((state) => ({
+    clients: state.clients.map(c => c.id === id ? { ...c, ...updates } : c)
+  })),
+  deleteClient: (id) => set((state) => ({
+    clients: state.clients.filter(c => c.id !== id),
+    selectedClientId: state.selectedClientId === id ? null : state.selectedClientId
+  })),
+  updateClientStatus: (id, status) => set((state) => ({
+    clients: state.clients.map(c => c.id === id ? { ...c, status, isDormant: false } : c)
+  })),
+  
+  addComment: (clientId, content, attachments) => set((state) => ({
+    clients: state.clients.map(c => {
+      if (c.id === clientId) {
+        const newComment: Comment = {
+          id: `cmt${Date.now()}`,
+          author: state.userTitle,
+          content,
+          createdAt: new Date().toISOString(),
+          attachments,
+          replies: []
+        };
+        return { ...c, comments: [...(c.comments || []), newComment] };
+      }
+      return c;
+    })
+  })),
+
+  addReply: (clientId, commentId, content, attachments) => set((state) => {
+    const addReplyRecursive = (comments: Comment[], targetId: string, reply: Comment): Comment[] => {
+      return comments.map(c => {
+        if (c.id === targetId) {
+          return { ...c, replies: [...(c.replies || []), reply] };
+        }
+        if (c.replies && c.replies.length > 0) {
+          return { ...c, replies: addReplyRecursive(c.replies, targetId, reply) };
+        }
+        return c;
+      });
+    };
+
+    return {
+      clients: state.clients.map(c => {
+        if (c.id === clientId) {
+          const newReply: Comment = {
+            id: `rep${Date.now()}`,
+            author: state.userTitle,
+            content,
+            createdAt: new Date().toISOString(),
+            attachments,
+            replies: []
+          };
+          const updatedComments = addReplyRecursive(c.comments || [], commentId, newReply);
+          return { ...c, comments: updatedComments };
+        }
+        return c;
+      })
+    };
+  }),
+
+  logs: INITIAL_LOGS,
+  addLog: (clientId, content) => set((state) => ({
+    logs: [{ id: `log_${Date.now()}`, clientId, date: new Date().toISOString(), content }, ...state.logs]
+  })),
+
+  emails: INITIAL_EMAILS,
+  addEmail: (email) => set((state) => ({
+    emails: [{ ...email, id: `e${Date.now()}`, date: new Date().toISOString() }, ...state.emails]
+  })),
+  editEmail: (id, updates) => set((state) => ({
+    emails: state.emails.map(e => e.id === id ? { ...e, ...updates } : e)
+  })),
+  markEmailRead: (id) => set((state) => ({
+    emails: state.emails.map(e => e.id === id ? { ...e, read: true } : e)
+  })),
+  addEmailComment: (emailId, content, attachments) => set((state) => ({
+    emails: state.emails.map(e => {
+      if (e.id === emailId) {
+        const newComment: Comment = {
+          id: `cmt${Date.now()}`,
+          author: state.userTitle,
+          content,
+          createdAt: new Date().toISOString(),
+          attachments,
+          replies: []
+        };
+        return { ...e, comments: [...(e.comments || []), newComment] };
+      }
+      return e;
+    })
+  })),
+  addEmailReply: (emailId, commentId, content, attachments) => set((state) => {
+    const addReplyRecursive = (comments: Comment[], targetId: string, reply: Comment): Comment[] => {
+      return comments.map(c => {
+        if (c.id === targetId) {
+          return { ...c, replies: [...(c.replies || []), reply] };
+        }
+        if (c.replies && c.replies.length > 0) {
+          return { ...c, replies: addReplyRecursive(c.replies, targetId, reply) };
+        }
+        return c;
+      });
+    };
+
+    return {
+      emails: state.emails.map(e => {
+        if (e.id === emailId) {
+          const newReply: Comment = {
+            id: `rep${Date.now()}`,
+            author: state.userTitle,
+            content,
+            createdAt: new Date().toISOString(),
+            attachments,
+            replies: []
+          };
+          const updatedComments = addReplyRecursive(e.comments || [], commentId, newReply);
+          return { ...e, comments: updatedComments };
+        }
+        return e;
+      })
+    };
+  }),
+  checkScheduledEmails: () => set((state) => {
+    const now = Date.now();
+    let changed = false;
+    const emails = state.emails.map(e => {
+      if (e.type === 'scheduled' && e.scheduledAt && new Date(e.scheduledAt).getTime() <= now) {
+        changed = true;
+        return { ...e, type: 'sent', date: new Date().toISOString() } as EmailMessage;
+      }
+      return e;
+    });
+    if (changed) {
+      return { emails };
+    }
+    return state;
+  }),
+
+  selectedClientId: null,
+  selectClient: (id) => set({ selectedClientId: id }),
+
+  dailyQuests: [
+    { id: 'q1', title: 'Wake up Dormant Clients', description: 'Contact 1 client inactive for >30 days.', expReward: 50, completed: false },
+    { id: 'q2', title: 'First Blood', description: 'Send out the first development email of the day.', expReward: 20, completed: false }
+  ],
+  addQuest: (quest) => set((state) => ({
+    dailyQuests: [...state.dailyQuests, { ...quest, id: `q${Date.now()}`, completed: false }]
+  })),
+  completeQuest: (id) => set((state) => {
+    const quest = state.dailyQuests.find(q => q.id === id);
+    if (quest && !quest.completed) {
+      setTimeout(() => state.addExp(quest.expReward, `Completed quest: ${quest.title}`), 0);
+      return {
+        dailyQuests: state.dailyQuests.map(q => q.id === id ? { ...q, completed: true } : q)
+      };
+    }
+    return state;
+  }),
+
+  broadcasts: [
+    { id: 'b1', message: '🎉 Sam just closed a Brazil deal! Global 2x EXP for 1hr!' }
+  ],
+  addBroadcast: (message) => set((state) => ({
+    broadcasts: [{ id: Date.now().toString(), message }, ...state.broadcasts].slice(0, 3)
+  }))
+}));
