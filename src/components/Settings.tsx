@@ -4,15 +4,16 @@ import { useAuthStore } from '../authStore';
 import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ProfileSettings } from './ProfileSettings';
-import { UserManagement } from './UserManagement';
+import { useTranslation } from '../lib/i18n';
 
 export function Settings() {
   const { 
     inboxConfigs, addInboxConfig, updateInboxConfig, deleteInboxConfig, 
     outboxConfigs, addOutboxConfig, updateOutboxConfig, deleteOutboxConfig,
     llmConfigs, addLLMConfig, updateLLMConfig, deleteLLMConfig, activeLLMId, setActiveLLMId,
-    llmMappings, setLLMMapping
+    llmMappings, setLLMMapping, language
   } = useStore();
+  const t = useTranslation(language);
   
   const { profile } = useAuthStore();
   
@@ -102,24 +103,23 @@ export function Settings() {
           <div>
             <h1 className="text-3xl font-bold flex items-center gap-3">
               <SettingsIcon className="w-8 h-8 text-slate-400" />
-              Settings
+              {t('settings')}
             </h1>
-            <p className="text-slate-400 mt-2">Manage your app configurations and active integrations.</p>
+            <p className="text-slate-400 mt-2">{t('manageAppDesc')}</p>
           </div>
         </div>
 
         <ProfileSettings />
-        {profile?.role === 'superadmin' && <UserManagement />}
 
         {/* Incoming Servers Section */}
         <section className="space-y-6 pt-6 border-t border-slate-800">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold flex items-center gap-2">
-              <Server className="w-5 h-5 text-indigo-400" /> Incoming Servers (Inbox)
+              <Server className="w-5 h-5 text-indigo-400" /> {t('incomingServers')}
             </h2>
             {editingInboxId === null && (
               <button onClick={handleAddNewInbox} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-bold shadow-lg transition-colors">
-                <Plus className="w-4 h-4" /> Add Inbox
+                <Plus className="w-4 h-4" /> {t('addInbox')}
               </button>
             )}
           </div>
@@ -127,7 +127,7 @@ export function Settings() {
           <div className="grid grid-cols-1 gap-4">
             {inboxConfigs.length === 0 && editingInboxId !== 'new' && (
               <div className="text-center py-12 bg-slate-950/30 rounded-xl border border-slate-800 text-slate-500">
-                No incoming servers configured. Click "Add Inbox" to set up your receiving emails.
+                {t('noIncomingServers')}
               </div>
             )}
             
@@ -147,10 +147,10 @@ export function Settings() {
                       />
                       <div className="flex items-center gap-2">
                          <button onClick={handleSaveInbox} className="flex items-center gap-1 text-sm font-bold bg-green-600 hover:bg-green-500 px-3 py-1.5 rounded-lg transition-colors">
-                           <Save className="w-4 h-4" /> Save
+                           <Save className="w-4 h-4" /> {t('save')}
                          </button>
                          <button onClick={() => setEditingInboxId(null)} className="flex items-center gap-1 text-sm font-bold bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-lg transition-colors">
-                           <X className="w-4 h-4" /> Cancel
+                           <X className="w-4 h-4" /> {t('cancel')}
                          </button>
                       </div>
                     </div>
@@ -259,11 +259,11 @@ export function Settings() {
         <section className="space-y-6">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold flex items-center gap-2">
-              <Send className="w-5 h-5 text-indigo-400" /> Outgoing Servers (Outbox)
+              <Send className="w-5 h-5 text-indigo-400" /> {t('outgoingServers')}
             </h2>
             {editingOutboxId === null && (
               <button onClick={handleAddNewOutbox} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-bold shadow-lg transition-colors">
-                <Plus className="w-4 h-4" /> Add Outbox
+                <Plus className="w-4 h-4" /> {t('addOutbox')}
               </button>
             )}
           </div>
@@ -271,7 +271,7 @@ export function Settings() {
           <div className="grid grid-cols-1 gap-4">
             {outboxConfigs.length === 0 && editingOutboxId !== 'new' && (
               <div className="text-center py-12 bg-slate-950/30 rounded-xl border border-slate-800 text-slate-500">
-                No outgoing servers configured. Click "Add Outbox" to set up your sending methods.
+                {t('noOutgoingServers')}
               </div>
             )}
             
@@ -291,10 +291,10 @@ export function Settings() {
                       />
                       <div className="flex items-center gap-2">
                          <button onClick={handleSaveOutbox} className="flex items-center gap-1 text-sm font-bold bg-green-600 hover:bg-green-500 px-3 py-1.5 rounded-lg transition-colors">
-                           <Save className="w-4 h-4" /> Save
+                           <Save className="w-4 h-4" /> {t('save')}
                          </button>
                          <button onClick={() => setEditingOutboxId(null)} className="flex items-center gap-1 text-sm font-bold bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-lg transition-colors">
-                           <X className="w-4 h-4" /> Cancel
+                           <X className="w-4 h-4" /> {t('cancel')}
                          </button>
                       </div>
                     </div>
@@ -446,11 +446,11 @@ export function Settings() {
         <section className="space-y-6 pt-6 border-t border-slate-800">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold flex items-center gap-2">
-              <Server className="w-5 h-5 text-indigo-400" /> AI Models (LLM)
+              <Server className="w-5 h-5 text-indigo-400" /> {t('aiModels')}
             </h2>
             {editingLLMId === null && (
               <button onClick={handleAddNewLLM} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-bold shadow-lg transition-colors">
-                <Plus className="w-4 h-4" /> Add AI Provider
+                <Plus className="w-4 h-4" /> {t('addAIProvider')}
               </button>
             )}
           </div>
@@ -458,12 +458,12 @@ export function Settings() {
           <div className="grid grid-cols-1 gap-4">
             {llmConfigs.length > 0 && (
               <div className="bg-slate-800/50 border border-indigo-500/30 rounded-xl p-5 mb-4 shadow-sm">
-                <h3 className="text-sm font-bold text-slate-300 mb-4 px-1">Functional Module Assignments</h3>
+                <h3 className="text-sm font-bold text-slate-300 mb-4 px-1">{t('functionalAssignments')}</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {[
-                    { key: 'magic', label: 'Magic Commands', desc: '/icebreaker, /draft' },
-                    { key: 'drafting', label: 'Email Drafting', desc: 'Auto-detect purpose & write' },
-                    { key: 'analysis', label: 'Client Analysis', desc: 'Icebreakers & actionables' }
+                    { key: 'magic', label: t('magicCommands'), desc: '/icebreaker, /draft' },
+                    { key: 'drafting', label: t('emailDrafting'), desc: 'Auto-detect purpose & write' },
+                    { key: 'analysis', label: t('clientAnalysis'), desc: 'Icebreakers & actionables' }
                   ].map(mod => (
                     <div key={mod.key} className="bg-slate-900 border border-slate-700 rounded-lg p-4 flex flex-col gap-2">
                       <div>
@@ -488,7 +488,7 @@ export function Settings() {
 
             {llmConfigs.length === 0 && editingLLMId !== 'new' && (
               <div className="text-center py-12 bg-slate-950/30 rounded-xl border border-slate-800 text-slate-500">
-                No custom AI providers configured. Default internal Gemini will be used.
+                {t('noAIProviders')}
               </div>
             )}
             
@@ -508,7 +508,7 @@ export function Settings() {
                       />
                       <div className="flex items-center gap-2">
                         <button onClick={handleSaveLLM} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-500 hover:bg-indigo-400 text-white rounded-lg text-sm transition-colors">
-                          <Save className="w-4 h-4" /> Save
+                          <Save className="w-4 h-4" /> {t('save')}
                         </button>
                         <button onClick={() => setEditingLLMId(null)} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors">
                           <X className="w-4 h-4" />

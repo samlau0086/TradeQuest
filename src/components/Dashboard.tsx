@@ -1,12 +1,26 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useStore } from '../store';
-import { Trophy, Star, History, Flame, ArrowUpCircle, Award, Target, CheckCircle2 } from 'lucide-react';
+import { Trophy, Star, History, Flame, ArrowUpCircle, Award, Target, CheckCircle2, ChevronDown } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useTranslation } from '../lib/i18n';
 
 export function Dashboard() {
   const { userExp, userLevel, userTitle, currentStreak, dailyQuests, expLogs, setView, skipQuest, language } = useStore();
   const t = useTranslation(language);
+  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setActiveDropdown(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
 
   const expToNextLevel = 500;
   const progressPercent = (userExp / expToNextLevel) * 100;
@@ -92,7 +106,7 @@ export function Dashboard() {
               <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
                 <Target className="w-5 h-5 text-red-500" /> {t('quests')}
               </h2>
-              <div className="space-y-3">
+              <div className="space-y-3" ref={dropdownRef}>
                 {visibleQuests.map((quest) => (
                   <div 
                     key={quest.id} 
@@ -131,23 +145,37 @@ export function Dashboard() {
                                {t('viewClients')}
                             </button>
                           )}
-                           <select
-                             onChange={(e) => {
-                               if (e.target.value) {
-                                 skipQuest(quest.id, parseInt(e.target.value, 10));
-                                 e.target.value = "";
-                               }
-                             }}
-                             className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-sm font-bold text-slate-200 rounded-lg transition-colors border border-slate-700 cursor-pointer outline-none"
-                          >
-                             <option value="">{t('skip')}</option>
-                             <option value="1">{t('skip1')}</option>
-                             <option value="3">{t('skip3')}</option>
-                             <option value="5">{t('skip5')}</option>
-                             <option value="7">{t('skip7')}</option>
-                             <option value="15">{t('skip15')}</option>
-                             <option value="30">{t('skip30')}</option>
-                          </select>
+                          <div className="relative">
+                            <button
+                               onClick={() => setActiveDropdown(activeDropdown === quest.id ? null : quest.id)}
+                               className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-sm font-bold text-slate-200 rounded-lg transition-colors border border-slate-700 cursor-pointer outline-none flex items-center gap-1 min-w-[72px] justify-center"
+                            >
+                               {t('skip')} <ChevronDown className="w-4 h-4 ml-1 opacity-70" />
+                            </button>
+                            {activeDropdown === quest.id && (
+                                <div className="absolute top-full z-50 right-0 mt-2 w-32 bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2">
+                                  {[
+                                    { value: 1, label: t('skip1') },
+                                    { value: 3, label: t('skip3') },
+                                    { value: 5, label: t('skip5') },
+                                    { value: 7, label: t('skip7') },
+                                    { value: 15, label: t('skip15') },
+                                    { value: 30, label: t('skip30') }
+                                  ].map((option) => (
+                                    <button
+                                      key={option.value}
+                                      onClick={() => {
+                                        skipQuest(quest.id, option.value);
+                                        setActiveDropdown(null);
+                                      }}
+                                      className="w-full text-left px-4 py-2 text-sm text-slate-200 hover:bg-slate-700 transition-colors whitespace-nowrap"
+                                    >
+                                      {option.label} <span className="text-red-400 font-medium ml-2">-{Math.floor(quest.expReward * 0.1 * option.value)} EXP</span>
+                                    </button>
+                                  ))}
+                                </div>
+                            )}
+                          </div>
                         </div>
                       ) : (
                         <span className="text-xs font-bold text-slate-500 uppercase px-4 py-2">{t('done')}</span>
@@ -164,14 +192,13 @@ export function Dashboard() {
           <div className="bg-slate-950/50 rounded-2xl border border-slate-800 shadow-sm flex flex-col h-full min-h-[500px]">
              <div className="p-6 border-b border-slate-800 shrink-0">
                <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                 <History className="w-5 h-5 text-indigo-400" /> EXP History
+                 <History className="w-5 h-5 text-indigo-400" /> {t('expHistory')}
                </h2>
              </div>
              <div className="p-4 flex-1 overflow-y-auto scrollbar-thin">
                <div className="space-y-3">
                  {expLogs.length === 0 ? (
-                   <div className="text-center text-slate-500 py-12 text-sm">
-                     No experience points earned yet. <br/> Complete quests to level up!
+                   <div className="text-center text-slate-500 py-12 text-sm" dangerouslySetInnerHTML={{__html: t('noExp')}}>
                    </div>
                  ) : (
                    expLogs.map(log => (

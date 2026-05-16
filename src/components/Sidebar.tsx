@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { useStore } from '../store';
 import { cn } from '../lib/utils';
-import { Swords, Trophy, Map as MapIcon, KanbanSquare, Tags, LogOut, Flame, Plus, Mail, Settings as SettingsIcon, Sun, Moon, Languages } from 'lucide-react';
+import { Swords, Trophy, Map as MapIcon, KanbanSquare, Tags, LogOut, Flame, Plus, Mail, Settings as SettingsIcon, Sun, Moon, Languages, Shield, Globe, Users } from 'lucide-react';
 import { ClientFormModal } from './ClientFormModal';
 import { ExpHistoryModal } from './ExpHistoryModal';
+import { useAuthStore } from '../authStore';
 import { useTranslation } from '../lib/i18n';
 
 export function Sidebar() {
   const { userExp, userLevel, userTitle, currentStreak, dailyQuests, view, setView, setKanbanSearch, clients, theme, setTheme, language, setLanguage } = useStore();
+  const { profile } = useAuthStore();
   const [showAddModal, setShowAddModal] = useState(false);
   const [showExpHistory, setShowExpHistory] = useState(false);
   
@@ -90,12 +92,28 @@ export function Sidebar() {
           {t('inbox')}
         </button>
         <button 
+          onClick={() => setView('clients')}
+          className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors", 
+            view === 'clients' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
+        >
+          <Users className="w-5 h-5" />
+          {t('clientsMenu')}
+        </button>
+        <button 
           onClick={() => setView('kanban')}
           className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors", 
             view === 'kanban' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
         >
           <KanbanSquare className="w-5 h-5" />
           {t('kanbanView')}
+        </button>
+        <button 
+          onClick={() => setView('public-pool')}
+          className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors", 
+            view === 'public-pool' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
+        >
+          <Globe className="w-5 h-5" />
+          {t('publicPool')}
         </button>
         <button 
           onClick={() => setView('settings')}
@@ -105,12 +123,22 @@ export function Sidebar() {
           <SettingsIcon className="w-5 h-5" />
           {t('settings')}
         </button>
+        {profile?.role === 'superadmin' && (
+          <button 
+            onClick={() => setView('user-management')}
+            className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors", 
+              view === 'user-management' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
+          >
+            <Shield className="w-5 h-5 text-indigo-400" />
+            {t('userManagement')}
+          </button>
+        )}
       </div>
 
       {/* Quick Tags / Slices */}
       <div className="px-6 mb-8 flex-1">
         <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center justify-between">
-          <span className="flex items-center gap-2"><Tags className="w-4 h-4" /> Smart Views</span>
+          <span className="flex items-center gap-2"><Tags className="w-4 h-4" /> {t('smartViews')}</span>
         </h3>
         <div className="space-y-2 mb-6">
           {allTags.map(tag => (
@@ -129,7 +157,7 @@ export function Sidebar() {
             onClick={() => { setView('dormant'); }}
             className="w-full text-left px-2 py-1.5 rounded text-sm text-slate-400 hover:text-cyan-400 hover:bg-cyan-950/30 transition-colors"
           >
-            #WakeUp
+            {t('wakeUp')}
           </button>
         </div>
         

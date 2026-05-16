@@ -1,9 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useAuthStore, UserProfile } from '../authStore';
 import { Users, Shield, User, Loader2, Trash2 } from 'lucide-react';
+import { useTranslation } from '../lib/i18n';
+import { useStore } from '../store';
 
 export function UserManagement() {
   const { profile } = useAuthStore();
+  const { language } = useStore();
+  const t = useTranslation(language);
   const [users, setUsers] = useState<(UserProfile & { id: string })[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -66,24 +70,28 @@ export function UserManagement() {
   };
 
   return (
-    <div className="space-y-6 pt-6 border-t border-slate-800">
-      <h2 className="text-xl font-bold flex items-center gap-2">
-        <Users className="w-5 h-5 text-indigo-400" /> User Management
-      </h2>
+    <div className="space-y-6 pt-6">
+      <div>
+        <h1 className="text-3xl font-bold flex items-center gap-3">
+          <Shield className="w-8 h-8 text-indigo-400" />
+          {t('userManagement')}
+        </h1>
+        <p className="text-slate-400 mt-2">{t('manageUsersDesc')}</p>
+      </div>
 
       {loading ? (
         <div className="flex items-center gap-2 text-slate-400">
-          <Loader2 className="w-4 h-4 animate-spin" /> Loading users...
+          <Loader2 className="w-4 h-4 animate-spin" /> {t('loadingUsers')}
         </div>
       ) : (
         <div className="bg-slate-800 border border-slate-700/50 rounded-xl overflow-hidden shadow-xl">
           <table className="w-full text-left text-sm text-slate-300">
             <thead className="bg-slate-900 border-b border-slate-700 text-slate-400 uppercase text-xs">
               <tr>
-                <th className="px-4 py-3">User</th>
-                <th className="px-4 py-3">Role</th>
-                <th className="px-4 py-3">Joined</th>
-                <th className="px-4 py-3 text-right">Actions</th>
+                <th className="px-4 py-3">{t('user')}</th>
+                <th className="px-4 py-3">{t('role')}</th>
+                <th className="px-4 py-3">{t('joined')}</th>
+                <th className="px-4 py-3 text-right">{t('actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -99,7 +107,7 @@ export function UserManagement() {
                         </div>
                       )}
                       <div>
-                        <div className="font-bold text-slate-200">{u.displayName || 'No Name'}</div>
+                        <div className="font-bold text-slate-200">{u.displayName || t('noName')}</div>
                         <div className="text-xs text-slate-500">{u.email}</div>
                       </div>
                     </div>
@@ -110,8 +118,8 @@ export function UserManagement() {
                       onChange={(e) => handleRoleChange(u.id, e.target.value as any)}
                       className={`bg-slate-900 border rounded px-2 py-1 text-xs font-bold outline-none ${u.role === 'superadmin' ? 'border-indigo-500 text-indigo-400' : 'border-slate-700 text-slate-300'}`}
                     >
-                      <option value="user">User</option>
-                      <option value="superadmin">Super Admin</option>
+                      <option value="user">{t('user')}</option>
+                      <option value="superadmin">{t('superAdmin')}</option>
                     </select>
                   </td>
                   <td className="px-4 py-3 text-xs text-slate-400">

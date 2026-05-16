@@ -6,6 +6,7 @@ export interface UserProfile {
   role: 'user' | 'superadmin';
   displayName?: string;
   avatarUrl?: string;
+  points?: number;
   createdAt: string;
   updatedAt: string;
 }

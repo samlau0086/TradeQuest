@@ -26,9 +26,12 @@ async function initDB() {
         role VARCHAR(50) DEFAULT 'user',
         display_name VARCHAR(100),
         avatar_url TEXT,
+        points INT DEFAULT 0,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
+      
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS points INT DEFAULT 0;
       
       CREATE TABLE IF NOT EXISTS clients (
         id VARCHAR(128) PRIMARY KEY,
@@ -72,6 +75,33 @@ async function initDB() {
         scheduled_at TIMESTAMP WITH TIME ZONE,
         attachments JSONB DEFAULT '[]'
       );
+      
+      CREATE TABLE IF NOT EXISTS deals (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        client_id VARCHAR(128) REFERENCES clients(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        value NUMERIC(15,2) DEFAULT 0,
+        status VARCHAR(50) DEFAULT 'Leads',
+        contact_info JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+      
+      ALTER TABLE deals ADD COLUMN IF NOT EXISTS contact_info JSONB DEFAULT '{}'::jsonb;
+
+      -- Migrate existing clients to a default deal if none exist for that client
+      INSERT INTO deals (id, user_id, client_id, name, status, created_at, updated_at)
+      SELECT 
+        'd_' || floor(extract(epoch from now()))::text || '_' || id,
+        user_id,
+        id,
+        COALESCE(company, name) || ' Default Deal',
+        status,
+        created_at,
+        updated_at
+      FROM clients c
+      WHERE NOT EXISTS (SELECT 1 FROM deals d WHERE d.client_id = c.id);
     `);
     
     // Seed default admin account
@@ -188,11 +218,11 @@ No markdown wrappers, just valid JSON.`;
       const { email, password, displayName } = req.body;
       const id = crypto.randomUUID();
       const passwordHash = await bcrypt.hash(password, 10);
-      const role = email === 'samlau0086@gmail.com' ? 'superadmin' : 'user';
+      const role = (email === 'samlau0086@gmail.com' || email === 'agqyed01@gmail.com') ? 'superadmin' : 'user';
 
       const result = await pool.query(
         `INSERT INTO users (id, email, password_hash, display_name, role)
-         VALUES ($1, $2, $3, $4, $5) RETURNING id, email, display_name, role, avatar_url, created_at, updated_at`,
+         VALUES ($1, $2, $3, $4, $5) RETURNING id, email, display_name, role, avatar_url, points, created_at, updated_at`,
         [id, email, passwordHash, displayName, role]
       );
       
@@ -200,7 +230,7 @@ No markdown wrappers, just valid JSON.`;
       const token = jwt.sign({ uid: user.id }, JWT_SECRET, { expiresIn: '7d' });
       
       res.json({ token, user: {
-        id: user.id, email: user.email, role: user.role, displayName: user.display_name, avatarUrl: user.avatar_url, createdAt: user.created_at, updatedAt: user.updated_at
+        id: user.id, email: user.email, role: user.role, displayName: user.display_name, avatarUrl: user.avatar_url, points: user.points, createdAt: user.created_at, updatedAt: user.updated_at
       } });
     } catch (e: any) {
       if (e.code === '23505') {
@@ -223,7 +253,7 @@ No markdown wrappers, just valid JSON.`;
       
       const token = jwt.sign({ uid: user.id }, JWT_SECRET, { expiresIn: '7d' });
       res.json({ token, user: {
-        id: user.id, email: user.email, role: user.role, displayName: user.display_name, avatarUrl: user.avatar_url, createdAt: user.created_at, updatedAt: user.updated_at
+        id: user.id, email: user.email, role: user.role, displayName: user.display_name, avatarUrl: user.avatar_url, points: user.points, createdAt: user.created_at, updatedAt: user.updated_at
       } });
     } catch (e) {
       console.error(e);
@@ -244,7 +274,7 @@ No markdown wrappers, just valid JSON.`;
       if (!user) return res.status(404).json({ error: 'User not found' });
       
       res.json({
-        id: user.id, email: user.email, role: user.role, displayName: user.display_name, avatarUrl: user.avatar_url, createdAt: user.created_at, updatedAt: user.updated_at
+        id: user.id, email: user.email, role: user.role, displayName: user.display_name, avatarUrl: user.avatar_url, points: user.points, createdAt: user.created_at, updatedAt: user.updated_at
       });
     } catch (e) {
       res.status(401).json({ error: 'Invalid token' });
@@ -422,9 +452,130 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
+  // Auto-release logic
+  const releaseIdleLeads = async () => {
+    try {
+      const result = await pool.query(`
+        UPDATE clients 
+        SET user_id = NULL 
+        WHERE user_id IS NOT NULL 
+          AND status IN ('Leads', 'Contacted')
+          AND (
+            (last_contact IS NOT NULL AND last_contact < NOW() - INTERVAL '30 days')
+            OR
+            (last_contact IS NULL AND created_at < NOW() - INTERVAL '30 days')
+            OR
+            (created_at < NOW() - INTERVAL '90 days')
+          )
+      `);
+      if (result.rowCount && result.rowCount > 0) {
+        console.log(`Auto-released ${result.rowCount} idle leads to the public pool.`);
+      }
+    } catch (e) {
+      console.error('Failed to release idle leads:', e);
+    }
+  };
+
+  // Run idle release periodically
+  setInterval(releaseIdleLeads, 60 * 60 * 1000); // Check every hour
+  
+  // Deals API Endpoints
+  app.get('/api/deals', authenticateToken, async (req: any, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM deals WHERE user_id = $1 ORDER BY updated_at DESC', [req.user.uid]);
+      res.json(result.rows.map(row => ({
+        id: row.id,
+        clientId: row.client_id,
+        name: row.name,
+        value: row.value,
+        status: row.status,
+        contactInfo: row.contact_info,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+      })));
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  app.post('/api/deals', authenticateToken, async (req: any, res) => {
+    try {
+      const { id, clientId, name, value, status, contactInfo } = req.body;
+      const result = await pool.query(
+        `INSERT INTO deals (id, user_id, client_id, name, value, status, contact_info)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+        [id, req.user.uid, clientId || null, name, value || 0, status || 'Leads', contactInfo || {}]
+      );
+      res.json(result.rows[0]);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  app.patch('/api/deals/:id', authenticateToken, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { status, name, value, contactInfo, clientId } = req.body;
+      
+      const updates: string[] = [];
+      const values: any[] = [];
+      let idx = 1;
+      
+      if (status !== undefined) {
+        updates.push(`status = $${idx++}`);
+        values.push(status);
+      }
+      if (name !== undefined) {
+        updates.push(`name = $${idx++}`);
+        values.push(name);
+      }
+      if (value !== undefined) {
+        updates.push(`value = $${idx++}`);
+        values.push(value);
+      }
+      if (contactInfo !== undefined) {
+        updates.push(`contact_info = $${idx++}`);
+        values.push(contactInfo);
+      }
+      if (clientId !== undefined) {
+        updates.push(`client_id = $${idx++}`);
+        values.push(clientId);
+      }
+      
+      updates.push(`updated_at = CURRENT_TIMESTAMP`);
+      values.push(id);
+      values.push(req.user.uid);
+      
+      if (updates.length > 1) { // updated_at is always there
+        await pool.query(
+          `UPDATE deals SET ${updates.join(', ')} WHERE id = $${idx} AND user_id = $${idx + 1}`,
+          values
+        );
+      }
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  app.delete('/api/deals/:id', authenticateToken, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      await pool.query('DELETE FROM deals WHERE id = $1 AND user_id = $2', [id, req.user.uid]);
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
   // Clients API Endpoints
   app.get('/api/clients', authenticateToken, async (req: any, res) => {
     try {
+      await releaseIdleLeads(); // Run on fetch to ensure up-to-date state
       const result = await pool.query('SELECT * FROM clients WHERE user_id = $1 ORDER BY updated_at DESC', [req.user.uid]);
       res.json(result.rows.map(row => ({
         id: row.id,
@@ -444,15 +595,114 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
+  app.get('/api/public-leads', authenticateToken, async (req: any, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM clients WHERE user_id IS NULL ORDER BY created_at DESC');
+      res.json(result.rows.map(row => ({
+        id: row.id,
+        name: row.name,
+        company: row.company,
+        country: row.country,
+        status: row.status,
+        tags: row.tags,
+        lastContact: row.last_contact,
+        isDormant: row.is_dormant,
+        contactMethods: row.contact_methods,
+        comments: row.comments
+      })));
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to fetch public leads' });
+    }
+  });
+
+  app.post('/api/public-leads/:id/claim', authenticateToken, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const result = await pool.query(
+        `UPDATE clients SET user_id = $1, status = 'Leads', updated_at = CURRENT_TIMESTAMP, created_at = CURRENT_TIMESTAMP, last_contact = CURRENT_TIMESTAMP WHERE id = $2 AND user_id IS NULL RETURNING id`,
+        [req.user.uid, id]
+      );
+      if (result.rows.length === 0) {
+        return res.status(400).json({ error: 'Lead already claimed or not found' });
+      }
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to claim lead' });
+    }
+  });
+
+  app.post('/api/public-leads/import', authenticateToken, async (req: any, res) => {
+    try {
+      const { leads } = req.body;
+      if (!Array.isArray(leads)) return res.status(400).json({ error: 'invalid data' });
+
+      let addedCount = 0;
+      for (const lead of leads) {
+        const incomingMethods = (lead.contactMethods || []).filter((cm: any) => cm.value).map((cm: any) => cm.value);
+        if (incomingMethods.length > 0) {
+          const checkQuery = `
+            SELECT id FROM clients 
+            WHERE EXISTS (
+              SELECT 1 FROM jsonb_array_elements(contact_methods) as cm 
+              WHERE cm->>'value' = ANY($1::text[])
+            ) LIMIT 1
+          `;
+          const checkRes = await pool.query(checkQuery, [incomingMethods]);
+          if (checkRes.rows.length > 0) {
+            continue; // Skip duplicates
+          }
+        }
+        
+        const id = `c${Date.now()}${Math.floor(Math.random()*1000)}`;
+        await pool.query(
+          `INSERT INTO clients (id, user_id, name, company, country, status, tags, last_contact, is_dormant, contact_methods, comments)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+          [id, null, lead.name, lead.company || '', lead.country || '', 'Leads', JSON.stringify(lead.tags || []), null, false, JSON.stringify(lead.contactMethods || []), JSON.stringify([])]
+        );
+        addedCount++;
+      }
+      
+      if (addedCount > 0) {
+        await pool.query(`UPDATE users SET points = points + $1 WHERE id = $2`, [addedCount * 10, req.user.uid]);
+      }
+      
+      res.json({ success: true, count: addedCount, pointsAdded: addedCount * 10 });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to import leads' });
+    }
+  });
+
   app.post('/api/clients', authenticateToken, async (req: any, res) => {
     try {
       const { id, name, company, country, status, tags, lastContact, isDormant, contactMethods, comments } = req.body;
+      
+      const incomingMethods = (contactMethods || []).filter((cm: any) => cm.value).map((cm: any) => cm.value);
+      if (incomingMethods.length > 0) {
+        const checkQuery = `
+          SELECT id FROM clients 
+          WHERE EXISTS (
+            SELECT 1 FROM jsonb_array_elements(contact_methods) as cm 
+            WHERE cm->>'value' = ANY($1::text[])
+          ) LIMIT 1
+        `;
+        const checkRes = await pool.query(checkQuery, [incomingMethods]);
+        if (checkRes.rows.length > 0) {
+          return res.status(409).json({ error: 'Duplicate contact method found', skipped: true });
+        }
+      }
+
       await pool.query(
         `INSERT INTO clients (id, user_id, name, company, country, status, tags, last_contact, is_dormant, contact_methods, comments)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [id, req.user.uid, name, company, country, status, JSON.stringify(tags || []), lastContact || null, !!isDormant, JSON.stringify(contactMethods || []), JSON.stringify(comments || [])]
       );
-      res.json({ success: true });
+
+      await pool.query(`UPDATE users SET points = points + 10 WHERE id = $1`, [req.user.uid]);
+
+      res.json({ success: true, pointsAdded: 10 });
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: 'Failed to insert client' });
@@ -534,6 +784,7 @@ No markdown wrappers, just valid JSON.`;
         `INSERT INTO logs (id, client_id, date, content) VALUES ($1, $2, $3, $4)`,
         [id, clientId, date || new Date().toISOString(), content]
       );
+      await pool.query(`UPDATE clients SET last_contact = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND user_id = $2`, [clientId, req.user.uid]);
       res.json({ success: true });
     } catch (e) {
       console.error(e);
@@ -578,6 +829,9 @@ No markdown wrappers, just valid JSON.`;
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
         [id, req.user.uid, clientId || null, sender, senderName, recipient, cc, bcc, subject, body, date || new Date().toISOString(), !!read, type, JSON.stringify(tags || []), JSON.stringify(comments || []), scheduledAt || null, JSON.stringify(attachments || [])]
       );
+      if (clientId) {
+        await pool.query(`UPDATE clients SET last_contact = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND user_id = $2`, [clientId, req.user.uid]);
+      }
       res.json({ success: true });
     } catch (e) {
       console.error(e);

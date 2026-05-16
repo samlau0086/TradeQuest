@@ -10,6 +10,7 @@ const CONTACT_ICONS = {
   messenger: MessageCircle,
   telegram: Send,
   phone: Phone,
+  wechat: MessageSquare,
 };
 
 import { User } from 'lucide-react';
@@ -101,6 +102,10 @@ function ContactActionBox({ method, client, onClose }: { method: ContactMethod, 
     } else if (method.type === 'whatsapp') {
       const phone = method.value.replace(/[^a-zA-Z0-9+]/g, '');
       window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(text)}`, '_blank');
+    } else if (method.type === 'wechat') {
+      navigator.clipboard.writeText(text);
+      // WeChat doesn't have a reliable web url scheme that takes pre-filled text like WhatsApp
+      alert("Text copied to clipboard. Please paste it in WeChat.");
     } else {
       navigator.clipboard.writeText(text);
     }
@@ -163,7 +168,7 @@ function ContactActionBox({ method, client, onClose }: { method: ContactMethod, 
          <button onClick={onClose} className="px-3 py-1 text-xs text-slate-400 hover:text-slate-200 transition-colors">Cancel</button>
          <button onClick={handleAction} className="px-3 py-1 bg-cyan-600 text-white rounded text-xs font-medium hover:bg-cyan-500 flex items-center gap-1 transition-colors">
            <Send className="w-3 h-3"/> 
-           {method.type === 'email' ? 'Send Email' : method.type === 'whatsapp' ? 'Open WhatsApp' : 'Copy Text'}
+           {method.type === 'email' ? 'Send Email' : method.type === 'whatsapp' ? 'Open WhatsApp' : method.type === 'wechat' ? 'Copy for WeChat' : 'Copy Text'}
          </button>
        </div>
     </div>

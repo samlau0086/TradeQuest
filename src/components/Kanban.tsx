@@ -1,9 +1,9 @@
 import React, { useState, useRef } from 'react';
 import { useStore, ClientStatus, Client } from '../store';
 import { cn } from '../lib/utils';
-import { Mail, Clock, CheckCircle, Search, Target, MessageCircle, Send, Phone, X, Plus, LayoutGrid, List as ListIcon, Download, Upload, Map as MapIcon } from 'lucide-react';
+import { Mail, Clock, CheckCircle, Search, Target, MessageCircle, Send, Phone, X, Plus, LayoutGrid, List as ListIcon, Download, Upload, Map as MapIcon, Edit2 } from 'lucide-react';
 import { PipelineList } from './PipelineList';
-import { ClientFormModal } from './ClientFormModal';
+import { DealFormModal } from './DealFormModal';
 import { WorldMap } from './WorldMap';
 import { UploadCSVModal } from './UploadCSVModal';
 import Papa from 'papaparse';
@@ -19,7 +19,7 @@ const CONTACT_ICONS: any = {
 const COLUMNS: ClientStatus[] = ['Leads', 'Contacted', 'Sample Sent', 'Negotiating', 'Closed Won'];
 
 export function Kanban() {
-  const { clients, selectClient, updateClientStatus, kanbanSearch, setKanbanSearch, addClient } = useStore();
+  const { clients, deals, selectClient, updateDeal, kanbanSearch, setKanbanSearch, addClient, addDeal } = useStore();
   const [viewMode, setViewMode] = useState<'board' | 'list' | 'map'>('board');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -27,26 +27,48 @@ export function Kanban() {
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    e.currentTarget.classList.add('border-cyan-500/50', 'bg-cyan-950/10');
+    e.currentTarget.classList.add('border-cyan-500/50', 'bg-cyan-950/10', 'column-drag-over');
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
-    e.currentTarget.classList.remove('border-cyan-500/50', 'bg-cyan-950/10');
+    e.currentTarget.classList.remove('border-cyan-500/50', 'bg-cyan-950/10', 'column-drag-over');
   };
 
   const handleDrop = (e: React.DragEvent, status: ClientStatus) => {
     e.preventDefault();
-    e.currentTarget.classList.remove('border-cyan-500/50', 'bg-cyan-950/10');
-    const clientId = e.dataTransfer.getData('clientId');
-    if (clientId) {
-      updateClientStatus(clientId, status);
+    e.currentTarget.classList.remove('border-cyan-500/50', 'bg-cyan-950/10', 'column-drag-over');
+    const dealId = e.dataTransfer.getData('dealId');
+    if (dealId) {
+      updateDeal(dealId, { status });
     }
   };
 
-  const filteredClients = clients.filter(c => {
+  // Build deal view models
+  const dealViewModels = React.useMemo(() => {
+    return deals.map(deal => {
+      let client = clients.find(c => c.id === deal.clientId);
+      if (!client && deal.contactInfo) {
+        client = {
+          id: '',
+          name: deal.contactInfo.name,
+          company: deal.contactInfo.company,
+          country: deal.contactInfo.country,
+          contactMethods: deal.contactInfo.contactMethods || [],
+          tags: deal.contactInfo.tags || [],
+          status: 'Leads',
+          isDormant: false,
+          lastContact: deal.createdAt,
+          comments: []
+        };
+      }
+      return { deal, client };
+    }).filter(d => d.client);
+  }, [deals, clients]);
+
+  const filteredDeals = dealViewModels.filter(({ deal, client }) => {
     if (!kanbanSearch) return true;
     const term = kanbanSearch.toLowerCase();
-    const searchable = `${c.name} ${c.company} ${c.country} ${c.tags.join(' ')}`.toLowerCase();
+    const searchable = `${deal.name} ${client?.name} ${client?.company} ${client?.country} ${client?.tags.join(' ')}`.toLowerCase();
     return searchable.includes(term);
   });
 
@@ -78,14 +100,20 @@ export function Kanban() {
       complete: (results) => {
         results.data.forEach((row: any) => {
           if (row.Name) {
-             addClient({
+             const clientId = addClient({
                name: row.Name,
                company: row.Company || 'Unknown',
                country: row.Country || 'Unknown',
-               status: (COLUMNS.includes(row.Status) ? row.Status : 'Leads') as ClientStatus,
+               status: 'Leads',
                tags: row.Tags ? row.Tags.split(',').map((t: string) => t.trim()) : [],
                contactMethods: row.ContactMethodValue ? [{ type: (row.ContactMethodType || 'email') as any, value: row.ContactMethodValue }] : [],
                lastContact: new Date().toISOString()
+             });
+             addDeal({
+               clientId,
+               name: row.Company ? `${row.Company} Lead` : `${row.Name} Lead`,
+               value: parseFloat(row.Value) || 0,
+               status: (COLUMNS.includes(row.Status) ? row.Status : 'Leads') as ClientStatus,
              });
           }
         });
@@ -153,12 +181,12 @@ export function Kanban() {
       {viewMode === 'board' ? (
         <div className="flex-1 overflow-x-auto px-6 pt-6 pb-2 flex gap-4 overflow-y-hidden">
           {COLUMNS.map(col => {
-            const columnClients = filteredClients.filter(c => c.status === col);
+            const columnDeals = filteredDeals.filter(d => d.deal.status === col);
             
             return (
             <div 
               key={col} 
-              className="w-72 shrink-0 flex flex-col h-full bg-slate-800/30 rounded-xl border border-slate-800 p-3 transition-colors"
+              className="group w-72 shrink-0 flex flex-col h-full bg-slate-800/30 rounded-xl border border-slate-800 p-3 transition-colors"
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={(e) => handleDrop(e, col)}
@@ -166,19 +194,20 @@ export function Kanban() {
               <div className="flex items-center justify-between mb-4 px-1">
                 <h3 className="font-bold text-slate-300 text-sm">{col}</h3>
                 <span className="text-xs bg-slate-700 text-slate-300 py-0.5 px-2 rounded-full font-medium">
-                  {columnClients.length}
+                  {columnDeals.length}
                 </span>
               </div>
               
               <div className="flex flex-col gap-3 overflow-y-auto pb-2 scrollbar-thin flex-1">
-                {columnClients.map(client => (
-                  <ClientCard key={client.id} client={client} onClick={() => selectClient(client.id)} />
+                {columnDeals.map(({ deal, client }) => (
+                  <DealCard key={deal.id} deal={deal} client={client!} onClick={() => selectClient(client!.id)} />
                 ))}
-                {columnClients.length === 0 && (
-                  <div className="h-24 border-2 border-dashed border-slate-700/50 rounded-lg flex items-center justify-center text-slate-500 text-xs font-medium pointer-events-none">
-                    Drop target
-                  </div>
-                )}
+                <div className={cn(
+                  "h-28 border-2 border-dashed border-cyan-500/50 rounded-lg items-center justify-center text-cyan-500/50 text-xs font-medium pointer-events-none transition-all duration-200 bg-cyan-950/10",
+                  columnDeals.length === 0 ? "flex h-24 border-slate-700/50 text-slate-500 bg-transparent group-[.column-drag-over]:border-cyan-500/50 group-[.column-drag-over]:text-cyan-500/50 group-[.column-drag-over]:bg-cyan-950/10" : "hidden group-[.column-drag-over]:flex opacity-0 group-[.column-drag-over]:opacity-100"
+                )}>
+                  Drop here
+                </div>
               </div>
             </div>
           );
@@ -187,20 +216,24 @@ export function Kanban() {
       ) : viewMode === 'list' ? (
         <PipelineList />
       ) : (
-        <WorldMap />
+        <WorldMap onCountryClick={(country) => {
+          setKanbanSearch(country);
+          setViewMode('list');
+        }} />
       )}
 
-      {showAddModal && <ClientFormModal onClose={() => setShowAddModal(false)} onSave={(id) => selectClient(id)} />}
+      {showAddModal && <DealFormModal onClose={() => setShowAddModal(false)} />}
       
       {showUploadModal && <UploadCSVModal onClose={() => setShowUploadModal(false)} onUpload={handleCSVUpload} />}
     </div>
   );
 }
 
-function ClientCard({ client, onClick }: { key?: string | number, client: Client, onClick: () => void }) {
-  const { editClient } = useStore();
+function DealCard({ deal, client, onClick }: { key?: string | number, deal: any, client: Client, onClick: () => void }) {
+  const { editClient, updateDeal, addClient } = useStore();
   const [isEditingTags, setIsEditingTags] = useState(false);
   const [newTag, setNewTag] = useState('');
+  const [showEditDeal, setShowEditDeal] = useState(false);
 
   const handleAddTag = (e: React.FormEvent) => {
     e.preventDefault();
@@ -209,7 +242,12 @@ function ClientCard({ client, onClick }: { key?: string | number, client: Client
       if (!finalTag.startsWith('#')) {
         finalTag = '#' + finalTag;
       }
-      editClient(client.id, { tags: [...client.tags, finalTag] });
+      if (client.id) {
+        editClient(client.id, { tags: [...client.tags, finalTag] });
+      } else {
+        const newTags = [...(deal.contactInfo?.tags || []), finalTag];
+        updateDeal(deal.id, { contactInfo: { ...deal.contactInfo, tags: newTags } });
+      }
     }
     setNewTag('');
     setIsEditingTags(false);
@@ -217,14 +255,37 @@ function ClientCard({ client, onClick }: { key?: string | number, client: Client
 
   const handleRemoveTag = (e: React.MouseEvent, tagToRemove: string) => {
     e.stopPropagation();
-    editClient(client.id, { tags: client.tags.filter(t => t !== tagToRemove) });
+    if (client.id) {
+      editClient(client.id, { tags: client.tags.filter(t => t !== tagToRemove) });
+    } else {
+      const newTags = deal.contactInfo?.tags.filter((t: string) => t !== tagToRemove) || [];
+      updateDeal(deal.id, { contactInfo: { ...deal.contactInfo, tags: newTags } });
+    }
+  };
+
+  const convertToContact = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (deal.contactInfo) {
+      const clientId = addClient({
+        name: deal.contactInfo.name,
+        company: deal.contactInfo.company,
+        country: deal.contactInfo.country,
+        status: deal.status,
+        tags: deal.contactInfo.tags || [],
+        contactMethods: deal.contactInfo.contactMethods || [],
+        lastContact: new Date().toISOString()
+      });
+      // Update the deal to link to this new client
+      updateDeal(deal.id, { clientId });
+    }
   };
 
   return (
+    <>
     <div 
       draggable
       onDragStart={(e) => {
-        e.dataTransfer.setData('clientId', client.id);
+        e.dataTransfer.setData('dealId', deal.id);
         setTimeout(() => {
           (e.target as HTMLElement).classList.add('opacity-50');
         }, 0);
@@ -234,14 +295,21 @@ function ClientCard({ client, onClick }: { key?: string | number, client: Client
       }}
       onClick={onClick}
       className={cn(
-        "bg-slate-800 p-3 rounded-lg border border-slate-700 hover:border-cyan-500/50 cursor-pointer transition-all shadow-sm group",
+        "bg-slate-800 p-3 rounded-lg border border-slate-700 hover:border-cyan-500/50 cursor-pointer transition-all shadow-sm group relative",
         client.isDormant && "border-orange-500/30 bg-orange-950/10"
       )}
     >
-      <div className="flex items-start justify-between mb-2">
+      <button 
+        onClick={(e) => { e.stopPropagation(); setShowEditDeal(true); }}
+        className="absolute top-2 right-2 p-1.5 bg-slate-900 border border-slate-700 rounded-md text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity hover:text-cyan-400 hover:border-cyan-500/50 z-10"
+      >
+        <Edit2 className="w-3 h-3" />
+      </button>
+
+      <div className="flex items-start justify-between mb-2 pr-8">
         <div>
-          <h4 className="font-bold text-slate-200 text-sm group-hover:text-cyan-400 transition-colors">{client.name}</h4>
-          <p className="text-xs text-slate-500 truncate max-w-[140px]">{client.company}</p>
+          <h4 className="font-bold text-slate-200 text-sm group-hover:text-cyan-400 transition-colors pr-2">{deal.name}</h4>
+          <p className="text-xs text-slate-500 truncate max-w-[140px]">{client.name} - {client.company}</p>
         </div>
         {client.isDormant ? (
           <div className="bg-orange-500/20 text-orange-400 p-1 rounded-md" title="Dormant">
@@ -290,20 +358,35 @@ function ClientCard({ client, onClick }: { key?: string | number, client: Client
           )}
         </div>
         
-        {/* Contact Methods */}
-        {client.contactMethods && client.contactMethods.length > 0 && (
-          <div className="flex items-center gap-1 text-slate-500 justify-end w-full">
-            {client.contactMethods.map((cm, idx) => {
-              const Icon = CONTACT_ICONS[cm.type] || Mail;
-              return (
-                <span key={idx} title={`${cm.type}: ${cm.value}`} className="flex items-center">
-                  <Icon className={cn("w-3.5 h-3.5", cm.type === 'whatsapp' && 'text-green-500')} />
-                </span>
-              );
-            })}
-          </div>
-        )}
+        {/* Contact Methods / Convert */}
+        <div className="flex items-center justify-between mt-1">
+          {!client.id ? (
+            <button 
+              onClick={convertToContact}
+              className="text-[10px] bg-cyan-600 hover:bg-cyan-500 text-white px-2 py-1 rounded transition-colors shadow-sm"
+            >
+              Convert to Contact
+            </button>
+          ) : (
+            <div />
+          )}
+          
+          {client.contactMethods && client.contactMethods.length > 0 && (
+            <div className="flex items-center gap-1 text-slate-500 justify-end flex-1">
+              {client.contactMethods.map((cm, idx) => {
+                const Icon = CONTACT_ICONS[cm.type] || Mail;
+                return (
+                  <span key={idx} title={`${cm.type}: ${cm.value}`} className="flex items-center">
+                    <Icon className={cn("w-3.5 h-3.5", cm.type === 'whatsapp' && 'text-green-500')} />
+                  </span>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
+    {showEditDeal && <DealFormModal dealId={deal.id} onClose={() => setShowEditDeal(false)} />}
+    </>
   );
 }

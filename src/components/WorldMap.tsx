@@ -17,7 +17,7 @@ const COUNTRY_COORDS: Record<string, [number, number]> = {
 };
 
 // Simplified representation of "Fog of War" Map using abstract territory cards
-export function WorldMap() {
+export function WorldMap({ onCountryClick }: { onCountryClick?: (country: string) => void }) {
   const { clients, selectClient } = useStore();
 
   const regions = [
@@ -29,20 +29,26 @@ export function WorldMap() {
     { id: 'oc', name: 'Oceania', status: 'locked', clients: 0 },
   ];
 
-  const markers = useMemo(() => {
-    return clients
-      .map(client => {
-        const coordinates = COUNTRY_COORDS[client.country];
-        if (!coordinates) return null;
-        return {
-          id: client.id,
-          name: client.name,
-          country: client.country,
-          coordinates,
-          isDormant: client.isDormant,
-        };
-      })
-      .filter((m): m is NonNullable<typeof m> => m !== null);
+  const countryMarkers = useMemo(() => {
+    const groups: Record<string, { count: number; active: number; dormant: number; coordinates: [number, number] }> = {};
+    clients.forEach(client => {
+      const coordinates = COUNTRY_COORDS[client.country];
+      if (coordinates) {
+        if (!groups[client.country]) {
+          groups[client.country] = { count: 0, active: 0, dormant: 0, coordinates };
+        }
+        groups[client.country].count++;
+        if (client.isDormant) {
+          groups[client.country].dormant++;
+        } else {
+          groups[client.country].active++;
+        }
+      }
+    });
+    return Object.entries(groups).map(([country, data]) => ({
+      country,
+      ...data
+    }));
   }, [clients]);
 
   return (
@@ -72,44 +78,63 @@ export function WorldMap() {
             <ComposableMap projectionConfig={{ scale: 140 }} style={{ width: "100%", height: "100%" }}>
               <Geographies geography={geoUrl}>
                 {({ geographies }) =>
-                  geographies.map((geo) => (
-                    <Geography
-                      key={geo.rsmKey}
-                      geography={geo}
-                      fill="#1e293b"
-                      stroke="#334155"
-                      strokeWidth={0.5}
-                      style={{
-                        default: { outline: "none" },
-                        hover: { fill: "#334155", outline: "none" },
-                        pressed: { fill: "#1e293b", outline: "none" },
-                      }}
-                    />
-                  ))
+                  geographies.map((geo) => {
+                    const geoName = geo.properties.name;
+                    return (
+                      <Geography
+                        key={geo.rsmKey}
+                        geography={geo}
+                        fill="#1e293b"
+                        stroke="#334155"
+                        strokeWidth={0.5}
+                        onClick={() => {
+                          if (onCountryClick) onCountryClick(geoName);
+                        }}
+                        className={onCountryClick ? "cursor-pointer" : ""}
+                        style={{
+                          default: { outline: "none" },
+                          hover: { fill: onCountryClick ? "#475569" : "#334155", outline: "none" },
+                          pressed: { fill: "#1e293b", outline: "none" },
+                        }}
+                      />
+                    );
+                  })
                 }
               </Geographies>
-              {markers.map(({ id, name, coordinates, isDormant }) => (
-                <Marker key={id} coordinates={coordinates} onClick={() => selectClient(id)} className="cursor-pointer outline-none">
-                  <circle 
-                    r={6} 
-                    fill={isDormant ? "#f97316" : "#22d3ee"} 
-                    className="opacity-20 animate-ping"
-                  />
-                  <circle 
-                    r={4} 
-                    fill={isDormant ? "#f97316" : "#22d3ee"} 
-                    stroke="#0f172a"
-                    strokeWidth={1.5}
-                  />
-                  <text
-                    textAnchor="middle"
-                    y={-12}
-                    style={{ fontFamily: 'var(--font-sans)', fontSize: "10px", fill: "#94a3b8", fontWeight: 600 }}
+              {countryMarkers.map(({ country, count, active, dormant, coordinates }) => {
+                const isMostlyDormant = dormant > active;
+                return (
+                  <Marker 
+                    key={country} 
+                    coordinates={coordinates} 
+                    onClick={() => {
+                      if (onCountryClick) onCountryClick(country);
+                    }} 
+                    className="cursor-pointer outline-none group hover:scale-110 transition-transform"
                   >
-                    {name}
-                  </text>
-                </Marker>
-              ))}
+                    <circle 
+                      r={12} 
+                      fill={isMostlyDormant ? "#f97316" : "#22d3ee"} 
+                      className="opacity-40 animate-ping"
+                    />
+                    <circle 
+                      r={8} 
+                      fill={isMostlyDormant ? "#f97316" : "#22d3ee"} 
+                      stroke="#0f172a"
+                      strokeWidth={1.5}
+                    />
+                    <text textAnchor="middle" y={-18} style={{ fontFamily: 'var(--font-sans)', fontSize: "12px", fill: "#f1f5f9", fontWeight: 700 }}>
+                      {country}
+                    </text>
+                    <text textAnchor="middle" y={3} style={{ fontFamily: 'var(--font-sans)', fontSize: "9px", fill: "#0f172a", fontWeight: 800 }}>
+                      {count}
+                    </text>
+                    <text textAnchor="middle" y={20} style={{ fontFamily: 'var(--font-sans)', fontSize: "10px", fill: "#38bdf8", fontWeight: 600 }} className="opacity-0 group-hover:opacity-100 transition-opacity">
+                      View Leads
+                    </text>
+                  </Marker>
+                );
+              })}
             </ComposableMap>
           </div>
         </div>

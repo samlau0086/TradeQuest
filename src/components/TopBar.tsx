@@ -2,9 +2,11 @@ import React, { useState } from 'react';
 import { useStore } from '../store';
 import { useAuthStore } from '../authStore';
 import { Terminal, Sparkles, Send, Loader2, LogOut, User } from 'lucide-react';
+import { useTranslation } from '../lib/i18n';
 
 export function TopBar() {
-  const { broadcasts } = useStore();
+  const { broadcasts, language } = useStore();
+  const t = useTranslation(language);
   const { profile, signOut } = useAuthStore();
   const latestBroadcast = broadcasts[0];
 
@@ -18,13 +20,19 @@ export function TopBar() {
             <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
           </span>
           <span className="text-xs font-medium text-slate-300 truncate max-w-[200px] md:max-w-md">
-            {latestBroadcast?.message || "All systems online"}
+            {latestBroadcast?.message || t('allSystemsOnline')}
           </span>
         </div>
       </div>
       
       {/* User Actions */}
-      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4">
+        {profile?.points !== undefined && (
+          <div className="bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1">
+            <Sparkles className="w-3 h-3" />
+            {profile.points} pts
+          </div>
+        )}
         <div className="flex items-center gap-2">
           {profile?.avatarUrl ? (
             <img src={profile.avatarUrl} alt="Avatar" className="w-8 h-8 rounded-full border border-slate-700 object-cover" />
@@ -40,7 +48,7 @@ export function TopBar() {
         </div>
         <button 
           onClick={() => signOut()}
-          title="Sign Out"
+          title={t('signOut')}
           className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors"
         >
           <LogOut className="w-4 h-4" />
@@ -51,7 +59,8 @@ export function TopBar() {
 }
 
 export function MagicCommand() {
-  const { clients, llmConfigs, activeLLMId, llmMappings } = useStore();
+  const { clients, llmConfigs, activeLLMId, llmMappings, language } = useStore();
+  const t = useTranslation(language);
   const activeLLMConfig = llmConfigs.find(l => l.id === (llmMappings['magic'] || activeLLMId)) || null;
   const [input, setInput] = useState('');
   const [output, setOutput] = useState('');
@@ -209,7 +218,7 @@ export function MagicCommand() {
             <p className="whitespace-pre-wrap">{output}</p>
             <div className="mt-4 flex justify-end">
               <button onClick={() => setOutput('')} className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-1.5 rounded-lg font-medium text-xs transition-colors shadow-lg shadow-cyan-600/20">
-                <Send className="w-3 h-3" /> Execute
+                <Send className="w-3 h-3" /> {t('execute')}
               </button>
             </div>
           </div>
