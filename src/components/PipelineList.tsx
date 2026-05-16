@@ -60,8 +60,8 @@ export function PipelineList() {
   };
 
   return (
-    <div className="flex-1 overflow-auto bg-slate-900 border-t border-slate-800 text-slate-200">
-      <div className="p-6">
+    <div className="flex-1 overflow-hidden bg-slate-900 border-t border-slate-800 text-slate-200 flex flex-col">
+      <div className="px-6 pt-6 pb-2 shrink-0">
         {selectedIds.size > 0 && (
           <div className="mb-4 p-3 bg-cyan-950/30 border border-cyan-800/50 rounded-lg flex items-center justify-between animate-in fade-in slide-in-from-top-2">
             <span className="text-sm text-cyan-400 font-medium">{selectedIds.size} selected</span>
@@ -111,10 +111,11 @@ export function PipelineList() {
             )}
           </div>
         </div>
+      </div>
 
-        <div className="bg-slate-800/30 rounded-xl border border-slate-800 overflow-visible">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-800/50 text-slate-400 text-xs uppercase font-medium border-b border-slate-700/50">
+      <div className="flex-1 overflow-auto bg-slate-800/30 rounded-xl border border-slate-800 relative mx-6 mb-2">
+          <table className="w-full text-left text-sm relative">
+            <thead className="bg-slate-800 text-slate-400 text-xs uppercase font-medium border-b border-slate-700/50 sticky top-0 z-10">
               <tr>
                 <th className="px-4 py-3 w-12 text-center">
                   <input 
@@ -226,7 +227,6 @@ export function PipelineList() {
             </tbody>
           </table>
         </div>
-      </div>
     </div>
   );
 }

@@ -42,7 +42,7 @@ export default function App() {
   }
 
   return (
-    <PanelGroup orientation="horizontal" id="app-layout" className="flex h-screen bg-slate-950 text-slate-200 overflow-hidden font-sans selection:bg-cyan-500/30">
+    <PanelGroup orientation="horizontal" id="app-layout" className="absolute inset-0 flex bg-slate-950 text-slate-200 overflow-hidden font-sans selection:bg-cyan-500/30">
       <Panel defaultSize={260} minSize={200} maxSize={400}>
         <Sidebar />
       </Panel>

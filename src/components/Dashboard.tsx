@@ -18,10 +18,10 @@ export function Dashboard() {
 
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin bg-slate-900 border-t border-slate-800 p-8">
-      <div className="max-w-5xl mx-auto space-y-8">
+      <div className="max-w-5xl mx-auto space-y-8 flex flex-col min-h-full">
         
         {/* Header/Banner */}
-        <div className="bg-gradient-to-r from-slate-900 to-slate-800 p-8 rounded-2xl border border-slate-700/50 shadow-xl flex items-center justify-between">
+        <div className="shrink-0 bg-gradient-to-r from-slate-900 to-slate-800 p-8 rounded-2xl border border-slate-700/50 shadow-xl flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-white mb-2">{t('Agent Dashboard')}</h1>
             <p className="text-slate-400">{t('Track your progress and complete daily tasks to level up.')}</p>
@@ -37,7 +37,7 @@ export function Dashboard() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 flex-1 pb-8">
           
           {/* Main XP Progress Section */}
           <div className="lg:col-span-2 space-y-8">
@@ -161,8 +161,8 @@ export function Dashboard() {
           </div>
 
           {/* Right Column - Logs */}
-          <div className="bg-slate-950/50 rounded-2xl border border-slate-800 shadow-sm flex flex-col h-[800px]">
-             <div className="p-6 border-b border-slate-800">
+          <div className="bg-slate-950/50 rounded-2xl border border-slate-800 shadow-sm flex flex-col h-full min-h-[500px]">
+             <div className="p-6 border-b border-slate-800 shrink-0">
                <h2 className="text-lg font-bold text-white flex items-center gap-2">
                  <History className="w-5 h-5 text-indigo-400" /> EXP History
                </h2>

@@ -259,10 +259,10 @@ export const useStore = create<StoreState>((set, get) => ({
   followupsAnalysisList: null,
   setFollowupsAnalysisList: (analysisList) => set({ followupsAnalysisList: analysisList }),
 
-  userExp: 240,
-  userLevel: 3,
+  userExp: 0,
+  userLevel: 1,
   userTitle: "Junior SOHO",
-  currentStreak: 4,
+  currentStreak: 0,
   expLogs: [],
   addExp: (amount, reason) => set((state) => {
     let newExp = state.userExp + amount;

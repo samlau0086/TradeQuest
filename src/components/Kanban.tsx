@@ -151,7 +151,7 @@ export function Kanban() {
       )}
 
       {viewMode === 'board' ? (
-        <div className="flex-1 overflow-x-auto p-6 flex gap-4 overflow-y-hidden">
+        <div className="flex-1 overflow-x-auto px-6 pt-6 pb-2 flex gap-4 overflow-y-hidden">
           {COLUMNS.map(col => {
             const columnClients = filteredClients.filter(c => c.status === col);
             
