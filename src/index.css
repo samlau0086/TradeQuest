@@ -7,6 +7,10 @@
 }
 
 @layer base {
+  button, a, [role="button"] {
+    cursor: pointer;
+  }
+
   .light-mode {
     --color-slate-50: #020617;
     --color-slate-100: #0f172a;

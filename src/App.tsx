@@ -23,10 +23,6 @@ export default function App() {
   const { token, isInitializing } = useAuthStore();
 
   useEffect(() => {
-    document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
-  }, [language]);
-
-  useEffect(() => {
     if (token) {
       fetchInitialData();
     }

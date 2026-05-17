@@ -252,8 +252,8 @@ export interface StoreState {
   theme: 'dark' | 'light';
   setTheme: (theme: 'dark' | 'light') => void;
 
-  language: 'en' | 'zh' | 'ar';
-  setLanguage: (lang: 'en' | 'zh' | 'ar') => void;
+  language: 'en' | 'zh';
+  setLanguage: (lang: 'en' | 'zh') => void;
 
   fetchInitialData: () => Promise<void>;
 }
@@ -458,6 +458,12 @@ export const useStore = create<StoreState>((set, get) => ({
         if (res.status === 409 && data.skipped) {
           console.warn('Duplicate contact method found. Lead not added.');
           // rollback
+          set((state) => ({
+            clients: state.clients.filter(c => c.id !== id)
+          }));
+          return data.existingId || null;
+        } else if (!res.ok) {
+          console.error('Failed to add client:', data.error);
           set((state) => ({
             clients: state.clients.filter(c => c.id !== id)
           }));

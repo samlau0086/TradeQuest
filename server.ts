@@ -704,11 +704,11 @@ No markdown wrappers, just valid JSON.`;
           WHERE EXISTS (
             SELECT 1 FROM jsonb_array_elements(contact_methods) as cm 
             WHERE cm->>'value' = ANY($1::text[])
-          ) LIMIT 1
+          ) AND user_id = $2 LIMIT 1
         `;
-        const checkRes = await pool.query(checkQuery, [incomingMethods]);
+        const checkRes = await pool.query(checkQuery, [incomingMethods, req.user.uid]);
         if (checkRes.rows.length > 0) {
-          return res.status(409).json({ error: 'Duplicate contact method found', skipped: true });
+          return res.status(409).json({ error: 'Duplicate contact method found', skipped: true, existingId: checkRes.rows[0].id });
         }
       }
 

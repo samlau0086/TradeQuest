@@ -236,18 +236,25 @@ export function PipelineList() {
                     <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                       {!client!.id && deal.contactInfo && (
                         <button 
-                          onClick={async () => {
-                            const newClientId = await addClient({
-                              name: deal.contactInfo!.name,
-                              company: deal.contactInfo!.company,
-                              country: deal.contactInfo!.country,
-                              status: deal.status,
-                              tags: deal.contactInfo!.tags || [],
-                              contactMethods: deal.contactInfo!.contactMethods || [],
-                              lastContact: new Date().toISOString()
-                            });
-                            if (newClientId) {
-                              updateDeal(deal.id, { clientId: newClientId });
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            try {
+                              const newClientId = await addClient({
+                                name: deal.contactInfo!.name,
+                                company: deal.contactInfo!.company,
+                                country: deal.contactInfo!.country,
+                                status: deal.status,
+                                tags: deal.contactInfo!.tags || [],
+                                contactMethods: deal.contactInfo!.contactMethods || [],
+                                lastContact: new Date().toISOString()
+                              });
+                              if (newClientId) {
+                                updateDeal(deal.id, { clientId: newClientId });
+                              } else {
+                                window.alert("Failed to convert: A client with this contact info may already exist.");
+                              }
+                            } catch (err) {
+                              window.alert("Error converting lead to contact.");
                             }
                           }} 
                           className="p-1 hover:text-green-400 hover:bg-green-950/50 rounded transition-colors text-slate-400" 

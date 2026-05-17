@@ -268,18 +268,24 @@ function DealCard({ deal, client, onClick }: { key?: string | number, deal: any,
   const convertToContact = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (deal.contactInfo) {
-      const clientId = await addClient({
-        name: deal.contactInfo.name,
-        company: deal.contactInfo.company,
-        country: deal.contactInfo.country,
-        status: deal.status,
-        tags: deal.contactInfo.tags || [],
-        contactMethods: deal.contactInfo.contactMethods || [],
-        lastContact: new Date().toISOString()
-      });
-      // Update the deal to link to this new client
-      if (clientId) {
-        updateDeal(deal.id, { clientId });
+      try {
+        const clientId = await addClient({
+          name: deal.contactInfo.name,
+          company: deal.contactInfo.company,
+          country: deal.contactInfo.country,
+          status: deal.status,
+          tags: deal.contactInfo.tags || [],
+          contactMethods: deal.contactInfo.contactMethods || [],
+          lastContact: new Date().toISOString()
+        });
+        // Update the deal to link to this new client
+        if (clientId) {
+          updateDeal(deal.id, { clientId });
+        } else {
+          window.alert("Failed to convert: A client with this contact method may already exist.");
+        }
+      } catch (err) {
+        window.alert("Error converting lead to contact.");
       }
     }
   };
