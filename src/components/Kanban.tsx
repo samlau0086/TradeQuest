@@ -97,10 +97,10 @@ export function Kanban() {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
-      complete: (results) => {
-        results.data.forEach((row: any) => {
+      complete: async (results) => {
+        for (const row of results.data as any[]) {
           if (row.Name) {
-             const clientId = addClient({
+             const clientId = await addClient({
                name: row.Name,
                company: row.Company || 'Unknown',
                country: row.Country || 'Unknown',
@@ -109,14 +109,16 @@ export function Kanban() {
                contactMethods: row.ContactMethodValue ? [{ type: (row.ContactMethodType || 'email') as any, value: row.ContactMethodValue }] : [],
                lastContact: new Date().toISOString()
              });
-             addDeal({
-               clientId,
-               name: row.Company ? `${row.Company} Lead` : `${row.Name} Lead`,
-               value: parseFloat(row.Value) || 0,
-               status: (COLUMNS.includes(row.Status) ? row.Status : 'Leads') as ClientStatus,
-             });
+             if (clientId) {
+               addDeal({
+                 clientId,
+                 name: row.Company ? `${row.Company} Lead` : `${row.Name} Lead`,
+                 value: parseFloat(row.Value) || 0,
+                 status: (COLUMNS.includes(row.Status) ? row.Status : 'Leads') as ClientStatus,
+               });
+             }
           }
-        });
+        }
         setShowUploadModal(false);
       }
     });
@@ -263,10 +265,10 @@ function DealCard({ deal, client, onClick }: { key?: string | number, deal: any,
     }
   };
 
-  const convertToContact = (e: React.MouseEvent) => {
+  const convertToContact = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (deal.contactInfo) {
-      const clientId = addClient({
+      const clientId = await addClient({
         name: deal.contactInfo.name,
         company: deal.contactInfo.company,
         country: deal.contactInfo.country,
@@ -276,7 +278,9 @@ function DealCard({ deal, client, onClick }: { key?: string | number, deal: any,
         lastContact: new Date().toISOString()
       });
       // Update the deal to link to this new client
-      updateDeal(deal.id, { clientId });
+      if (clientId) {
+        updateDeal(deal.id, { clientId });
+      }
     }
   };
 

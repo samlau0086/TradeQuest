@@ -27,10 +27,10 @@ const CONTACT_ICONS: any = {
       Papa.parse(file, {
         header: true,
         skipEmptyLines: true,
-        complete: (results) => {
-          results.data.forEach((row: any) => {
+        complete: async (results) => {
+          for (const row of results.data as any[]) {
             if (row.Name) {
-              addClient({
+              await addClient({
                 name: row.Name,
                 company: row.Company || 'Unknown',
                 country: row.Country || 'Unknown',
@@ -40,7 +40,7 @@ const CONTACT_ICONS: any = {
                 lastContact: new Date().toISOString()
               });
             }
-          });
+          }
           setShowUploadModal(false);
         }
       });

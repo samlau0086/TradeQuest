@@ -204,7 +204,7 @@ export interface StoreState {
   addExp: (amount: number, reason?: string) => void;
   
   clients: Client[];
-  addClient: (client: Omit<Client, 'id'>) => string;
+  addClient: (client: Omit<Client, 'id'>) => Promise<string | null>;
   editClient: (id: string, updates: Partial<Omit<Client, 'id'>>) => void;
   submitClientEditRequest: (id: string, requestedData: Partial<Omit<Client, 'id'>>) => void;
   deleteClient: (id: string) => void;
@@ -438,7 +438,7 @@ export const useStore = create<StoreState>((set, get) => ({
     return { deals: state.deals.filter(d => d.id !== id) };
   }),
 
-  addClient: (client) => {
+  addClient: async (client) => {
     const id = `c${Date.now()}`;
     const newClient = { ...client, id };
     
@@ -448,11 +448,12 @@ export const useStore = create<StoreState>((set, get) => ({
 
     const token = localStorage.getItem('token');
     if (token) {
-      fetch('/api/clients', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify(newClient)
-      }).then(async (res) => {
+      try {
+        const res = await fetch('/api/clients', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(newClient)
+        });
         const data = await res.json();
         if (res.status === 409 && data.skipped) {
           console.warn('Duplicate contact method found. Lead not added.');
@@ -460,11 +461,14 @@ export const useStore = create<StoreState>((set, get) => ({
           set((state) => ({
             clients: state.clients.filter(c => c.id !== id)
           }));
+          return null;
         } else if (res.ok && data.pointsAdded) {
           console.log(`Lead added successfully! You earned ${data.pointsAdded} points.`);
           useAuthStore.getState().fetchProfile();
         }
-      }).catch(console.error);
+      } catch (err) {
+        console.error(err);
+      }
     }
     
     return id;

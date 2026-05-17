@@ -68,8 +68,10 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
         await importPublicLeads([clientData]);
         onSave?.('');
       } else {
-        const newId = addClient(clientData);
-        onSave?.(newId);
+        const newId = await addClient(clientData);
+        if (newId) {
+          onSave?.(newId);
+        }
       }
     }
     onClose();

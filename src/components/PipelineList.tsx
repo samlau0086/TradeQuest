@@ -236,8 +236,8 @@ export function PipelineList() {
                     <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                       {!client!.id && deal.contactInfo && (
                         <button 
-                          onClick={() => {
-                            const newClientId = addClient({
+                          onClick={async () => {
+                            const newClientId = await addClient({
                               name: deal.contactInfo!.name,
                               company: deal.contactInfo!.company,
                               country: deal.contactInfo!.country,
@@ -246,7 +246,9 @@ export function PipelineList() {
                               contactMethods: deal.contactInfo!.contactMethods || [],
                               lastContact: new Date().toISOString()
                             });
-                            updateDeal(deal.id, { clientId: newClientId });
+                            if (newClientId) {
+                              updateDeal(deal.id, { clientId: newClientId });
+                            }
                           }} 
                           className="p-1 hover:text-green-400 hover:bg-green-950/50 rounded transition-colors text-slate-400" 
                           title="Convert to Contact"
