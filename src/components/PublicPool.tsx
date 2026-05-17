@@ -65,9 +65,11 @@ export function PublicPool() {
   });
 
   const handleClaim = async (id: string) => {
-    setClaimingId(id);
-    await claimClient(id);
-    setClaimingId(null);
+    if (confirm("Are you sure you want to claim this lead? It will cost 10 points.")) {
+      setClaimingId(id);
+      await claimClient(id);
+      setClaimingId(null);
+    }
   };
 
   const handleCSVUpload = (file: File) => {

@@ -573,14 +573,19 @@ export const useStore = create<StoreState>((set, get) => ({
           // Re-fetch both lists
           get().fetchPublicClients();
           get().fetchDeals(); // Fetch deals so the new deal shows up
+          useAuthStore.getState().fetchProfile();
           
           fetch('/api/clients', { headers: { 'Authorization': `Bearer ${token}` } })
             .then(res => res.json())
             .then(clients => set({ clients }))
             .catch(console.error);
         } else {
-          const body = await res.text();
-          console.error("Claim failed:", res.status, body);
+          try {
+            const body = await res.json();
+            alert(body.error || 'Claim failed');
+          } catch(err) {
+            alert('Claim failed');
+          }
         }
       } catch(e) {
         console.error(e);

@@ -637,6 +637,13 @@ No markdown wrappers, just valid JSON.`;
   app.post('/api/public-leads/:id/claim', authenticateToken, async (req: any, res) => {
     try {
       const { id } = req.params;
+      
+      const CLAIM_COST = 10;
+      const userRes = await pool.query('SELECT points FROM users WHERE id = $1', [req.user.uid]);
+      if (userRes.rows.length === 0 || userRes.rows[0].points < CLAIM_COST) {
+        return res.status(400).json({ error: 'Not enough points to claim a public lead (cost: 10 points)' });
+      }
+
       const result = await pool.query(
         `UPDATE clients SET user_id = $1, status = 'Leads', updated_at = CURRENT_TIMESTAMP, last_contact = CURRENT_TIMESTAMP, deleted_by = NULL, is_dormant = FALSE WHERE id = $2 AND user_id IS NULL RETURNING id, name, company`,
         [req.user.uid, id]
@@ -645,6 +652,8 @@ No markdown wrappers, just valid JSON.`;
         console.error("Claim failed: Lead already claimed or not found. id:", id);
         return res.status(400).json({ error: 'Lead already claimed or not found' });
       }
+      
+      await pool.query('UPDATE users SET points = points - $1 WHERE id = $2', [CLAIM_COST, req.user.uid]);
       
       const client = result.rows[0];
       const dealId = `d${Date.now()}${Math.floor(Math.random()*1000)}`;
@@ -695,10 +704,10 @@ No markdown wrappers, just valid JSON.`;
       }
       
       if (addedCount > 0) {
-        await pool.query(`UPDATE users SET points = points + $1 WHERE id = $2`, [addedCount * 10, req.user.uid]);
+        await pool.query(`UPDATE users SET points = points + $1 WHERE id = $2`, [addedCount * 5, req.user.uid]);
       }
       
-      res.json({ success: true, count: addedCount, pointsAdded: addedCount * 10 });
+      res.json({ success: true, count: addedCount, pointsAdded: addedCount * 5 });
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: 'Failed to import leads' });
