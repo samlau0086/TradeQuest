@@ -638,15 +638,27 @@ No markdown wrappers, just valid JSON.`;
     try {
       const { id } = req.params;
       const result = await pool.query(
-        `UPDATE clients SET user_id = $1, status = 'Leads', updated_at = CURRENT_TIMESTAMP, created_at = CURRENT_TIMESTAMP, last_contact = CURRENT_TIMESTAMP WHERE id = $2 AND user_id IS NULL RETURNING id`,
+        `UPDATE clients SET user_id = $1, status = 'Leads', updated_at = CURRENT_TIMESTAMP, last_contact = CURRENT_TIMESTAMP, deleted_by = NULL, is_dormant = FALSE WHERE id = $2 AND user_id IS NULL RETURNING id, name, company`,
         [req.user.uid, id]
       );
       if (result.rows.length === 0) {
+        console.error("Claim failed: Lead already claimed or not found. id:", id);
         return res.status(400).json({ error: 'Lead already claimed or not found' });
       }
-      res.json({ success: true });
+      
+      const client = result.rows[0];
+      const dealId = `d${Date.now()}${Math.floor(Math.random()*1000)}`;
+      const dealName = client.company ? `${client.company} Lead` : `${client.name} Lead`;
+      
+      await pool.query(
+        `INSERT INTO deals (id, user_id, client_id, name, value, status)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [dealId, req.user.uid, id, dealName, 0, 'Leads']
+      );
+
+      res.json({ success: true, id: client.id });
     } catch (e) {
-      console.error(e);
+      console.error("Claim error:", e);
       res.status(500).json({ error: 'Failed to claim lead' });
     }
   });

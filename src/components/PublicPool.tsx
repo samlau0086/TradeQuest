@@ -13,12 +13,15 @@ const geoUrl = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
 
 const COUNTRY_COORDS: Record<string, [number, number]> = {
   'USA': [-95.7129, 37.0902],
+  'United States': [-95.7129, 37.0902],
+  'United States of America': [-95.7129, 37.0902],
   'Brazil': [-51.9253, -14.2350],
   'Japan': [138.2529, 36.2048],
   'Germany': [10.4515, 51.1657],
   'China': [104.1954, 35.8617],
   'India': [78.9629, 20.5937],
   'UK': [-3.4359, 55.3781],
+  'United Kingdom': [-3.4359, 55.3781],
   'Australia': [133.7751, -25.2744],
 };
 
@@ -41,7 +44,7 @@ export function PublicPool() {
   const handleAdminAction = async (id: string, action: 'restore' | 'delete') => {
     try {
       const token = localStorage.getItem('token');
-      if (action === 'delete' && confirm('Permanently delete this discarded lead?')) {
+      if (action === 'delete') {
         await fetch(`/api/clients/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
       } else if (action === 'restore') {
         await fetch(`/api/clients/${id}/restore`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
@@ -54,16 +57,17 @@ export function PublicPool() {
 
   const filtered = publicClients.filter(c => {
     if (!search) return true;
-    const term = search.toLowerCase();
+    let term = search.toLowerCase();
+    if (term === 'usa') term = 'united states';
+    if (term === 'uk') term = 'united kingdom';
+    
     return `${c.name} ${c.company} ${c.country} ${c.tags.join(' ')}`.toLowerCase().includes(term);
   });
 
   const handleClaim = async (id: string) => {
-    if (confirm(t('claimConfirm'))) {
-      setClaimingId(id);
-      await claimClient(id);
-      setClaimingId(null);
-    }
+    setClaimingId(id);
+    await claimClient(id);
+    setClaimingId(null);
   };
 
   const handleCSVUpload = (file: File) => {
@@ -264,7 +268,8 @@ export function PublicPool() {
                   stroke="#334155"
                   strokeWidth={0.5}
                   onClick={() => {
-                    setSearch(geoName);
+                    const mappedName = geoName === 'United States of America' ? 'United States' : geoName;
+                    setSearch(mappedName);
                     setViewMode('list');
                   }}
                   className="cursor-pointer"
@@ -286,14 +291,32 @@ export function PublicPool() {
               setSearch(country);
               setViewMode('list');
             }} 
-            className="cursor-pointer outline-none group hover:scale-110 transition-transform"
+            className="cursor-pointer outline-none group transition-opacity"
           >
-            <circle r={12} fill="#22d3ee" className="opacity-40 animate-ping" />
-            <circle r={8} fill="#22d3ee" stroke="#0f172a" strokeWidth={1.5} />
+            {/* Invisible hit area to prevent hover flickering */}
+            <circle r={24} fill="transparent" />
+            <circle 
+              r={12} 
+              fill="#22d3ee" 
+              className="opacity-40 animate-ping group-hover:opacity-0 transition-opacity" 
+            />
+            <circle 
+              r={8} 
+              fill="#22d3ee" 
+              stroke="#0f172a" 
+              strokeWidth={1.5} 
+              className="group-hover:scale-125 transition-transform"
+              style={{ transformOrigin: "0px 0px" }}
+            />
             <text textAnchor="middle" y={-18} style={{ fontFamily: 'var(--font-sans)', fontSize: "12px", fill: "#f1f5f9", fontWeight: 700 }}>
               {country}
             </text>
-            <text textAnchor="middle" y={3} style={{ fontFamily: 'var(--font-sans)', fontSize: "9px", fill: "#0f172a", fontWeight: 800 }}>
+            <text 
+              textAnchor="middle" 
+              y={3} 
+              style={{ fontFamily: 'var(--font-sans)', fontSize: "9px", fill: "#0f172a", fontWeight: 800, transformOrigin: "0px -3px" }} 
+              className="group-hover:scale-125 transition-transform"
+            >
               {count}
             </text>
             <text textAnchor="middle" y={20} style={{ fontFamily: 'var(--font-sans)', fontSize: "10px", fill: "#38bdf8", fontWeight: 600 }} className="opacity-0 group-hover:opacity-100 transition-opacity">

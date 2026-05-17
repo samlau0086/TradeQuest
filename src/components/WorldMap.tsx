@@ -7,12 +7,15 @@ const geoUrl = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
 
 const COUNTRY_COORDS: Record<string, [number, number]> = {
   'USA': [-95.7129, 37.0902],
+  'United States': [-95.7129, 37.0902],
+  'United States of America': [-95.7129, 37.0902],
   'Brazil': [-51.9253, -14.2350],
   'Japan': [138.2529, 36.2048],
   'Germany': [10.4515, 51.1657],
   'China': [104.1954, 35.8617],
   'India': [78.9629, 20.5937],
   'UK': [-3.4359, 55.3781],
+  'United Kingdom': [-3.4359, 55.3781],
   'Australia': [133.7751, -25.2744],
 };
 
@@ -88,7 +91,8 @@ export function WorldMap({ onCountryClick }: { onCountryClick?: (country: string
                         stroke="#334155"
                         strokeWidth={0.5}
                         onClick={() => {
-                          if (onCountryClick) onCountryClick(geoName);
+                          const mappedName = geoName === 'United States of America' ? 'United States' : geoName;
+                          if (onCountryClick) onCountryClick(mappedName);
                         }}
                         className={onCountryClick ? "cursor-pointer" : ""}
                         style={{
@@ -112,6 +116,8 @@ export function WorldMap({ onCountryClick }: { onCountryClick?: (country: string
                     }} 
                     className="cursor-pointer outline-none group transition-opacity"
                   >
+                    {/* Invisible hit area to prevent hover flickering */}
+                    <circle r={24} fill="transparent" />
                     <circle 
                       r={12} 
                       fill={isMostlyDormant ? "#f97316" : "#22d3ee"} 
