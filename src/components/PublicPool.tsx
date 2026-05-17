@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useStore, Client } from '../store';
 import { useAuthStore } from '../authStore';
 import { useTranslation } from '../lib/i18n';
-import { Globe, Search, ArrowRight, Loader2, Clock, Upload, List as ListIcon, Tags as TagsIcon, LayoutGrid, Map as MapIcon, Plus } from 'lucide-react';
+import { Globe, Search, ArrowRight, Loader2, Clock, Upload, List as ListIcon, Tags as TagsIcon, LayoutGrid, Map as MapIcon, Plus, ArrowUpFromLine, Trash2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import Papa from 'papaparse';
 import { ComposableMap, Geographies, Geography, Marker } from 'react-simple-maps';
@@ -37,6 +37,20 @@ export function PublicPool() {
   useEffect(() => {
     fetchPublicClients();
   }, [fetchPublicClients]);
+
+  const handleAdminAction = async (id: string, action: 'restore' | 'delete') => {
+    try {
+      const token = localStorage.getItem('token');
+      if (action === 'delete' && confirm('Permanently delete this discarded lead?')) {
+        await fetch(`/api/clients/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+      } else if (action === 'restore') {
+        await fetch(`/api/clients/${id}/restore`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+      }
+      fetchPublicClients();
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const filtered = publicClients.filter(c => {
     if (!search) return true;
@@ -139,14 +153,40 @@ export function PublicPool() {
              </div>
           )}
 
-          <button
-            onClick={() => handleClaim(client.id)}
-            disabled={claimingId === client.id}
-            className="w-full mt-2 flex items-center justify-center gap-2 bg-slate-800 hover:bg-cyan-600 text-white py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50 cursor-pointer"
-          >
-            {claimingId === client.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
-            {t('claim')}
-          </button>
+          {client.deletedBy && (
+            <div className="text-xs text-red-400 bg-red-950/30 border border-red-900/50 rounded p-2 mt-2 font-medium">
+              Discarded Lead (By user: {client.deletedBy})
+            </div>
+          )}
+
+          <div className="w-full mt-2 flex gap-2">
+            <button
+              onClick={() => handleClaim(client.id)}
+              disabled={claimingId === client.id}
+              className="flex-1 flex items-center justify-center gap-2 bg-slate-800 hover:bg-cyan-600 text-white py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              {claimingId === client.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
+              {t('claim')}
+            </button>
+            {profile?.role === 'superadmin' && client.deletedBy && (
+              <>
+               <button
+                 onClick={() => handleAdminAction(client.id, 'restore')}
+                 className="p-2 bg-slate-800 hover:bg-green-600 text-white rounded-lg transition-colors"
+                 title="Restore"
+               >
+                 <ArrowUpFromLine className="w-4 h-4" />
+               </button>
+               <button
+                 onClick={() => handleAdminAction(client.id, 'delete')}
+                 className="p-2 bg-slate-800 hover:bg-red-600 text-white rounded-lg transition-colors"
+                 title="Permanent Delete"
+               >
+                 <Trash2 className="w-4 h-4" />
+               </button>
+              </>
+            )}
+          </div>
         </div>
       ))}
     </div>
@@ -168,7 +208,10 @@ export function PublicPool() {
         <tbody className="divide-y divide-slate-800/50 bg-slate-900/30">
           {filtered.map(client => (
             <tr key={client.id} className="hover:bg-slate-800/50">
-              <td className="px-4 py-4 text-white font-medium">{client.name}</td>
+              <td className="px-4 py-4 text-white font-medium">
+                {client.name}
+                {client.deletedBy && <span className="ml-2 px-1.5 py-0.5 rounded bg-red-950/50 text-red-400 text-[10px] font-bold">Discarded</span>}
+              </td>
               <td className="px-4 py-4 text-slate-300">{client.company}</td>
               <td className="px-4 py-4 text-slate-300">{client.country}</td>
               <td className="px-4 py-4">
@@ -180,7 +223,17 @@ export function PublicPool() {
                 </div>
               </td>
               <td className="px-4 py-4 text-slate-400">{new Date(client.lastContact || new Date()).toLocaleDateString()}</td>
-              <td className="px-4 py-4 text-right">
+              <td className="px-4 py-4 text-right flex justify-end gap-2">
+                {profile?.role === 'superadmin' && client.deletedBy && (
+                  <>
+                   <button onClick={() => handleAdminAction(client.id, 'restore')} className="p-1.5 bg-slate-800 hover:bg-green-600 text-white rounded transition-colors" title="Restore">
+                     <ArrowUpFromLine className="w-4 h-4" />
+                   </button>
+                   <button onClick={() => handleAdminAction(client.id, 'delete')} className="p-1.5 bg-slate-800 hover:bg-red-600 text-white rounded transition-colors" title="Permanent Delete">
+                     <Trash2 className="w-4 h-4" />
+                   </button>
+                  </>
+                )}
                 <button
                   onClick={() => handleClaim(client.id)}
                   disabled={claimingId === client.id}

@@ -13,6 +13,7 @@ import { UserManagement } from './components/UserManagement';
 import { PublicPool } from './components/PublicPool';
 import { PipelineList } from './components/PipelineList';
 import { ClientsList } from './components/ClientsList';
+import { EditRequests } from './components/EditRequests';
 import { AuthPage } from './components/AuthPage';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'react-resizable-panels';
 import { Loader2 } from 'lucide-react';
@@ -59,6 +60,7 @@ export default function App() {
          view === 'list' ? <PipelineList /> :
          view === 'clients' ? <ClientsList /> :
          view === 'public-pool' ? <PublicPool /> :
+         view === 'edit-requests' ? <EditRequests /> :
          view === 'inbox' ? <Inbox /> : 
          view === 'settings' ? <Settings /> : 
          view === 'user-management' ? <div className="flex-1 bg-slate-900 overflow-y-auto p-8"><div className="max-w-5xl mx-auto text-white"><UserManagement /></div></div> :

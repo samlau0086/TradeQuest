@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { useAuthStore } from './authStore';
 
-export type ViewMode = 'kanban' | 'map' | 'inbox' | 'dashboard' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients';
+export type ViewMode = 'kanban' | 'map' | 'inbox' | 'dashboard' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests';
 
 export type ClientStatus = 'Leads' | 'Contacted' | 'Sample Sent' | 'Negotiating' | 'Closed Won'; // Kept for legacy compatibility if needed, better to rename to DealStage but will keep for now.
 
@@ -61,6 +61,20 @@ export interface Client {
   isDormant?: boolean;
   contactMethods?: ContactMethod[];
   comments?: Comment[];
+  pendingEditRequest?: boolean;
+  deletedBy?: string;
+}
+
+export interface ClientEditRequest {
+  id: number;
+  client_id: string;
+  user_id: string;
+  original_data: any;
+  requested_data: any;
+  status: 'pending' | 'approved' | 'rejected';
+  created_at: string;
+  current_client_name?: string;
+  requester_name?: string;
 }
 
 export interface Log {
@@ -192,6 +206,7 @@ export interface StoreState {
   clients: Client[];
   addClient: (client: Omit<Client, 'id'>) => string;
   editClient: (id: string, updates: Partial<Omit<Client, 'id'>>) => void;
+  submitClientEditRequest: (id: string, requestedData: Partial<Omit<Client, 'id'>>) => void;
   deleteClient: (id: string) => void;
   updateClientStatus: (id: string, status: ClientStatus) => void;
 
@@ -461,9 +476,32 @@ export const useStore = create<StoreState>((set, get) => ({
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(updates)
+      }).then(res => res.json()).then(data => {
+        if (data.pointsAdded) {
+          alert(`Enriched client! You earned ${data.pointsAdded} points.`);
+          useAuthStore.getState().fetchProfile();
+        }
       }).catch(console.error);
     }
     return { clients: state.clients.map(c => c.id === id ? { ...c, ...updates } : c) };
+  }),
+  submitClientEditRequest: (id, requestedData) => set((state) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch(`/api/clients/${id}/edit-requests`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(requestedData)
+      }).then(async (res) => {
+        if (res.ok) {
+          const data = await res.json();
+          alert(`Edit request submitted! You earned ${data.pointsAdded || 0} points.`);
+          useAuthStore.getState().fetchProfile();
+          // We need to fetch the updated state, but we can optimistically set the pendingEditRequest flag
+        }
+      }).catch(console.error);
+    }
+    return { clients: state.clients.map(c => c.id === id ? { ...c, pendingEditRequest: true } : c) };
   }),
   deleteClient: (id) => set((state) => {
     const token = localStorage.getItem('token');
@@ -471,6 +509,12 @@ export const useStore = create<StoreState>((set, get) => ({
       fetch(`/api/clients/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
+      }).then(res => res.json()).then(data => {
+        if (!data.permanent && data.softDeleted) {
+          alert('Client successfully discarded to public pool.');
+        } else if (data.permanent) {
+          alert('Client deleted permanently.');
+        }
       }).catch(console.error);
     }
     return {

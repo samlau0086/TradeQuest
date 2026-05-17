@@ -31,6 +31,8 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
   const [tags, setTags] = useState<string>(existingClient?.tags.join(', ') || initialData?.tags?.join(', ') || '');
   const [contactMethods, setContactMethods] = useState<ContactMethod[]>(existingClient?.contactMethods || initialData?.contactMethods || [{ type: 'email', value: '' }]);
 
+  const [isApplyMode, setIsApplyMode] = useState(false);
+
   // Close country dropdown when clicking outside
   useEffect(() => {
     const handleClick = () => setIsCountryOpen(false);
@@ -55,7 +57,11 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
     };
 
     if (existingClient) {
-      editClient(existingClient.id, clientData);
+      if (isApplyMode) {
+        useStore.getState().submitClientEditRequest(existingClient.id, clientData);
+      } else {
+        editClient(existingClient.id, clientData);
+      }
       onSave?.(existingClient.id);
     } else {
       if (isPublicPool) {
@@ -83,33 +89,52 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
     setContactMethods(contactMethods.filter((_, i) => i !== index));
   };
 
+  const isLocked = (val: string | undefined) => !!existingClient && !!val && !isApplyMode;
+  const isMethodLocked = (index: number) => !!existingClient && index < (existingClient.contactMethods?.length || 0) && !isApplyMode;
+
   return (
     <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         <div className="flex items-center justify-between p-4 border-b border-slate-800 bg-slate-800/30">
-          <h2 className="text-lg font-bold text-white">{existingClient ? t('editClientTitle') : t('newClientTarget')}</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-bold text-white">{existingClient ? t('editClientTitle') : t('newClientTarget')}</h2>
+            {existingClient?.pendingEditRequest && (
+              <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-500 border border-yellow-500/30">Pending Review</span>
+            )}
+            {existingClient && !isApplyMode && !existingClient?.pendingEditRequest && (
+              <button type="button" onClick={() => setIsApplyMode(true)} className="ml-2 px-2 py-0.5 text-[10px] uppercase font-bold text-cyan-400 border border-cyan-400/50 rounded hover:bg-cyan-950 transition-colors">
+                Apply Edit
+              </button>
+            )}
+          </div>
           <button onClick={onClose} className="p-1 text-slate-400 hover:text-white rounded-md hover:bg-slate-800 transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
         
         <form onSubmit={handleSubmit} className="p-4 space-y-4 max-h-[70vh] overflow-y-auto scrollbar-thin">
+          {isApplyMode && (
+             <div className="bg-yellow-500/10 border border-yellow-500/30 rounded p-3 text-xs text-yellow-500 font-medium">
+               You are applying for modifications. Your changes will need superadmin approval before taking effect.
+             </div>
+          )}
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-400 uppercase">{t('name')}</label>
-            <input required value={name} onChange={e => setName(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500" placeholder="e.g. John Doe" />
+            <label className="text-xs font-bold text-slate-400 uppercase">{t('name')} {isLocked(existingClient?.name) && <span className="text-[10px] text-slate-500 ml-1">(Locked)</span>}</label>
+            <input required disabled={isLocked(existingClient?.name)} value={name} onChange={e => setName(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 disabled:opacity-50" placeholder="e.g. John Doe" />
           </div>
           
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-400 uppercase">{t('company')}</label>
-            <input required value={company} onChange={e => setCompany(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500" placeholder="e.g. Global Tech LLC" />
+            <label className="text-xs font-bold text-slate-400 uppercase">{t('company')} {isLocked(existingClient?.company) && <span className="text-[10px] text-slate-500 ml-1">(Locked)</span>}</label>
+            <input required disabled={isLocked(existingClient?.company)} value={company} onChange={e => setCompany(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 disabled:opacity-50" placeholder="e.g. Global Tech LLC" />
           </div>
 
           <div className={`grid ${isPublicPool ? 'grid-cols-1' : 'grid-cols-2'} gap-4`}>
             <div className="space-y-1 relative" onClick={e => e.stopPropagation()}>
-              <label className="text-xs font-bold text-slate-400 uppercase">{t('country')}</label>
+              <label className="text-xs font-bold text-slate-400 uppercase">{t('country')} {isLocked(existingClient?.country) && <span className="text-[10px] text-slate-500 ml-1">(Locked)</span>}</label>
               <div 
-                className={`w-full bg-slate-950 border ${isCountryOpen ? 'border-cyan-500 ring-1 ring-cyan-500' : 'border-slate-700'} rounded-lg px-3 py-2 text-sm text-slate-200 flex items-center justify-between cursor-pointer`}
+                className={`w-full bg-slate-950 border ${isCountryOpen ? 'border-cyan-500 ring-1 ring-cyan-500' : 'border-slate-700'} rounded-lg px-3 py-2 text-sm text-slate-200 flex items-center justify-between ${isLocked(existingClient?.country) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                 onClick={() => {
+                  if (isLocked(existingClient?.country)) return;
                   if (!isCountryOpen) {
                     setCountrySearch('');
                   }
@@ -117,8 +142,9 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
                 }}
               >
                 <input 
+                  disabled={isLocked(existingClient?.country)}
                   type="text"
-                  className="bg-transparent border-none outline-none w-full cursor-pointer placeholder-slate-500"
+                  className="bg-transparent border-none outline-none w-full cursor-pointer placeholder-slate-500 disabled:cursor-not-allowed"
                   value={isCountryOpen ? countrySearch : country}
                   onChange={(e) => {
                     setCountrySearch(e.target.value);
@@ -182,9 +208,11 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
 
           <div className="space-y-2">
             <label className="text-xs font-bold text-slate-400 uppercase">{t('contactMethods')}</label>
-            {contactMethods.map((cm, idx) => (
+            {contactMethods.map((cm, idx) => {
+              const locked = isMethodLocked(idx);
+              return (
               <div key={idx} className="flex items-center gap-2">
-                <select value={cm.type} onChange={e => updateContactMethod(idx, 'type', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500">
+                <select disabled={locked} value={cm.type} onChange={e => updateContactMethod(idx, 'type', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 disabled:opacity-50">
                   <option value="email">Email</option>
                   <option value="whatsapp">WhatsApp</option>
                   <option value="messenger">Messenger</option>
@@ -192,12 +220,15 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
                   <option value="phone">Phone</option>
                   <option value="wechat">WeChat</option>
                 </select>
-                <input value={cm.value} onChange={e => updateContactMethod(idx, 'value', e.target.value)} type="text" className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500" placeholder="Value..." />
-                <button type="button" onClick={() => removeContactMethod(idx)} className="p-2 text-slate-500 hover:text-red-400 rounded-md hover:bg-slate-800 transition-colors">
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <input disabled={locked} value={cm.value} onChange={e => updateContactMethod(idx, 'value', e.target.value)} type="text" className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 disabled:opacity-50" placeholder="Value..." />
+                {!locked && (
+                  <button type="button" onClick={() => removeContactMethod(idx)} className="p-2 text-slate-500 hover:text-red-400 rounded-md hover:bg-slate-800 transition-colors">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+                {locked && <span className="text-[10px] text-slate-500">(Locked)</span>}
               </div>
-            ))}
+            )})}
             <button type="button" onClick={addContactMethod} className="text-xs flex items-center gap-1 text-cyan-400 hover:text-cyan-300 font-medium py-1">
               <Plus className="w-3 h-3" /> {t('addContactMethod')}
             </button>

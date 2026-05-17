@@ -110,26 +110,28 @@ export function WorldMap({ onCountryClick }: { onCountryClick?: (country: string
                     onClick={() => {
                       if (onCountryClick) onCountryClick(country);
                     }} 
-                    className="cursor-pointer outline-none group hover:scale-110 transition-transform"
+                    className="cursor-pointer outline-none group transition-opacity"
                   >
                     <circle 
                       r={12} 
                       fill={isMostlyDormant ? "#f97316" : "#22d3ee"} 
-                      className="opacity-40 animate-ping"
+                      className="opacity-40 animate-ping group-hover:opacity-0 transition-opacity"
                     />
                     <circle 
                       r={8} 
                       fill={isMostlyDormant ? "#f97316" : "#22d3ee"} 
                       stroke="#0f172a"
                       strokeWidth={1.5}
+                      className="group-hover:scale-125 transition-transform"
+                      style={{ transformOrigin: "0px 0px" }}
                     />
-                    <text textAnchor="middle" y={-18} style={{ fontFamily: 'var(--font-sans)', fontSize: "12px", fill: "#f1f5f9", fontWeight: 700 }}>
+                    <text textAnchor="middle" y={-18} style={{ fontFamily: 'var(--font-sans)', fontSize: "12px", fill: "#f1f5f9", fontWeight: 700, pointerEvents: "none" }}>
                       {country}
                     </text>
-                    <text textAnchor="middle" y={3} style={{ fontFamily: 'var(--font-sans)', fontSize: "9px", fill: "#0f172a", fontWeight: 800 }}>
+                    <text textAnchor="middle" y={3} style={{ fontFamily: 'var(--font-sans)', fontSize: "9px", fill: "#0f172a", fontWeight: 800, pointerEvents: "none" }}>
                       {count}
                     </text>
-                    <text textAnchor="middle" y={20} style={{ fontFamily: 'var(--font-sans)', fontSize: "10px", fill: "#38bdf8", fontWeight: 600 }} className="opacity-0 group-hover:opacity-100 transition-opacity">
+                    <text textAnchor="middle" y={20} style={{ fontFamily: 'var(--font-sans)', fontSize: "10px", fill: "#38bdf8", fontWeight: 600, pointerEvents: "none" }} className="opacity-0 group-hover:opacity-100 transition-opacity">
                       View Leads
                     </text>
                   </Marker>

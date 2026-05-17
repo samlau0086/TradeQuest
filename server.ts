@@ -49,6 +49,20 @@ async function initDB() {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
 
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(128) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS pending_edit_request BOOLEAN DEFAULT FALSE;
+
+      CREATE TABLE IF NOT EXISTS client_edit_requests (
+        id SERIAL PRIMARY KEY,
+        client_id VARCHAR(128) REFERENCES clients(id) ON DELETE CASCADE,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        original_data JSONB,
+        requested_data JSONB,
+        status VARCHAR(50) DEFAULT 'pending',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
       CREATE TABLE IF NOT EXISTS logs (
         id VARCHAR(128) PRIMARY KEY,
         client_id VARCHAR(128) REFERENCES clients(id) ON DELETE CASCADE,
@@ -587,7 +601,9 @@ No markdown wrappers, just valid JSON.`;
         lastContact: row.last_contact,
         isDormant: row.is_dormant,
         contactMethods: row.contact_methods,
-        comments: row.comments
+        comments: row.comments,
+        pendingEditRequest: row.pending_edit_request,
+        deletedBy: row.deleted_by
       })));
     } catch (e) {
       console.error(e);
@@ -608,7 +624,9 @@ No markdown wrappers, just valid JSON.`;
         lastContact: row.last_contact,
         isDormant: row.is_dormant,
         contactMethods: row.contact_methods,
-        comments: row.comments
+        comments: row.comments,
+        pendingEditRequest: row.pending_edit_request,
+        deletedBy: row.deleted_by
       })));
     } catch (e) {
       console.error(e);
@@ -711,7 +729,7 @@ No markdown wrappers, just valid JSON.`;
 
   app.patch('/api/clients/:id', authenticateToken, async (req: any, res) => {
     try {
-      const { id } = req.params;
+      const id = req.params.id;
       const updates = req.body;
       
       const setClauses = [];
@@ -724,6 +742,26 @@ No markdown wrappers, just valid JSON.`;
         contactMethods: 'contact_methods', comments: 'comments'
       };
       
+      let pointsToAward = 0;
+      const existingClientRes = await pool.query(`SELECT * FROM clients WHERE id = $1`, [id]);
+      if (existingClientRes.rows.length > 0) {
+        const ec = existingClientRes.rows[0];
+        if (updates.company && !ec.company) pointsToAward += 2;
+        if (updates.country && !ec.country) pointsToAward += 2;
+        if (updates.contactMethods && updates.contactMethods.length > 0) {
+            const extLen = Array.isArray(ec.contact_methods) ? ec.contact_methods.length : JSON.parse(ec.contact_methods || '[]').length;
+            if (updates.contactMethods.length > extLen) {
+                pointsToAward += (updates.contactMethods.length - extLen) * 3;
+            }
+        }
+        if (updates.tags && updates.tags.length > 0) {
+            const extLen = Array.isArray(ec.tags) ? ec.tags.length : JSON.parse(ec.tags || '[]').length;
+            if (updates.tags.length > extLen) {
+                pointsToAward += (updates.tags.length - extLen) * 1;
+            }
+        }
+      }
+
       for (const [key, val] of Object.entries(updates)) {
         if (mapping[key]) {
           setClauses.push(`${mapping[key]} = $${valIdx}`);
@@ -735,23 +773,156 @@ No markdown wrappers, just valid JSON.`;
       if (setClauses.length > 0) {
         setClauses.push(`updated_at = CURRENT_TIMESTAMP`);
         await pool.query(`UPDATE clients SET ${setClauses.join(', ')} WHERE id = $1 AND user_id = $2`, values);
+        
+        if (pointsToAward > 0) {
+            await pool.query(`UPDATE users SET points = points + $1 WHERE id = $2`, [pointsToAward, req.user.uid]);
+        }
       }
-      res.json({ success: true });
+      res.json({ success: true, pointsAdded: pointsToAward });
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: 'Failed to update client' });
     }
   });
 
+  app.post('/api/clients/:id/edit-requests', authenticateToken, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const requestedData = req.body;
+      
+      const clientRes = await pool.query('SELECT * FROM clients WHERE id = $1 AND user_id = $2', [id, req.user.uid]);
+      if (clientRes.rows.length === 0) return res.status(404).json({ error: 'Client not found' });
+      const client = clientRes.rows[0];
+
+      await pool.query(
+        `INSERT INTO client_edit_requests (client_id, user_id, original_data, requested_data) VALUES ($1, $2, $3, $4)`,
+        [id, req.user.uid, JSON.stringify(client), JSON.stringify(requestedData)]
+      );
+
+      await pool.query(`UPDATE clients SET pending_edit_request = TRUE WHERE id = $1`, [id]);
+      
+      // Award points for enrichment via edit request
+      await pool.query(`UPDATE users SET points = points + 5 WHERE id = $1`, [req.user.uid]);
+
+      res.json({ success: true, pointsAdded: 5 });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to create edit request' });
+    }
+  });
+
   app.delete('/api/clients/:id', authenticateToken, async (req: any, res) => {
     try {
       const { id } = req.params;
-      await pool.query('DELETE FROM clients WHERE id = $1 AND user_id = $2', [id, req.user.uid]);
-      res.json({ success: true });
+      const userRes = await pool.query('SELECT role FROM users WHERE id = $1', [req.user.uid]);
+      const role = userRes.rows[0].role;
+
+      if (role === 'superadmin') {
+        await pool.query('DELETE FROM clients WHERE id = $1', [id]);
+        return res.json({ success: true, permanent: true });
+      }
+
+      const result = await pool.query(
+        `UPDATE clients SET user_id = NULL, deleted_by = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND user_id = $1 RETURNING id`,
+        [req.user.uid, id]
+      );
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Not found or permission denied' });
+      }
+      res.json({ success: true, softDeleted: true });
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: 'Failed to delete client' });
     }
+  });
+
+  app.post('/api/clients/:id/restore', authenticateToken, requireSuperadmin, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      await pool.query(`UPDATE clients SET deleted_by = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, [id]);
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to restore client' });
+    }
+  });
+
+  // Admin APIs for Edit Requests
+  app.get('/api/admin/client-edit-requests', authenticateToken, requireSuperadmin, async (req: any, res) => {
+    try {
+      const result = await pool.query(`
+        SELECT r.*, c.name as current_client_name, u.display_name as requester_name
+        FROM client_edit_requests r
+        JOIN clients c ON r.client_id = c.id
+        JOIN users u ON r.user_id = u.id
+        WHERE r.status = 'pending'
+        ORDER BY r.created_at DESC
+      `);
+      res.json(result.rows);
+    } catch(e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to fetch edit requests' });
+    }
+  });
+
+  app.post('/api/admin/client-edit-requests/:requestId/approve', authenticateToken, requireSuperadmin, async (req: any, res) => {
+     try {
+       const { requestId } = req.params;
+       const reqRes = await pool.query(`SELECT * FROM client_edit_requests WHERE id = $1`, [requestId]);
+       if (reqRes.rows.length === 0) return res.status(404).json({ error: 'Request not found' });
+       const editReq = reqRes.rows[0];
+
+       if (editReq.status !== 'pending') return res.status(400).json({ error: 'Not pending' });
+
+       await pool.query(`UPDATE client_edit_requests SET status = 'approved', updated_at = CURRENT_TIMESTAMP WHERE id = $1`, [requestId]);
+
+       const updates = typeof editReq.requested_data === 'string' ? JSON.parse(editReq.requested_data) : editReq.requested_data;
+       
+       const mapping: Record<string, string> = {
+         name: 'name', company: 'company', country: 'country', status: 'status',
+         tags: 'tags', lastContact: 'last_contact', isDormant: 'is_dormant',
+         contactMethods: 'contact_methods', comments: 'comments'
+       };
+       
+       const setClauses = [];
+       const values = [editReq.client_id];
+       let valIdx = 2;
+       
+       for (const [key, val] of Object.entries(updates)) {
+         if (mapping[key]) {
+           setClauses.push(`${mapping[key]} = $${valIdx}`);
+           values.push((key === 'tags' || key === 'comments' || key === 'contactMethods') ? JSON.stringify(val) : val as any);
+           valIdx++;
+         }
+       }
+       
+       if (setClauses.length > 0) {
+         setClauses.push(`pending_edit_request = FALSE`);
+         setClauses.push(`updated_at = CURRENT_TIMESTAMP`);
+         await pool.query(`UPDATE clients SET ${setClauses.join(', ')} WHERE id = $1`, values);
+       }
+
+       res.json({ success: true });
+     } catch(e) {
+       console.error(e);
+       res.status(500).json({ error: 'Failed' });
+     }
+  });
+
+  app.post('/api/admin/client-edit-requests/:requestId/reject', authenticateToken, requireSuperadmin, async (req: any, res) => {
+     try {
+       const { requestId } = req.params;
+       await pool.query(`UPDATE client_edit_requests SET status = 'rejected', updated_at = CURRENT_TIMESTAMP WHERE id = $1`, [requestId]);
+       
+       const reqRes = await pool.query(`SELECT client_id FROM client_edit_requests WHERE id = $1`, [requestId]);
+       if (reqRes.rows.length > 0) {
+           await pool.query(`UPDATE clients SET pending_edit_request = FALSE WHERE id = $1`, [reqRes.rows[0].client_id]);
+       }
+       res.json({ success: true });
+     } catch(e) {
+       console.error(e);
+       res.status(500).json({ error: 'Failed' });
+     }
   });
 
   // Logs API
