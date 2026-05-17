@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { useAuthStore } from './authStore';
 
-export type ViewMode = 'kanban' | 'map' | 'inbox' | 'dashboard' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests';
+export type ViewMode = 'kanban' | 'map' | 'inbox' | 'dashboard' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests' | 'list';
 
 export type ClientStatus = 'Leads' | 'Contacted' | 'Sample Sent' | 'Negotiating' | 'Closed Won'; // Kept for legacy compatibility if needed, better to rename to DealStage but will keep for now.
 
@@ -252,8 +252,8 @@ export interface StoreState {
   theme: 'dark' | 'light';
   setTheme: (theme: 'dark' | 'light') => void;
 
-  language: 'en' | 'zh';
-  setLanguage: (lang: 'en' | 'zh') => void;
+  language: 'en' | 'zh' | 'ar';
+  setLanguage: (lang: 'en' | 'zh' | 'ar') => void;
 
   fetchInitialData: () => Promise<void>;
 }

@@ -32,11 +32,11 @@ export function Sidebar() {
           
           <div className="absolute top-0 right-0 flex gap-1">
             <button 
-              onClick={(e) => { e.stopPropagation(); setLanguage(language === 'en' ? 'zh' : 'en'); }}
+              onClick={(e) => { e.stopPropagation(); setLanguage(language === 'en' ? 'zh' : language === 'zh' ? 'ar' : 'en'); }}
               className="p-1.5 text-slate-400 hover:text-cyan-400 bg-slate-800/50 hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-slate-700 font-medium text-[10px]"
               title="Toggle Language"
             >
-              {language === 'en' ? 'EN' : '中'}
+              {language === 'en' ? 'EN' : language === 'zh' ? '中' : 'ع'}
             </button>
             <button 
               onClick={(e) => { e.stopPropagation(); setTheme(theme === 'dark' ? 'light' : 'dark'); }}

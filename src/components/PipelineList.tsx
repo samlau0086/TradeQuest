@@ -147,10 +147,10 @@ export function PipelineList() {
                   <input 
                     type="checkbox" 
                     className="rounded border-slate-700 bg-slate-800 text-cyan-500 focus:ring-cyan-500/20"
-                    checked={selectedIds.size > 0 && selectedIds.size === filteredClients.length}
+                    checked={selectedIds.size > 0 && selectedIds.size === filteredDeals.length}
                     ref={input => {
                       if (input) {
-                        input.indeterminate = selectedIds.size > 0 && selectedIds.size < filteredClients.length;
+                        input.indeterminate = selectedIds.size > 0 && selectedIds.size < filteredDeals.length;
                       }
                     }}
                     onChange={toggleSelectAll}
