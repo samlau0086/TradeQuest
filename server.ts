@@ -1,5 +1,7 @@
 import express from "express";
 import path from "path";
+import multer from "multer";
+const pdfParse = require("pdf-parse");
 import { GoogleGenAI } from "@google/genai";
 import OpenAI from "openai";
 import { Pool } from "pg";
@@ -9,7 +11,9 @@ import jwt from "jsonwebtoken";
 const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret_key";
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL
+  connectionString: process.env.DATABASE_URL,
+  connectionTimeoutMillis: 3000,
+  idleTimeoutMillis: 30000 
 });
 
 async function initDB() {
@@ -64,6 +68,17 @@ async function initDB() {
 
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(128) REFERENCES users(id) ON DELETE SET NULL;
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS pending_edit_request BOOLEAN DEFAULT FALSE;
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS agent_enabled BOOLEAN DEFAULT FALSE;
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS agent_mode VARCHAR(50) DEFAULT 'manual';
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS agent_context TEXT;
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS agent_summary TEXT;
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS agent_next_step TEXT;
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS agent_last_run TIMESTAMP WITH TIME ZONE;
+
+      CREATE TABLE IF NOT EXISTS global_settings (
+        key VARCHAR(128) PRIMARY KEY,
+        value JSONB
+      );
 
       CREATE TABLE IF NOT EXISTS payment_terms (
         id VARCHAR(128) PRIMARY KEY,
@@ -85,6 +100,21 @@ async function initDB() {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE EXTENSION IF NOT EXISTS vector;
+
+      CREATE TABLE IF NOT EXISTS knowledge_base (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        client_id VARCHAR(128) REFERENCES clients(id) ON DELETE CASCADE,
+        title VARCHAR(255) NOT NULL,
+        content TEXT NOT NULL,
+        embedding vector(768),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+      
+      ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS embedding vector(768);
 
       CREATE TABLE IF NOT EXISTS logs (
         id VARCHAR(128) PRIMARY KEY,
@@ -250,12 +280,17 @@ async function startServer() {
   app.use(express.json());
 
   // Magic command completion
-  app.post("/api/chat/magic", async (req, res) => {
+  app.post("/api/chat/magic", authenticateToken, async (req: any, res) => {
     try {
       const { command, context, llmConfig } = req.body;
+      
+      const kbRes = await searchKnowledgeBase(req.user.uid, context?.clientId || null, command, llmConfig);
+      
       const prompt = `You are an AI assistant in a Foreign Trade CRM. 
 User executed magic command: "${command}". 
 Client Context: ${JSON.stringify(context)}.
+Knowledge Base (RAG):
+${kbRes.rows.map(kb => `[${kb.title}]\n${kb.content}`).join('\n\n')}
 If the command asks to follow up or draft an email, write a short, professional, yet engaging drafted email.
 Respond only with the draft or the direct output of the action requested. Do not include markdown formatting like \`\`\`.`;
       
@@ -268,13 +303,18 @@ Respond only with the draft or the direct output of the action requested. Do not
   });
 
   // Emotional Thermometer & Icebreaker
-  app.post("/api/chat/icebreaker", async (req, res) => {
+  app.post("/api/chat/icebreaker", authenticateToken, async (req: any, res) => {
     try {
       const { client, logs, llmConfig } = req.body;
+      
+      const kbRes = await searchKnowledgeBase(req.user.uid, client?.id || null, `Icebreaker and follow up strategy for client in ${client?.company || 'foreign trade'}`, llmConfig, 5);
+      
       const prompt = `You are a savvy foreign trade AI assistant.
 Analyze this client and their recent logs.
 Client: ${JSON.stringify(client)}
 Logs: ${JSON.stringify(logs)}
+Knowledge Base (RAG):
+${kbRes.rows.map(kb => `[${kb.title}]\n${kb.content}`).join('\n\n')}
 
 Return a JSON object:
 {
@@ -383,7 +423,7 @@ No markdown wrappers, just valid JSON.`;
   });
 
   // Middleware to authenticate JWT
-  const authenticateToken = (req: any, res: any, next: any) => {
+  function authenticateToken(req: any, res: any, next: any) {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
     if (token == null) return res.sendStatus(401);
@@ -576,6 +616,102 @@ No markdown wrappers, just valid JSON.`;
 
   // Run idle release periodically
   setInterval(releaseIdleLeads, 60 * 60 * 1000); // Check every hour
+  
+  // Agent Polling
+  const runAgentPolling = async () => {
+    try {
+      if (!pool) return;
+      const settingsRes = await pool.query("SELECT value FROM global_settings WHERE key = 'agent_polling_interval_hours'");
+      if (settingsRes.rows.length === 0) return; // Not configured yet
+      const intervalHours = parseFloat(settingsRes.rows[0].value);
+      if (isNaN(intervalHours) || intervalHours <= 0) return;
+
+      const clientsRes = await pool.query(`
+        SELECT * FROM clients 
+        WHERE agent_enabled = TRUE 
+          AND (agent_last_run IS NULL OR agent_last_run < NOW() - INTERVAL '1 hour' * $1)
+      `, [intervalHours]);
+
+      for (const client of clientsRes.rows) {
+        try {
+          console.log(`Running background agent for client ${client.id}`);
+          // Fetch context
+          const emailsRes = await pool.query(`SELECT * FROM emails WHERE (client_id = $1 OR recipient = $2) AND user_id = $3 ORDER BY date DESC LIMIT 5`, [client.id, client.email || '', client.user_id]);
+          const logsRes = await pool.query(`SELECT * FROM logs WHERE client_id = $1 ORDER BY date DESC LIMIT 5`, [client.id]);
+          const productsRes = await pool.query(`SELECT * FROM products WHERE user_id = $1 ORDER BY created_at DESC LIMIT 5`, [client.user_id]); 
+          const kbRes = await searchKnowledgeBase(client.user_id, client.id, `Agent follow up strategy for client in ${client.country || client.company || 'foreign trade'}`, undefined, 5);
+          
+          const contextPrompt = `
+You are an expert sales AI assistant tasked with following up with a specific client.
+
+Client Information:
+Name: ${client.name}
+Company: ${client.company}
+Country: ${client.country}
+Agent Context / Instructions: ${client.agent_context || 'None'}
+Long-term Summary: ${client.agent_summary || 'None'}
+
+Knowledge Base context:
+${kbRes.rows.map((kb: any) => `[${kb.title}]\n${kb.content}`).join('\n\n')}
+
+Recent Logs:
+${JSON.stringify(logsRes.rows)}
+
+Recent Emails:
+${JSON.stringify(emailsRes.rows)}
+
+Available Products (for context):
+${JSON.stringify(productsRes.rows)}
+`;
+
+          const prompt = `${contextPrompt}
+Based on the above context, you must decide on the next best action to advance this lead. 
+Your output MUST be a JSON object with the following schema:
+{
+  "newSummary": "An updated long-term summary incorporating the new history. Max 3 sentences.",
+  "suggestedNextStep": "A short sentence describing what should be done next to follow up. (e.g. 'Follow up on the pricing proposal from last week.')",
+  "draftEmail": "If an email should be sent, provide the body of a drafted email here. Otherwise, leave empty."
+}
+No markdown wrappers, just valid JSON.`;
+
+          // use default internal AI
+          const aiResponse = await callAI(prompt, null, true);
+          const parsed = JSON.parse(aiResponse || '{}');
+          
+          const newSummary = parsed.newSummary || client.agent_summary;
+          const nextStep = parsed.suggestedNextStep || 'Needs follow up.';
+          const draftEmail = parsed.draftEmail || '';
+
+          let nextRun = new Date().toISOString();
+
+          await pool.query(
+            'UPDATE clients SET agent_summary = $1, agent_next_step = $2, agent_last_run = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $4',
+            [newSummary, nextStep, nextRun, client.id]
+          );
+
+          if (client.agent_mode === 'auto_email' && draftEmail) {
+            const emailId = `e${Date.now()}${Math.floor(Math.random()*1000)}`;
+            await pool.query(
+              `INSERT INTO emails (id, user_id, client_id, sender, recipient, subject, body, date, read, direction, type)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, 'outbound', 'Auto Follow-up')`,
+              [emailId, client.user_id, client.id, 'AutoAgent', client.email || 'unknown@example.com', 'Follow Up', draftEmail, new Date().toISOString()]
+            );
+            await pool.query(
+              `INSERT INTO logs (id, client_id, date, content) VALUES ($1, $2, $3, $4)`,
+              [`l${Date.now()}${Math.floor(Math.random()*1000)}`, client.id, new Date().toISOString(), 'Auto-Agent sent follow up email.']
+            );
+          }
+        } catch (err) {
+          console.error(`Failed to run agent for ${client.id}`, err);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to run agent polling:', e);
+    }
+  };
+
+  // Run agent polling every 10 minutes
+  setInterval(runAgentPolling, 10 * 60 * 1000);
   
   // Deals API Endpoints
   app.get('/api/deals', authenticateToken, async (req: any, res) => {
@@ -958,7 +1094,12 @@ No markdown wrappers, just valid JSON.`;
         contactMethods: row.contact_methods,
         comments: row.comments,
         pendingEditRequest: row.pending_edit_request,
-        deletedBy: row.deleted_by
+        deletedBy: row.deleted_by,
+        agentEnabled: row.agent_enabled,
+        agentMode: row.agent_mode,
+        agentContext: row.agent_context,
+        agentSummary: row.agent_summary,
+        agentNextStep: row.agent_next_step
       })));
     } catch (e) {
       console.error(e);
@@ -982,7 +1123,12 @@ No markdown wrappers, just valid JSON.`;
         contactMethods: row.contact_methods,
         comments: row.comments,
         pendingEditRequest: row.pending_edit_request,
-        deletedBy: row.deleted_by
+        deletedBy: row.deleted_by,
+        agentEnabled: row.agent_enabled,
+        agentMode: row.agent_mode,
+        agentContext: row.agent_context,
+        agentSummary: row.agent_summary,
+        agentNextStep: row.agent_next_step
       })));
     } catch (e) {
       console.error(e);
@@ -1116,7 +1262,10 @@ No markdown wrappers, just valid JSON.`;
       const mapping: Record<string, string> = {
         name: 'name', company: 'company', address: 'address', country: 'country', status: 'status',
         tags: 'tags', lastContact: 'last_contact', isDormant: 'is_dormant',
-        contactMethods: 'contact_methods', comments: 'comments'
+        contactMethods: 'contact_methods', comments: 'comments',
+        agentEnabled: 'agent_enabled', agentMode: 'agent_mode',
+        agentContext: 'agent_context', agentSummary: 'agent_summary',
+        agentNextStep: 'agent_next_step'
       };
       
       let pointsToAward = 0;
@@ -1160,6 +1309,95 @@ No markdown wrappers, just valid JSON.`;
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: 'Failed to update client' });
+    }
+  });
+
+  app.post('/api/clients/:id/run-agent', authenticateToken, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { llmConfig } = req.body;
+      
+      const clientRes = await pool.query('SELECT * FROM clients WHERE id = $1 AND user_id = $2', [id, req.user.uid]);
+      if (clientRes.rows.length === 0) return res.status(404).json({ error: 'Client not found' });
+      const client = clientRes.rows[0];
+      
+      if (!client.agent_enabled) {
+        return res.status(400).json({ error: 'Agent is not enabled for this client' });
+      }
+
+      // Fetch context
+      const emailsRes = await pool.query(`SELECT * FROM emails WHERE (client_id = $1 OR recipient = $2) AND user_id = $3 ORDER BY date DESC LIMIT 5`, [id, client.email || '', req.user.uid]);
+      const logsRes = await pool.query(`SELECT * FROM logs WHERE client_id = $1 ORDER BY date DESC LIMIT 5`, [id]);
+      const productsRes = await pool.query(`SELECT * FROM products WHERE user_id = $1 ORDER BY created_at DESC LIMIT 5`, [req.user.uid]); // Top 5 recent products for context
+      const kbRes = await searchKnowledgeBase(req.user.uid, id, `Agent follow up strategy for client in ${client.country || client.company || 'foreign trade'}`, undefined, 5);
+      
+      const contextPrompt = `
+You are an expert sales AI assistant tasked with following up with a specific client.
+
+Client Information:
+Name: ${client.name}
+Company: ${client.company}
+Country: ${client.country}
+Agent Context / Instructions: ${client.agent_context || 'None'}
+Long-term Summary: ${client.agent_summary || 'None'}
+
+Knowledge Base context:
+${kbRes.rows.map((kb: any) => `[${kb.title}]\n${kb.content}`).join('\n\n')}
+
+Recent Logs:
+${JSON.stringify(logsRes.rows)}
+
+Recent Emails:
+${JSON.stringify(emailsRes.rows)}
+
+Available Products (for context, do not push aggressively if not relevant):
+${JSON.stringify(productsRes.rows)}
+`;
+
+      const prompt = `${contextPrompt}
+Based on the above context, you must decide on the next best action to advance this lead. 
+Your output MUST be a JSON object with the following schema:
+{
+  "newSummary": "An updated long-term summary incorporating the new history. Max 3 sentences.",
+  "suggestedNextStep": "A short sentence describing what should be done next to follow up. (e.g. 'Follow up on the pricing proposal from last week.')",
+  "draftEmail": "If an email should be sent, provide the body of a drafted email here. Otherwise, leave empty."
+}
+No markdown wrappers, just valid JSON.`;
+
+      const aiResponse = await callAI(prompt, llmConfig, true);
+      const parsed = JSON.parse(aiResponse || '{}');
+      
+      const newSummary = parsed.newSummary || client.agent_summary;
+      const nextStep = parsed.suggestedNextStep || 'Needs follow up.';
+      const draftEmail = parsed.draftEmail || '';
+      
+      // Update the client
+      await pool.query(
+        'UPDATE clients SET agent_summary = $1, agent_next_step = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3',
+        [newSummary, nextStep, id]
+      );
+      
+      // If Auto Email mode is on and we have a draft, we might send it. 
+      // But for simplicity/safety, let's just log it or draft it, or if auto_email, simulate a send.
+      if (client.agent_mode === 'auto_email' && draftEmail) {
+        // Automatically create an email draft or log it as sent
+        const emailId = `e${Date.now()}`;
+        await pool.query(
+          `INSERT INTO emails (id, user_id, client_id, sender, recipient, subject, body, date, read, direction, type)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, 'outbound', 'Auto Follow-up')`,
+          [emailId, req.user.uid, id, 'AutoAgent', client.email || 'unknown@example.com', 'Follow Up', draftEmail, new Date().toISOString()]
+        );
+        // Also add a log
+        await pool.query(
+          `INSERT INTO logs (id, client_id, date, content) VALUES ($1, $2, $3, $4)`,
+          [`l${Date.now()}`, id, new Date().toISOString(), 'Auto-Agent sent follow up email.']
+        );
+      }
+
+      res.json({ success: true, summary: newSummary, nextStep, draftEmail });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to run agent' });
     }
   });
 
@@ -1222,6 +1460,45 @@ No markdown wrappers, just valid JSON.`;
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: 'Failed to restore client' });
+    }
+  });
+
+  // Superadmin Global Settings
+  app.get('/api/admin/settings', authenticateToken, requireSuperadmin, async (req: any, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM global_settings');
+      const settings = result.rows.reduce((acc, row) => ({ ...acc, [row.key]: row.value }), {});
+      res.json(settings);
+    } catch (e) {
+      console.error('Failed to fetch settings', e);
+      res.status(500).json({ error: 'Failed to fetch settings' });
+    }
+  });
+
+  app.patch('/api/admin/settings', authenticateToken, requireSuperadmin, async (req: any, res) => {
+    try {
+      const dbClient = await pool.connect();
+      try {
+        await dbClient.query('BEGIN');
+        for (const [key, value] of Object.entries(req.body)) {
+          if (value === undefined) continue;
+          await dbClient.query(
+            `INSERT INTO global_settings (key, value) VALUES ($1, $2)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+            [key, JSON.stringify(value)]
+          );
+        }
+        await dbClient.query('COMMIT');
+        res.json({ success: true });
+      } catch (e) {
+        await dbClient.query('ROLLBACK');
+        throw e;
+      } finally {
+        dbClient.release();
+      }
+    } catch (e) {
+      console.error('Failed to update settings', e);
+      res.status(500).json({ error: 'Failed' });
     }
   });
 
@@ -1301,6 +1578,156 @@ No markdown wrappers, just valid JSON.`;
        console.error(e);
        res.status(500).json({ error: 'Failed' });
      }
+  });
+
+  // Knowledge Base APIs
+  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+  async function generateEmbedding(text: string, llmConfig?: any): Promise<number[] | null> {
+    try {
+      if (llmConfig && (llmConfig.provider === 'openai' || llmConfig.provider === 'custom_openai')) {
+         const openai = new OpenAI({
+           apiKey: llmConfig.apiKey,
+           baseURL: llmConfig.provider === 'custom_openai' ? llmConfig.endpoint : undefined,
+         });
+         const response = await openai.embeddings.create({
+           model: "text-embedding-3-small", // or text-embedding-ada-002
+           input: text.substring(0, 8000),
+         });
+         // OpenAI embedding dimension is usually 1536, but our DB column is 768!
+         // We must use Google Gen AI for 768, or we alter the db or handle this.
+      }
+      
+      // Default to Google Gen AI text-embedding-004 which has 768 dimensions
+      const api_key = (llmConfig && llmConfig.provider === 'gemini' && llmConfig.apiKey) ? llmConfig.apiKey : process.env.GEMINI_API_KEY;
+      const ai = new GoogleGenAI({ apiKey: api_key });
+      const response = await ai.models.embedContent({
+        model: 'text-embedding-004',
+        contents: text.substring(0, 9000), // Ensure we don't exceed limits
+      });
+      return response.embeddings?.[0]?.values || null;
+    } catch (e) {
+      console.error('Failed to generate embedding:', e);
+      return null;
+    }
+  }
+
+  function formatVector(values: number[]) {
+    return `[${values.join(',')}]`;
+  }
+
+  async function searchKnowledgeBase(userId: string, clientId: string | null, queryText: string, llmConfig?: any, limit: number = 5) {
+    try {
+      const queryEmbedding = await generateEmbedding(queryText, llmConfig);
+      if (queryEmbedding) {
+        const res = await pool.query(
+          `SELECT title, content FROM knowledge_base 
+           WHERE user_id = $1 AND (client_id IS NULL OR client_id = $2)
+           ORDER BY embedding <=> $3 LIMIT $4`,
+          [userId, clientId, formatVector(queryEmbedding), limit]
+        );
+        return res;
+      }
+    } catch(e) {
+      console.error('Vector search failed', e);
+    }
+    // Fallback
+    return await pool.query(
+      `SELECT title, content FROM knowledge_base WHERE user_id = $1 AND (client_id IS NULL OR client_id = $2) LIMIT $3`,
+      [userId, clientId, limit]
+    );
+  }
+
+  // File upload route...
+  app.post('/api/knowledge-base/upload', authenticateToken, upload.single('file'), async (req: any, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+      
+      let textContent = '';
+      if (req.file.mimetype === 'application/pdf') {
+        const data = await pdfParse(req.file.buffer);
+        textContent = data.text;
+      } else {
+        textContent = req.file.buffer.toString('utf-8');
+      }
+
+      res.json({ success: true, text: textContent });
+    } catch (e) {
+      console.error('File parsing error:', e);
+      res.status(500).json({ error: 'Failed to parse document' });
+    }
+  });
+
+  app.get('/api/knowledge-base', authenticateToken, async (req: any, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM knowledge_base WHERE user_id = $1 ORDER BY created_at DESC', [req.user.uid]);
+      res.json(result.rows.map(row => ({
+        id: row.id,
+        clientId: row.client_id,
+        title: row.title,
+        content: row.content,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+      })));
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to fetch knowledge base' });
+    }
+  });
+
+  app.post('/api/knowledge-base', authenticateToken, async (req: any, res) => {
+    try {
+      const { id, clientId, title, content } = req.body;
+      const embedding = await generateEmbedding(content);
+      let query, params;
+      
+      if (embedding) {
+        query = `INSERT INTO knowledge_base (id, user_id, client_id, title, content, embedding) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`;
+        params = [id, req.user.uid, clientId || null, title, content, formatVector(embedding)];
+      } else {
+        query = `INSERT INTO knowledge_base (id, user_id, client_id, title, content) VALUES ($1, $2, $3, $4, $5) RETURNING *`;
+        params = [id, req.user.uid, clientId || null, title, content];
+      }
+      
+      const result = await pool.query(query, params);
+      
+      res.json({ success: true, data: result.rows[0] });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to add knowledge base' });
+    }
+  });
+
+  app.patch('/api/knowledge-base/:id', authenticateToken, async (req: any, res) => {
+    try {
+      const { title, content } = req.body;
+      const embedding = await generateEmbedding(content);
+      
+      let query, params;
+      if (embedding) {
+        query = `UPDATE knowledge_base SET title = $1, content = $2, embedding = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $4 AND user_id = $5`;
+        params = [title, content, formatVector(embedding), req.params.id, req.user.uid];
+      } else {
+        query = `UPDATE knowledge_base SET title = $1, content = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3 AND user_id = $4`;
+        params = [title, content, req.params.id, req.user.uid];
+      }
+      
+      await pool.query(query, params);
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to update knowledge base' });
+    }
+  });
+
+  app.delete('/api/knowledge-base/:id', authenticateToken, async (req: any, res) => {
+    try {
+      await pool.query('DELETE FROM knowledge_base WHERE id = $1 AND user_id = $2', [req.params.id, req.user.uid]);
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to delete knowledge base' });
+    }
   });
 
   // Logs API
@@ -1437,7 +1864,7 @@ No markdown wrappers, just valid JSON.`;
     });
   }
 
-  await initDB();
+  initDB().catch(console.error); // Do not block server startup
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });

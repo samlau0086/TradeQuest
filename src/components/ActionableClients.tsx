@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useStore, Client, DormantClientAnalysis } from '../store';
+import { useAuthStore } from '../authStore';
 import { Briefcase, Clock, Activity, Wand2, Loader2, Mail, Users, UserPlus, RefreshCw } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -85,7 +86,10 @@ export function ActionableClients() {
       
       const res = await fetch('/api/chat/magic', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${useAuthStore.getState().token}` 
+        },
         body: JSON.stringify({ 
           command: prompt, 
           context: {},

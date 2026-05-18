@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useStore, InboxConfig, OutboxConfig, LLMConfig, PaymentTerm } from '../store';
 import { useAuthStore } from '../authStore';
-import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark } from 'lucide-react';
+import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark, Clock, Book } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ProfileSettings } from './ProfileSettings';
+import { KnowledgeBaseManager } from './KnowledgeBaseManager';
 import { useTranslation } from '../lib/i18n';
 
 export function Settings() {
@@ -16,9 +17,42 @@ export function Settings() {
   } = useStore();
   const t = useTranslation(language);
   
-  const { profile } = useAuthStore();
+  const { profile, token } = useAuthStore();
   const isSuperadmin = profile?.role === 'superadmin';
   
+  const [globalSettings, setGlobalSettings] = useState<Record<string, any>>({});
+  const [savingGlobal, setSavingGlobal] = useState(false);
+
+  useEffect(() => {
+    if (isSuperadmin) {
+      fetch('/api/admin/settings', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      .then(r => r.json())
+      .then(data => setGlobalSettings(data))
+      .catch(console.error);
+    }
+  }, [isSuperadmin, token]);
+
+  const handleSaveGlobalSetting = async (key: string, value: any) => {
+    setSavingGlobal(true);
+    setGlobalSettings(prev => ({ ...prev, [key]: value }));
+    try {
+      await fetch('/api/admin/settings', {
+        method: 'PATCH',
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}` 
+        },
+        body: JSON.stringify({ [key]: value })
+      });
+    } catch(e) {
+      console.error(e);
+    } finally {
+      setSavingGlobal(false);
+    }
+  };
+
   const [editingInboxId, setEditingInboxId] = useState<string | null>(null);
   const [inboxFormData, setInboxFormData] = useState<Partial<InboxConfig>>({});
 
@@ -134,6 +168,39 @@ export function Settings() {
         </div>
 
         <ProfileSettings />
+
+        {isSuperadmin && (
+          <section className="space-y-6 pt-6 border-t border-slate-800">
+            <h2 className="text-xl font-bold flex items-center gap-2">
+              <Server className="w-5 h-5 text-purple-400" /> Global Preferences
+            </h2>
+            <div className="bg-slate-900 border border-slate-700/50 rounded-xl p-4 md:p-6 space-y-6">
+              <div>
+                <label className="text-sm font-bold text-slate-300 block mb-2">
+                  AI Agent Auto Follow-up Polling Interval (Hours)
+                </label>
+                <div className="flex items-center gap-4">
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="e.g. 24"
+                    value={globalSettings.agent_polling_interval_hours || ''}
+                    onChange={e => handleSaveGlobalSetting('agent_polling_interval_hours', e.target.value)}
+                    className="w-32 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                  />
+                  <p className="text-xs text-slate-500">
+                    Determines how frequently the backend checks for enabled agents to run. (e.g., 24 means once per day). Leave empty to disable.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Global Knowledge Base */}
+        <section className="space-y-6 pt-6 border-t border-slate-800">
+          <KnowledgeBaseManager />
+        </section>
 
         {/* Payment Terms Section (Super Admin only) */}
         {isSuperadmin && (

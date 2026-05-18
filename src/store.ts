@@ -121,6 +121,11 @@ export interface Client {
   comments?: Comment[];
   pendingEditRequest?: boolean;
   deletedBy?: string;
+  agentEnabled?: boolean;
+  agentMode?: 'manual' | 'auto_email';
+  agentContext?: string;
+  agentSummary?: string;
+  agentNextStep?: string;
 }
 
 export interface ClientEditRequest {
@@ -227,7 +232,22 @@ export interface PaymentTerm {
   balanceRatio: number;
 }
 
+export interface KnowledgeItem {
+  id: string;
+  clientId: string | null;
+  title: string;
+  content: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface StoreState {
+  knowledgeBase: KnowledgeItem[];
+  fetchKnowledgeBase: () => void;
+  addKnowledgeItem: (item: Omit<KnowledgeItem, 'id'>) => void;
+  updateKnowledgeItem: (id: string, updates: Partial<KnowledgeItem>) => void;
+  deleteKnowledgeItem: (id: string) => void;
+
   paymentTerms: PaymentTerm[];
   fetchPaymentTerms: () => void;
   addPaymentTerm: (term: Omit<PaymentTerm, 'id'>) => void;
@@ -378,6 +398,61 @@ const INITIAL_ACHIEVEMENTS: Achievement[] = [
 ];
 
 export const useStore = create<StoreState>((set, get) => ({
+  knowledgeBase: [],
+  fetchKnowledgeBase: () => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch('/api/knowledge-base', { headers: { 'Authorization': `Bearer ${token}` } })
+        .then(res => res.json())
+        .then(knowledgeBase => set({ knowledgeBase: Array.isArray(knowledgeBase) ? knowledgeBase : [] }))
+        .catch(console.error);
+    }
+  },
+  addKnowledgeItem: (item) => {
+    const token = localStorage.getItem('token');
+    const newId = `kb-${Date.now()}`;
+    const newItem = { ...item, id: newId };
+    set((state) => ({ knowledgeBase: [newItem, ...state.knowledgeBase] }));
+    if (token) {
+      fetch('/api/knowledge-base', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(newItem)
+      }).catch(console.error);
+    }
+  },
+  updateKnowledgeItem: (id, updates) => {
+    const token = localStorage.getItem('token');
+    set((state) => ({
+      knowledgeBase: state.knowledgeBase.map(kb => kb.id === id ? { ...kb, ...updates } : kb)
+    }));
+    if (token) {
+      fetch(`/api/knowledge-base/${id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(updates)
+      }).catch(console.error);
+    }
+  },
+  deleteKnowledgeItem: (id) => {
+    const token = localStorage.getItem('token');
+    set((state) => ({
+      knowledgeBase: state.knowledgeBase.filter(kb => kb.id !== id)
+    }));
+    if (token) {
+      fetch(`/api/knowledge-base/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).catch(console.error);
+    }
+  },
+
   paymentTerms: [],
   fetchPaymentTerms: () => {
     const token = localStorage.getItem('token');
@@ -1209,6 +1284,7 @@ export const useStore = create<StoreState>((set, get) => ({
     get().fetchQuotes();
     get().fetchDocuments();
     get().fetchPaymentTerms();
+    get().fetchKnowledgeBase();
 
     try {
       const [clientsRes, logsRes, emailsRes, dealsRes] = await Promise.all([

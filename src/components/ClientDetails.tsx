@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useStore, ClientStatus, Client, ContactMethod } from '../store';
-import { X, Thermometer, Flame, Snowflake, Sparkles, Send, Loader2, Workflow, History, Mail, MessageCircle, Phone, Edit, Trash2, Paperclip, MessageSquare } from 'lucide-react';
+import { useAuthStore } from '../authStore';
+import { X, Thermometer, Flame, Snowflake, Sparkles, Send, Loader2, Workflow, History, Mail, MessageCircle, Phone, Edit, Trash2, Paperclip, MessageSquare, Settings } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ClientFormModal } from './ClientFormModal';
 
@@ -16,6 +17,7 @@ const CONTACT_ICONS = {
 import { User } from 'lucide-react';
 
 import { CommentItem } from './CommentItem';
+import { KnowledgeBaseManager } from './KnowledgeBaseManager';
 
 function ContactActionBox({ method, client, onClose }: { method: ContactMethod, client: Client, onClose: () => void }) {
   const [purpose, setPurpose] = useState('');
@@ -38,7 +40,10 @@ function ContactActionBox({ method, client, onClose }: { method: ContactMethod, 
     try {
       const res = await fetch('/api/chat/magic', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${useAuthStore.getState().token}`
+        },
         body: JSON.stringify({ 
           command: "Suggest a single, short sentence purpose for follow-up with this lead based on communication history.", 
           context: { 
@@ -64,7 +69,10 @@ function ContactActionBox({ method, client, onClose }: { method: ContactMethod, 
     try {
       const res = await fetch('/api/chat/magic', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${useAuthStore.getState().token}`
+        },
         body: JSON.stringify({ 
           command: `Draft a very short professional message to the client on ${method.type}. Purpose: ${purpose}`, 
           context: { client },
@@ -175,6 +183,76 @@ function ContactActionBox({ method, client, onClose }: { method: ContactMethod, 
   );
 }
 
+function AgentSettingsModal({ client, onClose }: { client: Client, onClose: () => void }) {
+  const { editClient } = useStore();
+  const [enabled, setEnabled] = useState(client.agentEnabled || false);
+  const [mode, setMode] = useState<'manual'|'auto_email'>(client.agentMode || 'manual');
+  const [context, setContext] = useState(client.agentContext || '');
+
+  const handleSave = () => {
+    editClient(client.id, {
+      agentEnabled: enabled,
+      agentMode: mode,
+      agentContext: context
+    });
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+      <div className="bg-slate-900 border border-indigo-900/50 p-6 rounded-xl shadow-2xl max-w-md w-full relative">
+        <h3 className="text-lg font-bold text-indigo-400 mb-4 flex items-center gap-2">
+          <Settings className="w-5 h-5" /> AI Agent Setup
+        </h3>
+        
+        <div className="space-y-4">
+          <div className="flex items-center justify-between bg-slate-950 p-3 rounded-lg border border-slate-800">
+            <div>
+              <div className="text-sm font-bold text-white">Enable Auto Agent</div>
+              <div className="text-xs text-slate-400">Allow AI to analyze and follow up.</div>
+            </div>
+            <button 
+              onClick={() => setEnabled(!enabled)}
+              className={cn("w-10 h-5 rounded-full relative transition-colors", enabled ? "bg-indigo-600" : "bg-slate-700")}
+            >
+              <div className={cn("w-3.5 h-3.5 bg-white rounded-full absolute top-0.5 transition-transform", enabled ? "translate-x-5" : "translate-x-1")} />
+            </button>
+          </div>
+
+          <div className={cn("space-y-4 transition-opacity", !enabled && "opacity-50 pointer-events-none")}>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-400 uppercase">Follow-up Mode</label>
+              <select 
+                value={mode} 
+                onChange={(e) => setMode(e.target.value as any)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-indigo-500"
+              >
+                <option value="manual">Prompt Only (Suggest next step)</option>
+                <option value="auto_email">Auto Email (Draft / Send email automatically)</option>
+              </select>
+            </div>
+
+            <div className="space-y-1 mt-4">
+              <label className="text-xs font-bold text-slate-400 uppercase">Agent Instructions / Context</label>
+              <textarea 
+                value={context}
+                onChange={(e) => setContext(e.target.value)}
+                placeholder="e.g. This client is very price-sensitive. Focus on ROI and value. Do not offer discounts upfront."
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-indigo-500 min-h-[100px] resize-none scrollbar-thin"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 mt-6">
+          <button onClick={onClose} className="px-4 py-2 text-slate-400 hover:text-white transition-colors text-sm">Cancel</button>
+          <button onClick={handleSave} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow font-medium transition-colors text-sm">Save Configuration</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ClientDetails() {
   const { clients, selectedClientId, selectClient, updateClientStatus, deleteClient, addComment, addReply, llmConfigs, activeLLMId, llmMappings } = useStore();
   
@@ -194,16 +272,51 @@ export function ClientDetails() {
 
   const [confirmDeleteTarget, setConfirmDeleteTarget] = useState(false);
 
+  // Agent State
+  const [agentLoading, setAgentLoading] = useState(false);
+  const [agentSettingsOpen, setAgentSettingsOpen] = useState(false);
+
   const client = clients.find(c => c.id === selectedClientId);
 
   if (!client) return null;
+
+  const handleRunAgent = async () => {
+    if (!client.agentEnabled) return;
+    setAgentLoading(true);
+    try {
+      const res = await fetch(`/api/clients/${client.id}/run-agent`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${useAuthStore.getState().token}`
+        },
+        body: JSON.stringify({ llmConfig: getLLMConfig('analysis') })
+      });
+      const data = await res.json();
+      if (data.success) {
+        // Optimistically update local store or refetch clients
+        useAuthStore.getState().fetchProfile(); // Not the best way to refetch clients, but no dedicated fetchClients exists in store. Let's just rely on global update if any, or reload. We should ideally update the local client object in the store.
+        useStore.getState().editClient(client.id, { 
+          agentSummary: data.summary, 
+          agentNextStep: data.nextStep 
+        });
+      }
+    } catch(err) {
+      console.error(err);
+    } finally {
+      setAgentLoading(false);
+    }
+  };
 
   const handleAnalyze = async () => {
     setLoading(true);
     try {
       const res = await fetch('/api/chat/icebreaker', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${useAuthStore.getState().token}`
+        },
         body: JSON.stringify({ 
           client, 
           logs: [{ date: client.lastContact, content: "Discussed pricing. Client seemed hesitant but asked for samples. No reply since." }],
@@ -314,6 +427,81 @@ export function ClientDetails() {
           </div>
         )}
 
+        {/* AI Auto Agent */}
+        <div className="bg-gradient-to-br from-indigo-950/20 to-slate-900 border border-indigo-900/50 rounded-xl p-4 relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
+            <Settings className="w-24 h-24 text-indigo-400" />
+          </div>
+          <div className="flex items-center justify-between mb-4 relative z-10">
+            <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-wider flex items-center gap-2">
+              <Sparkles className="w-4 h-4" /> AI Follow-Up Agent
+            </h3>
+            <button 
+              onClick={() => setAgentSettingsOpen(true)}
+              className="text-slate-400 hover:text-white transition-colors p-1"
+              title="Agent Settings"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="space-y-4 relative z-10">
+            {!client.agentEnabled ? (
+              <div className="text-center py-4">
+                <p className="text-slate-400 text-xs mb-3">Automate follow-ups and analyze client journey using AI.</p>
+                <button 
+                  onClick={() => setAgentSettingsOpen(true)}
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-3 py-1.5 rounded-lg inline-flex items-center gap-2 transition-colors font-medium border border-indigo-500 shadow-lg shadow-indigo-900/20"
+                >
+                  <Workflow className="w-3 h-3" /> Enable Agent
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between border-b border-indigo-900/50 pb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-indigo-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+                    </span>
+                    <span className="text-xs font-medium text-indigo-300">Agent Active</span>
+                  </div>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                    Mode: {client.agentMode === 'auto_email' ? 'Auto Email' : 'Prompt Only'}
+                  </span>
+                </div>
+
+                <div className="space-y-3">
+                  {client.agentSummary && (
+                    <div className="bg-slate-900/80 rounded-lg p-3 border border-indigo-900/30">
+                      <h4 className="text-[10px] text-indigo-400 font-bold uppercase mb-1">Long-term summary</h4>
+                      <p className="text-xs text-slate-300 leading-relaxed">{client.agentSummary}</p>
+                    </div>
+                  )}
+
+                  {client.agentNextStep && (
+                    <div className="bg-indigo-900/20 rounded-lg p-3 border border-indigo-500/20">
+                      <h4 className="text-[10px] text-indigo-400 font-bold uppercase mb-1">Suggested Next Step</h4>
+                      <p className="text-sm font-medium text-white">{client.agentNextStep}</p>
+                    </div>
+                  )}
+                  
+                  <div className="flex justify-end pt-2">
+                    <button 
+                      onClick={handleRunAgent}
+                      disabled={agentLoading}
+                      className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs px-3 py-1.5 rounded font-medium flex items-center gap-2 transition-colors shadow shadow-indigo-900/20"
+                    >
+                      {agentLoading ? <Loader2 className="w-3 h-3 animate-spin"/> : <Sparkles className="w-3 h-3" />}
+                      Run Agent
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
         {/* AI Radar */}
         <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
           <div className="flex items-center justify-between mb-4">
@@ -374,6 +562,11 @@ export function ClientDetails() {
               AI analysis requires target scan.
             </div>
           )}
+        </div>
+
+        {/* Client Knowledge Base */}
+        <div className="mb-8">
+          <KnowledgeBaseManager clientId={client.id} />
         </div>
 
         {/* Growth Logs */}
@@ -453,6 +646,8 @@ export function ClientDetails() {
       </div>
       {showEditModal && <ClientFormModal clientId={client.id} onClose={() => setShowEditModal(false)} />}
       
+      {agentSettingsOpen && <AgentSettingsModal client={client} onClose={() => setAgentSettingsOpen(false)} />}
+
       {confirmDeleteTarget && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-xl max-w-sm w-full">

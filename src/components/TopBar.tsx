@@ -153,7 +153,10 @@ export function MagicCommand() {
     try {
       const res = await fetch('/api/chat/magic', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${useAuthStore.getState().token}` 
+        },
         body: JSON.stringify({ command: input, context: {}, llmConfig: activeLLMConfig })
       });
       const data = await res.json();

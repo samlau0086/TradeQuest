@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore, EmailMessage } from '../store';
+import { useAuthStore } from '../authStore';
 import { Mail, Send, Reply, Trash2, ArrowLeft, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, Paperclip, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { CommentItem } from './CommentItem';
@@ -400,7 +401,10 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
     try {
       const res = await fetch('/api/chat/magic', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${useAuthStore.getState().token}`
+        },
         body: JSON.stringify({ 
           command: "Suggest a single, short sentence purpose for follow-up with this lead based on communication history.", 
           context: { 
@@ -500,7 +504,10 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
     try {
       const res = await fetch('/api/chat/magic', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${useAuthStore.getState().token}`
+        },
         body: JSON.stringify({ 
           command: `Write an email snippet or sentence based on this instruction: ${prompt}`,
           context: { 
@@ -543,7 +550,10 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
     try {
       const res = await fetch('/api/chat/magic', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${useAuthStore.getState().token}`
+        },
         body: JSON.stringify({ 
           command: `Draft an email. Subject: ${subject || "Follow up"}. Purpose for this email: ${purpose || 'General follow up'}`,
           context: { 
