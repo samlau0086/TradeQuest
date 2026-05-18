@@ -310,32 +310,69 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
 
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const [caretCoords, setCaretCoords] = useState<{top: number, left: number, matchText: string} | null>(null);
+  const [quoteCoords, setQuoteCoords] = useState<{top: number, left: number, matchText: string, search: string} | null>(null);
+
+  const { quotes } = useStore();
 
   const updateCaretPosition = () => {
     if (!bodyRef.current) return;
     const aiPattern = /\/ai:(.*?)(?=\n|$)/g;
+    const quotePattern = /\/quote:(.*?)(?=\n|$)/g;
     const cursorIdx = bodyRef.current.selectionStart;
     
     let match;
-    let foundMatch = null;
+    let foundAiMatch = null;
+    let foundQuoteMatch = null;
     let text = bodyRef.current.value;
+
+    // Check AI pattern
     while ((match = aiPattern.exec(text)) !== null) {
       const startIdx = match.index;
       const endIdx = match.index + match[0].length;
       if (cursorIdx >= startIdx && cursorIdx <= endIdx + 1) {
-        foundMatch = match;
+        foundAiMatch = match;
         break;
       }
     }
 
-    if (foundMatch) {
-       const endIdx = foundMatch.index + foundMatch[0].length;
+    // Check Quote pattern if AI not found
+    if (!foundAiMatch) {
+      // reset lastIndex for regex
+      quotePattern.lastIndex = 0;
+      while ((match = quotePattern.exec(text)) !== null) {
+        const startIdx = match.index;
+        const endIdx = match.index + match[0].length;
+        if (cursorIdx >= startIdx && cursorIdx <= endIdx + 1) {
+          foundQuoteMatch = match;
+          break;
+        }
+      }
+    }
+
+    if (foundAiMatch) {
+       const endIdx = foundAiMatch.index + foundAiMatch[0].length;
        const coords = getCaretCoordinates(bodyRef.current, endIdx);
-       setCaretCoords({ top: coords.top + 20, left: coords.left, matchText: foundMatch[0] });
+       setCaretCoords({ top: coords.top + 20, left: coords.left, matchText: foundAiMatch[0] });
+       setQuoteCoords(null);
+    } else if (foundQuoteMatch) {
+       const endIdx = foundQuoteMatch.index + foundQuoteMatch[0].length;
+       const coords = getCaretCoordinates(bodyRef.current, endIdx);
+       setQuoteCoords({ top: coords.top + 20, left: coords.left, matchText: foundQuoteMatch[0], search: foundQuoteMatch[1].trim() });
+       setCaretCoords(null);
     } else {
        setCaretCoords(null);
+       setQuoteCoords(null);
     }
   };
+
+  const handleInsertQuote = (quoteId: string, quoteNumber: string) => {
+    if (!quoteCoords) return;
+    const link = `${window.location.origin}/quote/${quoteId}`;
+    const insertText = `${quoteNumber} <${link}>`;
+    setBody(prev => prev.replace(quoteCoords.matchText, insertText));
+    setQuoteCoords(null);
+  };
+
 
   useEffect(() => {
     updateCaretPosition();
@@ -635,6 +672,28 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
                 {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Sparkles className="w-3.5 h-3.5 group-hover:rotate-12 transition-transform"/>}
                 {loading ? 'Generating...' : 'Generate AI'} {!loading && <span className="opacity-70 font-normal ml-1 border border-white/20 px-1 rounded text-[10px]">Enter</span>}
               </button>
+          </div>
+        )}
+        {quoteCoords && (
+          <div className="absolute z-10 bg-slate-800 border border-slate-700 rounded-lg shadow-lg w-64 overflow-hidden" style={{ top: quoteCoords.top, left: Math.min(quoteCoords.left, document.body.clientWidth - 260) }}>
+             <div className="px-3 py-2 bg-slate-900 border-b border-slate-700 text-xs font-bold text-slate-400">
+               Select Quote
+             </div>
+             <div className="max-h-48 overflow-y-auto">
+               {quotes.filter(q => q.quoteNumber.toLowerCase().includes(quoteCoords.search.toLowerCase())).map(quote => (
+                 <button
+                   key={quote.id}
+                   onClick={() => handleInsertQuote(quote.id, quote.quoteNumber)}
+                   className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:bg-cyan-950/50 hover:text-cyan-400 flex items-center justify-between"
+                 >
+                   <span className="font-mono">{quote.quoteNumber}</span>
+                   <span className="text-[10px] text-slate-500">{quote.status}</span>
+                 </button>
+               ))}
+               {quotes.filter(q => q.quoteNumber.toLowerCase().includes(quoteCoords.search.toLowerCase())).length === 0 && (
+                 <div className="px-3 py-2 text-xs text-slate-500 text-center">No matching quotes</div>
+               )}
+             </div>
           </div>
         )}
         {attachments.length > 0 && (

@@ -192,6 +192,8 @@ export function ClientDetails() {
   const [commentText, setCommentText] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [confirmDeleteTarget, setConfirmDeleteTarget] = useState(false);
+
   const client = clients.find(c => c.id === selectedClientId);
 
   if (!client) return null;
@@ -247,11 +249,7 @@ export function ClientDetails() {
           <p className="text-xs text-slate-400">{client.company} · {client.country}</p>
         </div>
         <div className="flex items-center gap-1">
-          <button onClick={() => {
-            if (confirm('Are you sure you want to delete this target?')) {
-              deleteClient(client.id);
-            }
-          }} className="p-2 text-slate-500 hover:text-red-400 rounded-lg hover:bg-slate-800 transition-colors">
+          <button onClick={() => setConfirmDeleteTarget(true)} className="p-2 text-slate-500 hover:text-red-400 rounded-lg hover:bg-slate-800 transition-colors">
             <Trash2 className="w-4 h-4" />
           </button>
           <button onClick={() => selectClient(null)} className="p-2 text-slate-500 hover:text-white rounded-lg hover:bg-slate-800 transition-colors">
@@ -454,6 +452,19 @@ export function ClientDetails() {
 
       </div>
       {showEditModal && <ClientFormModal clientId={client.id} onClose={() => setShowEditModal(false)} />}
+      
+      {confirmDeleteTarget && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-xl max-w-sm w-full">
+            <h3 className="text-lg font-bold text-white mb-2">Delete Target?</h3>
+            <p className="text-slate-400 mb-6 text-sm">Are you sure you want to delete this target? All associated data will be lost. This cannot be undone.</p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setConfirmDeleteTarget(false)} className="px-4 py-2 text-slate-300 hover:text-white transition-colors">Cancel</button>
+              <button onClick={() => { deleteClient(client.id); setConfirmDeleteTarget(false); }} className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg shadow font-medium transition-colors">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

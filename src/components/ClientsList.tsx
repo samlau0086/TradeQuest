@@ -22,6 +22,7 @@ const CONTACT_ICONS: any = {
     const [search, setSearch] = useState('');
     const [showAddModal, setShowAddModal] = useState(false);
     const [showUploadModal, setShowUploadModal] = useState(false);
+    const [deleteClientId, setDeleteClientId] = useState<string | null>(null);
 
     const handleCSVUpload = (file: File) => {
       Papa.parse(file, {
@@ -129,7 +130,7 @@ const CONTACT_ICONS: any = {
                       <button onClick={() => selectClient(client.id)} className="p-1 hover:text-cyan-400 hover:bg-cyan-950/50 rounded transition-colors" title="Edit/View Details">
                         <Edit2 className="w-4 h-4" />
                       </button>
-                      <button onClick={() => { if(confirm('Delete client?')) deleteClient(client.id); }} className="p-1 hover:text-red-400 hover:bg-red-950/50 rounded transition-colors" title="Delete">
+                      <button onClick={() => setDeleteClientId(client.id)} className="p-1 hover:text-red-400 hover:bg-red-950/50 rounded transition-colors" title="Delete">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
@@ -150,6 +151,19 @@ const CONTACT_ICONS: any = {
 
       {showAddModal && <ClientFormModal onClose={() => setShowAddModal(false)} />}
       {showUploadModal && <UploadCSVModal onClose={() => setShowUploadModal(false)} onUpload={handleCSVUpload} />}
+
+      {deleteClientId && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-xl max-w-sm w-full">
+            <h3 className="text-lg font-bold text-white mb-2">Delete Client?</h3>
+            <p className="text-slate-400 mb-6 text-sm">Are you sure you want to delete this client? All associated data might be lost.</p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setDeleteClientId(null)} className="px-4 py-2 text-slate-300 hover:text-white transition-colors">Cancel</button>
+              <button onClick={() => { deleteClient(deleteClientId); setDeleteClientId(null); }} className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg shadow font-medium transition-colors">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

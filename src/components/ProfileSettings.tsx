@@ -10,6 +10,11 @@ export function ProfileSettings() {
   const t = useTranslation(language);
   const [displayName, setDisplayName] = useState(profile?.displayName || '');
   const [avatarUrl, setAvatarUrl] = useState(profile?.avatarUrl || '');
+  const [companyName, setCompanyName] = useState(profile?.companyName || '');
+  const [companyAddress, setCompanyAddress] = useState(profile?.companyAddress || '');
+  const [companyPhone, setCompanyPhone] = useState(profile?.companyPhone || '');
+  const [companyEmail, setCompanyEmail] = useState(profile?.companyEmail || '');
+  const [companyWebsite, setCompanyWebsite] = useState(profile?.companyWebsite || '');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   
@@ -27,7 +32,7 @@ export function ProfileSettings() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ displayName, avatarUrl })
+        body: JSON.stringify({ displayName, avatarUrl, companyName, companyAddress, companyPhone, companyEmail, companyWebsite })
       });
       if (!res.ok) throw new Error('Failed to update profile');
       await fetchProfile();
@@ -118,6 +123,62 @@ export function ProfileSettings() {
                 <img src={avatarUrl} alt="Avatar Preview" className="w-12 h-12 rounded-full object-cover border border-slate-700" />
               </div>
             )}
+          </div>
+          
+          <hr className="border-slate-700/50 my-6" />
+          <h3 className="text-sm font-bold text-slate-300">Company Information</h3>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs text-slate-400 font-bold uppercase">Company Name</label>
+              <input 
+                type="text" 
+                value={companyName}
+                onChange={e => setCompanyName(e.target.value)}
+                placeholder="Acme Corp"
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 outline-none"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-slate-400 font-bold uppercase">Company Website</label>
+              <input 
+                type="text" 
+                value={companyWebsite}
+                onChange={e => setCompanyWebsite(e.target.value)}
+                placeholder="https://example.com"
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 outline-none"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-slate-400 font-bold uppercase">Company Email</label>
+              <input 
+                type="email" 
+                value={companyEmail}
+                onChange={e => setCompanyEmail(e.target.value)}
+                placeholder="contact@acme.com"
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 outline-none"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-slate-400 font-bold uppercase">Company Phone</label>
+              <input 
+                type="text" 
+                value={companyPhone}
+                onChange={e => setCompanyPhone(e.target.value)}
+                placeholder="+1 234 567 8900"
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 outline-none"
+              />
+            </div>
+            <div className="space-y-1 md:col-span-2">
+              <label className="text-xs text-slate-400 font-bold uppercase">Company Address</label>
+              <textarea 
+                value={companyAddress}
+                onChange={e => setCompanyAddress(e.target.value)}
+                placeholder="123 Business St, Suite 100&#10;City, Country"
+                rows={3}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 outline-none resize-none"
+              />
+            </div>
           </div>
           
           <button 

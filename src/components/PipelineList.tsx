@@ -52,6 +52,8 @@ export function PipelineList() {
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [editingDealId, setEditingDealId] = useState<string | null>(null);
+  const [deleteDealId, setDeleteDealId] = useState<string | null>(null);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
 
   // Close column filter on click outside
   useEffect(() => {
@@ -79,10 +81,13 @@ export function PipelineList() {
   };
 
   const handleDeleteSelected = () => {
-    if (confirm(`Delete ${selectedIds.size} selected deals?`)) {
-      selectedIds.forEach(id => deleteDeal(id));
-      setSelectedIds(new Set());
-    }
+    setConfirmBulkDelete(true);
+  };
+
+  const executeBulkDelete = () => {
+    selectedIds.forEach(id => deleteDeal(id));
+    setSelectedIds(new Set());
+    setConfirmBulkDelete(false);
   };
 
   return (
@@ -266,7 +271,7 @@ export function PipelineList() {
                       <button onClick={() => setEditingDealId(deal.id)} className="p-1 hover:text-cyan-400 hover:bg-cyan-950/50 rounded transition-colors" title="Edit Deal">
                         <Edit2 className="w-4 h-4" />
                       </button>
-                      <button onClick={() => { if(confirm('Delete deal?')) deleteDeal(deal.id); }} className="p-1 hover:text-red-400 hover:bg-red-950/50 rounded transition-colors" title="Delete">
+                      <button onClick={() => setDeleteDealId(deal.id)} className="p-1 hover:text-red-400 hover:bg-red-950/50 rounded transition-colors" title="Delete">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
@@ -284,6 +289,32 @@ export function PipelineList() {
           </table>
         </div>
         {editingDealId && <DealFormModal dealId={editingDealId} onClose={() => setEditingDealId(null)} />}
+
+        {deleteDealId && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+            <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-xl max-w-sm w-full">
+              <h3 className="text-lg font-bold text-white mb-2">Delete Deal?</h3>
+              <p className="text-slate-400 mb-6 text-sm">Are you sure you want to delete this deal? This action cannot be undone.</p>
+              <div className="flex justify-end gap-3">
+                <button onClick={() => setDeleteDealId(null)} className="px-4 py-2 text-slate-300 hover:text-white transition-colors">Cancel</button>
+                <button onClick={() => { deleteDeal(deleteDealId); setDeleteDealId(null); }} className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg shadow font-medium transition-colors">Delete</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {confirmBulkDelete && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+            <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-xl max-w-sm w-full">
+              <h3 className="text-lg font-bold text-white mb-2">Delete Selected Deals?</h3>
+              <p className="text-slate-400 mb-6 text-sm">Are you sure you want to delete {selectedIds.size} deals? This action cannot be undone.</p>
+              <div className="flex justify-end gap-3">
+                <button onClick={() => setConfirmBulkDelete(false)} className="px-4 py-2 text-slate-300 hover:text-white transition-colors">Cancel</button>
+                <button onClick={executeBulkDelete} className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg shadow font-medium transition-colors">Delete All</button>
+              </div>
+            </div>
+          </div>
+        )}
     </div>
   );
 }

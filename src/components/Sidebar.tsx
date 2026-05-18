@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useStore } from '../store';
 import { cn } from '../lib/utils';
-import { Swords, Trophy, Map as MapIcon, KanbanSquare, Tags, LogOut, Flame, Plus, Mail, Settings as SettingsIcon, Sun, Moon, Languages, Shield, Globe, Users } from 'lucide-react';
+import { Swords, Trophy, Map as MapIcon, KanbanSquare, Tags, LogOut, Flame, Plus, Mail, Settings as SettingsIcon, Sun, Moon, Languages, Shield, Globe, Users, Package, FileText } from 'lucide-react';
 import { ClientFormModal } from './ClientFormModal';
 import { ExpHistoryModal } from './ExpHistoryModal';
 import { useAuthStore } from '../authStore';
@@ -106,6 +106,22 @@ export function Sidebar() {
         >
           <KanbanSquare className="w-5 h-5" />
           {t('kanbanView')}
+        </button>
+        <button 
+          onClick={() => setView('products')}
+          className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors", 
+            view === 'products' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
+        >
+          <Package className="w-5 h-5" />
+          Products
+        </button>
+        <button 
+          onClick={() => setView('quotes')}
+          className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors", 
+            view === 'quotes' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
+        >
+          <FileText className="w-5 h-5" />
+          Quotes
         </button>
         <button 
           onClick={() => setView('public-pool')}

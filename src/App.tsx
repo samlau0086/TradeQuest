@@ -18,6 +18,9 @@ import { AuthPage } from './components/AuthPage';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'react-resizable-panels';
 import { Loader2 } from 'lucide-react';
 
+import { ProductsList } from './components/ProductsList';
+import { QuotesList } from './components/QuotesList';
+
 export default function App() {
   const { view, selectedClientId, checkScheduledEmails, fetchInitialData, language } = useStore();
   const { token, isInitializing } = useAuthStore();
@@ -58,6 +61,8 @@ export default function App() {
         
         {view === 'kanban' ? <Kanban /> : 
          view === 'list' ? <PipelineList /> :
+         view === 'products' ? <ProductsList /> :
+         view === 'quotes' ? <QuotesList /> :
          view === 'clients' ? <ClientsList /> :
          view === 'public-pool' ? <PublicPool /> :
          view === 'edit-requests' ? <EditRequests /> :

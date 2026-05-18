@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { useStore, InboxConfig, OutboxConfig, LLMConfig } from '../store';
+import { useStore, InboxConfig, OutboxConfig, LLMConfig, PaymentTerm } from '../store';
 import { useAuthStore } from '../authStore';
-import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send } from 'lucide-react';
+import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ProfileSettings } from './ProfileSettings';
 import { useTranslation } from '../lib/i18n';
@@ -11,11 +11,13 @@ export function Settings() {
     inboxConfigs, addInboxConfig, updateInboxConfig, deleteInboxConfig, 
     outboxConfigs, addOutboxConfig, updateOutboxConfig, deleteOutboxConfig,
     llmConfigs, addLLMConfig, updateLLMConfig, deleteLLMConfig, activeLLMId, setActiveLLMId,
+    paymentTerms, addPaymentTerm, updatePaymentTerm, deletePaymentTerm,
     llmMappings, setLLMMapping, language
   } = useStore();
   const t = useTranslation(language);
   
   const { profile } = useAuthStore();
+  const isSuperadmin = profile?.role === 'superadmin';
   
   const [editingInboxId, setEditingInboxId] = useState<string | null>(null);
   const [inboxFormData, setInboxFormData] = useState<Partial<InboxConfig>>({});
@@ -25,6 +27,28 @@ export function Settings() {
 
   const [editingLLMId, setEditingLLMId] = useState<string | null>(null);
   const [llmFormData, setLLMFormData] = useState<Partial<LLMConfig>>({});
+
+  const [editingPTId, setEditingPTId] = useState<string | null>(null);
+  const [ptFormData, setPtFormData] = useState<Partial<PaymentTerm>>({});
+
+  const handleEditPT = (pt: PaymentTerm) => {
+    setEditingPTId(pt.id);
+    setPtFormData(pt);
+  };
+
+  const handleAddNewPT = () => {
+    setEditingPTId('new');
+    setPtFormData({ name: 'New Term', description: '', advanceRatio: 30, balanceRatio: 70 });
+  };
+
+  const handleSavePT = () => {
+    if (editingPTId === 'new') {
+      addPaymentTerm(ptFormData as Omit<PaymentTerm, 'id'>);
+    } else if (editingPTId) {
+      updatePaymentTerm(editingPTId, ptFormData);
+    }
+    setEditingPTId(null);
+  };
 
   const handleEditInbox = (acc: InboxConfig) => {
     setEditingInboxId(acc.id);
@@ -110,6 +134,119 @@ export function Settings() {
         </div>
 
         <ProfileSettings />
+
+        {/* Payment Terms Section (Super Admin only) */}
+        {isSuperadmin && (
+          <section className="space-y-6 pt-6 border-t border-slate-800">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <Landmark className="w-5 h-5 text-emerald-400" /> Payment Terms
+              </h2>
+              {editingPTId === null && (
+                <button onClick={handleAddNewPT} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-bold shadow-lg transition-colors">
+                  <Plus className="w-4 h-4" /> Add Payment Term
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
+              {paymentTerms.length === 0 && editingPTId !== 'new' && (
+                <div className="text-center py-12 bg-slate-950/30 rounded-xl border border-slate-800 text-slate-500">
+                  No payment terms configured. Add one to use in quotes.
+                </div>
+              )}
+              
+              {(editingPTId === 'new' ? [...paymentTerms, { ...ptFormData, id: 'new' } as PaymentTerm] : paymentTerms).map((pt) => {
+                const isEditing = editingPTId === pt.id;
+
+                if (isEditing) {
+                  return (
+                    <div key={pt.id} className="bg-slate-800 border border-emerald-500/50 rounded-xl p-6 space-y-6 shadow-xl">
+                      <div className="flex items-center justify-between border-b border-slate-700 pb-4">
+                        <input 
+                          type="text" 
+                          value={ptFormData.name || ''} 
+                          onChange={e => setPtFormData({ ...ptFormData, name: e.target.value })}
+                          placeholder="Term Name (e.g. 30/70 T/T)"
+                          className="bg-transparent text-xl font-bold border-none outline-none focus:ring-1 focus:ring-emerald-500 rounded px-2 py-1 w-1/2 text-white"
+                        />
+                        <div className="flex items-center gap-2">
+                           <button onClick={handleSavePT} className="flex items-center gap-1 text-sm font-bold bg-green-600 hover:bg-green-500 px-3 py-1.5 rounded-lg transition-colors text-white">
+                             <Save className="w-4 h-4" /> Save
+                           </button>
+                           <button onClick={() => setEditingPTId(null)} className="flex items-center gap-1 text-sm font-bold bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-lg transition-colors text-white">
+                             <X className="w-4 h-4" /> Cancel
+                           </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div className="space-y-4">
+                          <label className="text-xs text-slate-400 font-bold uppercase">Description</label>
+                          <textarea
+                            value={ptFormData.description || ''}
+                            onChange={e => setPtFormData({ ...ptFormData, description: e.target.value })}
+                            placeholder="Detailed description..."
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-emerald-500 outline-none text-white h-24 resize-none"
+                          />
+                        </div>
+                        
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1">
+                              <label className="text-xs text-slate-400 font-bold uppercase">Advance Ratio (%)</label>
+                              <input 
+                                type="number" 
+                                placeholder="30"
+                                value={ptFormData.advanceRatio || 0}
+                                onChange={e => setPtFormData({ ...ptFormData, advanceRatio: Number(e.target.value) })}
+                                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-emerald-500 outline-none text-white"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-xs text-slate-400 font-bold uppercase">Balance Ratio (%)</label>
+                              <input 
+                                type="number" 
+                                placeholder="70"
+                                value={ptFormData.balanceRatio || 0}
+                                onChange={e => setPtFormData({ ...ptFormData, balanceRatio: Number(e.target.value) })}
+                                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-emerald-500 outline-none text-white"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div key={pt.id} className="bg-slate-950 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-colors flex flex-col gap-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <Landmark className="w-5 h-5 text-emerald-400" />
+                        <h3 className="font-bold text-lg text-white">{pt.name}</h3>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => handleEditPT(pt)} className="p-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors">
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => deletePaymentTerm(pt.id)} className="p-2 text-red-400 hover:text-white bg-red-950/30 hover:bg-red-900/50 rounded-lg transition-colors">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                    {pt.description && <p className="text-sm text-slate-400">{pt.description}</p>}
+                    <div className="flex items-center gap-4 text-xs font-medium text-emerald-500">
+                      <span>Advance: {pt.advanceRatio}%</span>
+                      <span>Balance: {pt.balanceRatio}%</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         {/* Incoming Servers Section */}
         <section className="space-y-6 pt-6 border-t border-slate-800">

@@ -33,6 +33,8 @@ export function PublicPool() {
   const t = useTranslation(language);
   const [search, setSearch] = useState('');
   const [claimingId, setClaimingId] = useState<string | null>(null);
+  const [confirmClaimId, setConfirmClaimId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -64,11 +66,19 @@ export function PublicPool() {
     return `${c.name} ${c.company} ${c.country} ${c.tags.join(' ')}`.toLowerCase().includes(term);
   });
 
-  const handleClaim = async (id: string) => {
-    if (confirm("Are you sure you want to claim this lead? It will cost 10 points.")) {
-      setClaimingId(id);
-      await claimClient(id);
+  const executeClaim = async () => {
+    if (confirmClaimId) {
+      setClaimingId(confirmClaimId);
+      await claimClient(confirmClaimId);
       setClaimingId(null);
+      setConfirmClaimId(null);
+    }
+  };
+
+  const executeAdminDelete = () => {
+    if (confirmDeleteId) {
+      handleAdminAction(confirmDeleteId, 'delete');
+      setConfirmDeleteId(null);
     }
   };
 
@@ -167,7 +177,7 @@ export function PublicPool() {
 
           <div className="w-full mt-2 flex gap-2">
             <button
-              onClick={() => handleClaim(client.id)}
+              onClick={() => setConfirmClaimId(client.id)}
               disabled={claimingId === client.id}
               className="flex-1 flex items-center justify-center gap-2 bg-slate-800 hover:bg-cyan-600 text-white py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50 cursor-pointer"
             >
@@ -184,7 +194,7 @@ export function PublicPool() {
                  <ArrowUpFromLine className="w-4 h-4" />
                </button>
                <button
-                 onClick={() => handleAdminAction(client.id, 'delete')}
+                 onClick={() => setConfirmDeleteId(client.id)}
                  className="p-2 bg-slate-800 hover:bg-red-600 text-white rounded-lg transition-colors"
                  title="Permanent Delete"
                >
@@ -235,13 +245,13 @@ export function PublicPool() {
                    <button onClick={() => handleAdminAction(client.id, 'restore')} className="p-1.5 bg-slate-800 hover:bg-green-600 text-white rounded transition-colors" title="Restore">
                      <ArrowUpFromLine className="w-4 h-4" />
                    </button>
-                   <button onClick={() => handleAdminAction(client.id, 'delete')} className="p-1.5 bg-slate-800 hover:bg-red-600 text-white rounded transition-colors" title="Permanent Delete">
+                   <button onClick={() => setConfirmDeleteId(client.id)} className="p-1.5 bg-slate-800 hover:bg-red-600 text-white rounded transition-colors" title="Permanent Delete">
                      <Trash2 className="w-4 h-4" />
                    </button>
                   </>
                 )}
                 <button
-                  onClick={() => handleClaim(client.id)}
+                  onClick={() => setConfirmClaimId(client.id)}
                   disabled={claimingId === client.id}
                   className="px-4 py-1.5 bg-slate-800 hover:bg-cyan-600 text-white rounded font-medium disabled:opacity-50 transition-colors inline-block cursor-pointer"
                 >
@@ -347,7 +357,7 @@ export function PublicPool() {
                 <div className="font-medium text-slate-200">{client.name}</div>
                 <div className="text-xs text-slate-400 mt-1">{client.company}</div>
                 <button
-                  onClick={() => handleClaim(client.id)}
+                  onClick={() => setConfirmClaimId(client.id)}
                   disabled={claimingId === client.id}
                   className="w-full mt-3 py-1.5 text-xs bg-slate-900 hover:bg-cyan-600 rounded text-slate-300 hover:text-white transition-colors cursor-pointer"
                 >
@@ -438,6 +448,32 @@ export function PublicPool() {
       </div>
       {showUploadModal && <UploadCSVModal onClose={() => setShowUploadModal(false)} onUpload={handleCSVUpload} />}
       {showAddModal && <ClientFormModal isPublicPool onClose={() => setShowAddModal(false)} />}
+      
+      {confirmClaimId && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-xl max-w-sm w-full">
+            <h3 className="text-lg font-bold text-white mb-2">Claim Lead?</h3>
+            <p className="text-slate-400 mb-6 text-sm">Are you sure you want to claim this lead? It will cost 10 points.</p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setConfirmClaimId(null)} className="px-4 py-2 text-slate-300 hover:text-white transition-colors">Cancel</button>
+              <button onClick={executeClaim} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg shadow font-medium transition-colors">Claim Lead</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDeleteId && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-xl max-w-sm w-full">
+            <h3 className="text-lg font-bold text-white mb-2">Permanent Delete?</h3>
+            <p className="text-slate-400 mb-6 text-sm">Are you sure you want to permanently delete this lead? This cannot be undone.</p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setConfirmDeleteId(null)} className="px-4 py-2 text-slate-300 hover:text-white transition-colors">Cancel</button>
+              <button onClick={executeAdminDelete} className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg shadow font-medium transition-colors">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

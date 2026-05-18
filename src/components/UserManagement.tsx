@@ -10,6 +10,7 @@ export function UserManagement() {
   const t = useTranslation(language);
   const [users, setUsers] = useState<(UserProfile & { id: string })[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deleteUserId, setDeleteUserId] = useState<string | null>(null);
 
   const fetchUsers = async () => {
     try {
@@ -54,15 +55,16 @@ export function UserManagement() {
     }
   };
 
-  const handleDeleteUser = async (userId: string) => {
-    if (!window.confirm("Are you sure you want to delete this user's profile data?")) return;
+  const executeDeleteUser = async () => {
+    if (!deleteUserId) return;
     try {
-      await fetch(`/api/users/${userId}`, {
+      await fetch(`/api/users/${deleteUserId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${useAuthStore.getState().token}`
         }
       });
+      setDeleteUserId(null);
       fetchUsers();
     } catch (err) {
       console.error(err);
@@ -126,7 +128,7 @@ export function UserManagement() {
                     {new Date(u.createdAt).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-3 text-right">
-                     <button onClick={() => handleDeleteUser(u.id)} className="p-1.5 text-red-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors">
+                     <button onClick={() => setDeleteUserId(u.id)} className="p-1.5 text-red-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors">
                        <Trash2 className="w-4 h-4" />
                      </button>
                   </td>
@@ -134,6 +136,19 @@ export function UserManagement() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {deleteUserId && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-xl max-w-sm w-full">
+            <h3 className="text-lg font-bold text-white mb-2">Delete User?</h3>
+            <p className="text-slate-400 mb-6 text-sm">Are you sure you want to delete this user's profile data? This cannot be undone.</p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setDeleteUserId(null)} className="px-4 py-2 text-slate-300 hover:text-white transition-colors">Cancel</button>
+              <button onClick={executeDeleteUser} className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg shadow font-medium transition-colors">Delete</button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -7,6 +7,11 @@ export interface UserProfile {
   displayName?: string;
   avatarUrl?: string;
   points?: number;
+  companyName?: string;
+  companyAddress?: string;
+  companyPhone?: string;
+  companyEmail?: string;
+  companyWebsite?: string;
   createdAt: string;
   updatedAt: string;
 }

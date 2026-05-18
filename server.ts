@@ -27,17 +27,28 @@ async function initDB() {
         display_name VARCHAR(100),
         avatar_url TEXT,
         points INT DEFAULT 0,
+        company_name VARCHAR(255),
+        company_address TEXT,
+        company_phone VARCHAR(100),
+        company_email VARCHAR(255),
+        company_website VARCHAR(255),
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
       
       ALTER TABLE users ADD COLUMN IF NOT EXISTS points INT DEFAULT 0;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS company_name VARCHAR(255);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS company_address TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS company_phone VARCHAR(100);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS company_email VARCHAR(255);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS company_website VARCHAR(255);
       
       CREATE TABLE IF NOT EXISTS clients (
         id VARCHAR(128) PRIMARY KEY,
         user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
         name VARCHAR(255) NOT NULL,
         company VARCHAR(255),
+        address TEXT,
         country VARCHAR(100),
         status VARCHAR(50) DEFAULT 'Leads',
         tags JSONB DEFAULT '[]',
@@ -49,8 +60,20 @@ async function initDB() {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
 
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS address TEXT;
+
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(128) REFERENCES users(id) ON DELETE SET NULL;
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS pending_edit_request BOOLEAN DEFAULT FALSE;
+
+      CREATE TABLE IF NOT EXISTS payment_terms (
+        id VARCHAR(128) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        advance_ratio NUMERIC(5,2) DEFAULT 0,
+        balance_ratio NUMERIC(5,2) DEFAULT 0,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
 
       CREATE TABLE IF NOT EXISTS client_edit_requests (
         id SERIAL PRIMARY KEY,
@@ -103,6 +126,52 @@ async function initDB() {
       );
       
       ALTER TABLE deals ADD COLUMN IF NOT EXISTS contact_info JSONB DEFAULT '{}'::jsonb;
+
+      CREATE TABLE IF NOT EXISTS products (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        sku VARCHAR(255),
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        image_url TEXT,
+        bulk_prices JSONB DEFAULT '[]'::jsonb,
+        comments JSONB DEFAULT '[]'::jsonb,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS quotes (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        client_id VARCHAR(128) REFERENCES clients(id) ON DELETE SET NULL,
+        quote_number VARCHAR(255) NOT NULL,
+        payment_terms TEXT,
+        payment_term_id VARCHAR(128),
+        advance_ratio NUMERIC(5,2) DEFAULT 0,
+        balance_ratio NUMERIC(5,2) DEFAULT 0,
+        status VARCHAR(50) DEFAULT 'Draft',
+        items JSONB DEFAULT '[]'::jsonb,
+        fees JSONB DEFAULT '[]'::jsonb,
+        comments JSONB DEFAULT '[]'::jsonb,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      ALTER TABLE quotes ADD COLUMN IF NOT EXISTS payment_term_id VARCHAR(128);
+      ALTER TABLE quotes ADD COLUMN IF NOT EXISTS advance_ratio NUMERIC(5,2) DEFAULT 0;
+      ALTER TABLE quotes ADD COLUMN IF NOT EXISTS balance_ratio NUMERIC(5,2) DEFAULT 0;
+
+      CREATE TABLE IF NOT EXISTS documents (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        quote_id VARCHAR(128) REFERENCES quotes(id) ON DELETE CASCADE,
+        type VARCHAR(50) NOT NULL,
+        document_number VARCHAR(255) NOT NULL,
+        content JSONB,
+        comments JSONB DEFAULT '[]'::jsonb,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
 
       -- Migrate existing clients to a default deal if none exist for that client
       INSERT INTO deals (id, user_id, client_id, name, status, created_at, updated_at)
@@ -244,7 +313,7 @@ No markdown wrappers, just valid JSON.`;
       const token = jwt.sign({ uid: user.id }, JWT_SECRET, { expiresIn: '7d' });
       
       res.json({ token, user: {
-        id: user.id, email: user.email, role: user.role, displayName: user.display_name, avatarUrl: user.avatar_url, points: user.points, createdAt: user.created_at, updatedAt: user.updated_at
+        id: user.id, email: user.email, role: user.role, displayName: user.display_name, avatarUrl: user.avatar_url, points: user.points, companyName: user.company_name, companyAddress: user.company_address, companyPhone: user.company_phone, companyEmail: user.company_email, companyWebsite: user.company_website, createdAt: user.created_at, updatedAt: user.updated_at
       } });
     } catch (e: any) {
       if (e.code === '23505') {
@@ -267,7 +336,7 @@ No markdown wrappers, just valid JSON.`;
       
       const token = jwt.sign({ uid: user.id }, JWT_SECRET, { expiresIn: '7d' });
       res.json({ token, user: {
-        id: user.id, email: user.email, role: user.role, displayName: user.display_name, avatarUrl: user.avatar_url, points: user.points, createdAt: user.created_at, updatedAt: user.updated_at
+        id: user.id, email: user.email, role: user.role, displayName: user.display_name, avatarUrl: user.avatar_url, points: user.points, companyName: user.company_name, companyAddress: user.company_address, companyPhone: user.company_phone, companyEmail: user.company_email, companyWebsite: user.company_website, createdAt: user.created_at, updatedAt: user.updated_at
       } });
     } catch (e) {
       console.error(e);
@@ -288,7 +357,7 @@ No markdown wrappers, just valid JSON.`;
       if (!user) return res.status(404).json({ error: 'User not found' });
       
       res.json({
-        id: user.id, email: user.email, role: user.role, displayName: user.display_name, avatarUrl: user.avatar_url, points: user.points, createdAt: user.created_at, updatedAt: user.updated_at
+        id: user.id, email: user.email, role: user.role, displayName: user.display_name, avatarUrl: user.avatar_url, points: user.points, companyName: user.company_name, companyAddress: user.company_address, companyPhone: user.company_phone, companyEmail: user.company_email, companyWebsite: user.company_website, createdAt: user.created_at, updatedAt: user.updated_at
       });
     } catch (e) {
       res.status(401).json({ error: 'Invalid token' });
@@ -410,7 +479,7 @@ No markdown wrappers, just valid JSON.`;
   app.patch('/api/users/:uid', authenticateToken, async (req: any, res: any) => {
     try {
       const { uid } = req.params;
-      const { displayName, avatarUrl, role } = req.body;
+      const { displayName, avatarUrl, role, companyName, companyAddress, companyPhone, companyEmail, companyWebsite } = req.body;
       
       // Check if user is modifying themselves or is a superadmin
       let isSuperadmin = false;
@@ -431,10 +500,25 @@ No markdown wrappers, just valid JSON.`;
          SET display_name = COALESCE($1, display_name),
              avatar_url = COALESCE($2, avatar_url),
              role = COALESCE($3, role),
+             company_name = COALESCE($5, company_name),
+             company_address = COALESCE($6, company_address),
+             company_phone = COALESCE($7, company_phone),
+             company_email = COALESCE($8, company_email),
+             company_website = COALESCE($9, company_website),
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $4
          RETURNING *`,
-        [displayName !== undefined ? displayName : null, avatarUrl !== undefined ? avatarUrl : null, updateRole, uid]
+        [
+          displayName !== undefined ? displayName : null, 
+          avatarUrl !== undefined ? avatarUrl : null, 
+          updateRole, 
+          uid,
+          companyName !== undefined ? companyName : null,
+          companyAddress !== undefined ? companyAddress : null,
+          companyPhone !== undefined ? companyPhone : null,
+          companyEmail !== undefined ? companyEmail : null,
+          companyWebsite !== undefined ? companyWebsite : null
+        ]
       );
       const user = result.rows[0];
       if (!user) {
@@ -586,6 +670,276 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
+  // Products API Endpoints
+  app.get('/api/products', authenticateToken, async (req: any, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM products WHERE user_id = $1 ORDER BY created_at DESC', [req.user.uid]);
+      res.json(result.rows.map(row => ({
+        id: row.id, sku: row.sku, name: row.name, description: row.description, imageUrl: row.image_url,
+        bulkPrices: row.bulk_prices, comments: row.comments, createdAt: row.created_at, updatedAt: row.updated_at
+      })));
+    } catch (e) {
+      console.error(e); res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  app.post('/api/products', authenticateToken, async (req: any, res) => {
+    try {
+      const { id, sku, name, description, imageUrl, bulkPrices, comments } = req.body;
+      const result = await pool.query(
+        `INSERT INTO products (id, user_id, sku, name, description, image_url, bulk_prices, comments)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+        [id, req.user.uid, sku, name, description, imageUrl, JSON.stringify(bulkPrices || []), JSON.stringify(comments || [])]
+      );
+      res.json(result.rows[0]);
+    } catch (e) {
+      console.error(e); res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  app.patch('/api/products/:id', authenticateToken, async (req: any, res) => {
+    try {
+      const { sku, name, description, imageUrl, bulkPrices, comments } = req.body;
+      const updates = []; const values = []; let idx = 1;
+      const mapping = { sku: 'sku', name: 'name', description: 'description', imageUrl: 'image_url', bulkPrices: 'bulk_prices', comments: 'comments' };
+      for (const [k, v] of Object.entries({ sku, name, description, imageUrl, bulkPrices, comments })) {
+        if (v !== undefined) {
+          updates.push(`${mapping[k as keyof typeof mapping]} = $${idx++}`);
+          values.push(k === 'bulkPrices' || k === 'comments' ? JSON.stringify(v) : v);
+        }
+      }
+      if (updates.length > 0) {
+        updates.push(`updated_at = CURRENT_TIMESTAMP`);
+        values.push(req.params.id, req.user.uid);
+        await pool.query(`UPDATE products SET ${updates.join(', ')} WHERE id = $${idx++} AND user_id = $${idx}`, values);
+      }
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e); res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  app.delete('/api/products/:id', authenticateToken, async (req: any, res) => {
+    try {
+      await pool.query('DELETE FROM products WHERE id = $1 AND user_id = $2', [req.params.id, req.user.uid]);
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e); res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  // Quotes API Endpoints
+  // Public route to view a quote
+  app.get('/api/public/quotes/:id', async (req: any, res) => {
+    try {
+      const result = await pool.query(`
+        SELECT q.*, c.name as client_name, c.company as client_company, c.contact_methods as client_contact_methods,
+               u.display_name as user_name, u.email as user_email
+        FROM quotes q 
+        LEFT JOIN clients c ON q.client_id = c.id
+        LEFT JOIN users u ON q.user_id = u.id
+        WHERE q.id = $1
+      `, [req.params.id]);
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Quote not found' });
+      
+      const row = result.rows[0];
+      res.json({
+        id: row.id, quoteNumber: row.quote_number, clientId: row.client_id, paymentTerms: row.payment_terms,
+        status: row.status, items: row.items, fees: row.fees, comments: row.comments, createdAt: row.created_at, updatedAt: row.updated_at,
+        clientName: row.client_name, clientCompany: row.client_company, clientContactMethods: row.client_contact_methods,
+        userName: row.user_name, userEmail: row.user_email
+      });
+    } catch (e) {
+      console.error(e); res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  app.get('/api/quotes', authenticateToken, async (req: any, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM quotes WHERE user_id = $1 ORDER BY created_at DESC', [req.user.uid]);
+      res.json(result.rows.map(row => ({
+        id: row.id, quoteNumber: row.quote_number, clientId: row.client_id, paymentTerms: row.payment_terms,
+        paymentTermId: row.payment_term_id, advanceRatio: row.advance_ratio ? parseFloat(row.advance_ratio) : 0, balanceRatio: row.balance_ratio ? parseFloat(row.balance_ratio) : 0,
+        status: row.status, items: row.items, fees: row.fees, comments: row.comments, createdAt: row.created_at, updatedAt: row.updated_at
+      })));
+    } catch (e) {
+      console.error(e); res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  app.post('/api/quotes', authenticateToken, async (req: any, res) => {
+    try {
+      const { id, quoteNumber, clientId, paymentTerms, paymentTermId, advanceRatio, balanceRatio, status, items, fees, comments } = req.body;
+      const result = await pool.query(
+        `INSERT INTO quotes (id, user_id, client_id, quote_number, payment_terms, payment_term_id, advance_ratio, balance_ratio, status, items, fees, comments)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+        [id, req.user.uid, clientId || null, quoteNumber, paymentTerms, paymentTermId || null, advanceRatio || 0, balanceRatio || 0, status, JSON.stringify(items || []), JSON.stringify(fees || []), JSON.stringify(comments || [])]
+      );
+      res.json(result.rows[0]);
+    } catch (e) {
+      console.error(e); res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  app.patch('/api/quotes/:id', authenticateToken, async (req: any, res) => {
+    try {
+      const { quoteNumber, clientId, paymentTerms, paymentTermId, advanceRatio, balanceRatio, status, items, fees, comments } = req.body;
+      const updates = []; const values = []; let idx = 1;
+      const mapping = { quoteNumber: 'quote_number', clientId: 'client_id', paymentTerms: 'payment_terms', paymentTermId: 'payment_term_id', advanceRatio: 'advance_ratio', balanceRatio: 'balance_ratio', status: 'status', items: 'items', fees: 'fees', comments: 'comments' };
+      for (const [k, v] of Object.entries({ quoteNumber, clientId, paymentTerms, paymentTermId, advanceRatio, balanceRatio, status, items, fees, comments })) {
+        if (v !== undefined) {
+          updates.push(`${mapping[k as keyof typeof mapping]} = $${idx++}`);
+          values.push(k === 'items' || k === 'fees' || k === 'comments' ? JSON.stringify(v) : v);
+        }
+      }
+      if (updates.length > 0) {
+        updates.push(`updated_at = CURRENT_TIMESTAMP`);
+        values.push(req.params.id, req.user.uid);
+        await pool.query(`UPDATE quotes SET ${updates.join(', ')} WHERE id = $${idx++} AND user_id = $${idx}`, values);
+      }
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e); res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  app.delete('/api/quotes/:id', authenticateToken, async (req: any, res) => {
+    try {
+      await pool.query('DELETE FROM quotes WHERE id = $1 AND user_id = $2', [req.params.id, req.user.uid]);
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e); res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  app.get('/api/payment-terms', authenticateToken, async (req: any, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM payment_terms ORDER BY created_at ASC');
+      res.json(result.rows.map(row => ({
+        id: row.id, name: row.name, description: row.description,
+        advanceRatio: parseFloat(row.advance_ratio), balanceRatio: parseFloat(row.balance_ratio)
+      })));
+    } catch (e) {
+      console.error(e); res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  app.post('/api/payment-terms', authenticateToken, requireSuperadmin, async (req: any, res) => {
+    try {
+      const { id, name, description, advanceRatio, balanceRatio } = req.body;
+      const result = await pool.query(
+        `INSERT INTO payment_terms (id, name, description, advance_ratio, balance_ratio)
+         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+        [id, name, description, advanceRatio || 0, balanceRatio || 0]
+      );
+      res.json(result.rows[0]);
+    } catch (e) {
+      console.error(e); res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  app.patch('/api/payment-terms/:id', authenticateToken, requireSuperadmin, async (req: any, res) => {
+    try {
+      const { name, description, advanceRatio, balanceRatio } = req.body;
+      const updates = []; const values = []; let idx = 1;
+      const mapping = { name: 'name', description: 'description', advanceRatio: 'advance_ratio', balanceRatio: 'balance_ratio' };
+      for (const [k, v] of Object.entries({ name, description, advanceRatio, balanceRatio })) {
+        if (v !== undefined) {
+          updates.push(`${mapping[k as keyof typeof mapping]} = $${idx++}`);
+          values.push(v);
+        }
+      }
+      if (updates.length > 0) {
+        updates.push(`updated_at = CURRENT_TIMESTAMP`);
+        values.push(req.params.id);
+        await pool.query(`UPDATE payment_terms SET ${updates.join(', ')} WHERE id = $${idx}`, values);
+      }
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e); res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  app.delete('/api/payment-terms/:id', authenticateToken, requireSuperadmin, async (req: any, res) => {
+    try {
+      await pool.query('DELETE FROM payment_terms WHERE id = $1', [req.params.id]);
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e); res.status(500).json({ error: 'Internal error' });
+    }
+  });
+  
+  // Generates next quote number based on YYMMDD
+  app.get('/api/quotes-next-number', authenticateToken, async (req: any, res) => {
+    try {
+      const d = new Date();
+      const prefix = `QT${String(d.getFullYear()).slice(2)}${String(d.getMonth()+1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+      const result = await pool.query(`SELECT count(id) FROM quotes WHERE quote_number LIKE $1`, [prefix + '%']);
+      const count = parseInt(result.rows[0].count) + 1;
+      res.json({ nextNumber: `${prefix}${String(count).padStart(2, '0')}` });
+    } catch (e) {
+      console.error(e); res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  // Documents (SO, PI, CI) API Endpoints
+  app.get('/api/documents', authenticateToken, async (req: any, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM documents WHERE user_id = $1 ORDER BY created_at DESC', [req.user.uid]);
+      res.json(result.rows.map(row => ({
+        id: row.id, quoteId: row.quote_id, type: row.type, documentNumber: row.document_number,
+        content: row.content, comments: row.comments, createdAt: row.created_at, updatedAt: row.updated_at
+      })));
+    } catch (e) {
+      console.error(e); res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  app.post('/api/documents', authenticateToken, async (req: any, res) => {
+    try {
+      const { id, quoteId, type, documentNumber, content, comments } = req.body;
+      const result = await pool.query(
+        `INSERT INTO documents (id, user_id, quote_id, type, document_number, content, comments)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+        [id, req.user.uid, quoteId, type, documentNumber, JSON.stringify(content || {}), JSON.stringify(comments || [])]
+      );
+      res.json(result.rows[0]);
+    } catch (e) {
+      console.error(e); res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  app.patch('/api/documents/:id', authenticateToken, async (req: any, res) => {
+    try {
+      const { type, documentNumber, content, comments } = req.body;
+      const updates = []; const values = []; let idx = 1;
+      const mapping = { type: 'type', documentNumber: 'document_number', content: 'content', comments: 'comments' };
+      for (const [k, v] of Object.entries({ type, documentNumber, content, comments })) {
+        if (v !== undefined) {
+          updates.push(`${mapping[k as keyof typeof mapping]} = $${idx++}`);
+          values.push(k === 'content' || k === 'comments' ? JSON.stringify(v) : v);
+        }
+      }
+      if (updates.length > 0) {
+        updates.push(`updated_at = CURRENT_TIMESTAMP`);
+        values.push(req.params.id, req.user.uid);
+        await pool.query(`UPDATE documents SET ${updates.join(', ')} WHERE id = $${idx++} AND user_id = $${idx}`, values);
+      }
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e); res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  app.delete('/api/documents/:id', authenticateToken, async (req: any, res) => {
+    try {
+      await pool.query('DELETE FROM documents WHERE id = $1 AND user_id = $2', [req.params.id, req.user.uid]);
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e); res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
   // Clients API Endpoints
   app.get('/api/clients', authenticateToken, async (req: any, res) => {
     try {
@@ -595,6 +949,7 @@ No markdown wrappers, just valid JSON.`;
         id: row.id,
         name: row.name,
         company: row.company,
+        address: row.address,
         country: row.country,
         status: row.status,
         tags: row.tags,
@@ -618,6 +973,7 @@ No markdown wrappers, just valid JSON.`;
         id: row.id,
         name: row.name,
         company: row.company,
+        address: row.address,
         country: row.country,
         status: row.status,
         tags: row.tags,
@@ -696,9 +1052,9 @@ No markdown wrappers, just valid JSON.`;
         
         const id = `c${Date.now()}${Math.floor(Math.random()*1000)}`;
         await pool.query(
-          `INSERT INTO clients (id, user_id, name, company, country, status, tags, last_contact, is_dormant, contact_methods, comments)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-          [id, null, lead.name, lead.company || '', lead.country || '', 'Leads', JSON.stringify(lead.tags || []), null, false, JSON.stringify(lead.contactMethods || []), JSON.stringify([])]
+          `INSERT INTO clients (id, user_id, name, company, address, country, status, tags, last_contact, is_dormant, contact_methods, comments)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+          [id, null, lead.name, lead.company || '', lead.address || '', lead.country || '', 'Leads', JSON.stringify(lead.tags || []), null, false, JSON.stringify(lead.contactMethods || []), JSON.stringify([])]
         );
         addedCount++;
       }
@@ -734,14 +1090,14 @@ No markdown wrappers, just valid JSON.`;
       }
 
       await pool.query(
-        `INSERT INTO clients (id, user_id, name, company, country, status, tags, last_contact, is_dormant, contact_methods, comments)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-        [id, req.user.uid, name, company, country, status, JSON.stringify(tags || []), lastContact || null, !!isDormant, JSON.stringify(contactMethods || []), JSON.stringify(comments || [])]
+        `INSERT INTO clients (id, user_id, name, company, address, country, status, tags, last_contact, is_dormant, contact_methods, comments)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [id, req.body.isPublic ? null : req.user.uid, name, company, req.body.address || null, country, status, JSON.stringify(tags || []), lastContact || null, !!isDormant, JSON.stringify(contactMethods || []), JSON.stringify(comments || [])]
       );
 
-      await pool.query(`UPDATE users SET points = points + 10 WHERE id = $1`, [req.user.uid]);
+      await pool.query(`UPDATE users SET points = points + 5 WHERE id = $1`, [req.user.uid]);
 
-      res.json({ success: true, pointsAdded: 10 });
+      res.json({ success: true, pointsAdded: 5 });
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: 'Failed to insert client' });
@@ -758,7 +1114,7 @@ No markdown wrappers, just valid JSON.`;
       let valIdx = 3;
       
       const mapping: Record<string, string> = {
-        name: 'name', company: 'company', country: 'country', status: 'status',
+        name: 'name', company: 'company', address: 'address', country: 'country', status: 'status',
         tags: 'tags', lastContact: 'last_contact', isDormant: 'is_dormant',
         contactMethods: 'contact_methods', comments: 'comments'
       };
@@ -768,6 +1124,7 @@ No markdown wrappers, just valid JSON.`;
       if (existingClientRes.rows.length > 0) {
         const ec = existingClientRes.rows[0];
         if (updates.company && !ec.company) pointsToAward += 2;
+        if (updates.address && !ec.address) pointsToAward += 2;
         if (updates.country && !ec.country) pointsToAward += 2;
         if (updates.contactMethods && updates.contactMethods.length > 0) {
             const extLen = Array.isArray(ec.contact_methods) ? ec.contact_methods.length : JSON.parse(ec.contact_methods || '[]').length;

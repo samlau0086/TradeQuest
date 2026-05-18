@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { useAuthStore } from './authStore';
 
-export type ViewMode = 'kanban' | 'map' | 'inbox' | 'dashboard' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests' | 'list';
+export type ViewMode = 'kanban' | 'map' | 'inbox' | 'dashboard' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests' | 'list' | 'products' | 'quotes';
 
 export type ClientStatus = 'Leads' | 'Contacted' | 'Sample Sent' | 'Negotiating' | 'Closed Won'; // Kept for legacy compatibility if needed, better to rename to DealStage but will keep for now.
 
@@ -43,6 +43,63 @@ export interface Comment {
   replies?: Comment[];
 }
 
+export interface Product {
+  id: string;
+  sku: string;
+  name: string;
+  description: string;
+  imageUrl: string;
+  bulkPrices: { minQuantity: number; price: number }[];
+  comments: Comment[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface QuoteFee {
+  name: string;
+  amount: number;
+}
+
+export interface QuoteItem {
+  productId?: string;
+  name?: string;
+  description?: string;
+  imageUrl?: string;
+  quantity: number;
+  unitPrice: number;
+  total?: number;
+  notes?: string;
+  isManualPrice?: boolean;
+}
+
+export interface Quote {
+  id: string;
+  quoteNumber: string;
+  clientId: string | null;
+  paymentTerms: string;
+  paymentTermId?: string;
+  advanceRatio?: number;
+  balanceRatio?: number;
+  status: string;
+  items: QuoteItem[];
+  fees: QuoteFee[];
+  comments: Comment[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AppDocument {
+  id: string;
+  quoteId: string;
+  type: string;
+  documentNumber: string;
+  content: any;
+  comments: Comment[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+
 export interface ExpLog {
   id: string;
   amount: number;
@@ -54,6 +111,7 @@ export interface Client {
   id: string;
   name: string;
   company: string;
+  address?: string;
   country: string;
   status: ClientStatus;
   tags: string[];
@@ -161,7 +219,21 @@ export interface LLMConfig {
   baseURL?: string;
 }
 
+export interface PaymentTerm {
+  id: string;
+  name: string;
+  description: string;
+  advanceRatio: number;
+  balanceRatio: number;
+}
+
 export interface StoreState {
+  paymentTerms: PaymentTerm[];
+  fetchPaymentTerms: () => void;
+  addPaymentTerm: (term: Omit<PaymentTerm, 'id'>) => void;
+  updatePaymentTerm: (id: string, updates: Partial<PaymentTerm>) => void;
+  deletePaymentTerm: (id: string) => void;
+
   llmConfigs: LLMConfig[];
   addLLMConfig: (config: Omit<LLMConfig, 'id'>) => void;
   updateLLMConfig: (id: string, updates: Partial<LLMConfig>) => void;
@@ -215,6 +287,24 @@ export interface StoreState {
   updateDeal: (id: string, updates: Partial<Deal>) => void;
   deleteDeal: (id: string) => void;
   fetchDeals: () => void;
+  
+  products: Product[];
+  fetchProducts: () => void;
+  addProduct: (product: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>) => void;
+  updateProduct: (id: string, updates: Partial<Product>) => void;
+  deleteProduct: (id: string) => void;
+
+  quotes: Quote[];
+  fetchQuotes: () => void;
+  addQuote: (quote: Omit<Quote, 'id' | 'createdAt' | 'updatedAt'>) => void;
+  updateQuote: (id: string, updates: Partial<Quote>) => void;
+  deleteQuote: (id: string) => void;
+
+  documents: AppDocument[];
+  fetchDocuments: () => void;
+  addDocument: (doc: Omit<AppDocument, 'id' | 'createdAt' | 'updatedAt'>) => void;
+  updateDocument: (id: string, updates: Partial<AppDocument>) => void;
+  deleteDocument: (id: string) => void;
   
   publicClients: Client[];
   fetchPublicClients: () => void;
@@ -288,6 +378,40 @@ const INITIAL_ACHIEVEMENTS: Achievement[] = [
 ];
 
 export const useStore = create<StoreState>((set, get) => ({
+  paymentTerms: [],
+  fetchPaymentTerms: () => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch('/api/payment-terms', { headers: { 'Authorization': `Bearer ${token}` } })
+        .then(res => res.json())
+        .then(paymentTerms => set({ paymentTerms }))
+        .catch(console.error);
+    }
+  },
+  addPaymentTerm: (term) => {
+    const id = `pt${Date.now()}`;
+    const newTerm = { ...term, id };
+    set(state => ({ paymentTerms: [...state.paymentTerms, newTerm] }));
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch('/api/payment-terms', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify(newTerm) }).catch(console.error);
+    }
+  },
+  updatePaymentTerm: (id, updates) => {
+    set(state => ({ paymentTerms: state.paymentTerms.map(pt => pt.id === id ? { ...pt, ...updates } : pt) }));
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch(`/api/payment-terms/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify(updates) }).catch(console.error);
+    }
+  },
+  deletePaymentTerm: (id) => {
+    set(state => ({ paymentTerms: state.paymentTerms.filter(pt => pt.id !== id) }));
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch(`/api/payment-terms/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } }).catch(console.error);
+    }
+  },
+
   llmConfigs: [],
   addLLMConfig: (config) => set((state) => ({ llmConfigs: [...state.llmConfigs, { ...config, id: `llm_${Date.now()}` }] })),
   updateLLMConfig: (id, updates) => set((state) => ({ llmConfigs: state.llmConfigs.map(a => a.id === id ? { ...a, ...updates } : a) })),
@@ -379,6 +503,147 @@ export const useStore = create<StoreState>((set, get) => ({
 
   clients: INITIAL_CLIENTS,
   deals: [],
+  products: [],
+  quotes: [],
+  documents: [],
+
+  fetchProducts: () => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch('/api/products', { headers: { 'Authorization': `Bearer ${token}` } })
+        .then(res => res.json())
+        .then(products => set({ products }))
+        .catch(console.error);
+    }
+  },
+  addProduct: (product) => {
+    const id = `p${Date.now()}`;
+    const newProduct: Product = { ...product, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    set((state) => ({ products: [...state.products, newProduct] }));
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(newProduct)
+      }).catch(console.error);
+    }
+  },
+  updateProduct: (id, updates) => {
+    set((state) => ({
+      products: state.products.map(p => p.id === id ? { ...p, ...updates, updatedAt: new Date().toISOString() } : p)
+    }));
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch(`/api/products/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(updates)
+      }).catch(console.error);
+    }
+  },
+  deleteProduct: (id) => {
+    set((state) => ({ products: state.products.filter(p => p.id !== id) }));
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch(`/api/products/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).catch(console.error);
+    }
+  },
+
+  fetchQuotes: () => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch('/api/quotes', { headers: { 'Authorization': `Bearer ${token}` } })
+        .then(res => res.json())
+        .then(quotes => set({ quotes }))
+        .catch(console.error);
+    }
+  },
+  addQuote: (quote) => {
+    const id = `q${Date.now()}`;
+    const newQuote: Quote = { ...quote, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    set((state) => ({ quotes: [...state.quotes, newQuote] }));
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch('/api/quotes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(newQuote)
+      }).catch(console.error);
+    }
+  },
+  updateQuote: (id, updates) => {
+    set((state) => ({
+      quotes: state.quotes.map(q => q.id === id ? { ...q, ...updates, updatedAt: new Date().toISOString() } : q)
+    }));
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch(`/api/quotes/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(updates)
+      }).catch(console.error);
+    }
+  },
+  deleteQuote: (id) => {
+    set((state) => ({ quotes: state.quotes.filter(q => q.id !== id) }));
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch(`/api/quotes/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).catch(console.error);
+    }
+  },
+
+  fetchDocuments: () => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch('/api/documents', { headers: { 'Authorization': `Bearer ${token}` } })
+        .then(res => res.json())
+        .then(documents => set({ documents }))
+        .catch(console.error);
+    }
+  },
+  addDocument: (doc) => {
+    const id = `doc${Date.now()}`;
+    const newDoc: AppDocument = { ...doc, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    set((state) => ({ documents: [...state.documents, newDoc] }));
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch('/api/documents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(newDoc)
+      }).catch(console.error);
+    }
+  },
+  updateDocument: (id, updates) => {
+    set((state) => ({
+      documents: state.documents.map(d => d.id === id ? { ...d, ...updates, updatedAt: new Date().toISOString() } : d)
+    }));
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch(`/api/documents/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(updates)
+      }).catch(console.error);
+    }
+  },
+  deleteDocument: (id) => {
+    set((state) => ({ documents: state.documents.filter(d => d.id !== id) }));
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch(`/api/documents/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).catch(console.error);
+    }
+  },
 
   fetchDeals: () => {
     const token = localStorage.getItem('token');
@@ -938,6 +1203,12 @@ export const useStore = create<StoreState>((set, get) => ({
   fetchInitialData: async () => {
     const token = localStorage.getItem('token');
     if (!token) return;
+
+    // Trigger background fetches for independent modules
+    get().fetchProducts();
+    get().fetchQuotes();
+    get().fetchDocuments();
+    get().fetchPaymentTerms();
 
     try {
       const [clientsRes, logsRes, emailsRes, dealsRes] = await Promise.all([
