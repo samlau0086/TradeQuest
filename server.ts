@@ -1,6 +1,8 @@
 import express from "express";
 import path from "path";
 import multer from "multer";
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
 const pdfParse = require("pdf-parse");
 import { GoogleGenAI } from "@google/genai";
 import OpenAI from "openai";
@@ -13,7 +15,8 @@ const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret_key";
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   connectionTimeoutMillis: 3000,
-  idleTimeoutMillis: 30000 
+  idleTimeoutMillis: 30000,
+  query_timeout: 5000
 });
 
 async function initDB() {
@@ -229,6 +232,19 @@ async function initDB() {
         [id, superAdminEmail, passwordHash, 'Super Admin', 'superadmin']
       );
       console.log(`Default superadmin created: ${superAdminEmail} / admin123456`);
+    }
+
+    const userEmail2 = 'agqyed01@gmail.com';
+    const adminCheck2 = await pool.query('SELECT * FROM users WHERE email = $1', [userEmail2]);
+    if (adminCheck2.rows.length === 0) {
+      const id = crypto.randomUUID();
+      const passwordHash = await bcrypt.hash('admin123456', 10);
+      await pool.query(
+        `INSERT INTO users (id, email, password_hash, display_name, role)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [id, userEmail2, passwordHash, 'Admin', 'superadmin']
+      );
+      console.log(`Default superadmin created: ${userEmail2} / admin123456`);
     }
     
     console.log("Postgres database initialized.");
