@@ -73,7 +73,7 @@ export function ProductFormModal({ onClose, productId, initialData, onSave }: Pr
       >
         <div className="flex items-center justify-between p-4 border-b border-slate-700 bg-slate-800/50">
           <h2 className="text-lg font-bold text-white">
-            {existingProduct ? 'Edit Product' : 'New Product'}
+            {existingProduct ? t('editProduct') : t('newProduct')}
           </h2>
           <button onClick={onClose} className="p-2 hover:bg-slate-700 rounded-full text-slate-400 transition-colors">
             <X className="w-5 h-5" />
@@ -83,27 +83,27 @@ export function ProductFormModal({ onClose, productId, initialData, onSave }: Pr
         <div className="p-6 overflow-y-auto space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-400 uppercase">Product Name *</label>
+              <label className="text-xs font-bold text-slate-400 uppercase">{t('productName')}</label>
               <input value={name} onChange={e => setName(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500" placeholder="e.g. Wireless Mouse" />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-400 uppercase">SKU</label>
+              <label className="text-xs font-bold text-slate-400 uppercase">{t('sku')}</label>
               <input value={sku} onChange={e => setSku(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500" placeholder="e.g. WM-01" />
             </div>
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-400 uppercase">Description</label>
+            <label className="text-xs font-bold text-slate-400 uppercase">{t('description')}</label>
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500" placeholder="Product details..."></textarea>
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-400 uppercase">Image URL</label>
+            <label className="text-xs font-bold text-slate-400 uppercase">{t('imageUrl')}</label>
             <input value={imageUrl} onChange={e => setImageUrl(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500" placeholder="https://example.com/image.png" />
           </div>
 
           <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-400 uppercase">Bulk Pricing</label>
+            <label className="text-xs font-bold text-slate-400 uppercase">{t('bulkPricing')}</label>
             {bulkPrices.map((bp, idx) => (
               <div key={idx} className="flex items-center gap-2">
                 <div className="flex-1 bg-slate-950 border border-slate-700 rounded-lg flex items-center px-3">
@@ -139,7 +139,7 @@ export function ProductFormModal({ onClose, productId, initialData, onSave }: Pr
               onClick={addBulkPrice}
               className="flex items-center gap-2 text-xs font-bold text-cyan-400 hover:text-cyan-300 transition-colors mt-2"
             >
-              <Plus className="w-3 h-3" /> Add Price Tier
+              <Plus className="w-3 h-3" /> {t('addPriceTier')}
             </button>
           </div>
         </div>
@@ -155,7 +155,7 @@ export function ProductFormModal({ onClose, productId, initialData, onSave }: Pr
             onClick={handleSubmit}
             className="px-6 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-lg text-sm font-bold shadow-lg shadow-cyan-500/20 transition-all hover:shadow-cyan-500/40"
           >
-            {existingProduct ? 'Save Changes' : 'Create Product'}
+            {existingProduct ? t('saveChanges') : t('createProduct')}
           </button>
         </div>
       </div>

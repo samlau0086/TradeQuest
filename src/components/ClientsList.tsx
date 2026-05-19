@@ -84,12 +84,12 @@ const CONTACT_ICONS: any = {
           <table className="w-full text-sm text-left">
             <thead className="text-xs text-slate-400 bg-slate-950 uppercase border-b border-slate-800">
               <tr>
-                <th className="px-4 py-3">Name</th>
-                <th className="px-4 py-3">Company</th>
-                <th className="px-4 py-3">Location</th>
-                <th className="px-4 py-3">Contact Method</th>
-                <th className="px-4 py-3">Tags</th>
-                <th className="px-4 py-3 text-right">Actions</th>
+                <th className="px-4 py-3">{t('name')}</th>
+                <th className="px-4 py-3">{t('company')}</th>
+                <th className="px-4 py-3">{t('location')}</th>
+                <th className="px-4 py-3">{t('contactMethod')}</th>
+                <th className="px-4 py-3">{t('tagsLabel').split(' ')[0]}</th>
+                <th className="px-4 py-3 text-right">{t('actions')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/50">
@@ -140,7 +140,7 @@ const CONTACT_ICONS: any = {
               {filteredClients.length === 0 && (
                 <tr>
                   <td colSpan={6} className="text-center py-8 text-slate-500">
-                    No clients found.
+                    {t('noClientsFound')}
                   </td>
                 </tr>
               )}
@@ -155,11 +155,11 @@ const CONTACT_ICONS: any = {
       {deleteClientId && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-xl max-w-sm w-full">
-            <h3 className="text-lg font-bold text-white mb-2">Delete Client?</h3>
-            <p className="text-slate-400 mb-6 text-sm">Are you sure you want to delete this client? All associated data might be lost.</p>
+            <h3 className="text-lg font-bold text-white mb-2">{t('deleteClientTitle')}</h3>
+            <p className="text-slate-400 mb-6 text-sm">{t('deleteClientContent')}</p>
             <div className="flex justify-end gap-3">
-              <button onClick={() => setDeleteClientId(null)} className="px-4 py-2 text-slate-300 hover:text-white transition-colors">Cancel</button>
-              <button onClick={() => { deleteClient(deleteClientId); setDeleteClientId(null); }} className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg shadow font-medium transition-colors">Delete</button>
+              <button onClick={() => setDeleteClientId(null)} className="px-4 py-2 text-slate-300 hover:text-white transition-colors">{t('cancel')}</button>
+              <button onClick={() => { deleteClient(deleteClientId); setDeleteClientId(null); }} className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg shadow font-medium transition-colors">{t('deleteClientButton')}</button>
             </div>
           </div>
         </div>

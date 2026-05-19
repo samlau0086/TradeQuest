@@ -43,8 +43,8 @@ export function ProductsList() {
               <Package className="w-5 h-5 text-cyan-400" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-white">Products Explorer</h1>
-              <p className="text-sm text-slate-400">{filteredProducts.length} items</p>
+              <h1 className="text-xl font-bold text-white">{t('productsExplorer')}</h1>
+              <p className="text-sm text-slate-400">{filteredProducts.length} {t('items')}</p>
             </div>
           </div>
           <div className="flex items-center gap-3 w-full sm:w-auto">
@@ -52,7 +52,7 @@ export function ProductsList() {
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input 
                 type="text" 
-                placeholder="Search products..." 
+                placeholder={t('searchProducts')} 
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-4 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
@@ -63,7 +63,7 @@ export function ProductsList() {
               className="flex items-center gap-2 px-3 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-sm font-bold shadow-sm transition-colors"
             >
               <Plus className="w-4 h-4" />
-              New Product
+              {t('newProduct')}
             </button>
           </div>
         </div>
@@ -111,8 +111,8 @@ export function ProductsList() {
           {filteredProducts.length === 0 && (
             <div className="col-span-full py-12 text-center border border-dashed border-slate-800 rounded-xl bg-slate-950/50">
               <Package className="w-12 h-12 text-slate-700 mx-auto mb-4" />
-              <h3 className="text-lg font-bold text-slate-400 mb-1">No products found</h3>
-              <p className="text-slate-500 text-sm">Add some products or adjust your search.</p>
+              <h3 className="text-lg font-bold text-slate-400 mb-1">{t('noProducts')}</h3>
+              <p className="text-slate-500 text-sm">{t('noProductsDesc')}</p>
             </div>
           )}
         </div>

@@ -1,12 +1,17 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { X, Upload, FileText, Download } from 'lucide-react';
 
+import { useTranslation } from '../lib/i18n';
+import { useStore } from '../store';
+
 interface UploadCSVModalProps {
   onClose: () => void;
   onUpload: (file: File) => void;
 }
 
 export function UploadCSVModal({ onClose, onUpload }: UploadCSVModalProps) {
+  const { language } = useStore();
+  const t = useTranslation(language);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -64,7 +69,7 @@ Jane Smith,Global Inc,UK,Contacted,Follow Up,jane@globalinc.com`;
         <div className="flex items-center justify-between p-6 border-b border-slate-800">
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <Upload className="w-5 h-5 text-cyan-400" />
-            Import Leads
+            {t('importLeads')}
           </h2>
           <button onClick={onClose} className="p-2 text-slate-500 hover:text-slate-300 hover:bg-slate-800 rounded-lg transition-colors">
             <X className="w-5 h-5" />
@@ -92,10 +97,10 @@ Jane Smith,Global Inc,UK,Contacted,Follow Up,jane@globalinc.com`;
               <FileText className="w-6 h-6 text-slate-400" />
             </div>
             <h3 className="text-sm font-medium text-slate-200 mb-1">
-              Click to upload or drag and drop
+              {t('clickUpload')}
             </h3>
             <p className="text-xs text-slate-500">
-              CSV files only
+              {t('csvOnly')}
             </p>
           </div>
 
@@ -105,7 +110,7 @@ Jane Smith,Global Inc,UK,Contacted,Follow Up,jane@globalinc.com`;
               className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1.5 transition-colors group"
             >
               <Download className="w-3.5 h-3.5 group-hover:-translate-y-0.5 transition-transform" />
-              Download example CSV
+              {t('downloadExample')}
             </button>
           </div>
         </div>

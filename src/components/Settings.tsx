@@ -666,10 +666,10 @@ export function Settings() {
                 <h3 className="text-sm font-bold text-slate-300 mb-4 px-1">{t('functionalAssignments')}</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   {[
-                    { key: 'magic', label: t('magicCommands') || 'Magic Commands', desc: '/icebreaker, /draft' },
-                    { key: 'drafting', label: t('emailDrafting') || 'Email Drafting', desc: 'Auto-detect purpose & write' },
-                    { key: 'analysis', label: t('clientAnalysis') || 'Client Analysis', desc: 'Icebreakers & actionables' },
-                    { key: 'embedding', label: t('vectorization') || 'Text Vectorization', desc: 'Knowledge Base Embeddings' }
+                    { key: 'magic', label: t('magicCommands'), desc: t('descMagic') },
+                    { key: 'drafting', label: t('emailDrafting'), desc: t('descDrafting') },
+                    { key: 'analysis', label: t('clientAnalysis'), desc: t('descAnalysis') },
+                    { key: 'embedding', label: t('vectorization'), desc: t('descEmbedding') }
                   ].map(mod => (
                     <div key={mod.key} className="bg-slate-900 border border-slate-700 rounded-lg p-4 flex flex-col gap-2">
                       <div>
@@ -737,7 +737,7 @@ export function Settings() {
                           </select>
                         </div>
                         <div className="space-y-1">
-                          <label className="text-xs text-slate-400 font-bold uppercase">Model Name</label>
+                          <label className="text-xs text-slate-400 font-bold uppercase">{t('modelName')}</label>
                           <input 
                             type="text" 
                             placeholder={llmFormData.provider === 'openai' ? 'gpt-4o' : llmFormData.provider === 'gemini' ? 'gemini-2.5-flash' : 'llama-3...'}
@@ -747,7 +747,7 @@ export function Settings() {
                           />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-xs text-slate-400 font-bold uppercase">Embedding Model</label>
+                          <label className="text-xs text-slate-400 font-bold uppercase">{t('embeddingModel')}</label>
                           <input 
                             type="text" 
                             placeholder={llmFormData.provider === 'openai' ? 'text-embedding-3-small' : llmFormData.provider === 'gemini' ? 'text-embedding-004' : 'nomic-embed-text...'}
@@ -760,7 +760,7 @@ export function Settings() {
 
                       <div className="space-y-4">
                         <div className="space-y-1">
-                          <label className="text-xs text-slate-400 font-bold uppercase">API Key</label>
+                          <label className="text-xs text-slate-400 font-bold uppercase">{t('apiKey')}</label>
                           <input 
                             type="password" 
                             placeholder="sk-..."
