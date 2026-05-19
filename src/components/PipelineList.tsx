@@ -163,7 +163,7 @@ export function PipelineList() {
                 </th>
                 {visibleColumns.name && <th className="px-4 py-3">{t('name')}</th>}
                 {visibleColumns.company && <th className="px-4 py-3">{t('company')}</th>}
-                {visibleColumns.country && <th className="px-4 py-3">{t('country')}</th>}
+                {visibleColumns.country && <th className="px-4 py-3">Location</th>}
                 {visibleColumns.contact && <th className="px-4 py-3">Contact</th>}
                 {visibleColumns.status && <th className="px-4 py-3">{t('stage')}</th>}
                 {visibleColumns.tags && <th className="px-4 py-3">Tags</th>}
@@ -190,7 +190,7 @@ export function PipelineList() {
                     </td>
                   )}
                   {visibleColumns.company && <td className="px-4 py-3 text-slate-400">{client!.company}</td>}
-                  {visibleColumns.country && <td className="px-4 py-3 text-slate-400 capitalize">{client!.country || '-'}</td>}
+                  {visibleColumns.country && <td className="px-4 py-3 text-slate-400 capitalize">{[client!.city, client!.state, client!.country].filter(Boolean).join(', ') || '-'}</td>}
                   {visibleColumns.contact && (
                     <td className="px-4 py-3 text-slate-400">
                       {client!.contactMethods.length > 0 && (

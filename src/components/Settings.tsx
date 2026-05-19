@@ -121,6 +121,7 @@ export function Settings() {
       name: 'New AI Provider',
       provider: 'openai',
       model: 'gpt-4o',
+      embeddingModel: 'text-embedding-3-small',
       apiKey: '',
       baseURL: ''
     });
@@ -663,11 +664,12 @@ export function Settings() {
             {llmConfigs.length > 0 && (
               <div className="bg-slate-800/50 border border-indigo-500/30 rounded-xl p-5 mb-4 shadow-sm">
                 <h3 className="text-sm font-bold text-slate-300 mb-4 px-1">{t('functionalAssignments')}</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   {[
-                    { key: 'magic', label: t('magicCommands'), desc: '/icebreaker, /draft' },
-                    { key: 'drafting', label: t('emailDrafting'), desc: 'Auto-detect purpose & write' },
-                    { key: 'analysis', label: t('clientAnalysis'), desc: 'Icebreakers & actionables' }
+                    { key: 'magic', label: t('magicCommands') || 'Magic Commands', desc: '/icebreaker, /draft' },
+                    { key: 'drafting', label: t('emailDrafting') || 'Email Drafting', desc: 'Auto-detect purpose & write' },
+                    { key: 'analysis', label: t('clientAnalysis') || 'Client Analysis', desc: 'Icebreakers & actionables' },
+                    { key: 'embedding', label: t('vectorization') || 'Text Vectorization', desc: 'Knowledge Base Embeddings' }
                   ].map(mod => (
                     <div key={mod.key} className="bg-slate-900 border border-slate-700 rounded-lg p-4 flex flex-col gap-2">
                       <div>
@@ -741,6 +743,16 @@ export function Settings() {
                             placeholder={llmFormData.provider === 'openai' ? 'gpt-4o' : llmFormData.provider === 'gemini' ? 'gemini-2.5-flash' : 'llama-3...'}
                             value={llmFormData.model || ''}
                             onChange={e => setLLMFormData({ ...llmFormData, model: e.target.value })}
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 outline-none"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs text-slate-400 font-bold uppercase">Embedding Model</label>
+                          <input 
+                            type="text" 
+                            placeholder={llmFormData.provider === 'openai' ? 'text-embedding-3-small' : llmFormData.provider === 'gemini' ? 'text-embedding-004' : 'nomic-embed-text...'}
+                            value={llmFormData.embeddingModel || ''}
+                            onChange={e => setLLMFormData({ ...llmFormData, embeddingModel: e.target.value })}
                             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 outline-none"
                           />
                         </div>

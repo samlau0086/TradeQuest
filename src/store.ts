@@ -112,6 +112,8 @@ export interface Client {
   name: string;
   company: string;
   address?: string;
+  state?: string;
+  city?: string;
   country: string;
   status: ClientStatus;
   tags: string[];
@@ -221,6 +223,7 @@ export interface LLMConfig {
   provider: 'gemini' | 'openai' | 'custom_openai';
   apiKey: string;
   model: string;
+  embeddingModel?: string;
   baseURL?: string;
 }
 
@@ -412,33 +415,44 @@ export const useStore = create<StoreState>((set, get) => ({
     const token = localStorage.getItem('token');
     const newId = `kb-${Date.now()}`;
     const newItem = { ...item, id: newId };
-    set((state) => ({ knowledgeBase: [newItem, ...state.knowledgeBase] }));
-    if (token) {
-      fetch('/api/knowledge-base', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(newItem)
-      }).catch(console.error);
-    }
+    set((state) => {
+      const embeddingLlmId = state.llmMappings['embedding'] || state.activeLLMId;
+      const llmConfig = embeddingLlmId ? state.llmConfigs.find(c => c.id === embeddingLlmId) : undefined;
+      
+      if (token) {
+        fetch('/api/knowledge-base', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ ...newItem, llmConfig })
+        }).catch(console.error);
+      }
+      return { knowledgeBase: [newItem, ...state.knowledgeBase] };
+    });
   },
   updateKnowledgeItem: (id, updates) => {
     const token = localStorage.getItem('token');
-    set((state) => ({
-      knowledgeBase: state.knowledgeBase.map(kb => kb.id === id ? { ...kb, ...updates } : kb)
-    }));
-    if (token) {
-      fetch(`/api/knowledge-base/${id}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(updates)
-      }).catch(console.error);
-    }
+    set((state) => {
+      const embeddingLlmId = state.llmMappings['embedding'] || state.activeLLMId;
+      const llmConfig = embeddingLlmId ? state.llmConfigs.find(c => c.id === embeddingLlmId) : undefined;
+
+      if (token) {
+        fetch(`/api/knowledge-base/${id}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ ...updates, llmConfig })
+        }).catch(console.error);
+      }
+      
+      return {
+        knowledgeBase: state.knowledgeBase.map(kb => kb.id === id ? { ...kb, ...updates } : kb)
+      };
+    });
   },
   deleteKnowledgeItem: (id) => {
     const token = localStorage.getItem('token');
@@ -504,7 +518,8 @@ export const useStore = create<StoreState>((set, get) => ({
   llmMappings: {
     magic: null,
     drafting: null,
-    analysis: null
+    analysis: null,
+    embedding: null
   },
   setLLMMapping: (module, id) => set((state) => ({
     llmMappings: { ...state.llmMappings, [module]: id }

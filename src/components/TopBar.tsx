@@ -62,6 +62,7 @@ export function MagicCommand() {
   const { clients, llmConfigs, activeLLMId, llmMappings, language } = useStore();
   const t = useTranslation(language);
   const activeLLMConfig = llmConfigs.find(l => l.id === (llmMappings['magic'] || activeLLMId)) || null;
+  const embeddingLlmConfig = llmConfigs.find(l => l.id === (llmMappings['embedding'] || activeLLMId)) || null;
   const [input, setInput] = useState('');
   const [output, setOutput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -157,7 +158,7 @@ export function MagicCommand() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${useAuthStore.getState().token}` 
         },
-        body: JSON.stringify({ command: input, context: {}, llmConfig: activeLLMConfig })
+        body: JSON.stringify({ command: input, context: {}, llmConfig: activeLLMConfig, embeddingLlmConfig })
       });
       const data = await res.json();
       setOutput(data.result);

@@ -24,6 +24,8 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
   const [name, setName] = useState(existingClient?.name || initialData?.name || '');
   const [company, setCompany] = useState(existingClient?.company || initialData?.company || '');
   const [address, setAddress] = useState(existingClient?.address || initialData?.address || '');
+  const [state, setState] = useState(existingClient?.state || initialData?.state || '');
+  const [city, setCity] = useState(existingClient?.city || initialData?.city || '');
   const [country, setCountry] = useState(existingClient?.country || initialData?.country || '');
   const [isCountryOpen, setIsCountryOpen] = useState(false);
   const [countrySearch, setCountrySearch] = useState('');
@@ -50,6 +52,8 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
       name,
       company,
       address,
+      state,
+      city,
       country,
       status: isPublicPool ? 'Leads' : status,
       tags: parsedTags,
@@ -134,7 +138,19 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
 
           <div className="space-y-1">
             <label className="text-xs font-bold text-slate-400 uppercase">Address {isLocked(existingClient?.address) && <span className="text-[10px] text-slate-500 ml-1">(Locked)</span>}</label>
-            <textarea disabled={isLocked(existingClient?.address)} value={address} onChange={e => setAddress(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 disabled:opacity-50 resize-none min-h-[60px]" placeholder="e.g. 123 Business St, City, Country" />
+            <textarea disabled={isLocked(existingClient?.address)} value={address} onChange={e => setAddress(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 disabled:opacity-50 resize-none min-h-[60px]" placeholder="e.g. 123 Business St, Building 4" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-400 uppercase">City {isLocked(existingClient?.city) && <span className="text-[10px] text-slate-500 ml-1">(Locked)</span>}</label>
+              <input disabled={isLocked(existingClient?.city)} value={city} onChange={e => setCity(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 disabled:opacity-50" placeholder="e.g. Shenzhen" />
+            </div>
+            
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-400 uppercase">State/Province {isLocked(existingClient?.state) && <span className="text-[10px] text-slate-500 ml-1">(Locked)</span>}</label>
+              <input disabled={isLocked(existingClient?.state)} value={state} onChange={e => setState(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 disabled:opacity-50" placeholder="e.g. Guangdong" />
+            </div>
           </div>
 
           <div className={`grid ${isPublicPool ? 'grid-cols-1' : 'grid-cols-2'} gap-4`}>

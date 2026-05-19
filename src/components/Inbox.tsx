@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore, EmailMessage } from '../store';
 import { useAuthStore } from '../authStore';
-import { Mail, Send, Reply, Trash2, ArrowLeft, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, Paperclip, ChevronDown, ChevronUp, X } from 'lucide-react';
+import { Mail, Send, Reply, Trash2, ArrowLeft, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { CommentItem } from './CommentItem';
 import { AddressInput } from './AddressInput';
@@ -10,7 +10,7 @@ import { ClientFormModal } from './ClientFormModal';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'react-resizable-panels';
 
 export function Inbox() {
-  const { emails, markEmailRead, clients, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient } = useStore();
+  const { emails, markEmailRead, clients, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem } = useStore();
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'inbox' | 'sent' | 'scheduled'>('inbox');
   const [searchQuery, setSearchQuery] = useState('');
@@ -21,6 +21,8 @@ export function Inbox() {
   const [newTag, setNewTag] = useState('');
   const [commentText, setCommentText] = useState('');
   const [isCreatingLead, setIsCreatingLead] = useState(false);
+  const [addingToRag, setAddingToRag] = useState(false);
+  const [addedToRagId, setAddedToRagId] = useState<string | null>(null);
 
   const filteredEmails = emails.filter(e => {
     if (e.type !== filter) return false;
@@ -51,6 +53,21 @@ export function Inbox() {
     }
     setNewTag('');
     setIsAddingTag(false);
+  };
+
+  const handleAddToRag = () => {
+    if (!selectedEmail || !selectedEmail.clientId) return;
+    setAddingToRag(true);
+    addKnowledgeItem({
+      clientId: selectedEmail.clientId,
+      title: `Email: ${selectedEmail.subject}`,
+      content: `Date: ${new Date(selectedEmail.date).toLocaleString()}\nFrom: ${selectedEmail.sender}\nTo: ${selectedEmail.recipient}\n\n${selectedEmail.body}`
+    });
+    setTimeout(() => {
+      setAddingToRag(false);
+      setAddedToRagId(selectedEmail.id);
+      setTimeout(() => setAddedToRagId(null), 2000);
+    }, 500);
   };
 
   return (
@@ -189,6 +206,18 @@ export function Inbox() {
                  <button onClick={() => { setComposeDefaults({ recipient: selectedEmail.sender, subject: `Re: ${selectedEmail.subject}` }); setIsComposing(true); }} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors" title="Reply">
                    <Reply className="w-4 h-4" />
                  </button>
+                 {selectedEmail.clientId && (
+                   <button 
+                     onClick={handleAddToRag} 
+                     disabled={addingToRag}
+                     className="p-2 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-900/30 rounded transition-colors flex items-center gap-1"
+                     title="Add to Knowledge Base (RAG)"
+                   >
+                     {addingToRag ? <Loader2 className="w-4 h-4 animate-spin" /> : 
+                      addedToRagId === selectedEmail.id ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : 
+                      <Database className="w-4 h-4" />}
+                   </button>
+                 )}
               </div>
             </div>
             

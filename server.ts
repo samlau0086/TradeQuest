@@ -68,6 +68,8 @@ async function initDB() {
       );
 
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS address TEXT;
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS state VARCHAR(100);
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS city VARCHAR(100);
 
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(128) REFERENCES users(id) ON DELETE SET NULL;
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS pending_edit_request BOOLEAN DEFAULT FALSE;
@@ -298,9 +300,9 @@ async function startServer() {
   // Magic command completion
   app.post("/api/chat/magic", authenticateToken, async (req: any, res) => {
     try {
-      const { command, context, llmConfig } = req.body;
+      const { command, context, llmConfig, embeddingLlmConfig } = req.body;
       
-      const kbRes = await searchKnowledgeBase(req.user.uid, context?.clientId || null, command, llmConfig);
+      const kbRes = await searchKnowledgeBase(req.user.uid, context?.clientId || null, command, embeddingLlmConfig || llmConfig);
       
       const prompt = `You are an AI assistant in a Foreign Trade CRM. 
 User executed magic command: "${command}". 
@@ -321,9 +323,9 @@ Respond only with the draft or the direct output of the action requested. Do not
   // Emotional Thermometer & Icebreaker
   app.post("/api/chat/icebreaker", authenticateToken, async (req: any, res) => {
     try {
-      const { client, logs, llmConfig } = req.body;
+      const { client, logs, llmConfig, embeddingLlmConfig } = req.body;
       
-      const kbRes = await searchKnowledgeBase(req.user.uid, client?.id || null, `Icebreaker and follow up strategy for client in ${client?.company || 'foreign trade'}`, llmConfig, 5);
+      const kbRes = await searchKnowledgeBase(req.user.uid, client?.id || null, `Icebreaker and follow up strategy for client in ${client?.company || 'foreign trade'}`, embeddingLlmConfig || llmConfig, 5);
       
       const prompt = `You are a savvy foreign trade AI assistant.
 Analyze this client and their recent logs.
@@ -1240,9 +1242,9 @@ No markdown wrappers, just valid JSON.`;
         
         const id = `c${Date.now()}${Math.floor(Math.random()*1000)}`;
         await pool.query(
-          `INSERT INTO clients (id, user_id, name, company, address, country, status, tags, last_contact, is_dormant, contact_methods, comments)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-          [id, null, lead.name, lead.company || '', lead.address || '', lead.country || '', 'Leads', JSON.stringify(lead.tags || []), null, false, JSON.stringify(lead.contactMethods || []), JSON.stringify([])]
+          `INSERT INTO clients (id, user_id, name, company, address, state, city, country, status, tags, last_contact, is_dormant, contact_methods, comments)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+          [id, null, lead.name, lead.company || '', lead.address || '', lead.state || '', lead.city || '', lead.country || '', 'Leads', JSON.stringify(lead.tags || []), null, false, JSON.stringify(lead.contactMethods || []), JSON.stringify([])]
         );
         addedCount++;
       }
@@ -1278,9 +1280,9 @@ No markdown wrappers, just valid JSON.`;
       }
 
       await pool.query(
-        `INSERT INTO clients (id, user_id, name, company, address, country, status, tags, last_contact, is_dormant, contact_methods, comments)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-        [id, req.body.isPublic ? null : req.user.uid, name, company, req.body.address || null, country, status, JSON.stringify(tags || []), lastContact || null, !!isDormant, JSON.stringify(contactMethods || []), JSON.stringify(comments || [])]
+        `INSERT INTO clients (id, user_id, name, company, address, state, city, country, status, tags, last_contact, is_dormant, contact_methods, comments)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [id, req.body.isPublic ? null : req.user.uid, name, company, req.body.address || null, req.body.state || null, req.body.city || null, country, status, JSON.stringify(tags || []), lastContact || null, !!isDormant, JSON.stringify(contactMethods || []), JSON.stringify(comments || [])]
       );
 
       await pool.query(`UPDATE users SET points = points + 5 WHERE id = $1`, [req.user.uid]);
@@ -1302,7 +1304,7 @@ No markdown wrappers, just valid JSON.`;
       let valIdx = 3;
       
       const mapping: Record<string, string> = {
-        name: 'name', company: 'company', address: 'address', country: 'country', status: 'status',
+        name: 'name', company: 'company', address: 'address', state: 'state', city: 'city', country: 'country', status: 'status',
         tags: 'tags', lastContact: 'last_contact', isDormant: 'is_dormant',
         contactMethods: 'contact_methods', comments: 'comments',
         agentEnabled: 'agent_enabled', agentMode: 'agent_mode',
@@ -1577,6 +1579,7 @@ No markdown wrappers, just valid JSON.`;
        
        const mapping: Record<string, string> = {
          name: 'name', company: 'company', country: 'country', status: 'status',
+         address: 'address', state: 'state', city: 'city',
          tags: 'tags', lastContact: 'last_contact', isDormant: 'is_dormant',
          contactMethods: 'contact_methods', comments: 'comments'
        };
@@ -1630,21 +1633,30 @@ No markdown wrappers, just valid JSON.`;
       if (llmConfig && (llmConfig.provider === 'openai' || llmConfig.provider === 'custom_openai')) {
          const openai = new OpenAI({
            apiKey: llmConfig.apiKey,
-           baseURL: llmConfig.provider === 'custom_openai' ? llmConfig.endpoint : undefined,
+           baseURL: llmConfig.provider === 'custom_openai' ? llmConfig.baseURL || llmConfig.endpoint : undefined,
          });
-         const response = await openai.embeddings.create({
-           model: "text-embedding-3-small", // or text-embedding-ada-002
+         
+         const modelName = llmConfig.embeddingModel || 'text-embedding-3-small';
+         
+         const args: any = {
+           model: modelName,
            input: text.substring(0, 8000),
-         });
-         // OpenAI embedding dimension is usually 1536, but our DB column is 768!
-         // We must use Google Gen AI for 768, or we alter the db or handle this.
+         };
+         
+         if (modelName.includes('text-embedding-3')) {
+           args.dimensions = 768;
+         }
+         
+         const response = await openai.embeddings.create(args);
+         return response.data?.[0]?.embedding || null;
       }
       
-      // Default to Google Gen AI text-embedding-004 which has 768 dimensions
       const api_key = (llmConfig && llmConfig.provider === 'gemini' && llmConfig.apiKey) ? llmConfig.apiKey : process.env.GEMINI_API_KEY;
+      if (!api_key) return null;
+      
       const ai = new GoogleGenAI({ apiKey: api_key });
       const response = await ai.models.embedContent({
-        model: 'text-embedding-004',
+        model: llmConfig?.embeddingModel || 'text-embedding-004',
         contents: text.substring(0, 9000), // Ensure we don't exceed limits
       });
       return response.embeddings?.[0]?.values || null;
@@ -1719,8 +1731,8 @@ No markdown wrappers, just valid JSON.`;
 
   app.post('/api/knowledge-base', authenticateToken, async (req: any, res) => {
     try {
-      const { id, clientId, title, content } = req.body;
-      const embedding = await generateEmbedding(content);
+      const { id, clientId, title, content, llmConfig } = req.body;
+      const embedding = await generateEmbedding(content, llmConfig);
       let query, params;
       
       if (embedding) {
@@ -1742,8 +1754,8 @@ No markdown wrappers, just valid JSON.`;
 
   app.patch('/api/knowledge-base/:id', authenticateToken, async (req: any, res) => {
     try {
-      const { title, content } = req.body;
-      const embedding = await generateEmbedding(content);
+      const { title, content, llmConfig } = req.body;
+      const embedding = await generateEmbedding(content, llmConfig);
       
       let query, params;
       if (embedding) {

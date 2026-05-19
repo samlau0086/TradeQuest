@@ -99,6 +99,8 @@ export function EditRequests() {
                         {JSON.stringify({ 
                            name: prev.name, 
                            company: prev.company, 
+                           city: prev.city,
+                           state: prev.state,
                            country: prev.country, 
                            contactMethods: prev.contactMethods || prev.contact_methods 
                         }, null, 2)}
@@ -110,6 +112,8 @@ export function EditRequests() {
                         {JSON.stringify({ 
                            name: next.name, 
                            company: next.company, 
+                           city: next.city,
+                           state: next.state,
                            country: next.country, 
                            contactMethods: next.contactMethods 
                         }, null, 2)}

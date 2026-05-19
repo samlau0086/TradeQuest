@@ -320,7 +320,8 @@ export function ClientDetails() {
         body: JSON.stringify({ 
           client, 
           logs: [{ date: client.lastContact, content: "Discussed pricing. Client seemed hesitant but asked for samples. No reply since." }],
-          llmConfig: getLLMConfig('analysis')
+          llmConfig: getLLMConfig('analysis'),
+          embeddingLlmConfig: getLLMConfig('embedding')
         })
       });
       const data = await res.json();
@@ -359,7 +360,9 @@ export function ClientDetails() {
             {client.name}
             <button onClick={() => setShowEditModal(true)} className="text-slate-500 hover:text-cyan-400 p-1 rounded transition-colors inline-block"><Edit className="w-4 h-4" /></button>
           </h2>
-          <p className="text-xs text-slate-400">{client.company} · {client.country}</p>
+          <p className="text-xs text-slate-400">
+            {client.company} · {[client.city, client.state, client.country].filter(Boolean).join(', ')}
+          </p>
         </div>
         <div className="flex items-center gap-1">
           <button onClick={() => setConfirmDeleteTarget(true)} className="p-2 text-slate-500 hover:text-red-400 rounded-lg hover:bg-slate-800 transition-colors">

@@ -152,7 +152,7 @@ export function PublicPool() {
           <div>
             <h3 className="font-bold text-lg text-white mb-1 truncate pr-16">{client.name}</h3>
             <p className="text-sm text-slate-400 flex items-center gap-2 truncate">
-              {client.company} {client.country && <span className="opacity-50">· {client.country}</span>}
+              {client.company} <span className="opacity-50">· {[client.city, client.state, client.country].filter(Boolean).join(', ') || '-'}</span>
             </p>
           </div>
 
@@ -215,7 +215,7 @@ export function PublicPool() {
           <tr>
             <th className="px-4 py-3 font-medium">Name</th>
             <th className="px-4 py-3 font-medium">Company</th>
-            <th className="px-4 py-3 font-medium">Country</th>
+            <th className="px-4 py-3 font-medium">Location</th>
             <th className="px-4 py-3 font-medium">Tags</th>
             <th className="px-4 py-3 font-medium">Last Active</th>
             <th className="px-4 py-3 font-medium text-right">Action</th>
@@ -229,7 +229,7 @@ export function PublicPool() {
                 {client.deletedBy && <span className="ml-2 px-1.5 py-0.5 rounded bg-red-950/50 text-red-400 text-[10px] font-bold">Discarded</span>}
               </td>
               <td className="px-4 py-4 text-slate-300">{client.company}</td>
-              <td className="px-4 py-4 text-slate-300">{client.country}</td>
+              <td className="px-4 py-4 text-slate-300">{[client.city, client.state, client.country].filter(Boolean).join(', ')}</td>
               <td className="px-4 py-4">
                 <div className="flex gap-1">
                   {client.tags.slice(0, 2).map((t: string) => (

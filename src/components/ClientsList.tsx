@@ -86,7 +86,7 @@ const CONTACT_ICONS: any = {
               <tr>
                 <th className="px-4 py-3">Name</th>
                 <th className="px-4 py-3">Company</th>
-                <th className="px-4 py-3">Country</th>
+                <th className="px-4 py-3">Location</th>
                 <th className="px-4 py-3">Contact Method</th>
                 <th className="px-4 py-3">Tags</th>
                 <th className="px-4 py-3 text-right">Actions</th>
@@ -101,7 +101,7 @@ const CONTACT_ICONS: any = {
                     </button>
                   </td>
                   <td className="px-4 py-3 text-slate-400">{client.company}</td>
-                  <td className="px-4 py-3 text-slate-400 capitalize">{client.country || '-'}</td>
+                  <td className="px-4 py-3 text-slate-400 capitalize">{[client.city, client.state, client.country].filter(Boolean).join(', ') || '-'}</td>
                   <td className="px-4 py-3 text-slate-400">
                     {client.contactMethods.length > 0 && (
                       <span className="flex items-center gap-1">
