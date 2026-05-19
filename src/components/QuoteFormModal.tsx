@@ -164,7 +164,7 @@ export function QuoteFormModal({ onClose, quoteId, initialData, onSave }: QuoteF
       >
         <div className="flex items-center justify-between p-4 border-b border-slate-700 bg-slate-800/50">
           <h2 className="text-lg font-bold text-white">
-            {existingQuote ? 'Edit Quote' : 'New Quote'}
+            {existingQuote ? t('editQuote') : t('newQuote')}
           </h2>
           <button onClick={onClose} className="p-2 hover:bg-slate-700 rounded-full text-slate-400 transition-colors">
             <X className="w-5 h-5" />
@@ -174,13 +174,13 @@ export function QuoteFormModal({ onClose, quoteId, initialData, onSave }: QuoteF
         <div className="p-6 overflow-y-auto space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-400 uppercase">Quote Number *</label>
+              <label className="text-xs font-bold text-slate-400 uppercase">{t('quoteNoReq')}</label>
               <input value={quoteNumber} onChange={e => setQuoteNumber(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-400 uppercase">Client</label>
+              <label className="text-xs font-bold text-slate-400 uppercase">{t('client')}</label>
               <select value={clientId} onChange={e => setClientId(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
-                <option value="">-- General Quote --</option>
+                <option value="">{t('generalQuote')}</option>
                 {clients.map(c => (
                   <option key={c.id} value={c.id}>{c.company || c.name}</option>
                 ))}
@@ -196,7 +196,7 @@ export function QuoteFormModal({ onClose, quoteId, initialData, onSave }: QuoteF
               </select>
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-400 uppercase">Payment Terms</label>
+              <label className="text-xs font-bold text-slate-400 uppercase">{t('paymentTerms')}</label>
               {configuredPaymentTerms.length > 0 && (
                 <select 
                   value={paymentTermId} 
@@ -218,7 +218,7 @@ export function QuoteFormModal({ onClose, quoteId, initialData, onSave }: QuoteF
                   }}
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                 >
-                  <option value="">-- Custom Terms --</option>
+                  <option value="">{t('customTerms')}</option>
                   {configuredPaymentTerms.map(t => (
                     <option key={t.id} value={t.id}>{t.name}</option>
                   ))}
@@ -235,7 +235,7 @@ export function QuoteFormModal({ onClose, quoteId, initialData, onSave }: QuoteF
               )}
               {paymentTermId && advanceRatio > 0 && (
                 <div className="text-xs text-emerald-500 mt-1">
-                  Advance: {advanceRatio}% | Balance: {balanceRatio}%
+                  {t('advance')}: {advanceRatio}% | {t('balance')}: {balanceRatio}%
                 </div>
               )}
             </div>
@@ -243,16 +243,16 @@ export function QuoteFormModal({ onClose, quoteId, initialData, onSave }: QuoteF
 
           <div className="space-y-3">
             <div className="flex justify-between items-center">
-              <h3 className="text-sm font-bold text-slate-300">Line Items</h3>
+              <h3 className="text-sm font-bold text-slate-300">{t('lineItems')}</h3>
             </div>
             <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden">
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-900 border-b border-slate-800 text-xs text-slate-400 font-medium">
                   <tr>
-                    <th className="px-3 py-2">Product Name</th>
-                    <th className="px-3 py-2 w-24">Qty</th>
-                    <th className="px-3 py-2 w-32">Unit Price</th>
-                    <th className="px-3 py-2 w-24">Total</th>
+                    <th className="px-3 py-2">{t('productName')}</th>
+                    <th className="px-3 py-2 w-24">{t('qty')}</th>
+                    <th className="px-3 py-2 w-32">{t('unitPrice')}</th>
+                    <th className="px-3 py-2 w-24">{t('total')}</th>
                     <th className="px-2 py-2 w-10"></th>
                   </tr>
                 </thead>
@@ -307,16 +307,16 @@ export function QuoteFormModal({ onClose, quoteId, initialData, onSave }: QuoteF
               </table>
             </div>
             <button onClick={addItem} className="flex items-center gap-1 text-xs font-bold text-indigo-400 hover:text-indigo-300">
-              <Plus className="w-3 h-3" /> Add Item
+              <Plus className="w-3 h-3" /> {t('addItem')}
             </button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div className="space-y-3">
-              <h3 className="text-sm font-bold text-slate-300">Additional Fees / Discounts</h3>
+              <h3 className="text-sm font-bold text-slate-300">{t('additionalFees')}</h3>
               {fees.map((fee, idx) => (
                 <div key={idx} className="flex items-center gap-2">
-                  <input value={fee.name} onChange={e => updateFee(idx, 'name', e.target.value)} placeholder="e.g. Shipping (FOB)" className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none" />
+                  <input value={fee.name} onChange={e => updateFee(idx, 'name', e.target.value)} placeholder={t('shippingFob')} className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none" />
                   <div className="w-32 bg-slate-950 border border-slate-700 rounded-lg flex items-center px-3">
                     <span className="text-slate-500 mr-1">$</span>
                     <input type="number" step="0.01" value={fee.amount} onChange={e => updateFee(idx, 'amount', parseFloat(e.target.value) || 0)} className="w-full bg-transparent border-none py-2 text-sm text-slate-200 focus:outline-none" />
@@ -325,21 +325,21 @@ export function QuoteFormModal({ onClose, quoteId, initialData, onSave }: QuoteF
                 </div>
               ))}
               <button onClick={addFee} className="flex items-center gap-1 text-xs font-bold text-indigo-400 hover:text-indigo-300">
-                <Plus className="w-3 h-3" /> Add Fee/Discount
+                <Plus className="w-3 h-3" /> {t('addFee')}
               </button>
             </div>
 
             <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col justify-end space-y-2">
               <div className="flex justify-between text-sm text-slate-400">
-                <span>Subtotal</span>
+                <span>{t('subtotal')}</span>
                 <span>${subtotal.toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-sm text-slate-400 border-b border-slate-800 pb-2">
-                <span>Fees & Adjustments</span>
+                <span>{t('feesAndAdjustments')}</span>
                 <span>${totalFees.toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-lg font-bold text-white pt-2">
-                <span>Total</span>
+                <span>{t('total')}</span>
                 <span>${totalAmount.toFixed(2)}</span>
               </div>
             </div>
@@ -357,7 +357,7 @@ export function QuoteFormModal({ onClose, quoteId, initialData, onSave }: QuoteF
             onClick={handleSubmit}
             className="px-6 py-2 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white rounded-lg text-sm font-bold shadow-lg shadow-indigo-500/20 transition-all hover:shadow-indigo-500/40"
           >
-            {existingQuote ? 'Save Changes' : 'Create Quote'}
+            {existingQuote ? t('saveChanges') : t('createQuote')}
           </button>
         </div>
       </div>

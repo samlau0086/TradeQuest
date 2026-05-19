@@ -95,10 +95,10 @@ export function UploadDocModal({ onClose, onUpload, isUploading }: UploadDocModa
               {isUploading ? <Loader2 className="w-6 h-6 text-indigo-400 animate-spin" /> : <FileUp className="w-6 h-6 text-indigo-400" />}
             </div>
             <h3 className="text-sm font-medium text-slate-200 mb-1">
-              Click or drag documents to upload
+              {t('clickOrDragDoc')}
             </h3>
             <p className="text-xs text-slate-500">
-              Supports .pdf, .txt, .doc, .docx
+              {t('supportsDocs')}
             </p>
           </div>
         </div>

@@ -154,11 +154,13 @@ export function Settings() {
     setEditingLLMId(null);
   };
 
+  const [activeTab, setActiveTab] = useState<'profile' | 'mail' | 'ai' | 'system'>('profile');
+
   return (
-    <div className="flex-1 bg-slate-900 border-t border-slate-800 p-8 overflow-y-auto">
-      <div className="max-w-4xl mx-auto space-y-12 text-white pb-12">
+    <div className="flex-1 bg-slate-900 border-t border-slate-800 p-8 overflow-y-auto w-full">
+      <div className="max-w-5xl mx-auto space-y-8 text-white pb-12">
         
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-800 pb-4 gap-4">
           <div>
             <h1 className="text-3xl font-bold flex items-center gap-3">
               <SettingsIcon className="w-8 h-8 text-slate-400" />
@@ -166,85 +168,83 @@ export function Settings() {
             </h1>
             <p className="text-slate-400 mt-2">{t('manageAppDesc')}</p>
           </div>
+          
+          {/* Tabs */}
+          <div className="flex bg-slate-800/50 p-1 rounded-xl shadow-inner border border-slate-700/50 overflow-x-auto w-full md:w-auto min-w-max">
+            <button
+              onClick={() => setActiveTab('profile')}
+              className={cn("px-4 py-2 text-sm font-medium rounded-lg transition-all", activeTab === 'profile' ? "bg-indigo-600 text-white shadow-lg" : "text-slate-400 hover:text-white hover:bg-slate-700/50")}
+            >
+              Profile
+            </button>
+            <button
+              onClick={() => setActiveTab('mail')}
+              className={cn("px-4 py-2 text-sm font-medium rounded-lg transition-all", activeTab === 'mail' ? "bg-indigo-600 text-white shadow-lg" : "text-slate-400 hover:text-white hover:bg-slate-700/50")}
+            >
+              Email Servers
+            </button>
+            <button
+              onClick={() => setActiveTab('ai')}
+              className={cn("px-4 py-2 text-sm font-medium rounded-lg transition-all", activeTab === 'ai' ? "bg-indigo-600 text-white shadow-lg" : "text-slate-400 hover:text-white hover:bg-slate-700/50")}
+            >
+              AI & Integrations
+            </button>
+            {isSuperadmin && (
+              <button
+                onClick={() => setActiveTab('system')}
+                className={cn("px-4 py-2 text-sm font-medium rounded-lg transition-all", activeTab === 'system' ? "bg-indigo-600 text-white shadow-lg" : "text-slate-400 hover:text-white hover:bg-slate-700/50")}
+              >
+                System Flags
+              </button>
+            )}
+          </div>
         </div>
 
-        <ProfileSettings />
-
-        {isSuperadmin && (
-          <section className="space-y-6 pt-6 border-t border-slate-800">
-            <h2 className="text-xl font-bold flex items-center gap-2">
-              <Server className="w-5 h-5 text-purple-400" /> Global Preferences
-            </h2>
-            <div className="bg-slate-900 border border-slate-700/50 rounded-xl p-4 md:p-6 space-y-6">
-              <div>
-                <label className="text-sm font-bold text-slate-300 block mb-2">
-                  AI Agent Auto Follow-up Polling Interval (Hours)
-                </label>
-                <div className="flex items-center gap-4">
-                  <input
-                    type="number"
-                    min="1"
-                    placeholder="e.g. 24"
-                    value={globalSettings.agent_polling_interval_hours || ''}
-                    onChange={e => handleSaveGlobalSetting('agent_polling_interval_hours', e.target.value)}
-                    className="w-32 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
-                  />
-                  <p className="text-xs text-slate-500">
-                    Determines how frequently the backend checks for enabled agents to run. (e.g., 24 means once per day). Leave empty to disable.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </section>
+        {activeTab === 'profile' && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <ProfileSettings />
+          </div>
         )}
 
-        {/* Global Integrations */}
-        <section className="space-y-6 pt-6 border-t border-slate-800">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-slate-800 rounded-lg">
-              <Server className="w-5 h-5 text-indigo-400" />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold text-white">Integrations</h2>
-              <p className="text-sm text-slate-400">Configure third-party API keys</p>
-            </div>
-          </div>
-          
-          <div className="grid gap-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
-              <h3 className="text-sm font-bold text-slate-300 mb-4 px-1 flex items-center gap-2">
-                Outscraper API
-              </h3>
-              <div className="space-y-4">
-                <div className="space-y-1">
-                  <label className="text-xs text-slate-400 font-bold uppercase">API Key</label>
-                  <input
-                    type="password"
-                    value={outscraperApiKey}
-                    onChange={(e) => setOutscraperApiKey(e.target.value)}
-                    placeholder="Enter Outscraper API Key..."
-                    className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-indigo-500"
-                  />
-                  <p className="text-xs text-slate-500 mt-1">Used for searching and importing leads directly from Google Maps into the public pool.</p>
+        {isSuperadmin && activeTab === 'system' && (
+          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <section className="space-y-6">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <Server className="w-5 h-5 text-purple-400" /> Global Preferences
+              </h2>
+              <div className="bg-slate-900 border border-slate-700/50 rounded-xl p-4 md:p-6 space-y-6">
+                <div>
+                  <label className="text-sm font-bold text-slate-300 block mb-2">
+                    AI Agent Auto Follow-up Polling Interval (Hours)
+                  </label>
+                  <div className="flex items-center gap-4">
+                    <input
+                      type="number"
+                      min="1"
+                      placeholder="e.g. 24"
+                      value={globalSettings.agent_polling_interval_hours || ''}
+                      onChange={e => handleSaveGlobalSetting('agent_polling_interval_hours', e.target.value)}
+                      className="w-32 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Determines how frequently the backend checks for enabled agents to run. (e.g., 24 means once per day). Leave empty to disable.
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
-        </section>
+            </section>
 
-        {/* Payment Terms Section (Super Admin only) */}
-        {isSuperadmin && (
-          <section className="space-y-6 pt-6 border-t border-slate-800">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-bold flex items-center gap-2">
-                <Landmark className="w-5 h-5 text-emerald-400" /> Payment Terms
-              </h2>
-              {editingPTId === null && (
-                <button onClick={handleAddNewPT} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-bold shadow-lg transition-colors">
-                  <Plus className="w-4 h-4" /> Add Payment Term
-                </button>
-              )}
-            </div>
+            <section className="space-y-6 pt-6 border-t border-slate-800">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <Landmark className="w-5 h-5 text-emerald-400" /> Payment Terms
+                </h2>
+                {editingPTId === null && (
+                  <button onClick={handleAddNewPT} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-bold shadow-lg transition-colors">
+                    <Plus className="w-4 h-4" /> Add Payment Term
+                  </button>
+                )}
+              </div>
 
             <div className="grid grid-cols-1 gap-4">
               {paymentTerms.length === 0 && editingPTId !== 'new' && (
@@ -342,11 +342,14 @@ export function Settings() {
                 );
               })}
             </div>
-          </section>
+            </section>
+          </div>
         )}
 
+        {activeTab === 'mail' && (
+          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
         {/* Incoming Servers Section */}
-        <section className="space-y-6 pt-6 border-t border-slate-800">
+        <section className="space-y-6">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold flex items-center gap-2">
               <Server className="w-5 h-5 text-indigo-400" /> {t('incomingServers')}
@@ -675,6 +678,45 @@ export function Settings() {
             })}
           </div>
         </section>
+        </div>
+        )}
+
+        {activeTab === 'ai' && (
+          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+        
+        {/* Global Integrations */}
+        <section className="space-y-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-slate-800 rounded-lg">
+              <Server className="w-5 h-5 text-indigo-400" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-white">Integrations</h2>
+              <p className="text-sm text-slate-400">Configure third-party API keys</p>
+            </div>
+          </div>
+          
+          <div className="grid gap-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
+              <h3 className="text-sm font-bold text-slate-300 mb-4 px-1 flex items-center gap-2">
+                Outscraper API
+              </h3>
+              <div className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-xs text-slate-400 font-bold uppercase">API Key</label>
+                  <input
+                    type="password"
+                    value={outscraperApiKey}
+                    onChange={(e) => setOutscraperApiKey(e.target.value)}
+                    placeholder="Enter Outscraper API Key..."
+                    className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-indigo-500"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Used for searching and importing leads directly from Google Maps into the public pool.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
 
         {/* LLM Configuration Section */}
         <section className="space-y-6 pt-6 border-t border-slate-800">
@@ -850,6 +892,8 @@ export function Settings() {
             })}
           </div>
         </section>
+        </div>
+        )}
 
       </div>
     </div>
