@@ -1544,6 +1544,18 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
+  // Public Settings
+  app.get('/api/settings/public', authenticateToken, async (req: any, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM global_settings WHERE key LIKE \'exp_%\' OR key = \'agent_polling_interval_hours\'');
+      const settings = result.rows.reduce((acc, row) => ({ ...acc, [row.key]: typeof row.value === 'string' ? JSON.parse(row.value) : row.value }), {});
+      res.json(settings);
+    } catch (e) {
+      console.error('Failed to fetch public settings', e);
+      res.status(500).json({ error: 'Failed to fetch public settings' });
+    }
+  });
+
   // Superadmin Global Settings
   app.get('/api/admin/settings', authenticateToken, requireSuperadmin, async (req: any, res) => {
     try {

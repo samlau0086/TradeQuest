@@ -371,6 +371,9 @@ export interface StoreState {
   outscraperApiKey: string;
   setOutscraperApiKey: (key: string) => void;
 
+  expConfig: Record<string, number>;
+  loadExpConfig: () => Promise<void>;
+
   fetchInitialData: () => Promise<void>;
 }
 
@@ -657,6 +660,7 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
   addQuote: (quote) => {
+    setTimeout(() => get().addExp(get().expConfig['event_create_quote'] ?? 15, 'Created a quote'), 0);
     const id = `q${Date.now()}`;
     const newQuote: Quote = { ...quote, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     set((state) => ({ quotes: [...state.quotes, newQuote] }));
@@ -750,6 +754,7 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   addDeal: (deal) => {
+    setTimeout(() => get().addExp(get().expConfig['event_create_deal'] ?? 20, 'Created a new deal'), 0);
     const id = `d${Date.now()}`;
     const newDeal: Deal = {
       ...deal,
@@ -775,6 +780,12 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   updateDeal: (id, updates) => set((state) => {
+    if (updates.stage === 'Won') {
+      const deal = state.deals.find(d => d.id === id);
+      if (deal && deal.stage !== 'Won') {
+        setTimeout(() => get().addExp(get().expConfig['event_win_deal'] ?? 100, 'Won a deal!'), 0);
+      }
+    }
     const token = localStorage.getItem('token');
     if (token) {
       fetch(`/api/deals/${id}`, {
@@ -830,6 +841,7 @@ export const useStore = create<StoreState>((set, get) => ({
         } else if (res.ok && data.pointsAdded) {
           console.log(`Lead added successfully! You earned ${data.pointsAdded} points.`);
           useAuthStore.getState().fetchProfile();
+          setTimeout(() => get().addExp(get().expConfig['event_add_client'] ?? 10, 'Added a new client'), 0);
         }
       } catch (err) {
         console.error(err);
@@ -929,6 +941,7 @@ export const useStore = create<StoreState>((set, get) => ({
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (res.ok) {
+          setTimeout(() => get().addExp(get().expConfig['event_claim_lead'] ?? 5, 'Claimed a lead from public pool'), 0);
           // Re-fetch both lists
           get().fetchPublicClients();
           get().fetchDeals(); // Fetch deals so the new deal shows up
@@ -962,6 +975,9 @@ export const useStore = create<StoreState>((set, get) => ({
       });
       if (res.ok) {
         const data = await res.json();
+        if (data.count > 0) {
+          setTimeout(() => get().addExp((get().expConfig['event_import_lead'] ?? 2) * data.count, `Imported ${data.count} leads`), 0);
+        }
         if (data.pointsAdded > 0) {
           console.log(`Import successful. Added ${data.count} leads. You earned ${data.pointsAdded} points!`);
           useAuthStore.getState().fetchProfile();
@@ -1075,6 +1091,8 @@ export const useStore = create<StoreState>((set, get) => ({
          setTimeout(() => get().completeQuest('q1'), 0);
       }
       
+      setTimeout(() => get().addExp(get().expConfig['event_send_email'] ?? 5, 'Sent an email'), 0);
+      
       const newEmail = { ...email, id: `e${Date.now()}`, date: new Date().toISOString() } as EmailMessage;
       
       const token = localStorage.getItem('token');
@@ -1103,6 +1121,7 @@ export const useStore = create<StoreState>((set, get) => ({
     return { emails: state.emails.map(e => e.id === id ? { ...e, ...updates } : e) };
   }),
   markEmailRead: (id) => set((state) => {
+    setTimeout(() => get().addExp(get().expConfig['event_read_email'] ?? 1, 'Read an email'), 0);
     const token = localStorage.getItem('token');
     if (token) {
       fetch(`/api/emails/${id}`, {
@@ -1199,11 +1218,6 @@ export const useStore = create<StoreState>((set, get) => ({
   }),
   skipQuest: (id, days) => set((state) => {
     const skipUntil = new Date(Date.now() + days * 86400000).toISOString();
-    const quest = state.dailyQuests.find(q => q.id === id);
-    if (quest) {
-      const penalty = Math.floor(quest.expReward * 0.1 * days);
-      setTimeout(() => state.addExp(-penalty, `Skipped quest: ${quest.title} (-${10 * days}% EXP)`), 0);
-    }
     return {
       dailyQuests: state.dailyQuests.map(q => q.id === id ? { ...q, skippedUntil: skipUntil } : q)
     };
@@ -1300,11 +1314,45 @@ export const useStore = create<StoreState>((set, get) => ({
     set({ outscraperApiKey: key });
   },
 
+  expConfig: {},
+  loadExpConfig: async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const res = await fetch('/api/settings/public', { headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) {
+        const settings = await res.json();
+        const expConfig: Record<string, number> = {};
+        for(const key in settings) {
+          if (key.startsWith('exp_')) {
+            expConfig[key.replace('exp_', '')] = Number(settings[key]);
+          }
+        }
+        set({ expConfig });
+        
+        // update achievements and quests
+        set((state) => ({
+          achievements: state.achievements.map(a => ({
+            ...a,
+            expReward: expConfig[`achieve_${a.id}`] ?? a.expReward
+          })),
+          dailyQuests: state.dailyQuests.map(q => ({
+            ...q,
+            expReward: expConfig[`quest_${q.id}`] ?? q.expReward
+          }))
+        }));
+      }
+    } catch(e) {
+      console.error('Failed to load exp config', e);
+    }
+  },
+
   fetchInitialData: async () => {
     const token = localStorage.getItem('token');
     if (!token) return;
 
     // Trigger background fetches for independent modules
+    get().loadExpConfig();
     get().fetchProducts();
     get().fetchQuotes();
     get().fetchDocuments();

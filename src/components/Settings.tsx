@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useStore, InboxConfig, OutboxConfig, LLMConfig, PaymentTerm } from '../store';
 import { useAuthStore } from '../authStore';
-import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark, Clock, Book } from 'lucide-react';
+import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark, Clock, Book, Target, Trophy } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ProfileSettings } from './ProfileSettings';
 import { useTranslation } from '../lib/i18n';
@@ -13,7 +13,8 @@ export function Settings() {
     llmConfigs, addLLMConfig, updateLLMConfig, deleteLLMConfig, activeLLMId, setActiveLLMId,
     paymentTerms, addPaymentTerm, updatePaymentTerm, deletePaymentTerm,
     llmMappings, setLLMMapping, language,
-    outscraperApiKey, setOutscraperApiKey
+    outscraperApiKey, setOutscraperApiKey,
+    dailyQuests, achievements
   } = useStore();
   const t = useTranslation(language);
   
@@ -191,6 +192,14 @@ export function Settings() {
             </button>
             {isSuperadmin && (
               <button
+                onClick={() => setActiveTab('gamification')}
+                className={cn("px-4 py-2 text-sm font-medium rounded-lg transition-all", activeTab === 'gamification' ? "bg-indigo-600 text-white shadow-lg" : "text-slate-400 hover:text-white hover:bg-slate-700/50")}
+              >
+                Gamification
+              </button>
+            )}
+            {isSuperadmin && (
+              <button
                 onClick={() => setActiveTab('system')}
                 className={cn("px-4 py-2 text-sm font-medium rounded-lg transition-all", activeTab === 'system' ? "bg-indigo-600 text-white shadow-lg" : "text-slate-400 hover:text-white hover:bg-slate-700/50")}
               >
@@ -203,6 +212,93 @@ export function Settings() {
         {activeTab === 'profile' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
             <ProfileSettings />
+          </div>
+        )}
+
+        {isSuperadmin && activeTab === 'gamification' && (
+          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <section className="space-y-6">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <Target className="w-5 h-5 text-rose-400" /> Event & Quest EXP Rewards
+              </h2>
+              <div className="bg-slate-900 border border-slate-700/50 rounded-xl p-4 md:p-6 mb-8 shadow-sm">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {dailyQuests.map((q) => (
+                    <div key={q.id}>
+                      <label className="text-sm font-bold text-slate-300 block mb-2 opacity-80">
+                        {q.title}
+                      </label>
+                      <div className="flex items-center gap-4">
+                        <input
+                          type="number"
+                          min="0"
+                          value={globalSettings[`exp_quest_${q.id}`] ?? q.expReward}
+                          onChange={e => handleSaveGlobalSetting(`exp_quest_${q.id}`, Number(e.target.value))}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-rose-500"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <h2 className="text-xl font-bold flex items-center gap-2 mt-8 border-t border-slate-800 pt-8">
+                <Target className="w-5 h-5 text-indigo-400" /> Business Event EXP Rewards
+              </h2>
+              <div className="bg-slate-900 border border-slate-700/50 rounded-xl p-4 md:p-6 mb-8 shadow-sm">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {[
+                    { id: 'add_client', label: 'Add Lead/Client', default: 10 },
+                    { id: 'claim_lead', label: 'Claim Lead from Pool', default: 5 },
+                    { id: 'import_lead', label: 'Import Lead (per lead)', default: 2 },
+                    { id: 'send_email', label: 'Send Email', default: 5 },
+                    { id: 'read_email', label: 'Read/Track Email', default: 1 },
+                    { id: 'create_deal', label: 'Create Deal', default: 20 },
+                    { id: 'win_deal', label: 'Win Deal', default: 100 },
+                    { id: 'create_quote', label: 'Create Quote', default: 15 }
+                  ].map((event) => (
+                    <div key={event.id}>
+                      <label className="text-sm font-bold text-slate-300 block mb-2 opacity-80">
+                        {event.label}
+                      </label>
+                      <div className="flex items-center gap-4">
+                        <input
+                          type="number"
+                          min="0"
+                          value={globalSettings[`exp_event_${event.id}`] ?? event.default}
+                          onChange={e => handleSaveGlobalSetting(`exp_event_${event.id}`, Number(e.target.value))}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-indigo-500"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <h2 className="text-xl font-bold flex items-center gap-2 mt-8 border-t border-slate-800 pt-8">
+                <Trophy className="w-5 h-5 text-amber-400" /> Achievement EXP Rewards
+              </h2>
+              <div className="bg-slate-900 border border-slate-700/50 rounded-xl p-4 md:p-6 mb-8 shadow-sm">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {achievements.map((a) => (
+                    <div key={a.id}>
+                      <label className="text-sm font-bold text-slate-300 block mb-2 opacity-80 truncate" title={a.title}>
+                        {a.title}
+                      </label>
+                      <div className="flex items-center gap-4">
+                        <input
+                          type="number"
+                          min="0"
+                          value={globalSettings[`exp_achieve_${a.id}`] ?? a.expReward}
+                          onChange={e => handleSaveGlobalSetting(`exp_achieve_${a.id}`, Number(e.target.value))}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-amber-500"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
           </div>
         )}
 

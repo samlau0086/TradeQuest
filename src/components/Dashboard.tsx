@@ -32,7 +32,7 @@ export function Dashboard() {
 
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin bg-slate-900 border-t border-slate-800 p-8">
-      <div className="max-w-5xl mx-auto space-y-8 flex flex-col min-h-full">
+      <div className="max-w-7xl mx-auto space-y-8 flex flex-col min-h-full">
         
         {/* Header/Banner */}
         <div className="shrink-0 bg-gradient-to-r from-slate-900 to-slate-800 p-8 rounded-2xl border border-slate-700/50 shadow-xl flex items-center justify-between">
@@ -111,76 +111,84 @@ export function Dashboard() {
                   <div 
                     key={quest.id} 
                     className={cn(
-                      "flex items-center justify-between p-4 rounded-xl border transition-all duration-300",
+                      "flex flex-col p-4 rounded-xl border transition-all duration-300",
                       quest.completed ? "bg-green-950/20 border-green-900/50" : "bg-slate-900 border-slate-800 hover:border-slate-700 hover:shadow-lg"
                     )}
                   >
-                    <div className="flex gap-4 items-center">
-                      <div className={cn(
-                        "w-10 h-10 rounded-full flex items-center justify-center border",
-                        quest.completed ? "bg-green-500/20 border-green-500/50 text-green-400" : "bg-slate-800 border-slate-700 text-slate-500"
-                      )}>
-                        <CheckCircle2 className="w-5 h-5" />
+                    <div className="flex items-center justify-between">
+                      <div className="flex gap-4 items-center">
+                        <div className={cn(
+                          "w-10 h-10 rounded-full flex items-center justify-center border",
+                          quest.completed ? "bg-green-500/20 border-green-500/50 text-green-400" : "bg-slate-800 border-slate-700 text-slate-500"
+                        )}>
+                          <CheckCircle2 className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className={cn("font-bold text-sm", quest.completed ? "text-green-400" : "text-white")}>{t(quest.title)}</div>
+                          <div className="text-xs text-slate-400 mt-1">{t(quest.description)}</div>
+                        </div>
                       </div>
-                      <div>
-                        <div className={cn("font-bold text-sm", quest.completed ? "text-green-400" : "text-white")}>{t(quest.title)}</div>
-                        <div className="text-xs text-slate-400 mt-1">{t(quest.description)}</div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className="font-bold text-cyan-400 bg-cyan-950/30 px-3 py-1 rounded-full text-sm">
-                        +{quest.expReward} EXP
-                      </div>
-                      {!quest.completed ? (
-                        <div className="flex gap-2">
-                          {(quest.id === 'q1' || quest.id === 'q2' || quest.id === 'q3') && (
-                            <button
-                               onClick={() => {
-                                 if (quest.id === 'q1') setView('dormant');
-                                 if (quest.id === 'q2') setView('leads');
-                                 if (quest.id === 'q3') setView('followups');
-                               }}
-                               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-sm font-bold text-white rounded-lg transition-colors shadow-lg shadow-indigo-600/20"
-                            >
-                               {t('viewClients')}
-                            </button>
-                          )}
-                          <div className="relative">
+                      <div className="flex items-center gap-4">
+                        <div className="font-bold text-cyan-400 bg-cyan-950/30 px-3 py-1 rounded-full text-sm">
+                          +{quest.expReward} EXP
+                        </div>
+                        {!quest.completed ? (
+                          <div className="flex gap-2">
+                            {(quest.id === 'q1' || quest.id === 'q2' || quest.id === 'q3') && (
+                              <button
+                                 onClick={() => {
+                                   if (quest.id === 'q1') setView('dormant');
+                                   if (quest.id === 'q2') setView('leads');
+                                   if (quest.id === 'q3') setView('followups');
+                                 }}
+                                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-sm font-bold text-white rounded-lg transition-colors shadow-lg shadow-indigo-600/20"
+                              >
+                                 {t('viewClients')}
+                              </button>
+                            )}
                             <button
                                onClick={() => setActiveDropdown(activeDropdown === quest.id ? null : quest.id)}
-                               className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-sm font-bold text-slate-200 rounded-lg transition-colors border border-slate-700 cursor-pointer outline-none flex items-center gap-1 min-w-[72px] justify-center"
+                               className={cn(
+                                 "px-4 py-2 hover:bg-slate-700 text-sm font-bold text-slate-200 rounded-lg transition-colors border border-slate-700 cursor-pointer outline-none flex items-center gap-1 min-w-[72px] justify-center",
+                                 activeDropdown === quest.id ? "bg-slate-700" : "bg-slate-800"
+                               )}
                             >
-                               {t('skip')} <ChevronDown className="w-4 h-4 ml-1 opacity-70" />
+                               {t('skip')} <ChevronDown className={cn("w-4 h-4 ml-1 opacity-70 transition-transform", activeDropdown === quest.id ? "rotate-180" : "")} />
                             </button>
-                            {activeDropdown === quest.id && (
-                                <div className="absolute top-full z-50 right-0 mt-2 w-32 bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2">
-                                  {[
-                                    { value: 1, label: t('skip1') },
-                                    { value: 3, label: t('skip3') },
-                                    { value: 5, label: t('skip5') },
-                                    { value: 7, label: t('skip7') },
-                                    { value: 15, label: t('skip15') },
-                                    { value: 30, label: t('skip30') }
-                                  ].map((option) => (
-                                    <button
-                                      key={option.value}
-                                      onClick={() => {
-                                        skipQuest(quest.id, option.value);
-                                        setActiveDropdown(null);
-                                      }}
-                                      className="w-full text-left px-4 py-2 text-sm text-slate-200 hover:bg-slate-700 transition-colors whitespace-nowrap"
-                                    >
-                                      {option.label} <span className="text-red-400 font-medium ml-2">-{Math.floor(quest.expReward * 0.1 * option.value)} EXP</span>
-                                    </button>
-                                  ))}
-                                </div>
-                            )}
                           </div>
-                        </div>
-                      ) : (
-                        <span className="text-xs font-bold text-slate-500 uppercase px-4 py-2">{t('done')}</span>
-                      )}
+                        ) : (
+                          <span className="text-xs font-bold text-slate-500 uppercase px-4 py-2">{t('done')}</span>
+                        )}
+                      </div>
                     </div>
+                    
+                    {/* Expanded Skip Options */}
+                    {!quest.completed && activeDropdown === quest.id && (
+                      <div className="mt-4 pt-4 border-t border-slate-800/80 animate-in fade-in slide-in-from-top-2">
+                        <h4 className="text-xs font-bold text-slate-400 mb-3 uppercase tracking-wider">{t('skip')}</h4>
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            { value: 1, label: t('skip1') },
+                            { value: 3, label: t('skip3') },
+                            { value: 5, label: t('skip5') },
+                            { value: 7, label: t('skip7') },
+                            { value: 15, label: t('skip15') },
+                            { value: 30, label: t('skip30') }
+                          ].map((option) => (
+                            <button
+                              key={option.value}
+                              onClick={() => {
+                                skipQuest(quest.id, option.value);
+                                setActiveDropdown(null);
+                              }}
+                              className="flex-1 min-w-[100px] flex flex-col items-center justify-center p-2 rounded-lg border border-slate-700 bg-slate-800/50 hover:bg-slate-700 hover:border-cyan-500/50 transition-colors whitespace-nowrap"
+                            >
+                              <span className="text-sm font-bold text-slate-200">{option.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
