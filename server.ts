@@ -14,9 +14,11 @@ const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret_key";
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  connectionTimeoutMillis: 3000,
+  connectionTimeoutMillis: 10000,
   idleTimeoutMillis: 30000,
-  query_timeout: 5000
+  statement_timeout: 15000,
+  query_timeout: 15000,
+  keepAlive: true
 });
 
 async function initDB() {
@@ -1117,6 +1119,41 @@ No markdown wrappers, just valid JSON.`;
       res.json({ success: true });
     } catch (e) {
       console.error(e); res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  app.post('/api/outscraper/search', authenticateToken, async (req: any, res) => {
+    try {
+      const { query, limit, apiKey } = req.body;
+      if (!apiKey) return res.status(400).json({ error: 'Outscraper API Key required' });
+      const url = `https://api.outscraper.com/maps/search-v2?query=${encodeURIComponent(query)}&limit=${limit || 10}&async=false`;
+      const outscraperRes = await fetch(url, {
+        headers: { 'X-API-KEY': apiKey }
+      });
+      if (!outscraperRes.ok) {
+        return res.status(outscraperRes.status).json({ error: 'Outscraper API error' });
+      }
+      const data = await outscraperRes.json();
+      res.json(data);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to search outscraper' });
+    }
+  });
+
+  app.post('/api/outscraper/translate', authenticateToken, async (req: any, res) => {
+    try {
+      const { query, llmConfig } = req.body;
+      const prompt = `Translate or refine the following search query for Google Maps to the local language of the target location. 
+If the query mentions a location, translate the query to the primary language of that location. If it doesn't mention a location, just return the query as is.
+Return ONLY the translated/refined query string, nothing else. No markdown, no quotes.
+
+Query: "${query}"`;
+      const text = await callAI(prompt, llmConfig, false);
+      res.json({ result: text.trim() });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to translate query' });
     }
   });
 

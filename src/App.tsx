@@ -14,6 +14,7 @@ import { PublicPool } from './components/PublicPool';
 import { PipelineList } from './components/PipelineList';
 import { ClientsList } from './components/ClientsList';
 import { EditRequests } from './components/EditRequests';
+import { KnowledgeBaseManager } from './components/KnowledgeBaseManager';
 import { AuthPage } from './components/AuthPage';
 import { ResetPasswordPage } from './components/ResetPasswordPage';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'react-resizable-panels';
@@ -76,6 +77,7 @@ export default function App() {
          view === 'edit-requests' ? <EditRequests /> :
          view === 'inbox' ? <Inbox /> : 
          view === 'settings' ? <Settings /> : 
+         view === 'knowledge-base' ? <div className="flex-1 bg-slate-900 border-t border-slate-800 p-8 overflow-y-auto"><div className="max-w-4xl mx-auto text-white"><KnowledgeBaseManager /></div></div> :
          view === 'user-management' ? <div className="flex-1 bg-slate-900 overflow-y-auto p-8"><div className="max-w-5xl mx-auto text-white"><UserManagement /></div></div> :
          (view === 'dormant' || view === 'leads' || view === 'followups') ? <ActionableClients /> : 
          <Dashboard />}

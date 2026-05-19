@@ -32,6 +32,29 @@ export function WorldMap({ onCountryClick }: { onCountryClick?: (country: string
     { id: 'oc', name: 'Oceania', status: 'locked', clients: 0 },
   ];
 
+  const countryCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    clients.forEach(client => {
+      if (!client.country) return;
+      let stdName = client.country;
+      if (stdName === 'USA' || stdName === 'United States') stdName = 'United States of America';
+      if (stdName === 'UK') stdName = 'United Kingdom';
+      counts[stdName] = (counts[stdName] || 0) + 1;
+    });
+    return counts;
+  }, [clients]);
+
+  const maxLeads = useMemo(() => Math.max(1, ...Object.values(countryCounts), 0), [countryCounts]);
+
+  const getCountryColor = (count: number, max: number) => {
+    if (count === 0) return "#1e293b"; // slate-800
+    const ratio = count / max;
+    if (ratio <= 0.2) return "#164e63"; // cyan-900
+    if (ratio <= 0.5) return "#0e7490"; // cyan-700
+    if (ratio <= 0.8) return "#0891b2"; // cyan-600
+    return "#06b6d4"; // cyan-500
+  };
+
   const countryMarkers = useMemo(() => {
     const groups: Record<string, { count: number; active: number; dormant: number; coordinates: [number, number] }> = {};
     clients.forEach(client => {
@@ -83,21 +106,24 @@ export function WorldMap({ onCountryClick }: { onCountryClick?: (country: string
                 {({ geographies }) =>
                   geographies.map((geo) => {
                     const geoName = geo.properties.name;
+                    const count = countryCounts[geoName] || 0;
+                    const fillColor = getCountryColor(count, maxLeads);
+                    
                     return (
                       <Geography
                         key={geo.rsmKey}
                         geography={geo}
-                        fill="#1e293b"
+                        fill={fillColor}
                         stroke="#334155"
                         strokeWidth={0.5}
                         onClick={() => {
                           const mappedName = geoName === 'United States of America' ? 'United States' : geoName;
                           if (onCountryClick) onCountryClick(mappedName);
                         }}
-                        className={onCountryClick ? "cursor-pointer" : ""}
+                        className={onCountryClick ? "cursor-pointer transition-colors" : "transition-colors"}
                         style={{
                           default: { outline: "none" },
-                          hover: { fill: onCountryClick ? "#475569" : "#334155", outline: "none" },
+                          hover: { fill: count > 0 ? "#22d3ee" : "#475569", outline: "none" },
                           pressed: { fill: "#1e293b", outline: "none" },
                         }}
                       />

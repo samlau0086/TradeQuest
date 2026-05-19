@@ -160,6 +160,8 @@ export const translations = {
     descDrafting: "Auto-detect purpose & write",
     descAnalysis: "Icebreakers & actionables",
     descEmbedding: "Knowledge Base Embeddings",
+    outscraperTranslate: "Map Search Translation",
+    descOutscraper: "Auto-translate map search query text",
     apiKey: "API Key",
     modelName: "Model Name",
     embeddingModel: "Embedding Model",
@@ -201,8 +203,7 @@ export const translations = {
     newQuote: "New Quote",
     editQuote: "Edit Quote",
     quoteNo: "Quote #",
-    createQuote: "Create Quote",
-    saveChanges: "Save Changes"
+    createQuote: "Create Quote"
   },
   zh: {
     dashboard: "控制台",
@@ -363,6 +364,8 @@ export const translations = {
     descDrafting: "自动推断意图并起草",
     descAnalysis: "破冰话术与行动建议",
     descEmbedding: "知识库向量化",
+    outscraperTranslate: "地图搜索翻译",
+    descOutscraper: "自动翻译地图搜索词到当地语言",
     apiKey: "API 密钥",
     modelName: "模型名称",
     embeddingModel: "向量化模型",
@@ -404,8 +407,7 @@ export const translations = {
     newQuote: "新建报价",
     editQuote: "编辑报价",
     quoteNo: "报价单号",
-    createQuote: "创建报价",
-    saveChanges: "保存配置"
+    createQuote: "创建报价"
   }
 };
 

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useStore, Client } from '../store';
 import { useAuthStore } from '../authStore';
 import { useTranslation } from '../lib/i18n';
-import { Globe, Search, ArrowRight, Loader2, Clock, Upload, List as ListIcon, Tags as TagsIcon, LayoutGrid, Map as MapIcon, Plus, ArrowUpFromLine, Trash2 } from 'lucide-react';
+import { Globe, Search, ArrowRight, Loader2, Clock, Upload, List as ListIcon, Tags as TagsIcon, LayoutGrid, Map as MapIcon, Plus, ArrowUpFromLine, Trash2, MapPin } from 'lucide-react';
 import { cn } from '../lib/utils';
 import Papa from 'papaparse';
 import { ComposableMap, Geographies, Geography, Marker } from 'react-simple-maps';
@@ -27,6 +27,8 @@ const COUNTRY_COORDS: Record<string, [number, number]> = {
 
 type ViewMode = 'grid' | 'list' | 'map' | 'tags';
 
+import { OutscraperSearchModal } from './OutscraperSearchModal';
+
 export function PublicPool() {
   const { publicClients, fetchPublicClients, claimClient, importPublicLeads, language } = useStore();
   const { profile } = useAuthStore();
@@ -37,6 +39,7 @@ export function PublicPool() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showOutscraperModal, setShowOutscraperModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
 
   useEffect(() => {
@@ -88,14 +91,39 @@ export function PublicPool() {
         header: true,
         skipEmptyLines: true,
         complete: async (results) => {
-          const leads = results.data
-            .filter((row: any) => row.Name)
-            .map((row: any) => ({
-              name: row.Name,
-              company: row.Company || 'Unknown',
-              country: row.Country || 'Unknown',
-              tags: row.Tags ? row.Tags.split(',').map((t: string) => t.trim()) : []
-            }));
+          const leads: any[] = [];
+          for (const row of results.data as any[]) {
+            // Outscraper Google Maps / B2B Export Format
+            if (row.name !== undefined && (row.query !== undefined || row.type !== undefined)) {
+               const contactMethods = [];
+               if (row.emails) {
+                 const emails = row.emails.split(',');
+                 if (emails[0]) contactMethods.push({ type: 'email', value: emails[0].trim() });
+               }
+               if (row.phones) {
+                 const phones = row.phones.split(',');
+                 if (phones[0]) contactMethods.push({ type: 'phone', value: phones[0].trim() });
+               }
+               leads.push({
+                 name: row.name,
+                 company: row.name,
+                 address: row.full_address || '',
+                 city: row.city || '',
+                 state: row.state || '',
+                 country: row.country || 'Unknown',
+                 tags: row.category ? row.category.split(',').map((t: string) => t.trim()) : [],
+                 contactMethods: contactMethods.length > 0 ? contactMethods : undefined
+               });
+            } else if (row.Name) {
+              // Default App CSV Format
+              leads.push({
+                name: row.Name,
+                company: row.Company || 'Unknown',
+                country: row.Country || 'Unknown',
+                tags: row.Tags ? row.Tags.split(',').map((t: string) => t.trim()) : []
+              });
+            }
+          }
           if (leads.length > 0) {
             await importPublicLeads(leads);
           }
@@ -392,6 +420,13 @@ export function PublicPool() {
                   {t('newClientTarget') || 'Add Lead'}
                 </button>
                 <button 
+                  onClick={() => setShowOutscraperModal(true)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg flex items-center gap-2 font-medium transition-colors cursor-pointer border border-slate-700"
+                >
+                  <MapPin className="w-4 h-4 text-cyan-400" />
+                  Search Maps
+                </button>
+                <button 
                   onClick={() => setShowUploadModal(true)}
                   className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg flex items-center gap-2 font-medium transition-colors cursor-pointer"
                 >
@@ -447,6 +482,7 @@ export function PublicPool() {
         </div>
       </div>
       {showUploadModal && <UploadCSVModal onClose={() => setShowUploadModal(false)} onUpload={handleCSVUpload} />}
+      {showOutscraperModal && <OutscraperSearchModal onClose={() => setShowOutscraperModal(false)} />}
       {showAddModal && <ClientFormModal isPublicPool onClose={() => setShowAddModal(false)} />}
       
       {confirmClaimId && (

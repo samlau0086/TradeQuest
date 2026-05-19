@@ -1,17 +1,18 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { useStore, KnowledgeItem } from '../store';
 import { useAuthStore } from '../authStore';
 import { Book, Plus, Trash2, Edit2, Save, X, FileUp, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 import { useTranslation } from '../lib/i18n';
+import { UploadDocModal } from './UploadDocModal';
 
 export function KnowledgeBaseManager({ clientId = null }: { clientId?: string | null }) {
   const { knowledgeBase, addKnowledgeItem, updateKnowledgeItem, deleteKnowledgeItem, language } = useStore();
   const t = useTranslation(language);
   const token = useAuthStore(s => s.token);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   
   const relevantKbs = knowledgeBase.filter(kb => kb.clientId === clientId);
   
@@ -22,35 +23,36 @@ export function KnowledgeBaseManager({ clientId = null }: { clientId?: string | 
     addKnowledgeItem({ clientId, title: 'New Knowledge Topic', content: 'Enter the knowledge contents here...' });
   };
   
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
+  const handleFileUploads = async (files: File[]) => {
     setIsUploading(true);
-    const formDataObj = new FormData();
-    formDataObj.append('file', file);
-    
     try {
-      const res = await fetch('/api/knowledge-base/upload', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formDataObj
-      });
-      const data = await res.json();
-      if (data.success) {
-        if (editingId) {
-          setFormData(prev => ({ ...prev, content: (prev.content ? prev.content + '\n\n' : '') + data.text }));
+      for (const file of files) {
+        const formDataObj = new FormData();
+        formDataObj.append('file', file);
+        
+        const res = await fetch('/api/knowledge-base/upload', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+          body: formDataObj
+        });
+        const data = await res.json();
+        
+        if (data.success) {
+          if (editingId && files.length === 1) {
+            setFormData(prev => ({ ...prev, content: (prev.content ? prev.content + '\n\n' : '') + data.text }));
+          } else {
+            addKnowledgeItem({ clientId, title: file.name, content: data.text });
+          }
         } else {
-          addKnowledgeItem({ clientId, title: file.name, content: data.text });
+          console.error(`Failed to upload document ${file.name}: ${data.error}`);
         }
-      } else {
-        alert(data.error || 'Failed to upload document');
       }
     } catch (err) {
-      alert('Upload error');
+      console.error('Upload error', err);
+      alert('One or more files failed to upload');
     } finally {
       setIsUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      setShowUploadModal(false);
     }
   };
 
@@ -61,9 +63,8 @@ export function KnowledgeBaseManager({ clientId = null }: { clientId?: string | 
           <Book className="w-4 h-4" /> {clientId ? t('clientRag') : t('globalRag')}
         </h3>
         <div className="flex items-center gap-2">
-          <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept=".pdf,.txt,.doc,.docx" />
           <button 
-            onClick={() => fileInputRef.current?.click()} 
+            onClick={() => setShowUploadModal(true)} 
             disabled={isUploading}
             className="text-xs bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 flex items-center gap-1 rounded transition-colors disabled:opacity-50" 
             title={t('uploadDoc')}
@@ -141,6 +142,14 @@ export function KnowledgeBaseManager({ clientId = null }: { clientId?: string | 
           </div>
         ))}
       </div>
+      
+      {showUploadModal && (
+        <UploadDocModal 
+          onClose={() => !isUploading && setShowUploadModal(false)}
+          onUpload={handleFileUploads}
+          isUploading={isUploading}
+        />
+      )}
     </div>
   );
 }

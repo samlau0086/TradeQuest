@@ -99,7 +99,38 @@ export function Kanban() {
       skipEmptyLines: true,
       complete: async (results) => {
         for (const row of results.data as any[]) {
-          if (row.Name) {
+          // Outscraper
+          if (row.name !== undefined && (row.query !== undefined || row.type !== undefined)) {
+            const contactMethods = [];
+            if (row.emails) {
+              const emails = row.emails.split(',');
+              if (emails[0]) contactMethods.push({ type: 'email', value: emails[0].trim() });
+            }
+            if (row.phones) {
+              const phones = row.phones.split(',');
+              if (phones[0]) contactMethods.push({ type: 'phone', value: phones[0].trim() });
+            }
+            const clientId = await addClient({
+              name: row.name,
+              company: row.name,
+              address: row.full_address || '',
+              city: row.city || '',
+              state: row.state || '',
+              country: row.country || 'Unknown',
+              status: 'Leads',
+              tags: row.category ? row.category.split(',').map((t: string) => t.trim()) : [],
+              contactMethods,
+              lastContact: new Date().toISOString()
+            });
+            if (clientId) {
+              addDeal({
+                clientId,
+                name: `${row.name} Lead`,
+                value: 0,
+                status: 'Leads',
+              });
+            }
+          } else if (row.Name) {
              const clientId = await addClient({
                name: row.Name,
                company: row.Company || 'Unknown',

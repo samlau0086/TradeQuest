@@ -368,6 +368,9 @@ export interface StoreState {
   language: 'en' | 'zh';
   setLanguage: (lang: 'en' | 'zh') => void;
 
+  outscraperApiKey: string;
+  setOutscraperApiKey: (key: string) => void;
+
   fetchInitialData: () => Promise<void>;
 }
 
@@ -519,7 +522,8 @@ export const useStore = create<StoreState>((set, get) => ({
     magic: null,
     drafting: null,
     analysis: null,
-    embedding: null
+    embedding: null,
+    outscraperTranslate: null
   },
   setLLMMapping: (module, id) => set((state) => ({
     llmMappings: { ...state.llmMappings, [module]: id }
@@ -1289,6 +1293,12 @@ export const useStore = create<StoreState>((set, get) => ({
   
   language: 'en',
   setLanguage: (lang) => set({ language: lang }),
+
+  outscraperApiKey: localStorage.getItem('outscraperApiKey') || '',
+  setOutscraperApiKey: (key) => {
+    localStorage.setItem('outscraperApiKey', key);
+    set({ outscraperApiKey: key });
+  },
 
   fetchInitialData: async () => {
     const token = localStorage.getItem('token');

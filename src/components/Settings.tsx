@@ -4,7 +4,6 @@ import { useAuthStore } from '../authStore';
 import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark, Clock, Book } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ProfileSettings } from './ProfileSettings';
-import { KnowledgeBaseManager } from './KnowledgeBaseManager';
 import { useTranslation } from '../lib/i18n';
 
 export function Settings() {
@@ -13,7 +12,8 @@ export function Settings() {
     outboxConfigs, addOutboxConfig, updateOutboxConfig, deleteOutboxConfig,
     llmConfigs, addLLMConfig, updateLLMConfig, deleteLLMConfig, activeLLMId, setActiveLLMId,
     paymentTerms, addPaymentTerm, updatePaymentTerm, deletePaymentTerm,
-    llmMappings, setLLMMapping, language
+    llmMappings, setLLMMapping, language,
+    outscraperApiKey, setOutscraperApiKey
   } = useStore();
   const t = useTranslation(language);
   
@@ -198,9 +198,38 @@ export function Settings() {
           </section>
         )}
 
-        {/* Global Knowledge Base */}
+        {/* Global Integrations */}
         <section className="space-y-6 pt-6 border-t border-slate-800">
-          <KnowledgeBaseManager />
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-slate-800 rounded-lg">
+              <Server className="w-5 h-5 text-indigo-400" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-white">Integrations</h2>
+              <p className="text-sm text-slate-400">Configure third-party API keys</p>
+            </div>
+          </div>
+          
+          <div className="grid gap-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
+              <h3 className="text-sm font-bold text-slate-300 mb-4 px-1 flex items-center gap-2">
+                Outscraper API
+              </h3>
+              <div className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-xs text-slate-400 font-bold uppercase">API Key</label>
+                  <input
+                    type="password"
+                    value={outscraperApiKey}
+                    onChange={(e) => setOutscraperApiKey(e.target.value)}
+                    placeholder="Enter Outscraper API Key..."
+                    className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-indigo-500"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Used for searching and importing leads directly from Google Maps into the public pool.</p>
+                </div>
+              </div>
+            </div>
+          </div>
         </section>
 
         {/* Payment Terms Section (Super Admin only) */}
@@ -669,7 +698,8 @@ export function Settings() {
                     { key: 'magic', label: t('magicCommands'), desc: t('descMagic') },
                     { key: 'drafting', label: t('emailDrafting'), desc: t('descDrafting') },
                     { key: 'analysis', label: t('clientAnalysis'), desc: t('descAnalysis') },
-                    { key: 'embedding', label: t('vectorization'), desc: t('descEmbedding') }
+                    { key: 'embedding', label: t('vectorization'), desc: t('descEmbedding') },
+                    { key: 'outscraperTranslate', label: t('outscraperTranslate'), desc: t('descOutscraper') }
                   ].map(mod => (
                     <div key={mod.key} className="bg-slate-900 border border-slate-700 rounded-lg p-4 flex flex-col gap-2">
                       <div>

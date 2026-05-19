@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
 import { useStore, ContactMethod } from '../store';
 import { cn } from '../lib/utils';
-import { Mail, Phone, MessageCircle, Send, Edit2, Trash2, Plus, Download, Upload } from 'lucide-react';
+import { Mail, Phone, MessageCircle, Send, Edit2, Trash2, Plus, Download, Upload, List as ListIcon, Map as MapIcon, X, Search } from 'lucide-react';
 import { useTranslation } from '../lib/i18n';
 import { ClientFormModal } from './ClientFormModal';
 import { UploadCSVModal } from './UploadCSVModal';
+import { WorldMap } from './WorldMap';
+
+type ViewMode = 'list' | 'map';
 
 const CONTACT_ICONS: any = {
   email: Mail,
@@ -20,9 +23,12 @@ const CONTACT_ICONS: any = {
     const { clients, selectClient, deleteClient, addClient, language } = useStore();
     const t = useTranslation(language);
     const [search, setSearch] = useState('');
+    const [searchTags, setSearchTags] = useState<string[]>([]);
+    const [countryFilter, setCountryFilter] = useState('');
     const [showAddModal, setShowAddModal] = useState(false);
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [deleteClientId, setDeleteClientId] = useState<string | null>(null);
+    const [viewMode, setViewMode] = useState<ViewMode>('list');
 
     const handleCSVUpload = (file: File) => {
       Papa.parse(file, {
@@ -30,7 +36,30 @@ const CONTACT_ICONS: any = {
         skipEmptyLines: true,
         complete: async (results) => {
           for (const row of results.data as any[]) {
-            if (row.Name) {
+            // Outscraper format
+            if (row.name !== undefined && (row.query !== undefined || row.type !== undefined)) {
+               const contactMethods = [];
+               if (row.emails) {
+                 const emails = row.emails.split(',');
+                 if (emails[0]) contactMethods.push({ type: 'email', value: emails[0].trim() });
+               }
+               if (row.phones) {
+                 const phones = row.phones.split(',');
+                 if (phones[0]) contactMethods.push({ type: 'phone', value: phones[0].trim() });
+               }
+               await addClient({
+                 name: row.name,
+                 company: row.name,
+                 address: row.full_address || '',
+                 city: row.city || '',
+                 state: row.state || '',
+                 country: row.country || 'Unknown',
+                 status: 'Leads',
+                 tags: row.category ? row.category.split(',').map((t: string) => t.trim()) : [],
+                 contactMethods,
+                 lastContact: new Date().toISOString()
+               });
+            } else if (row.Name) {
               await addClient({
                 name: row.Name,
                 company: row.Company || 'Unknown',
@@ -48,10 +77,21 @@ const CONTACT_ICONS: any = {
     };
 
   const filteredClients = clients.filter(c => {
-    if (!search) return true;
-    const term = search.toLowerCase();
-    const searchable = `${c.name} ${c.company} ${c.country} ${c.tags.join(' ')}`.toLowerCase();
-    return searchable.includes(term);
+    let match = true;
+    if (countryFilter && c.country?.toLowerCase() !== countryFilter.toLowerCase()) {
+      match = false;
+    }
+    
+    const termsToMatch = [...searchTags];
+    if (search.trim()) {
+      termsToMatch.push(...search.trim().toLowerCase().split(/\s+/));
+    }
+
+    if (termsToMatch.length > 0 && match) {
+      const searchable = `${c.name} ${c.company} ${c.city} ${c.state} ${c.country} ${c.tags.join(' ')} ${c.contactMethods.map(cm => cm.value).join(' ')}`.toLowerCase();
+      match = termsToMatch.every(term => searchable.includes(term.toLowerCase()));
+    }
+    return match;
   });
 
   return (
@@ -59,13 +99,59 @@ const CONTACT_ICONS: any = {
       <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
         <h2 className="font-bold text-slate-200">{t('clientsMenu')}</h2>
         <div className="flex items-center gap-3">
-          <input
-            type="text"
-            placeholder={t('search')}
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 w-64"
-          />
+          <div className="flex bg-slate-950 rounded-lg p-1 mr-2 border border-slate-800">
+            <button
+              onClick={() => setViewMode('list')}
+              className={cn("p-1.5 rounded-md transition-colors", viewMode === 'list' ? "bg-slate-800 text-cyan-400" : "text-slate-500 hover:text-slate-300")}
+              title="List View"
+            >
+              <ListIcon className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setViewMode('map')}
+              className={cn("p-1.5 rounded-md transition-colors", viewMode === 'map' ? "bg-slate-800 text-cyan-400" : "text-slate-500 hover:text-slate-300")}
+              title="Map View"
+            >
+              <MapIcon className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 bg-slate-950 border border-slate-800 rounded px-2 w-[450px] min-h-[36px] focus-within:border-cyan-500 transition-colors">
+            {countryFilter && (
+              <span className="flex items-center gap-1 bg-indigo-950 text-indigo-400 text-xs px-2 py-0.5 rounded border border-indigo-800/50">
+                <MapIcon className="w-3 h-3" />
+                {countryFilter}
+                <button onClick={() => setCountryFilter('')} className="hover:text-indigo-200 ml-1">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {searchTags.map((tag, i) => (
+              <span key={i} className="flex items-center gap-1 bg-slate-800 text-slate-300 text-xs px-2 py-0.5 rounded border border-slate-700">
+                {tag}
+                <button onClick={() => setSearchTags(tags => tags.filter((_, index) => index !== i))} className="hover:text-red-400 ml-1">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+            <input
+              type="text"
+              placeholder={(countryFilter || searchTags.length > 0) ? "Search more..." : t('search')}
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Tab') {
+                  e.preventDefault();
+                  if (search.trim()) {
+                    setSearchTags([...searchTags, search.trim()]);
+                    setSearch('');
+                  }
+                } else if (e.key === 'Backspace' && !search && searchTags.length > 0) {
+                  setSearchTags(searchTags.slice(0, -1));
+                }
+              }}
+              className="bg-transparent text-sm text-slate-200 focus:outline-none flex-1 py-1.5 w-full min-w-[100px]"
+            />
+          </div>
           <button onClick={() => setShowUploadModal(true)} className="p-2 hover:bg-slate-800 rounded text-slate-400 hover:text-cyan-400" title="Upload CSV">
             <Upload className="w-4 h-4" />
           </button>
@@ -79,74 +165,83 @@ const CONTACT_ICONS: any = {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto p-6">
-        <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden shadow-xl">
-          <table className="w-full text-sm text-left">
-            <thead className="text-xs text-slate-400 bg-slate-950 uppercase border-b border-slate-800">
-              <tr>
-                <th className="px-4 py-3">{t('name')}</th>
-                <th className="px-4 py-3">{t('company')}</th>
-                <th className="px-4 py-3">{t('location')}</th>
-                <th className="px-4 py-3">{t('contactMethod')}</th>
-                <th className="px-4 py-3">{t('tagsLabel').split(' ')[0]}</th>
-                <th className="px-4 py-3 text-right">{t('actions')}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/50">
-              {filteredClients.map(client => (
-                <tr key={client.id} className="hover:bg-slate-800/30 transition-colors group">
-                  <td className="px-4 py-3">
-                    <button onClick={() => selectClient(client.id)} className="hover:text-cyan-400 hover:underline text-left font-bold text-slate-200">
-                      {client.name}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3 text-slate-400">{client.company}</td>
-                  <td className="px-4 py-3 text-slate-400 capitalize">{[client.city, client.state, client.country].filter(Boolean).join(', ') || '-'}</td>
-                  <td className="px-4 py-3 text-slate-400">
-                    {client.contactMethods.length > 0 && (
-                      <span className="flex items-center gap-1">
-                        {React.createElement(CONTACT_ICONS[client.contactMethods[0].type] || Mail, { className: 'w-3 h-3' })}
-                        {client.contactMethods[0].value}
-                        {client.contactMethods.length > 1 && <span className="text-[10px] bg-slate-700 px-1 rounded">+{client.contactMethods.length - 1}</span>}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-1 flex-wrap">
-                      {client.tags.slice(0, 2).map(t => (
-                        <span key={t} className="text-[10px] bg-slate-900 border border-slate-700 text-slate-400 px-1.5 py-0.5 rounded">
-                          {t}
-                        </span>
-                      ))}
-                      {client.tags.length > 2 && (
-                        <span className="text-[10px] bg-slate-900 border border-slate-700 text-slate-400 px-1.5 py-0.5 rounded">
-                          +{client.tags.length - 2}
+      <div className="flex-1 p-6 flex flex-col min-h-0 overflow-hidden">
+        {viewMode === 'list' ? (
+          <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-auto shadow-xl flex-1">
+            <table className="w-full text-sm text-left">
+              <thead className="text-xs text-slate-400 bg-slate-950 uppercase border-b border-slate-800 sticky top-0">
+                <tr>
+                  <th className="px-4 py-3">{t('name')}</th>
+                  <th className="px-4 py-3">{t('company')}</th>
+                  <th className="px-4 py-3">{t('location')}</th>
+                  <th className="px-4 py-3">{t('contactMethod')}</th>
+                  <th className="px-4 py-3">{t('tagsLabel').split(' ')[0]}</th>
+                  <th className="px-4 py-3 text-right">{t('actions')}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/50">
+                {filteredClients.map(client => (
+                  <tr key={client.id} className="hover:bg-slate-800/30 transition-colors group">
+                    <td className="px-4 py-3">
+                      <button onClick={() => selectClient(client.id)} className="hover:text-cyan-400 hover:underline text-left font-bold text-slate-200">
+                        {client.name}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 text-slate-400">{client.company}</td>
+                    <td className="px-4 py-3 text-slate-400 capitalize">{[client.city, client.state, client.country].filter(Boolean).join(', ') || '-'}</td>
+                    <td className="px-4 py-3 text-slate-400">
+                      {client.contactMethods.length > 0 && (
+                        <span className="flex items-center gap-1">
+                          {React.createElement(CONTACT_ICONS[client.contactMethods[0].type] || Mail, { className: 'w-3 h-3' })}
+                          {client.contactMethods[0].value}
+                          {client.contactMethods.length > 1 && <span className="text-[10px] bg-slate-700 px-1 rounded">+{client.contactMethods.length - 1}</span>}
                         </span>
                       )}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => selectClient(client.id)} className="p-1 hover:text-cyan-400 hover:bg-cyan-950/50 rounded transition-colors" title="Edit/View Details">
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => setDeleteClientId(client.id)} className="p-1 hover:text-red-400 hover:bg-red-950/50 rounded transition-colors" title="Delete">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {filteredClients.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="text-center py-8 text-slate-500">
-                    {t('noClientsFound')}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-1 flex-wrap">
+                        {client.tags.slice(0, 2).map(t => (
+                          <span key={t} className="text-[10px] bg-slate-900 border border-slate-700 text-slate-400 px-1.5 py-0.5 rounded">
+                            {t}
+                          </span>
+                        ))}
+                        {client.tags.length > 2 && (
+                          <span className="text-[10px] bg-slate-900 border border-slate-700 text-slate-400 px-1.5 py-0.5 rounded">
+                            +{client.tags.length - 2}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => selectClient(client.id)} className="p-1 hover:text-cyan-400 hover:bg-cyan-950/50 rounded transition-colors" title="Edit/View Details">
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => setDeleteClientId(client.id)} className="p-1 hover:text-red-400 hover:bg-red-950/50 rounded transition-colors" title="Delete">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {filteredClients.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="text-center py-8 text-slate-500">
+                      {t('noClientsFound')}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="flex-1 bg-slate-900 border border-slate-800 rounded-lg overflow-hidden flex flex-col">
+            <WorldMap onCountryClick={(country) => {
+              setCountryFilter(country);
+              setViewMode('list');
+            }} />
+          </div>
+        )}
       </div>
 
       {showAddModal && <ClientFormModal onClose={() => setShowAddModal(false)} />}
