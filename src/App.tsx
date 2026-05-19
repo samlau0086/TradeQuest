@@ -15,6 +15,7 @@ import { PipelineList } from './components/PipelineList';
 import { ClientsList } from './components/ClientsList';
 import { EditRequests } from './components/EditRequests';
 import { AuthPage } from './components/AuthPage';
+import { ResetPasswordPage } from './components/ResetPasswordPage';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'react-resizable-panels';
 import { Loader2 } from 'lucide-react';
 
@@ -24,6 +25,13 @@ import { QuotesList } from './components/QuotesList';
 export default function App() {
   const { view, selectedClientId, checkScheduledEmails, fetchInitialData, language } = useStore();
   const { token, isInitializing } = useAuthStore();
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const resetToken = urlParams.get('resetToken');
+
+  if (resetToken) {
+    return <ResetPasswordPage resetToken={resetToken} />;
+  }
 
   useEffect(() => {
     if (token) {

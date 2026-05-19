@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuthStore, UserProfile } from '../authStore';
-import { Users, Shield, User, Loader2, Trash2 } from 'lucide-react';
+import { Users, Shield, User, Loader2, Trash2, Link as LinkIcon, CheckCircle2 } from 'lucide-react';
 import { useTranslation } from '../lib/i18n';
 import { useStore } from '../store';
 
@@ -11,6 +11,8 @@ export function UserManagement() {
   const [users, setUsers] = useState<(UserProfile & { id: string })[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleteUserId, setDeleteUserId] = useState<string | null>(null);
+  const [copyingId, setCopyingId] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const fetchUsers = async () => {
     try {
@@ -38,6 +40,31 @@ export function UserManagement() {
   if (profile?.role !== 'superadmin') {
     return null;
   }
+
+  const handleCopyResetLink = async (userId: string) => {
+    try {
+      setCopyingId(userId);
+      const res = await fetch('/api/auth/reset-token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${useAuthStore.getState().token}`
+        },
+        body: JSON.stringify({ uid: userId })
+      });
+      if (res.ok) {
+        const { token } = await res.json();
+        const url = `${window.location.origin}?resetToken=${token}`;
+        await navigator.clipboard.writeText(url);
+        setCopiedId(userId);
+        setTimeout(() => setCopiedId(null), 2000);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setCopyingId(null);
+    }
+  };
 
   const handleRoleChange = async (userId: string, newRole: 'user' | 'superadmin') => {
     try {
@@ -128,9 +155,20 @@ export function UserManagement() {
                     {new Date(u.createdAt).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-3 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                     <button 
+                       onClick={() => handleCopyResetLink(u.id)}
+                       title="Copy Password Reset Link"
+                       className="p-1.5 text-cyan-500 hover:text-cyan-400 hover:bg-cyan-500/10 rounded transition-colors"
+                     >
+                       {copyingId === u.id ? <Loader2 className="w-4 h-4 animate-spin" /> : 
+                        copiedId === u.id ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : 
+                        <LinkIcon className="w-4 h-4" />}
+                     </button>
                      <button onClick={() => setDeleteUserId(u.id)} className="p-1.5 text-red-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors">
                        <Trash2 className="w-4 h-4" />
                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

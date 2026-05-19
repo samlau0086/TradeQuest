@@ -488,6 +488,32 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
+  app.post('/api/auth/reset-token', authenticateToken, requireSuperadmin, async (req, res) => {
+    try {
+      const { uid } = req.body;
+      const token = jwt.sign({ resetUid: uid }, JWT_SECRET, { expiresIn: '24h' });
+      res.json({ token });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to generate token' });
+    }
+  });
+
+  app.post('/api/auth/reset-password', async (req, res) => {
+    try {
+      const { token, newPassword } = req.body;
+      if (!token || !newPassword || newPassword.length < 6) return res.status(400).json({ error: 'Invalid input' });
+      
+      const decoded: any = jwt.verify(token, JWT_SECRET);
+      if (!decoded.resetUid) return res.status(400).json({ error: 'Invalid token type' });
+
+      const passwordHash = await bcrypt.hash(newPassword, 10);
+      await pool.query('UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2', [passwordHash, decoded.resetUid]);
+      res.json({ success: true });
+    } catch(e) {
+      res.status(400).json({ error: 'Invalid or expired token' });
+    }
+  });
+
   app.get('/api/users', authenticateToken, requireSuperadmin, async (req, res) => {
     try {
       const result = await pool.query('SELECT * FROM users ORDER BY created_at DESC');
