@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuthStore } from '../authStore';
 import { useStore } from '../store';
-import { User, Lock, Save, Loader2, Image as ImageIcon } from 'lucide-react';
+import { User, Lock, Save, Loader2, Image as ImageIcon, Eye, EyeOff } from 'lucide-react';
 import { useTranslation } from '../lib/i18n';
 
 export function ProfileSettings() {
@@ -17,6 +17,9 @@ export function ProfileSettings() {
   const [companyWebsite, setCompanyWebsite] = useState(profile?.companyWebsite || '');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
@@ -199,12 +202,13 @@ export function ProfileSettings() {
             <div className="relative">
               <Lock className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
               <input 
-                type="password" 
+                type={showNewPassword ? "text" : "password"} 
                 value={newPassword}
                 onChange={e => setNewPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm focus:border-indigo-500 outline-none"
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-10 py-2 text-sm focus:border-indigo-500 outline-none"
               />
+              <button type="button" onClick={() => setShowNewPassword(!showNewPassword)} className="absolute right-3 top-2.5 text-slate-500 hover:text-slate-300 transition-colors" tabIndex={-1}>{showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
             </div>
           </div>
           <div className="space-y-1">
@@ -212,12 +216,13 @@ export function ProfileSettings() {
             <div className="relative">
               <Lock className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
               <input 
-                type="password" 
+                type={showConfirmPassword ? "text" : "password"} 
                 value={confirmPassword}
                 onChange={e => setConfirmPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm focus:border-indigo-500 outline-none"
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-10 py-2 text-sm focus:border-indigo-500 outline-none"
               />
+              <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-2.5 text-slate-500 hover:text-slate-300 transition-colors" tabIndex={-1}>{showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
             </div>
           </div>
           <button 

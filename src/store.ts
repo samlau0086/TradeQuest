@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import { useAuthStore } from './authStore';
 
 export type ViewMode = 'kanban' | 'map' | 'inbox' | 'dashboard' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests' | 'list' | 'products' | 'quotes';
@@ -406,7 +407,7 @@ const INITIAL_ACHIEVEMENTS: Achievement[] = [
   { id: 'unstoppable', title: 'Unstoppable', description: 'Achieve a 10-day streak.', icon: '⚡', expReward: 1000, unlockedAt: null }
 ];
 
-export const useStore = create<StoreState>((set, get) => ({
+export const useStore = create<StoreState>()(persist((set, get) => ({
   knowledgeBase: [],
   fetchKnowledgeBase: () => {
     const token = localStorage.getItem('token');
@@ -1379,6 +1380,16 @@ export const useStore = create<StoreState>((set, get) => ({
       console.error("Failed to fetch initial data", e);
     }
   }
+}), {
+  name: 'crm-local-settings',
+  partialize: (state) => ({
+    inboxConfigs: state.inboxConfigs,
+    outboxConfigs: state.outboxConfigs,
+    llmConfigs: state.llmConfigs,
+    llmMappings: state.llmMappings,
+    outscraperApiKey: state.outscraperApiKey,
+    activeLLMId: state.activeLLMId,
+  })
 }));
 
 // Setup automatic achievement checking on state changes

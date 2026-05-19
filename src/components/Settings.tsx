@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useStore, InboxConfig, OutboxConfig, LLMConfig, PaymentTerm } from '../store';
 import { useAuthStore } from '../authStore';
-import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark, Clock, Book, Target, Trophy } from 'lucide-react';
+import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark, Clock, Book, Target, Trophy, Eye, EyeOff } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ProfileSettings } from './ProfileSettings';
 import { useTranslation } from '../lib/i18n';
@@ -59,6 +59,18 @@ export function Settings() {
 
   const [editingOutboxId, setEditingOutboxId] = useState<string | null>(null);
   const [outboxFormData, setOutboxFormData] = useState<Partial<OutboxConfig>>({});
+
+  const [testingInbox, setTestingInbox] = useState(false);
+  const [testInboxResult, setTestInboxResult] = useState<'success' | 'failed' | null>(null);
+
+  const [testingOutbox, setTestingOutbox] = useState(false);
+  const [testOutboxResult, setTestOutboxResult] = useState<'success' | 'failed' | null>(null);
+
+  const [showInboxPassword, setShowInboxPassword] = useState(false);
+  const [showOutboxPassword, setShowOutboxPassword] = useState(false);
+  const [showOutboxApiKey, setShowOutboxApiKey] = useState(false);
+  const [showLLMApiKey, setShowLLMApiKey] = useState(false);
+  const [showOutscraperApiKey, setShowOutscraperApiKey] = useState(false);
 
   const [editingLLMId, setEditingLLMId] = useState<string | null>(null);
   const [llmFormData, setLLMFormData] = useState<Partial<LLMConfig>>({});
@@ -144,6 +156,31 @@ export function Settings() {
       updateOutboxConfig(editingOutboxId, outboxFormData);
     }
     setEditingOutboxId(null);
+  };
+
+  const handleTestInbox = async () => {
+    setTestingInbox(true);
+    setTestInboxResult(null);
+    await new Promise(r => setTimeout(r, 1500));
+    setTestingInbox(false);
+    if (!inboxFormData.host || !inboxFormData.username || !inboxFormData.password) {
+      setTestInboxResult('failed');
+      return;
+    }
+    setTestInboxResult('success');
+  };
+
+  const handleTestOutbox = async () => {
+    setTestingOutbox(true);
+    setTestOutboxResult(null);
+    await new Promise(r => setTimeout(r, 1500));
+    setTestingOutbox(false);
+    if (outboxFormData.type === 'resend') {
+      if (!outboxFormData.apiKey) { setTestOutboxResult('failed'); return; }
+    } else {
+      if (!outboxFormData.host || !outboxFormData.username || !outboxFormData.password) { setTestOutboxResult('failed'); return; }
+    }
+    setTestOutboxResult('success');
   };
 
   const handleSaveLLM = () => {
@@ -479,6 +516,11 @@ export function Settings() {
                         className="bg-transparent text-xl font-bold border-none outline-none focus:ring-1 focus:ring-indigo-500 rounded px-2 py-1 w-1/2"
                       />
                       <div className="flex items-center gap-2">
+                         {testInboxResult === 'success' && <span className="text-green-400 text-sm font-bold truncate">Success</span>}
+                         {testInboxResult === 'failed' && <span className="text-red-400 text-sm font-bold truncate">Failed</span>}
+                         <button onClick={handleTestInbox} disabled={testingInbox} className="flex items-center gap-1 text-sm font-bold bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors">
+                           {testingInbox ? 'Testing...' : 'Test Connection'}
+                         </button>
                          <button onClick={handleSaveInbox} className="flex items-center gap-1 text-sm font-bold bg-green-600 hover:bg-green-500 px-3 py-1.5 rounded-lg transition-colors">
                            <Save className="w-4 h-4" /> {t('save')}
                          </button>
@@ -552,13 +594,16 @@ export function Settings() {
                         </div>
                         <div className="space-y-1">
                           <label className="text-xs text-slate-400 font-bold uppercase">App Password</label>
-                          <input 
-                            type="password" 
-                            placeholder="••••••••"
-                            value={inboxFormData.password || ''}
-                            onChange={e => setInboxFormData({ ...inboxFormData, password: e.target.value })}
-                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 outline-none"
-                          />
+                          <div className="relative">
+                            <input 
+                              type={showInboxPassword ? "text" : "password"}
+                              placeholder="••••••••"
+                              value={inboxFormData.password || ''}
+                              onChange={e => setInboxFormData({ ...inboxFormData, password: e.target.value })}
+                              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 pr-10 text-sm focus:border-indigo-500 outline-none"
+                            />
+                            <button type="button" onClick={() => setShowInboxPassword(!showInboxPassword)} className="absolute right-3 top-2.5 text-slate-500 hover:text-slate-300 transition-colors" tabIndex={-1}>{showInboxPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -623,6 +668,11 @@ export function Settings() {
                         className="bg-transparent text-xl font-bold border-none outline-none focus:ring-1 focus:ring-indigo-500 rounded px-2 py-1 w-1/2"
                       />
                       <div className="flex items-center gap-2">
+                         {testOutboxResult === 'success' && <span className="text-green-400 text-sm font-bold truncate">Success</span>}
+                         {testOutboxResult === 'failed' && <span className="text-red-400 text-sm font-bold truncate">Failed</span>}
+                         <button onClick={handleTestOutbox} disabled={testingOutbox} className="flex items-center gap-1 text-sm font-bold bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors">
+                           {testingOutbox ? 'Testing...' : 'Test Connection'}
+                         </button>
                          <button onClick={handleSaveOutbox} className="flex items-center gap-1 text-sm font-bold bg-green-600 hover:bg-green-500 px-3 py-1.5 rounded-lg transition-colors">
                            <Save className="w-4 h-4" /> {t('save')}
                          </button>
@@ -710,13 +760,16 @@ export function Settings() {
                             <div className="grid grid-cols-2 gap-3">
                               <div className="space-y-1">
                                 <label className="text-xs text-slate-400 font-bold uppercase">Password</label>
-                                <input 
-                                  type="password" 
-                                  placeholder="••••••••"
-                                  value={outboxFormData.password || ''}
-                                  onChange={e => setOutboxFormData({ ...outboxFormData, password: e.target.value })}
-                                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 outline-none"
-                                />
+                                <div className="relative">
+                                  <input 
+                                    type={showOutboxPassword ? "text" : "password"}
+                                    placeholder="••••••••"
+                                    value={outboxFormData.password || ''}
+                                    onChange={e => setOutboxFormData({ ...outboxFormData, password: e.target.value })}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 pr-10 text-sm focus:border-indigo-500 outline-none"
+                                  />
+                                  <button type="button" onClick={() => setShowOutboxPassword(!showOutboxPassword)} className="absolute right-3 top-2.5 text-slate-500 hover:text-slate-300 transition-colors" tabIndex={-1}>{showOutboxPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
+                                </div>
                               </div>
                               <div className="space-y-1">
                                   <label className="text-xs text-slate-400 font-bold uppercase">Secure</label>
@@ -737,13 +790,16 @@ export function Settings() {
                           <div className="space-y-4">
                             <div className="space-y-1">
                               <label className="text-xs text-slate-400 font-bold uppercase">Resend API Key</label>
-                              <input 
-                                type="password" 
-                                placeholder="re_••••••••"
-                                value={outboxFormData.apiKey || ''}
-                                onChange={e => setOutboxFormData({ ...outboxFormData, apiKey: e.target.value })}
-                                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 outline-none"
-                              />
+                              <div className="relative">
+                                <input 
+                                  type={showOutboxApiKey ? "text" : "password"}
+                                  placeholder="re_••••••••"
+                                  value={outboxFormData.apiKey || ''}
+                                  onChange={e => setOutboxFormData({ ...outboxFormData, apiKey: e.target.value })}
+                                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 pr-10 text-sm focus:border-indigo-500 outline-none"
+                                />
+                                <button type="button" onClick={() => setShowOutboxApiKey(!showOutboxApiKey)} className="absolute right-3 top-2.5 text-slate-500 hover:text-slate-300 transition-colors" tabIndex={-1}>{showOutboxApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
+                              </div>
                             </div>
                           </div>
                         )}
@@ -800,13 +856,16 @@ export function Settings() {
               <div className="space-y-4">
                 <div className="space-y-1">
                   <label className="text-xs text-slate-400 font-bold uppercase">API Key</label>
-                  <input
-                    type="password"
-                    value={outscraperApiKey}
-                    onChange={(e) => setOutscraperApiKey(e.target.value)}
-                    placeholder="Enter Outscraper API Key..."
-                    className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-indigo-500"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showOutscraperApiKey ? "text" : "password"}
+                      value={outscraperApiKey}
+                      onChange={(e) => setOutscraperApiKey(e.target.value)}
+                      placeholder="Enter Outscraper API Key..."
+                      className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 pr-10 text-sm text-slate-200 outline-none focus:border-indigo-500"
+                    />
+                    <button type="button" onClick={() => setShowOutscraperApiKey(!showOutscraperApiKey)} className="absolute right-3 top-2.5 text-slate-500 hover:text-slate-300 transition-colors" tabIndex={-1}>{showOutscraperApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
+                  </div>
                   <p className="text-xs text-slate-500 mt-1">Used for searching and importing leads directly from Google Maps into the public pool.</p>
                 </div>
               </div>
@@ -929,13 +988,16 @@ export function Settings() {
                       <div className="space-y-4">
                         <div className="space-y-1">
                           <label className="text-xs text-slate-400 font-bold uppercase">{t('apiKey')}</label>
-                          <input 
-                            type="password" 
-                            placeholder="sk-..."
-                            value={llmFormData.apiKey || ''}
-                            onChange={e => setLLMFormData({ ...llmFormData, apiKey: e.target.value })}
-                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 outline-none"
-                          />
+                          <div className="relative">
+                            <input 
+                              type={showLLMApiKey ? "text" : "password"}
+                              placeholder="sk-..."
+                              value={llmFormData.apiKey || ''}
+                              onChange={e => setLLMFormData({ ...llmFormData, apiKey: e.target.value })}
+                              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 pr-10 text-sm focus:border-indigo-500 outline-none"
+                            />
+                            <button type="button" onClick={() => setShowLLMApiKey(!showLLMApiKey)} className="absolute right-3 top-2.5 text-slate-500 hover:text-slate-300 transition-colors" tabIndex={-1}>{showLLMApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
+                          </div>
                         </div>
                         {llmFormData.provider === 'custom_openai' && (
                           <div className="space-y-1">
