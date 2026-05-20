@@ -26,7 +26,9 @@ export function Sidebar() {
             <Swords className="text-white w-6 h-6" />
           </div>
           <div>
-            <h2 className="text-white font-bold text-lg leading-tight group-hover:text-cyan-400 transition-colors">Alex.W</h2>
+            <h2 className="text-white font-bold text-lg leading-tight group-hover:text-cyan-400 transition-colors w-32 truncate" title={profile?.displayName || profile?.email || 'User'}>
+              {profile?.displayName || profile?.email?.split('@')[0] || 'User'}
+            </h2>
             <div className="text-cyan-400 text-xs font-semibold uppercase tracking-wider">{userTitle}</div>
           </div>
           

@@ -62,9 +62,11 @@ export function Settings() {
 
   const [testingInbox, setTestingInbox] = useState(false);
   const [testInboxResult, setTestInboxResult] = useState<'success' | 'failed' | null>(null);
+  const [testInboxError, setTestInboxError] = useState<string | null>(null);
 
   const [testingOutbox, setTestingOutbox] = useState(false);
   const [testOutboxResult, setTestOutboxResult] = useState<'success' | 'failed' | null>(null);
+  const [testOutboxError, setTestOutboxError] = useState<string | null>(null);
 
   const [showInboxPassword, setShowInboxPassword] = useState(false);
   const [showOutboxPassword, setShowOutboxPassword] = useState(false);
@@ -161,9 +163,11 @@ export function Settings() {
   const handleTestInbox = async () => {
     setTestingInbox(true);
     setTestInboxResult(null);
+    setTestInboxError(null);
     try {
       if (!inboxFormData.host || !inboxFormData.username || !inboxFormData.password) {
         setTestInboxResult('failed');
+        setTestInboxError('Missing required fields');
         setTestingInbox(false);
         return;
       }
@@ -178,11 +182,12 @@ export function Settings() {
         setTestInboxResult('success');
       } else {
         setTestInboxResult('failed');
-        alert('IMAP Connection Failed: ' + (data.error || 'Unknown error'));
+        setTestInboxError(data.error || 'Unknown error');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
       setTestInboxResult('failed');
+      setTestInboxError(e.message || 'Network error');
     }
     setTestingInbox(false);
   };
@@ -190,14 +195,25 @@ export function Settings() {
   const handleTestOutbox = async () => {
     setTestingOutbox(true);
     setTestOutboxResult(null);
+    setTestOutboxError(null);
     try {
       if (outboxFormData.type === 'resend') {
-        if (!outboxFormData.apiKey) { setTestOutboxResult('failed'); setTestingOutbox(false); return; }
+        if (!outboxFormData.apiKey) {
+          setTestOutboxResult('failed');
+          setTestOutboxError('Missing Outscraper API Key');
+          setTestingOutbox(false);
+          return;
+        }
         // For resend we can't easily verify simply, but let's assume it's success if key exists
         await new Promise(r => setTimeout(r, 1000));
         setTestOutboxResult('success');
       } else {
-        if (!outboxFormData.host || !outboxFormData.username || !outboxFormData.password) { setTestOutboxResult('failed'); setTestingOutbox(false); return; }
+        if (!outboxFormData.host || !outboxFormData.username || !outboxFormData.password) {
+          setTestOutboxResult('failed');
+          setTestOutboxError('Missing required fields');
+          setTestingOutbox(false);
+          return;
+        }
         const token = localStorage.getItem('token');
         const res = await fetch('/api/test-outbox', {
           method: 'POST',
@@ -209,12 +225,13 @@ export function Settings() {
           setTestOutboxResult('success');
         } else {
           setTestOutboxResult('failed');
-          alert('SMTP Connection Failed: ' + (data.error || 'Unknown error'));
+          setTestOutboxError(data.error || 'Unknown error');
         }
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
       setTestOutboxResult('failed');
+      setTestOutboxError(e.message || 'Network error');
     }
     setTestingOutbox(false);
   };
@@ -228,11 +245,11 @@ export function Settings() {
     setEditingLLMId(null);
   };
 
-  const [activeTab, setActiveTab] = useState<'profile' | 'mail' | 'ai' | 'system'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'mail' | 'ai' | 'system' | 'gamification'>('profile');
 
   return (
-    <div className="flex-1 bg-slate-900 border-t border-slate-800 p-8 overflow-y-auto w-full">
-      <div className="max-w-5xl mx-auto space-y-8 text-white pb-12">
+    <div className="flex-1 bg-slate-900 border-t border-slate-800 p-6 overflow-y-auto w-full">
+      <div className="w-full space-y-8 text-white pb-12">
         
         <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-800 pb-4 gap-4">
           <div>
@@ -543,7 +560,7 @@ export function Settings() {
               if (isEditing) {
                 return (
                   <div key={acc.id} className="bg-slate-800 border border-indigo-500/50 rounded-xl p-6 space-y-6 shadow-xl">
-                    <div className="flex items-center justify-between border-b border-slate-700 pb-4">
+                     <div className="flex items-center justify-between border-b border-slate-700 pb-4">
                       <input 
                         type="text" 
                         value={inboxFormData.name || ''} 
@@ -553,7 +570,7 @@ export function Settings() {
                       />
                       <div className="flex items-center gap-2">
                          {testInboxResult === 'success' && <span className="text-green-400 text-sm font-bold truncate">Success</span>}
-                         {testInboxResult === 'failed' && <span className="text-red-400 text-sm font-bold truncate">Failed</span>}
+                         {testInboxResult === 'failed' && <span className="text-red-400 text-sm font-bold truncate max-w-[200px]" title={testInboxError || 'Failed'}>Failed{testInboxError ? `: ${testInboxError}` : ''}</span>}
                          <button onClick={handleTestInbox} disabled={testingInbox} className="flex items-center gap-1 text-sm font-bold bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors">
                            {testingInbox ? 'Testing...' : 'Test Connection'}
                          </button>
@@ -705,7 +722,7 @@ export function Settings() {
                       />
                       <div className="flex items-center gap-2">
                          {testOutboxResult === 'success' && <span className="text-green-400 text-sm font-bold truncate">Success</span>}
-                         {testOutboxResult === 'failed' && <span className="text-red-400 text-sm font-bold truncate">Failed</span>}
+                         {testOutboxResult === 'failed' && <span className="text-red-400 text-sm font-bold truncate max-w-[200px]" title={testOutboxError || 'Failed'}>Failed{testOutboxError ? `: ${testOutboxError}` : ''}</span>}
                          <button onClick={handleTestOutbox} disabled={testingOutbox} className="flex items-center gap-1 text-sm font-bold bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors">
                            {testingOutbox ? 'Testing...' : 'Test Connection'}
                          </button>

@@ -400,9 +400,9 @@ export function PublicPool() {
   );
 
   return (
-    <div className="flex-1 overflow-auto bg-slate-900 p-6">
-      <div className="max-w-6xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
+    <div className="flex-1 overflow-auto bg-slate-900 p-6 flex flex-col">
+      <div className="w-full flex-1 flex flex-col space-y-6">
+        <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
             <h1 className="text-3xl font-bold flex items-center gap-3">
               <Globe className="w-8 h-8 text-cyan-400" />
@@ -411,24 +411,24 @@ export function PublicPool() {
             <p className="text-slate-400 mt-2 text-sm">Leads that have been inactive are automatically returned here. Claim them to start engaging.</p>
           </div>
           <div className="flex items-center gap-3">
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button 
                   onClick={() => setShowAddModal(true)}
-                  className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg flex items-center gap-2 font-medium transition-colors cursor-pointer"
+                  className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg flex items-center gap-2 font-medium transition-colors cursor-pointer whitespace-nowrap"
                 >
                   <Plus className="w-4 h-4" />
                   {t('newClientTarget') || 'Add Lead'}
                 </button>
                 <button 
                   onClick={() => setShowOutscraperModal(true)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg flex items-center gap-2 font-medium transition-colors cursor-pointer border border-slate-700"
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg flex items-center gap-2 font-medium transition-colors cursor-pointer border border-slate-700 whitespace-nowrap"
                 >
                   <MapPin className="w-4 h-4 text-cyan-400" />
                   Search Maps
                 </button>
                 <button 
                   onClick={() => setShowUploadModal(true)}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg flex items-center gap-2 font-medium transition-colors cursor-pointer"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg flex items-center gap-2 font-medium transition-colors cursor-pointer whitespace-nowrap"
                 >
                   <Upload className="w-4 h-4" />
                   Import Leads (CSV)
@@ -437,7 +437,7 @@ export function PublicPool() {
           </div>
         </div>
 
-        <div className="bg-slate-800 border border-slate-700/50 rounded-xl shadow-xl overflow-hidden flex flex-col min-h-[500px]">
+        <div className="bg-slate-800 border border-slate-700/50 rounded-xl shadow-xl flex flex-col min-h-[500px] flex-1">
           <div className="p-4 border-b border-slate-700 bg-slate-900/50 flex items-center justify-between gap-4">
             <div className="relative max-w-md flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />

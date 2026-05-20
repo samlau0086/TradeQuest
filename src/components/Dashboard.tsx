@@ -1,11 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore } from '../store';
-import { Trophy, Star, History, Flame, ArrowUpCircle, Award, Target, CheckCircle2, ChevronDown } from 'lucide-react';
+import { Trophy, Star, History, Flame, ArrowUpCircle, Award, Target, CheckCircle2, ChevronDown, Clock, Mail } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useTranslation } from '../lib/i18n';
 
 export function Dashboard() {
-  const { userExp, userLevel, userTitle, currentStreak, dailyQuests, expLogs, setView, skipQuest, language } = useStore();
+  const { userExp, userLevel, userTitle, currentStreak, dailyQuests, expLogs, setView, skipQuest, language, emails } = useStore();
   const t = useTranslation(language);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -30,9 +30,17 @@ export function Dashboard() {
     return new Date(q.skippedUntil).getTime() < Date.now();
   });
 
+  const now = Date.now();
+  const upcomingTodos = emails.filter(e => {
+    if (!e.todoAt) return false;
+    const todoTime = new Date(e.todoAt).getTime();
+    // approaching = past due or within next 24 hours
+    return todoTime - now < 24 * 60 * 60 * 1000 && !e.pendingDelete;
+  }).sort((a, b) => new Date(a.todoAt!).getTime() - new Date(b.todoAt!).getTime());
+
   return (
-    <div className="flex-1 overflow-y-auto scrollbar-thin bg-slate-900 border-t border-slate-800 p-8">
-      <div className="max-w-7xl mx-auto space-y-8 flex flex-col min-h-full">
+    <div className="flex-1 overflow-y-auto scrollbar-thin bg-slate-900 border-t border-slate-800 p-6">
+      <div className="w-full space-y-8 flex flex-col min-h-full">
         
         {/* Header/Banner */}
         <div className="shrink-0 bg-gradient-to-r from-slate-900 to-slate-800 p-8 rounded-2xl border border-slate-700/50 shadow-xl flex items-center justify-between">
@@ -125,7 +133,18 @@ export function Dashboard() {
                         </div>
                         <div>
                           <div className={cn("font-bold text-sm", quest.completed ? "text-green-400" : "text-white")}>{t(quest.title)}</div>
-                          <div className="text-xs text-slate-400 mt-1">{t(quest.description)}</div>
+                          <div className="text-xs text-slate-400 mt-1 whitespace-pre-wrap">{t(quest.description)}</div>
+                          {quest.description.includes('Agent drafted instructions') && (
+                            <button 
+                              onClick={() => {
+                                const match = quest.description.match(/"([^]+)"/);
+                                if (match) navigator.clipboard.writeText(match[1]);
+                              }}
+                              className="mt-2 text-[10px] bg-slate-800 text-slate-300 hover:text-white px-2 py-1 rounded"
+                            >
+                              Copy Draft
+                            </button>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-4">
@@ -193,6 +212,58 @@ export function Dashboard() {
                 ))}
               </div>
             </div>
+
+            {/* Upcoming Todos */}
+            {upcomingTodos.length > 0 && (
+              <div className="bg-slate-950/50 rounded-2xl p-6 border border-slate-800 shadow-sm mt-8">
+                <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-amber-500" /> {t('Upcoming Todos')}
+                </h2>
+                <div className="space-y-3">
+                  {upcomingTodos.map((todo) => {
+                    const dueTime = new Date(todo.todoAt!).getTime();
+                    const isPastDue = dueTime < now;
+                    return (
+                      <div 
+                        key={todo.id} 
+                        className={cn(
+                          "flex flex-col p-4 rounded-xl border transition-all duration-300",
+                          isPastDue ? "bg-red-950/20 border-red-900/50" : "bg-slate-900 border-slate-800 hover:border-slate-700 hover:shadow-lg"
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex gap-4 items-start">
+                            <div className={cn(
+                              "w-10 h-10 rounded-full flex shrink-0 items-center justify-center border mt-0.5",
+                              isPastDue ? "bg-red-500/20 border-red-500/50 text-red-400" : "bg-slate-800 border-slate-700 text-slate-500"
+                            )}>
+                              <Mail className="w-5 h-5" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className={cn("font-bold text-sm truncate", isPastDue ? "text-red-400" : "text-white")}>{todo.subject}</div>
+                              {todo.todoNote && <div className="text-xs text-slate-400 mt-1">{todo.todoNote}</div>}
+                              <div className="text-[10px] text-slate-500 mt-2 flex items-center gap-1 font-medium">
+                                <Clock className="w-3 h-3" />
+                                <span className={isPastDue ? "text-red-400" : ""}>
+                                  {isPastDue ? t('Past Due: ') : t('Due: ')}
+                                  {new Date(todo.todoAt!).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' })}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                             onClick={() => setView('inbox')}
+                             className="shrink-0 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border-slate-700 hover:border-cyan-500 text-xs font-bold text-slate-300 rounded-lg transition-colors border shadow-sm"
+                          >
+                             {t('View')}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
           </div>
 

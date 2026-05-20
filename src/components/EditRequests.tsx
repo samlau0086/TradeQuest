@@ -35,6 +35,7 @@ export function EditRequests() {
   };
 
   const handleAction = async (id: number, action: 'approve' | 'reject') => {
+    useStore.setState({ globalLoading: true });
     try {
       const token = localStorage.getItem('token');
       const res = await fetch(`/api/admin/client-edit-requests/${id}/${action}`, {
@@ -43,11 +44,17 @@ export function EditRequests() {
       });
       if (res.ok) {
         setRequests(requests.filter(r => r.id !== id));
+        useStore.getState().fetchEmails();
+        await fetch('/api/clients', { headers: { 'Authorization': `Bearer ${token}` } })
+          .then(r => r.json())
+          .then(clients => useStore.setState({ clients }));
       } else {
         alert("Failed to process request");
       }
     } catch (e) {
       console.error(e);
+    } finally {
+      useStore.setState({ globalLoading: false });
     }
   };
 
@@ -57,7 +64,7 @@ export function EditRequests() {
 
   return (
     <div className="flex-1 overflow-auto bg-slate-950 p-6 text-slate-200">
-      <div className="max-w-6xl mx-auto space-y-6">
+      <div className="w-full space-y-6">
         <div>
           <h1 className="text-2xl font-bold font-sans text-white tracking-tight flex items-center gap-2">
             <AlertCircle className="w-6 h-6 text-yellow-500" />
@@ -99,7 +106,13 @@ export function EditRequests() {
                     <div className="bg-slate-950 p-4 rounded border border-slate-800">
                       <h4 className="text-xs font-bold text-slate-500 uppercase mb-3 border-b border-slate-800 pb-2">{t('originalData')}</h4>
                       <pre className="text-[11px] text-slate-400 font-mono overflow-auto max-h-60 scrollbar-thin">
-                        {JSON.stringify({ 
+                        {next.action === 'delete_email' ? JSON.stringify({
+                          email_id: prev.id,
+                          subject: prev.subject,
+                          sender: prev.sender,
+                          recipient: prev.recipient,
+                          date: prev.date
+                        }, null, 2) : JSON.stringify({ 
                            name: prev.name, 
                            company: prev.company, 
                            city: prev.city,
@@ -112,7 +125,9 @@ export function EditRequests() {
                     <div className="bg-slate-950 p-4 rounded border border-cyan-900/30 shadow-[inset_0_0_20px_rgba(6,182,212,0.05)]">
                       <h4 className="text-xs font-bold text-cyan-500 uppercase mb-3 border-b border-cyan-900/30 pb-2">{t('requestedChanges')}</h4>
                       <pre className="text-[11px] text-slate-300 font-mono overflow-auto max-h-60 scrollbar-thin">
-                        {JSON.stringify({ 
+                        {next.action === 'delete_email' ? JSON.stringify({
+                          action: 'DELETE EMAIL PERMANENTLY'
+                        }, null, 2) : JSON.stringify({ 
                            name: next.name, 
                            company: next.company, 
                            city: next.city,

@@ -35,8 +35,8 @@ export function ProductsList() {
   };
 
   return (
-    <div className="flex-1 bg-slate-900 overflow-y-auto p-4 md:p-8">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <div className="flex-1 bg-slate-900 overflow-y-auto p-6">
+      <div className="w-full space-y-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-slate-800 rounded-lg">

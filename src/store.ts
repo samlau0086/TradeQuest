@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { useAuthStore } from './authStore';
 
-export type ViewMode = 'kanban' | 'map' | 'inbox' | 'dashboard' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests' | 'list' | 'products' | 'quotes';
+export type ViewMode = 'kanban' | 'map' | 'inbox' | 'dashboard' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests' | 'list' | 'products' | 'quotes' | 'knowledge-base';
 
 export type ClientStatus = 'Leads' | 'Contacted' | 'Sample Sent' | 'Negotiating' | 'Closed Won'; // Kept for legacy compatibility if needed, better to rename to DealStage but will keep for now.
 
@@ -128,6 +128,21 @@ export interface Client {
   agentContext?: string;
   agentSummary?: string;
   agentNextStep?: string;
+  agentWorkflowId?: string;
+}
+
+export interface WorkflowStep {
+  id: string;
+  type: 'email' | 'whatsapp' | 'call' | 'other';
+  delayDays: number;
+  templatePrompt: string;
+}
+
+export interface AgentWorkflow {
+  id: string;
+  name: string;
+  description: string;
+  steps: WorkflowStep[];
 }
 
 export interface ClientEditRequest {
@@ -161,11 +176,15 @@ export interface EmailMessage {
   body: string;
   date: string;
   read: boolean;
-  type: 'inbox' | 'sent' | 'scheduled';
+  type: 'inbox' | 'sent' | 'scheduled' | 'inbound' | 'outbound';
   tags?: string[];
   comments?: Comment[];
   scheduledAt?: string;
   attachments?: Attachment[];
+  pendingDelete?: boolean;
+  isImportant?: boolean;
+  todoAt?: string;
+  todoNote?: string;
 }
 
 export interface Quest {
@@ -245,6 +264,12 @@ export interface KnowledgeItem {
 }
 
 export interface StoreState {
+  agentWorkflows: AgentWorkflow[];
+  fetchAgentWorkflows: () => void;
+  addAgentWorkflow: (workflow: Omit<AgentWorkflow, 'id'>) => void;
+  updateAgentWorkflow: (id: string, updates: Partial<AgentWorkflow>) => void;
+  deleteAgentWorkflow: (id: string) => void;
+
   knowledgeBase: KnowledgeItem[];
   fetchKnowledgeBase: () => void;
   addKnowledgeItem: (item: Omit<KnowledgeItem, 'id'>) => void;
@@ -302,7 +327,7 @@ export interface StoreState {
   addClient: (client: Omit<Client, 'id'>) => Promise<string | null>;
   editClient: (id: string, updates: Partial<Omit<Client, 'id'>>) => void;
   submitClientEditRequest: (id: string, requestedData: Partial<Omit<Client, 'id'>>) => void;
-  deleteClient: (id: string) => void;
+  deleteClient: (id: string) => Promise<void>;
   updateClientStatus: (id: string, status: ClientStatus) => void;
 
   deals: Deal[];
@@ -347,6 +372,7 @@ export interface StoreState {
   addEmailComment: (emailId: string, content: string, attachments?: Attachment[]) => void;
   addEmailReply: (emailId: string, commentId: string, content: string, attachments?: Attachment[]) => void;
   checkScheduledEmails: () => void;
+  deleteEmails: (ids: string[]) => Promise<void>;
 
   selectedClientId: string | null;
   selectClient: (id: string | null) => void;
@@ -377,6 +403,8 @@ export interface StoreState {
   fetchUserSettings: () => Promise<void>;
   fetchEmails: () => Promise<void>;
   fetchInitialData: () => Promise<void>;
+  globalLoading: boolean;
+  setGlobalLoading: (isLoading: boolean) => void;
 }
 
 const INITIAL_CLIENTS: Client[] = [];
@@ -409,6 +437,47 @@ const INITIAL_ACHIEVEMENTS: Achievement[] = [
 ];
 
 export const useStore = create<StoreState>((set, get) => ({
+  globalLoading: false,
+  setGlobalLoading: (isLoading: boolean) => set({ globalLoading: isLoading }),
+
+  agentWorkflows: [],
+  fetchAgentWorkflows: () => {
+    // In a real app we would fetch this. For now we use local storage or mock.
+    const saved = localStorage.getItem('agentWorkflows');
+    if (saved) {
+      set({ agentWorkflows: JSON.parse(saved) });
+    } else {
+      const defaultWorkflow: AgentWorkflow = {
+        id: 'wf_default_1',
+        name: 'Standard Follow-up',
+        description: '3-step outreach over 7 days',
+        steps: [
+          { id: 's1', type: 'email', delayDays: 1, templatePrompt: 'Write a short check-in email referencing our last conversation.' },
+          { id: 's2', type: 'whatsapp', delayDays: 3, templatePrompt: 'Write a casual whatsapp follow-up message asking if they had time to review.' },
+          { id: 's3', type: 'email', delayDays: 7, templatePrompt: 'Write a breakup email summarizing value and keeping the door open.' }
+        ]
+      };
+      set({ agentWorkflows: [defaultWorkflow] });
+      localStorage.setItem('agentWorkflows', JSON.stringify([defaultWorkflow]));
+    }
+  },
+  addAgentWorkflow: (workflow) => set((state) => {
+    const newWf = { ...workflow, id: `wf_${Date.now()}` };
+    const newWorkflows = [...state.agentWorkflows, newWf];
+    localStorage.setItem('agentWorkflows', JSON.stringify(newWorkflows));
+    return { agentWorkflows: newWorkflows };
+  }),
+  updateAgentWorkflow: (id, updates) => set((state) => {
+    const newWorkflows = state.agentWorkflows.map(wf => wf.id === id ? { ...wf, ...updates } : wf);
+    localStorage.setItem('agentWorkflows', JSON.stringify(newWorkflows));
+    return { agentWorkflows: newWorkflows };
+  }),
+  deleteAgentWorkflow: (id) => set((state) => {
+    const newWorkflows = state.agentWorkflows.filter(wf => wf.id !== id);
+    localStorage.setItem('agentWorkflows', JSON.stringify(newWorkflows));
+    return { agentWorkflows: newWorkflows };
+  }),
+
   knowledgeBase: [],
   fetchKnowledgeBase: () => {
     const token = localStorage.getItem('token');
@@ -782,9 +851,9 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   updateDeal: (id, updates) => set((state) => {
-    if (updates.stage === 'Won') {
+    if (updates.status === 'Closed Won') {
       const deal = state.deals.find(d => d.id === id);
-      if (deal && deal.stage !== 'Won') {
+      if (deal && deal.status !== 'Closed Won') {
         setTimeout(() => get().addExp(get().expConfig['event_win_deal'] ?? 100, 'Won a deal!'), 0);
       }
     }
@@ -815,7 +884,8 @@ export const useStore = create<StoreState>((set, get) => ({
     const newClient = { ...client, id };
     
     set((state) => ({
-      clients: [...state.clients, newClient]
+      clients: [...state.clients, newClient],
+      globalLoading: true
     }));
 
     const token = localStorage.getItem('token');
@@ -847,7 +917,11 @@ export const useStore = create<StoreState>((set, get) => ({
         }
       } catch (err) {
         console.error(err);
+      } finally {
+        set({ globalLoading: false });
       }
+    } else {
+      set({ globalLoading: false });
     }
     
     return id;
@@ -886,26 +960,38 @@ export const useStore = create<StoreState>((set, get) => ({
     }
     return { clients: state.clients.map(c => c.id === id ? { ...c, pendingEditRequest: true } : c) };
   }),
-  deleteClient: (id) => set((state) => {
+  deleteClient: async (id) => {
+    set({ globalLoading: true });
+    
+    // Optimistic UI update
+    set((state) => ({
+      clients: state.clients.filter(c => c.id !== id),
+      deals: state.deals.filter(d => d.clientId !== id),
+      selectedClientId: state.selectedClientId === id ? null : state.selectedClientId
+    }));
+
     const token = localStorage.getItem('token');
     if (token) {
-      fetch(`/api/clients/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      }).then(res => res.json()).then(data => {
+      try {
+        const res = await fetch(`/api/clients/${id}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
         if (!data.permanent && data.softDeleted) {
           alert('Client successfully discarded to public pool.');
         } else if (data.permanent) {
           alert('Client deleted permanently.');
         }
-      }).catch(console.error);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        set({ globalLoading: false });
+      }
+    } else {
+      set({ globalLoading: false });
     }
-    return {
-      clients: state.clients.filter(c => c.id !== id),
-      deals: state.deals.filter(d => d.clientId !== id),
-      selectedClientId: state.selectedClientId === id ? null : state.selectedClientId
-    };
-  }),
+  },
   updateClientStatus: (id, status) => set((state) => {
     const token = localStorage.getItem('token');
     if (token) {
@@ -938,6 +1024,7 @@ export const useStore = create<StoreState>((set, get) => ({
   claimClient: async (id) => {
     const token = localStorage.getItem('token');
     if (token) {
+      set({ globalLoading: true });
       try {
         const res = await fetch(`/api/public-leads/${id}/claim`, {
           method: 'POST',
@@ -950,7 +1037,7 @@ export const useStore = create<StoreState>((set, get) => ({
           get().fetchDeals(); // Fetch deals so the new deal shows up
           useAuthStore.getState().fetchProfile();
           
-          fetch('/api/clients', { headers: { 'Authorization': `Bearer ${token}` } })
+          await fetch('/api/clients', { headers: { 'Authorization': `Bearer ${token}` } })
             .then(res => res.json())
             .then(clients => set({ clients }))
             .catch(console.error);
@@ -964,12 +1051,15 @@ export const useStore = create<StoreState>((set, get) => ({
         }
       } catch(e) {
         console.error(e);
+      } finally {
+        set({ globalLoading: false });
       }
     }
   },
   importPublicLeads: async (leads) => {
     const token = localStorage.getItem('token');
     if (!token) return;
+    set({ globalLoading: true });
     try {
       const res = await fetch('/api/public-leads/import', {
         method: 'POST',
@@ -994,6 +1084,8 @@ export const useStore = create<StoreState>((set, get) => ({
     } catch(e) {
       console.error(e);
       alert("Error importing public leads");
+    } finally {
+      set({ globalLoading: false });
     }
   },
   
@@ -1197,6 +1289,36 @@ export const useStore = create<StoreState>((set, get) => ({
     }
     return state;
   }),
+  deleteEmails: async (ids: string[]) => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    set({ globalLoading: true });
+    try {
+      const res = await fetch('/api/emails/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ ids })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        set((state) => ({
+          emails: state.emails.map(e => {
+            if (data.pendingIds && data.pendingIds.includes(e.id)) {
+              return { ...e, pendingDelete: true };
+            }
+            return e;
+          }).filter(e => !(data.deletedIds && data.deletedIds.includes(e.id)))
+        }));
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || 'Failed to delete emails');
+      }
+    } catch(e) {
+      console.error('Failed to delete emails', e);
+    } finally {
+      set({ globalLoading: false });
+    }
+  },
 
   selectedClientId: null,
   selectClient: (id) => set({ selectedClientId: id }),
@@ -1399,6 +1521,7 @@ export const useStore = create<StoreState>((set, get) => ({
     get().fetchDocuments();
     get().fetchPaymentTerms();
     get().fetchKnowledgeBase();
+    get().fetchAgentWorkflows();
 
     try {
       const [clientsRes, logsRes, emailsRes, dealsRes] = await Promise.all([

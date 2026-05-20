@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore, EmailMessage } from '../store';
 import { useAuthStore } from '../authStore';
-import { Mail, Send, Reply, Trash2, ArrowLeft, RefreshCw, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2 } from 'lucide-react';
+import { Mail, Send, Reply, Trash2, ArrowLeft, RefreshCw, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2, MoreHorizontal, Star, Clock } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { CommentItem } from './CommentItem';
 import { AddressInput } from './AddressInput';
@@ -13,8 +13,8 @@ export function Inbox() {
   const { emails, markEmailRead, clients, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem } = useStore();
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'inbox' | 'sent' | 'scheduled'>('inbox');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [tagFilter, setTagFilter] = useState('');
+  const [search, setSearch] = useState('');
+  const [searchTags, setSearchTags] = useState<string[]>([]);
   const [isComposing, setIsComposing] = useState(false);
   const [composeDefaults, setComposeDefaults] = useState<{recipient: string, subject: string} | null>(null);
   const [isAddingTag, setIsAddingTag] = useState(false);
@@ -24,21 +24,82 @@ export function Inbox() {
   const [addingToRag, setAddingToRag] = useState(false);
   const [addedToRagId, setAddedToRagId] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  const [todoModalEmail, setTodoModalEmail] = useState<string | null>(null);
+  const [todoAt, setTodoAt] = useState('');
+  const [todoNote, setTodoNote] = useState('');
+  const [tagModalEmail, setTagModalEmail] = useState<string | null>(null);
+  const [tagInput, setTagInput] = useState('');
+
+  const [confirmDialog, setConfirmDialog] = useState<{message: string, onConfirm: () => void} | null>(null);
+  const [alertDialog, setAlertDialog] = useState<string | null>(null);
 
   const filteredEmails = emails.filter(e => {
-    // Treat 'inbox' filter as 'inbound' emails, and others appropriately
-    const typeMatch = filter === 'inbox' ? e.type === 'inbound' : filter === 'sent' ? e.type === 'outbound' : e.type === 'scheduled';
-    if (!typeMatch) return false;
+    // Support both new ('inbox'/'sent') and legacy ('inbound'/'outbound') types
+    const typeMatch = (filter === 'inbox' && (e.type === 'inbox' || e.type === 'inbound')) ||
+                      (filter === 'sent' && (e.type === 'sent' || e.type === 'outbound')) ||
+                      (filter === 'scheduled' && e.type === 'scheduled');
     
-    if (searchQuery && !e.subject.toLowerCase().includes(searchQuery.toLowerCase()) && !e.body.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-    if (tagFilter && (!e.tags || !e.tags.includes(tagFilter))) return false;
+    if (!typeMatch) return false;
+    if (e.pendingDelete) return false;
+    
+    const termsToMatch = [...searchTags];
+    if (search.trim()) {
+      termsToMatch.push(...search.trim().toLowerCase().split(/\s+/));
+    }
+    
+    if (termsToMatch.length > 0) {
+      for (const t of termsToMatch) {
+        const lowerT = t.toLowerCase();
+        if (t.startsWith('#')) {
+          if (!e.tags || !e.tags.some(tag => tag.toLowerCase() === lowerT)) {
+            return false;
+          }
+        } else {
+          // Regular text search
+          if (!e.subject.toLowerCase().includes(lowerT) && !e.body.toLowerCase().includes(lowerT)) {
+             return false;
+          }
+        }
+      }
+    }
     return true;
   });
+
+  const toggleSelection = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    const newSet = new Set(selectedIds);
+    if (newSet.has(id)) newSet.delete(id);
+    else newSet.add(id);
+    setSelectedIds(newSet);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredEmails.length && filteredEmails.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredEmails.map(e => e.id)));
+    }
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedIds.size === 0) return;
+    setConfirmDialog({
+      message: `Are you sure you want to delete ${selectedIds.size} email(s)? Emails associated with a client will be soft-deleted pending admin review.`,
+      onConfirm: async () => {
+        await useStore.getState().deleteEmails(Array.from(selectedIds));
+        setSelectedIds(new Set());
+        if (selectedEmailId && selectedIds.has(selectedEmailId)) setSelectedEmailId(null);
+        setConfirmDialog(null);
+      }
+    });
+  };
 
   const handleSync = async () => {
     const configs = useStore.getState().inboxConfigs;
     if (!configs || configs.length === 0) {
-      alert("No Inbox configurations found. Please add one in Settings.");
+      setAlertDialog("No Inbox configurations found. Please add one in Settings.");
       return;
     }
     
@@ -47,7 +108,7 @@ export function Inbox() {
     try {
       const token = localStorage.getItem('token');
       for (const config of configs) {
-        if (config.type !== 'imap') continue;
+        if (config.type !== 'imap' && config.type !== 'pop3') continue;
         const res = await fetch('/api/sync-emails', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -61,10 +122,10 @@ export function Inbox() {
       if (totalSynced > 0) {
         useStore.getState().fetchEmails();
       }
-      alert(`Sync complete. Fetched ${totalSynced} new email(s).`);
+      setAlertDialog(`Sync complete. Fetched ${totalSynced} new email(s).`);
     } catch (e) {
       console.error(e);
-      alert("Error syncing emails.");
+      setAlertDialog("Error syncing emails.");
     } finally {
       setIsSyncing(false);
     }
@@ -80,6 +141,35 @@ export function Inbox() {
   const handleCreateLead = () => {
     if (!selectedEmail || selectedEmail.clientId) return;
     setIsCreatingLead(true);
+  };
+
+  const submitTodo = () => {
+    if (!todoModalEmail || !todoAt) return;
+    editEmail(todoModalEmail, { todoAt, todoNote });
+    setTodoModalEmail(null);
+    setTodoAt('');
+    setTodoNote('');
+    setActiveMenu(null);
+  };
+
+  const submitTag = () => {
+    if (!tagModalEmail || !tagInput.trim()) return;
+    const email = emails.find(e => e.id === tagModalEmail);
+    if (!email) return;
+    let tg = tagInput.trim();
+    if (!tg.startsWith('#')) tg = '#' + tg;
+    const currentTags = email.tags || [];
+    if (!currentTags.includes(tg)) {
+      editEmail(email.id, { tags: [...currentTags, tg] });
+    }
+    setTagModalEmail(null);
+    setTagInput('');
+    setActiveMenu(null);
+  };
+
+  const toggleImportant = (email: EmailMessage) => {
+    editEmail(email.id, { isImportant: !email.isImportant });
+    setActiveMenu(null);
   };
 
   const handleAddTag = () => {
@@ -154,30 +244,72 @@ export function Inbox() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex-1 flex items-center bg-slate-950 border border-slate-800 rounded px-2">
+            <div className="flex-1 flex flex-wrap items-center bg-slate-950 border border-slate-800 rounded px-2 min-h-[36px] focus-within:border-cyan-500 transition-colors">
               <Search className="w-3 h-3 text-slate-500 mr-2" />
+              {searchTags.map((tag, i) => (
+                <span key={i} className="flex items-center gap-1 bg-slate-800 text-slate-300 text-xs px-2 py-0.5 rounded border border-slate-700 mr-1 my-1">
+                  {tag}
+                  <button onClick={() => setSearchTags(tags => tags.filter((_, index) => index !== i))} className="hover:text-red-400 ml-1">
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
               <input 
                 type="text" 
-                placeholder="Search..." 
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                className="flex-1 bg-transparent text-xs text-slate-200 py-1.5 focus:outline-none"
+                placeholder={searchTags.length > 0 ? "Search..." : "Search or add #tag..."}
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Tab' || e.key === 'Enter') {
+                    e.preventDefault();
+                    if (search.trim()) {
+                      let tg = search.trim();
+                      setSearchTags([...searchTags, tg]);
+                      setSearch('');
+                    }
+                  } else if (e.key === 'Backspace' && !search && searchTags.length > 0) {
+                    setSearchTags(searchTags.slice(0, -1));
+                  }
+                }}
+                list="inbox-tag-suggestions"
+                className="flex-1 min-w-[100px] bg-transparent text-xs text-slate-200 py-1.5 focus:outline-none"
               />
-            </div>
-            <div className="w-24 flex items-center bg-slate-950 border border-slate-800 rounded px-2">
-              <Tag className="w-3 h-3 text-slate-500 mr-1" />
-              <input 
-                type="text" 
-                placeholder="Filter tag" 
-                value={tagFilter}
-                onChange={e => setTagFilter(e.target.value)}
-                className="flex-1 min-w-0 bg-transparent text-xs text-slate-200 py-1.5 focus:outline-none"
-              />
+              <datalist id="inbox-tag-suggestions">
+                {Array.from(new Set(emails.flatMap(e => e.tags || []))).map(t => (
+                  <option key={t} value={t} />
+                ))}
+              </datalist>
             </div>
           </div>
         </div>
         
         <div className="flex-1 overflow-y-auto scrollbar-thin">
+          {filteredEmails.length > 0 && (
+            <div className="flex items-center justify-between p-2 px-4 border-b border-slate-800 bg-slate-900/50 text-xs text-slate-400">
+              <div className="flex items-center gap-2">
+                <input 
+                  type="checkbox"
+                  checked={selectedIds.size === filteredEmails.length && filteredEmails.length > 0}
+                  ref={input => {
+                    if (input) {
+                      input.indeterminate = selectedIds.size > 0 && selectedIds.size < filteredEmails.length;
+                    }
+                  }}
+                  onChange={toggleSelectAll}
+                  className="rounded border-slate-700 bg-slate-800 text-cyan-500 focus:ring-cyan-500"
+                />
+                <span>Select All</span>
+              </div>
+              {selectedIds.size > 0 && (
+                <button 
+                  onClick={handleDeleteSelected}
+                  className="px-2 py-1 bg-red-900/30 text-red-400 border border-red-900/50 hover:bg-red-900/60 rounded flex items-center gap-1 transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Delete
+                </button>
+              )}
+            </div>
+          )}
           {filteredEmails.length === 0 && (
             <div className="p-8 text-center text-sm text-slate-500 italic">No emails found.</div>
           )}
@@ -185,24 +317,85 @@ export function Inbox() {
             <div 
               key={email.id}
               onClick={() => handleSelect(email.id)}
-              className={cn("cursor-pointer border-b border-slate-800/50 p-4 transition-colors", 
+              className={cn("cursor-pointer border-b border-slate-800/50 p-4 transition-colors flex gap-3 group relative", 
                 selectedEmailId === email.id ? "bg-cyan-950/20" : "hover:bg-slate-800/30",
                 !email.read && filter === 'inbox' && "bg-slate-800/40"
               )}
             >
-              <div className="flex items-center justify-between mb-1">
-                <span className={cn("text-sm font-bold truncate pr-2", !email.read && filter === 'inbox' ? "text-white" : "text-slate-300")}>
-                  {filter === 'inbox' ? (email.senderName || email.sender) : (email.recipient)}
-                </span>
-                <span className="text-[10px] text-slate-500 shrink-0">
-                  {email.type === 'scheduled' && email.scheduledAt ? `Sched: ${new Date(email.scheduledAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'})}` : new Date(email.date).toLocaleDateString()}
-                </span>
+              <div 
+                className={cn("pt-0.5 transition-opacity", selectedIds.has(email.id) ? "opacity-100" : "opacity-0 group-hover:opacity-100")} 
+                onClick={(e) => toggleSelection(e, email.id)}
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(email.id)}
+                  onChange={() => {}}
+                  className="rounded border-slate-700 bg-slate-800 text-cyan-500 focus:ring-cyan-500"
+                />
               </div>
-              <div className={cn("text-xs font-medium mb-1 truncate", !email.read && filter === 'inbox' ? "text-slate-200" : "text-slate-400")}>
-                {email.subject}
-              </div>
-              <div className="text-[10px] text-slate-500 truncate h-4">
-                {email.body.replace(/\n/g, ' ')}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between mb-1 relative">
+                  <span className={cn("text-sm font-bold truncate pr-2 flex items-center gap-1", !email.read && filter === 'inbox' ? "text-white" : "text-slate-300")}>
+                    {email.isImportant && <Star className="w-3 h-3 text-yellow-500 fill-yellow-500" />}
+                    {filter === 'inbox' ? (email.senderName || email.sender) : (email.recipient)}
+                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-[10px] text-slate-500">
+                      {email.type === 'scheduled' && email.scheduledAt ? `Sched: ${new Date(email.scheduledAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'})}` : new Date(email.date).toLocaleDateString()}
+                    </span>
+                    <div className={cn("relative transition-opacity", activeMenu === email.id ? "opacity-100" : "opacity-0 group-hover:opacity-100 hidden md:block")}>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === email.id ? null : email.id); }}
+                        className="p-0.5 hover:bg-slate-700 rounded text-slate-400 hover:text-white"
+                      >
+                        <MoreHorizontal className="w-4 h-4" />
+                      </button>
+                      {activeMenu === email.id && (
+                        <div className="absolute right-0 top-6 w-36 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 overflow-hidden" onClick={e => e.stopPropagation()}>
+                          <button onClick={() => { setTagModalEmail(email.id); setActiveMenu(null); }} className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-700 hover:text-white flex items-center gap-2">
+                            <Tag className="w-3 h-3" /> Add Tag
+                          </button>
+                          <button onClick={() => toggleImportant(email)} className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-700 hover:text-white flex items-center gap-2">
+                            <Star className="w-3 h-3" /> {email.isImportant ? 'Unmark Important' : 'Mark Important'}
+                          </button>
+                          <button onClick={() => { setTodoModalEmail(email.id); setActiveMenu(null); }} className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-700 hover:text-white flex items-center gap-2">
+                            <Clock className="w-3 h-3" /> Add to Todo
+                          </button>
+                          <div className="border-t border-slate-700 my-1"></div>
+                          <button onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveMenu(null);
+                            setConfirmDialog({
+                              message: 'Are you sure you want to delete this email? Emails associated with a client will be soft-deleted pending admin review.',
+                              onConfirm: async () => {
+                                if (selectedEmailId === email.id) setSelectedEmailId(null);
+                                await useStore.getState().deleteEmails([email.id]);
+                                setConfirmDialog(null);
+                              }
+                            });
+                          }} className="w-full text-left px-3 py-2 text-xs text-red-400 hover:bg-red-900/30 hover:text-red-300 flex items-center gap-2">
+                            <Trash2 className="w-3 h-3" /> Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className={cn("text-xs font-medium mb-1 truncate", !email.read && filter === 'inbox' ? "text-slate-200" : "text-slate-400")}>
+                  {email.subject}
+                </div>
+                {email.tags && email.tags.length > 0 && (
+                  <div className="flex gap-1 mb-1 overflow-x-auto scrollbar-hide">
+                    {email.tags.map(t => (
+                      <span key={t} className="text-[9px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="text-[10px] text-slate-500 truncate h-4">
+                  {email.body.replace(/\n/g, ' ')}
+                </div>
               </div>
             </div>
           ))}
@@ -252,6 +445,19 @@ export function Inbox() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                 <button onClick={() => {
+                   setConfirmDialog({
+                     message: 'Are you sure you want to delete this email? Emails associated with a client will be soft-deleted pending admin review.',
+                     onConfirm: async () => {
+                       const id = selectedEmail.id;
+                       setSelectedEmailId(null);
+                       await useStore.getState().deleteEmails([id]);
+                       setConfirmDialog(null);
+                     }
+                   });
+                 }} className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-900/30 rounded transition-colors" title="Delete">
+                   <Trash2 className="w-4 h-4" />
+                 </button>
                  <button onClick={() => { setComposeDefaults({ recipient: selectedEmail.sender, subject: `Re: ${selectedEmail.subject}` }); setIsComposing(true); }} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors" title="Reply">
                    <Reply className="w-4 h-4" />
                  </button>
@@ -292,9 +498,10 @@ export function Inbox() {
                </div>
 
                <h2 className="text-xl font-bold text-slate-200 mb-6">{selectedEmail.subject}</h2>
-               <div className="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">
-                 {selectedEmail.body}
-               </div>
+               <div 
+                 className="text-sm bg-white text-black p-6 rounded-lg leading-relaxed overflow-x-auto"
+                 dangerouslySetInnerHTML={{ __html: selectedEmail.body || '' }}
+               />
 
                {selectedEmail.attachments && selectedEmail.attachments.length > 0 && (
                  <div className="mt-8 border-t border-slate-800/50 pt-4">
@@ -366,6 +573,93 @@ export function Inbox() {
             selectClient(newClientId);
           }}
         />
+      )}
+
+      {confirmDialog && (
+        <div className="fixed inset-0 bg-black/50 z-[60] flex flex-col items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 max-w-sm w-full shadow-2xl">
+            <h3 className="text-lg font-bold text-white mb-4">Confirm Action</h3>
+            <p className="text-slate-300 text-sm mb-6">{confirmDialog.message}</p>
+            <div className="flex justify-end gap-3">
+              <button 
+                onClick={() => setConfirmDialog(null)} 
+                className="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={confirmDialog.onConfirm}
+                className="px-4 py-2 text-sm bg-red-600 text-white hover:bg-red-500 rounded transition-colors shadow shadow-red-600/20"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {alertDialog && (
+        <div className="fixed inset-0 bg-black/50 z-[60] flex flex-col items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 max-w-sm w-full shadow-2xl">
+            <h3 className="text-lg font-bold text-cyan-400 mb-4">Notification</h3>
+            <p className="text-slate-300 text-sm mb-6">{alertDialog}</p>
+            <div className="flex justify-end">
+              <button 
+                onClick={() => setAlertDialog(null)}
+                className="px-4 py-2 text-sm bg-cyan-600 text-white hover:bg-cyan-500 rounded transition-colors shadow shadow-cyan-600/20"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tagModalEmail && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex flex-col items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 max-w-sm w-full">
+            <h3 className="text-lg font-bold text-white mb-4">Add Tag</h3>
+            <input 
+              type="text" 
+              value={tagInput}
+              onChange={e => setTagInput(e.target.value)}
+              placeholder="e.g. VIP, Urgent"
+              className="w-full bg-slate-800 border-slate-700 text-white rounded p-2 mb-4"
+              autoFocus
+              onKeyDown={e => { if(e.key === 'Enter') submitTag(); else if(e.key === 'Escape') setTagModalEmail(null) }}
+            />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setTagModalEmail(null)} className="px-4 py-2 text-slate-400 hover:text-white">Cancel</button>
+              <button onClick={submitTag} disabled={!tagInput.trim()} className="px-4 py-2 bg-cyan-600 text-white rounded-md disabled:opacity-50">Add</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {todoModalEmail && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex flex-col items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 max-w-md w-full">
+            <h3 className="text-lg font-bold text-white mb-4">Add Email to Todo</h3>
+            <label className="text-xs text-slate-400 block mb-1">Due Date & Time</label>
+            <input 
+              type="datetime-local" 
+              value={todoAt}
+              onChange={e => setTodoAt(e.target.value)}
+              className="w-full bg-slate-800 border border-slate-700 text-white rounded p-2 mb-4"
+            />
+            <label className="text-xs text-slate-400 block mb-1">Note (Optional)</label>
+            <textarea 
+              value={todoNote}
+              onChange={e => setTodoNote(e.target.value)}
+              placeholder="E.g. Follow up with a proposal..."
+              className="w-full bg-slate-800 border border-slate-700 text-white rounded p-2 mb-4 min-h-[80px]"
+            />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setTodoModalEmail(null)} className="px-4 py-2 text-slate-400 hover:text-white">Cancel</button>
+              <button onClick={submitTodo} disabled={!todoAt} className="px-4 py-2 bg-cyan-600 text-white rounded-md disabled:opacity-50">Save</button>
+            </div>
+          </div>
+        </div>
       )}
     </PanelGroup>
   );

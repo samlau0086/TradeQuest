@@ -6,6 +6,7 @@ const customRequire = typeof require !== "undefined" ? require : createRequire(i
 const pdfParse = customRequire("pdf-parse");
 const nodemailer = customRequire("nodemailer");
 const { ImapFlow } = customRequire("imapflow");
+const Pop3Command = customRequire("node-pop3").default || customRequire("node-pop3");
 import { GoogleGenAI } from "@google/genai";
 import OpenAI from "openai";
 import { Pool } from "pg";
@@ -153,6 +154,11 @@ async function initDB() {
         attachments JSONB DEFAULT '[]'
       );
       
+      ALTER TABLE emails ADD COLUMN IF NOT EXISTS pending_delete BOOLEAN DEFAULT FALSE;
+      ALTER TABLE emails ADD COLUMN IF NOT EXISTS is_important BOOLEAN DEFAULT FALSE;
+      ALTER TABLE emails ADD COLUMN IF NOT EXISTS todo_at TIMESTAMP WITH TIME ZONE;
+      ALTER TABLE emails ADD COLUMN IF NOT EXISTS todo_note TEXT;
+
       CREATE TABLE IF NOT EXISTS deals (
         id VARCHAR(128) PRIMARY KEY,
         user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
@@ -1659,6 +1665,12 @@ No markdown wrappers, just valid JSON.`;
 
        const updates = typeof editReq.requested_data === 'string' ? JSON.parse(editReq.requested_data) : editReq.requested_data;
        
+       if (updates.action === 'delete_email') {
+         await pool.query(`DELETE FROM emails WHERE id = $1`, [updates.email_id]);
+         res.json({ success: true });
+         return;
+       }
+
        const mapping: Record<string, string> = {
          name: 'name', company: 'company', country: 'country', status: 'status',
          address: 'address', state: 'state', city: 'city',
@@ -1694,12 +1706,20 @@ No markdown wrappers, just valid JSON.`;
   app.post('/api/admin/client-edit-requests/:requestId/reject', authenticateToken, requireSuperadmin, async (req: any, res) => {
      try {
        const { requestId } = req.params;
+       const reqRes = await pool.query(`SELECT client_id, requested_data FROM client_edit_requests WHERE id = $1`, [requestId]);
+       if (reqRes.rows.length === 0) return res.status(404).json({ error: 'Request not found' });
+       
        await pool.query(`UPDATE client_edit_requests SET status = 'rejected', updated_at = CURRENT_TIMESTAMP WHERE id = $1`, [requestId]);
        
-       const reqRes = await pool.query(`SELECT client_id FROM client_edit_requests WHERE id = $1`, [requestId]);
-       if (reqRes.rows.length > 0) {
-           await pool.query(`UPDATE clients SET pending_edit_request = FALSE WHERE id = $1`, [reqRes.rows[0].client_id]);
+       const editReq = reqRes.rows[0];
+       const updates = typeof editReq.requested_data === 'string' ? JSON.parse(editReq.requested_data) : editReq.requested_data;
+
+       if (updates.action === 'delete_email') {
+         await pool.query(`UPDATE emails SET pending_delete = FALSE WHERE id = $1`, [updates.email_id]);
+       } else {
+         await pool.query(`UPDATE clients SET pending_edit_request = FALSE WHERE id = $1`, [editReq.client_id]);
        }
+       
        res.json({ success: true });
      } catch(e) {
        console.error(e);
@@ -1907,11 +1927,28 @@ No markdown wrappers, just valid JSON.`;
   // Test Inbox Connection
   app.post('/api/test-inbox', authenticateToken, async (req: any, res) => {
     try {
-      const { host, port, secure, username, password } = req.body;
+      const { type, host, port, secure, username, password } = req.body;
+      
+      if (type === 'pop3') {
+        const client = new Pop3Command({
+          host,
+          port: port ? parseInt(port) : (secure ? 995 : 110),
+          tls: (port && parseInt(port) === 995) ? true : !!secure,
+          tlsOptions: { rejectUnauthorized: false },
+          user: username,
+          password
+        });
+        await client.QUIT(); // QUIT method of Pop3Command tests connection and auth implicitly and properly closes it.
+        return res.json({ success: true });
+      }
+
       const client = new ImapFlow({
         host,
-        port: port || (secure ? 993 : 143),
-        secure: !!secure,
+        port: port ? parseInt(port) : (secure ? 993 : 143),
+        secure: (port && parseInt(port) === 993) ? true : !!secure,
+        tls: {
+          rejectUnauthorized: false
+        },
         auth: {
           user: username,
           pass: password
@@ -1934,8 +1971,11 @@ No markdown wrappers, just valid JSON.`;
       const { host, port, secure, username, password } = req.body;
       let transporter = nodemailer.createTransport({
         host,
-        port: port || (secure ? 465 : 587),
-        secure: !!secure,
+        port: port ? parseInt(port) : (secure ? 465 : 587),
+        secure: (port && parseInt(port) === 465) ? true : !!secure,
+        tls: {
+          rejectUnauthorized: false
+        },
         auth: {
           user: username,
           pass: password
@@ -1951,11 +1991,108 @@ No markdown wrappers, just valid JSON.`;
 
   app.post('/api/sync-emails', authenticateToken, async (req: any, res) => {
     try {
-      const { host, port, secure, username, password } = req.body;
+      const { type, host, port, secure, username, password } = req.body;
+      const { simpleParser } = customRequire('mailparser');
+      const syncedEmails = [];
+
+      if (type === 'pop3') {
+        const client = new Pop3Command({
+          host,
+          port: port ? parseInt(port) : (secure ? 995 : 110),
+          tls: (port && parseInt(port) === 995) ? true : !!secure,
+          tlsOptions: { rejectUnauthorized: false },
+          user: username,
+          password
+        });
+        
+        try {
+          const list = await client.UIDL();
+          // list is array of [msgNumber, uid] strings. Some servers return string, some return array of strings.
+          // pop3Command.UIDL() returns an array of strings e.g., ["1 UID1", "2 UID2"]
+          // or `list` could be array of arrays. Let's just safely map.
+          let messages = [];
+          if (Array.isArray(list)) {
+            messages = list.map(item => {
+              if (Array.isArray(item)) return { num: item[0], uid: item[1] };
+              const parts = item.split(' ');
+              return { num: parts[0], uid: parts[1] };
+            });
+          }
+          
+          // Fetch last 10 messages
+          const recentMessages = messages.slice(-10);
+          for (const msg of recentMessages) {
+            const raw = await client.RETR(msg.num);
+            const parsed = await simpleParser(raw);
+            
+            const fromEmail = parsed.from?.value?.[0]?.address || '';
+            const clientRes = await pool.query(`
+              SELECT id FROM clients 
+              WHERE user_id = $1 
+                AND EXISTS (
+                  SELECT 1 FROM jsonb_array_elements(contact_methods) elem 
+                  WHERE elem->>'type' = 'email' AND elem->>'value' = $2
+                ) 
+              LIMIT 1
+            `, [req.user.uid, fromEmail]);
+            const clientId = clientRes.rows.length > 0 ? clientRes.rows[0].id : null;
+
+            let messageIdStr = parsed.messageId || `msg_${username}_${msg.uid}`;
+            messageIdStr = messageIdStr.substring(0, 128);
+            
+            let htmlContent = parsed.html || parsed.textAsHtml;
+            let bodyStr = '';
+            if (htmlContent) {
+               bodyStr = htmlContent;
+            } else {
+               bodyStr = (parsed.text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>');
+            }
+            bodyStr = bodyStr.replace(/\x00/g, '');
+            
+            if (parsed.attachments) {
+              parsed.attachments.forEach((att: any) => {
+                if (att.cid && att.content) {
+                  const dataUri = `data:${att.contentType};base64,${att.content.toString('base64')}`;
+                  bodyStr = bodyStr.replace(new RegExp(`cid:${att.cid.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}`, 'gi'), dataUri);
+                }
+              });
+            }
+            const toAddress = Array.isArray(parsed.to) 
+              ? parsed.to.flatMap(t => t.value || []).map((v: any) => v.address).join(', ')
+              : parsed.to?.value?.map((v: any) => v.address).join(', ') || '';
+
+            const existingRes = await pool.query('SELECT id FROM emails WHERE id = $1 AND user_id = $2', [messageIdStr, req.user.uid]);
+            if (existingRes.rows.length === 0) {
+              await pool.query(
+                `INSERT INTO emails (id, user_id, client_id, sender, sender_name, recipient, subject, body, date, read, type)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+                [
+                  messageIdStr, req.user.uid, clientId, fromEmail, parsed.from?.value?.[0]?.name || '',
+                  toAddress,
+                  parsed.subject || '(No Subject)', bodyStr,
+                  parsed.date ? new Date(parsed.date).toISOString() : new Date().toISOString(),
+                  false, 'inbound'
+                ]
+              );
+              syncedEmails.push(messageIdStr);
+            } else {
+              // Update existing email's body to fix missing HTML
+              await pool.query('UPDATE emails SET body = $1 WHERE id = $2 AND user_id = $3', [bodyStr, messageIdStr, req.user.uid]);
+            }
+          }
+        } finally {
+          await client.QUIT();
+        }
+        return res.json({ success: true, count: syncedEmails.length });
+      }
+
       const client = new ImapFlow({
         host,
-        port: port || (secure ? 993 : 143),
-        secure: !!secure,
+        port: port ? parseInt(port) : (secure ? 993 : 143),
+        secure: (port && parseInt(port) === 993) ? true : !!secure,
+        tls: {
+          rejectUnauthorized: false
+        },
         auth: {
           user: username,
           pass: password
@@ -1965,20 +2102,29 @@ No markdown wrappers, just valid JSON.`;
 
       await client.connect();
       const lock = await client.getMailboxLock('INBOX');
-      const { simpleParser } = customRequire('mailparser');
-      const syncedEmails = [];
 
       try {
         // Fetch last 10 messages for speed
         const mb = await client.mailboxOpen('INBOX');
         const total = mb.exists;
-        const fetchRange = total > 10 ? `${total - 9}:*` : '1:*';
         
-        for await (let message of client.fetch(fetchRange, { source: true, uid: true })) {
+        if (total > 0) {
+          const fetchRange = total > 50 ? `${total - 49}:*` : '1:*';
+          
+          for await (let message of client.fetch(fetchRange, { source: true, uid: true })) {
+          if (!message.source) continue;
           const parsed = await simpleParser(message.source);
           
-          const fromEmail = parsed.from?.value[0]?.address || '';
-          const clientRes = await pool.query('SELECT id FROM clients WHERE user_id = $1 AND email = $2 LIMIT 1', [req.user.uid, fromEmail]);
+          const fromEmail = parsed.from?.value?.[0]?.address || '';
+          const clientRes = await pool.query(`
+            SELECT id FROM clients 
+            WHERE user_id = $1 
+              AND EXISTS (
+                SELECT 1 FROM jsonb_array_elements(contact_methods) elem 
+                WHERE elem->>'type' = 'email' AND elem->>'value' = $2
+              ) 
+            LIMIT 1
+          `, [req.user.uid, fromEmail]);
           const clientId = clientRes.rows.length > 0 ? clientRes.rows[0].id : null;
 
           // Try to use messageId to prevent duplicates, fallback to uid
@@ -1988,6 +2134,27 @@ No markdown wrappers, just valid JSON.`;
           }
           // Truncate to 128 chars
           messageIdStr = messageIdStr.substring(0, 128);
+          
+          let htmlContent = parsed.html || parsed.textAsHtml;
+          let bodyStr = '';
+          if (htmlContent) {
+             bodyStr = htmlContent;
+          } else {
+             bodyStr = (parsed.text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>');
+          }
+          bodyStr = bodyStr.replace(/\x00/g, '');
+
+          if (parsed.attachments) {
+            parsed.attachments.forEach((att: any) => {
+              if (att.cid && att.content) {
+                const dataUri = `data:${att.contentType};base64,${att.content.toString('base64')}`;
+                bodyStr = bodyStr.replace(new RegExp(`cid:${att.cid.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}`, 'gi'), dataUri);
+              }
+            });
+          }
+          const toAddress = Array.isArray(parsed.to) 
+            ? parsed.to.flatMap(t => t.value || []).map((v: any) => v.address).join(', ')
+            : parsed.to?.value?.map((v: any) => v.address).join(', ') || '';
 
           const existingRes = await pool.query('SELECT id FROM emails WHERE id = $1 AND user_id = $2', [messageIdStr, req.user.uid]);
 
@@ -2000,18 +2167,22 @@ No markdown wrappers, just valid JSON.`;
                 req.user.uid,
                 clientId,
                 fromEmail,
-                parsed.from?.value[0]?.name || '',
-                parsed.to?.value.map((v: any) => v.address).join(', ') || '',
+                parsed.from?.value?.[0]?.name || '',
+                toAddress,
                 parsed.subject || '(No Subject)',
-                parsed.text || parsed.html || '',
+                bodyStr,
                 parsed.date ? new Date(parsed.date).toISOString() : new Date().toISOString(),
                 false,
                 'inbound'
               ]
             );
             syncedEmails.push(messageIdStr);
+          } else {
+            // Update existing email's body to fix missing HTML
+            await pool.query('UPDATE emails SET body = $1 WHERE id = $2 AND user_id = $3', [bodyStr, messageIdStr, req.user.uid]);
           }
         }
+      }
       } finally {
         lock.release();
         await client.logout();
@@ -2044,11 +2215,74 @@ No markdown wrappers, just valid JSON.`;
         tags: row.tags,
         comments: row.comments,
         scheduledAt: row.scheduled_at,
-        attachments: row.attachments
+        attachments: row.attachments,
+        pendingDelete: row.pending_delete,
+        isImportant: row.is_important,
+        todoAt: row.todo_at,
+        todoNote: row.todo_note
       })));
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: 'Failed to fetch emails' });
+    }
+  });
+
+  app.post('/api/emails/delete', authenticateToken, async (req: any, res) => {
+    try {
+      const { ids } = req.body;
+      if (!ids || !Array.isArray(ids)) return res.status(400).json({ error: 'Invalid ids' });
+
+      let deletedIds = [];
+      let pendingIds = [];
+
+      for (const id of ids) {
+        const emailRes = await pool.query('SELECT * FROM emails WHERE id = $1 AND user_id = $2', [id, req.user.uid]);
+        if (emailRes.rows.length === 0) {
+          deletedIds.push(id);
+          continue;
+        }
+        const email = emailRes.rows[0];
+
+        let clientIdToUse = email.client_id;
+        if (!clientIdToUse) {
+           // check if any client has this email as contact method
+           const clientRes = await pool.query(`
+             SELECT id FROM clients 
+             WHERE user_id = $1 
+             AND (
+               contact_methods @> $2::jsonb
+               OR contact_methods @> $3::jsonb
+             )
+             LIMIT 1
+           `, [
+             req.user.uid, 
+             JSON.stringify([{ type: "email", value: email.sender }]),
+             JSON.stringify([{ type: "email", value: email.recipient }])
+           ]);
+           
+           if (clientRes.rows.length > 0) {
+             clientIdToUse = clientRes.rows[0].id;
+           }
+        }
+
+        if (clientIdToUse) {
+          // Soft delete, pending admin review
+          await pool.query(
+            `INSERT INTO client_edit_requests (client_id, user_id, original_data, requested_data) VALUES ($1, $2, $3, $4)`,
+            [clientIdToUse, req.user.uid, JSON.stringify(email), JSON.stringify({ action: 'delete_email', email_id: email.id, subject: email.subject })]
+          );
+          await pool.query(`UPDATE emails SET pending_delete = TRUE, client_id = $2 WHERE id = $1`, [id, clientIdToUse]);
+          pendingIds.push(id);
+        } else {
+          // Hard delete
+          await pool.query(`DELETE FROM emails WHERE id = $1`, [id]);
+          deletedIds.push(id);
+        }
+      }
+      res.json({ success: true, deletedIds, pendingIds });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: String(e) });
     }
   });
 
@@ -2081,7 +2315,8 @@ No markdown wrappers, just valid JSON.`;
       let valIdx = 3;
       
       const mapping: Record<string, string> = {
-        read: 'read', type: 'type', tags: 'tags', comments: 'comments', date: 'date'
+        read: 'read', type: 'type', tags: 'tags', comments: 'comments', date: 'date',
+        isImportant: 'is_important', todoAt: 'todo_at', todoNote: 'todo_note'
       };
       
       for (const [key, val] of Object.entries(updates)) {

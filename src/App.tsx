@@ -24,7 +24,7 @@ import { ProductsList } from './components/ProductsList';
 import { QuotesList } from './components/QuotesList';
 
 export default function App() {
-  const { view, selectedClientId, checkScheduledEmails, fetchInitialData, language } = useStore();
+  const { view, selectedClientId, checkScheduledEmails, fetchInitialData, language, globalLoading } = useStore();
   const { token, isInitializing } = useAuthStore();
 
   const urlParams = new URLSearchParams(window.location.search);
@@ -59,39 +59,48 @@ export default function App() {
   }
 
   return (
-    <PanelGroup orientation="horizontal" id="app-layout" className="absolute inset-0 flex bg-slate-950 text-slate-200 overflow-hidden font-sans selection:bg-cyan-500/30">
-      <Panel defaultSize={260} minSize={200} maxSize={400}>
-        <Sidebar />
-      </Panel>
-      <PanelResizeHandle className="w-1 bg-slate-800 hover:bg-cyan-500 cursor-col-resize transition-colors" />
-      <Panel className="flex-1 flex flex-col relative overflow-hidden">
-        <TopBar />
-        <MagicCommand />
+    <>
+      <PanelGroup orientation="horizontal" id="app-layout" className="absolute inset-0 flex bg-slate-950 text-slate-200 overflow-hidden font-sans selection:bg-cyan-500/30">
+        <Panel defaultSize={260} minSize={200} maxSize={400}>
+          <Sidebar />
+        </Panel>
+        <PanelResizeHandle className="w-1 bg-slate-800 hover:bg-cyan-500 cursor-col-resize transition-colors" />
+        <Panel className="flex-1 flex flex-col relative overflow-hidden">
+          <TopBar />
+          <MagicCommand />
+          
+          {view === 'kanban' ? <Kanban /> : 
+           view === 'list' ? <PipelineList /> :
+           view === 'products' ? <ProductsList /> :
+           view === 'quotes' ? <QuotesList /> :
+           view === 'clients' ? <ClientsList /> :
+           view === 'public-pool' ? <PublicPool /> :
+           view === 'edit-requests' ? <EditRequests /> :
+           view === 'inbox' ? <Inbox /> : 
+           view === 'settings' ? <Settings /> : 
+           view === 'knowledge-base' ? <div className="flex-1 bg-slate-900 border-t border-slate-800 p-6 overflow-y-auto"><div className="w-full text-white"><KnowledgeBaseManager /></div></div> :
+           view === 'user-management' ? <div className="flex-1 bg-slate-900 overflow-y-auto p-6"><div className="w-full text-white"><UserManagement /></div></div> :
+           (view === 'dormant' || view === 'leads' || view === 'followups') ? <ActionableClients /> : 
+           <Dashboard />}
+        </Panel>
         
-        {view === 'kanban' ? <Kanban /> : 
-         view === 'list' ? <PipelineList /> :
-         view === 'products' ? <ProductsList /> :
-         view === 'quotes' ? <QuotesList /> :
-         view === 'clients' ? <ClientsList /> :
-         view === 'public-pool' ? <PublicPool /> :
-         view === 'edit-requests' ? <EditRequests /> :
-         view === 'inbox' ? <Inbox /> : 
-         view === 'settings' ? <Settings /> : 
-         view === 'knowledge-base' ? <div className="flex-1 bg-slate-900 border-t border-slate-800 p-8 overflow-y-auto"><div className="max-w-4xl mx-auto text-white"><KnowledgeBaseManager /></div></div> :
-         view === 'user-management' ? <div className="flex-1 bg-slate-900 overflow-y-auto p-8"><div className="max-w-5xl mx-auto text-white"><UserManagement /></div></div> :
-         (view === 'dormant' || view === 'leads' || view === 'followups') ? <ActionableClients /> : 
-         <Dashboard />}
-      </Panel>
-      
-      {selectedClientId && (
-        <>
-          <PanelResizeHandle className="w-1 bg-slate-800 hover:bg-cyan-500 cursor-col-resize transition-colors" />
-          <Panel defaultSize={384} minSize={300} maxSize={600}>
-            <ClientDetails />
-          </Panel>
-        </>
+        {selectedClientId && (
+          <>
+            <PanelResizeHandle className="w-1 bg-slate-800 hover:bg-cyan-500 cursor-col-resize transition-colors" />
+            <Panel defaultSize={384} minSize={300} maxSize={600}>
+              <ClientDetails />
+            </Panel>
+          </>
+        )}
+      </PanelGroup>
+
+      {globalLoading && (
+        <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-sm z-[9999] flex flex-col items-center justify-center text-slate-200">
+          <Loader2 className="w-12 h-12 animate-spin text-cyan-500 mb-4" />
+          <p className="text-sm font-medium animate-pulse text-cyan-400">Processing...</p>
+        </div>
       )}
-    </PanelGroup>
+    </>
   );
 }
 

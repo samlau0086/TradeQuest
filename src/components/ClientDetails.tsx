@@ -18,6 +18,7 @@ import { User } from 'lucide-react';
 
 import { CommentItem } from './CommentItem';
 import { KnowledgeBaseManager } from './KnowledgeBaseManager';
+import { WorkflowConfigModal } from './WorkflowConfigModal';
 
 function ContactActionBox({ method, client, onClose }: { method: ContactMethod, client: Client, onClose: () => void }) {
   const [purpose, setPurpose] = useState('');
@@ -184,28 +185,51 @@ function ContactActionBox({ method, client, onClose }: { method: ContactMethod, 
 }
 
 function AgentSettingsModal({ client, onClose }: { client: Client, onClose: () => void }) {
-  const { editClient } = useStore();
+  const { editClient, agentWorkflows, addQuest } = useStore();
   const [enabled, setEnabled] = useState(client.agentEnabled || false);
   const [mode, setMode] = useState<'manual'|'auto_email'>(client.agentMode || 'manual');
   const [context, setContext] = useState(client.agentContext || '');
+  const [workflowId, setWorkflowId] = useState(client.agentWorkflowId || agentWorkflows[0]?.id || '');
+  const [showWfManager, setShowWfManager] = useState(false);
+
+  const selectedWf = agentWorkflows.find(wf => wf.id === workflowId);
+
+  const hasNonEmailSteps = selectedWf?.steps.some(s => s.type !== 'email');
 
   const handleSave = () => {
     editClient(client.id, {
       agentEnabled: enabled,
       agentMode: mode,
-      agentContext: context
+      agentContext: context,
+      agentWorkflowId: workflowId
     });
+    
+    // Auto-schedule non-email steps if enabled and auto email mode
+    if (enabled && mode === 'auto_email' && selectedWf && hasNonEmailSteps) {
+        selectedWf.steps.filter(s => s.type !== 'email').forEach((step, idx) => {
+         const languageInstruction = `Language: Write the message matching the language of our past communication. If there is no communication history, use the official language of the client's country (${client.country || 'their location'}).`;
+         
+         addQuest({
+            title: `[Agent] Follow up via ${step.type} (${client.name})`,
+            description: `Agent drafted instructions based on communication habits:\n\n"${step.templatePrompt}\n\n${languageInstruction}"\n\nPlease manually draft and send via ${step.type}. Draft will open when you execute this task.`,
+            expReward: 15,
+            completed: false
+         });
+       });
+    }
+    
     onClose();
   };
 
   return (
+    <>
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
-      <div className="bg-slate-900 border border-indigo-900/50 p-6 rounded-xl shadow-2xl max-w-md w-full relative">
+      <div className="bg-slate-900 border border-indigo-900/50 p-6 rounded-xl shadow-2xl max-w-md w-full relative max-h-[90vh] flex flex-col">
         <h3 className="text-lg font-bold text-indigo-400 mb-4 flex items-center gap-2">
           <Settings className="w-5 h-5" /> AI Agent Setup
         </h3>
         
-        <div className="space-y-4">
+        <div className="space-y-4 overflow-y-auto min-h-0 pr-2 pb-4 flex-1">
           <div className="flex items-center justify-between bg-slate-950 p-3 rounded-lg border border-slate-800">
             <div>
               <div className="text-sm font-bold text-white">Enable Auto Agent</div>
@@ -228,11 +252,48 @@ function AgentSettingsModal({ client, onClose }: { client: Client, onClose: () =
                 className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-indigo-500"
               >
                 <option value="manual">Prompt Only (Suggest next step)</option>
-                <option value="auto_email">Auto Email (Draft / Send email automatically)</option>
+                <option value="auto_email">Auto Execute (Auto email + Manual Tasks)</option>
               </select>
             </div>
 
-            <div className="space-y-1 mt-4">
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-400 uppercase">Workflow Preset</label>
+                <button onClick={() => setShowWfManager(true)} className="text-xs text-indigo-400 hover:text-indigo-300">
+                  Manage Workflows
+                </button>
+              </div>
+              <select 
+                value={workflowId} 
+                onChange={(e) => setWorkflowId(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-indigo-500"
+              >
+                {agentWorkflows.map(wf => (
+                  <option key={wf.id} value={wf.id}>{wf.name}</option>
+                ))}
+              </select>
+              
+              {selectedWf && (
+                <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 mt-2 space-y-2">
+                   <div className="text-xs font-bold text-indigo-300 mb-1">Preview Follow-up Plan</div>
+                   {selectedWf.steps.map((s, idx) => (
+                      <div key={idx} className="flex gap-2 text-xs">
+                         <span className="text-slate-500 font-mono w-12 shrink-0">Day {s.delayDays}</span>
+                         <span className={cn("px-1.5 py-0.5 rounded uppercase font-bold text-[9px]", s.type === 'email' ? "bg-blue-900/40 text-blue-400" : "bg-orange-900/40 text-orange-400")}>{s.type}</span>
+                         <span className="text-slate-300 truncate">{s.templatePrompt}</span>
+                      </div>
+                   ))}
+                </div>
+              )}
+              
+              {mode === 'auto_email' && hasNonEmailSteps && (
+                <div className="p-3 bg-orange-900/30 border border-orange-900/50 rounded-lg text-xs leading-relaxed text-orange-200 mt-2">
+                  <span className="font-bold">Note:</span> Fully automatic follow-up is only supported for Emails. Steps for <span className="font-bold text-orange-300">WhatsApp/Call/Other</span> will generate task reminders. The AI will draft the message using past communication habits (or local language defaults), and you can manually execute it.
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-1">
               <label className="text-xs font-bold text-slate-400 uppercase">Agent Instructions / Context</label>
               <textarea 
                 value={context}
@@ -244,12 +305,14 @@ function AgentSettingsModal({ client, onClose }: { client: Client, onClose: () =
           </div>
         </div>
 
-        <div className="flex justify-end gap-3 mt-6">
+        <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-slate-800 shrink-0">
           <button onClick={onClose} className="px-4 py-2 text-slate-400 hover:text-white transition-colors text-sm">Cancel</button>
           <button onClick={handleSave} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow font-medium transition-colors text-sm">Save Configuration</button>
         </div>
       </div>
     </div>
+    {showWfManager && <WorkflowConfigModal onClose={() => setShowWfManager(false)} />}
+    </>
   );
 }
 
