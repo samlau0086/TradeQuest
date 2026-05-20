@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore, EmailMessage } from '../store';
 import { useAuthStore } from '../authStore';
-import { Mail, Send, Reply, Trash2, ArrowLeft, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2 } from 'lucide-react';
+import { Mail, Send, Reply, Trash2, ArrowLeft, RefreshCw, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { CommentItem } from './CommentItem';
 import { AddressInput } from './AddressInput';
@@ -23,13 +23,52 @@ export function Inbox() {
   const [isCreatingLead, setIsCreatingLead] = useState(false);
   const [addingToRag, setAddingToRag] = useState(false);
   const [addedToRagId, setAddedToRagId] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const filteredEmails = emails.filter(e => {
-    if (e.type !== filter) return false;
+    // Treat 'inbox' filter as 'inbound' emails, and others appropriately
+    const typeMatch = filter === 'inbox' ? e.type === 'inbound' : filter === 'sent' ? e.type === 'outbound' : e.type === 'scheduled';
+    if (!typeMatch) return false;
+    
     if (searchQuery && !e.subject.toLowerCase().includes(searchQuery.toLowerCase()) && !e.body.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     if (tagFilter && (!e.tags || !e.tags.includes(tagFilter))) return false;
     return true;
   });
+
+  const handleSync = async () => {
+    const configs = useStore.getState().inboxConfigs;
+    if (!configs || configs.length === 0) {
+      alert("No Inbox configurations found. Please add one in Settings.");
+      return;
+    }
+    
+    setIsSyncing(true);
+    let totalSynced = 0;
+    try {
+      const token = localStorage.getItem('token');
+      for (const config of configs) {
+        if (config.type !== 'imap') continue;
+        const res = await fetch('/api/sync-emails', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(config)
+        });
+        if (res.ok) {
+          const data = await res.json();
+          totalSynced += data.count || 0;
+        }
+      }
+      if (totalSynced > 0) {
+        useStore.getState().fetchEmails();
+      }
+      alert(`Sync complete. Fetched ${totalSynced} new email(s).`);
+    } catch (e) {
+      console.error(e);
+      alert("Error syncing emails.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const selectedEmail = emails.find(e => e.id === selectedEmailId);
 
@@ -96,13 +135,23 @@ export function Inbox() {
                 Scheduled
               </button>
             </div>
-            <button 
-              onClick={() => { setComposeDefaults(null); setIsComposing(true); setSelectedEmailId(null); }}
-              className="p-1.5 bg-cyan-600 text-white rounded-md hover:bg-cyan-500 transition-colors shadow-lg shadow-cyan-600/20"
-              title="Compose"
-            >
-              <Edit3 className="w-4 h-4" />
-            </button>
+            <div className="flex gap-2">
+              <button 
+                onClick={handleSync}
+                disabled={isSyncing}
+                className={cn("p-1.5 bg-slate-800 text-slate-300 rounded-md hover:bg-slate-700 transition-colors border border-slate-700", isSyncing && "opacity-50")}
+                title="Sync Emails"
+              >
+                <RefreshCw className={cn("w-4 h-4", isSyncing && "animate-spin")} />
+              </button>
+              <button 
+                onClick={() => { setComposeDefaults(null); setIsComposing(true); setSelectedEmailId(null); }}
+                className="p-1.5 bg-cyan-600 text-white rounded-md hover:bg-cyan-500 transition-colors shadow-lg shadow-cyan-600/20"
+                title="Compose"
+              >
+                <Edit3 className="w-4 h-4" />
+              </button>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <div className="flex-1 flex items-center bg-slate-950 border border-slate-800 rounded px-2">

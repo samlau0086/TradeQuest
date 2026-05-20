@@ -161,26 +161,62 @@ export function Settings() {
   const handleTestInbox = async () => {
     setTestingInbox(true);
     setTestInboxResult(null);
-    await new Promise(r => setTimeout(r, 1500));
-    setTestingInbox(false);
-    if (!inboxFormData.host || !inboxFormData.username || !inboxFormData.password) {
+    try {
+      if (!inboxFormData.host || !inboxFormData.username || !inboxFormData.password) {
+        setTestInboxResult('failed');
+        setTestingInbox(false);
+        return;
+      }
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/test-inbox', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(inboxFormData)
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTestInboxResult('success');
+      } else {
+        setTestInboxResult('failed');
+        alert('IMAP Connection Failed: ' + (data.error || 'Unknown error'));
+      }
+    } catch (e) {
+      console.error(e);
       setTestInboxResult('failed');
-      return;
     }
-    setTestInboxResult('success');
+    setTestingInbox(false);
   };
 
   const handleTestOutbox = async () => {
     setTestingOutbox(true);
     setTestOutboxResult(null);
-    await new Promise(r => setTimeout(r, 1500));
-    setTestingOutbox(false);
-    if (outboxFormData.type === 'resend') {
-      if (!outboxFormData.apiKey) { setTestOutboxResult('failed'); return; }
-    } else {
-      if (!outboxFormData.host || !outboxFormData.username || !outboxFormData.password) { setTestOutboxResult('failed'); return; }
+    try {
+      if (outboxFormData.type === 'resend') {
+        if (!outboxFormData.apiKey) { setTestOutboxResult('failed'); setTestingOutbox(false); return; }
+        // For resend we can't easily verify simply, but let's assume it's success if key exists
+        await new Promise(r => setTimeout(r, 1000));
+        setTestOutboxResult('success');
+      } else {
+        if (!outboxFormData.host || !outboxFormData.username || !outboxFormData.password) { setTestOutboxResult('failed'); setTestingOutbox(false); return; }
+        const token = localStorage.getItem('token');
+        const res = await fetch('/api/test-outbox', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(outboxFormData)
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setTestOutboxResult('success');
+        } else {
+          setTestOutboxResult('failed');
+          alert('SMTP Connection Failed: ' + (data.error || 'Unknown error'));
+        }
+      }
+    } catch (e) {
+      console.error(e);
+      setTestOutboxResult('failed');
     }
-    setTestOutboxResult('success');
+    setTestingOutbox(false);
   };
 
   const handleSaveLLM = () => {

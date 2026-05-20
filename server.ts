@@ -4,6 +4,8 @@ import multer from "multer";
 import { createRequire } from 'module';
 const customRequire = typeof require !== "undefined" ? require : createRequire(import.meta.url);
 const pdfParse = customRequire("pdf-parse");
+const nodemailer = customRequire("nodemailer");
+const { ImapFlow } = customRequire("imapflow");
 import { GoogleGenAI } from "@google/genai";
 import OpenAI from "openai";
 import { Pool } from "pg";
@@ -1899,6 +1901,126 @@ No markdown wrappers, just valid JSON.`;
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: 'Failed to add log' });
+    }
+  });
+
+  // Test Inbox Connection
+  app.post('/api/test-inbox', authenticateToken, async (req: any, res) => {
+    try {
+      const { host, port, secure, username, password } = req.body;
+      const client = new ImapFlow({
+        host,
+        port: port || (secure ? 993 : 143),
+        secure: !!secure,
+        auth: {
+          user: username,
+          pass: password
+        },
+        logger: false
+      });
+
+      await client.connect();
+      await client.logout();
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error('IMAP Test Failed:', e);
+      res.status(400).json({ error: e.message || 'Failed to connect to IMAP server' });
+    }
+  });
+
+  // Test Outbox Connection
+  app.post('/api/test-outbox', authenticateToken, async (req: any, res) => {
+    try {
+      const { host, port, secure, username, password } = req.body;
+      let transporter = nodemailer.createTransport({
+        host,
+        port: port || (secure ? 465 : 587),
+        secure: !!secure,
+        auth: {
+          user: username,
+          pass: password
+        }
+      });
+      await transporter.verify();
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error('SMTP Test Failed:', e);
+      res.status(400).json({ error: e.message || 'Failed to connect to SMTP server' });
+    }
+  });
+
+  app.post('/api/sync-emails', authenticateToken, async (req: any, res) => {
+    try {
+      const { host, port, secure, username, password } = req.body;
+      const client = new ImapFlow({
+        host,
+        port: port || (secure ? 993 : 143),
+        secure: !!secure,
+        auth: {
+          user: username,
+          pass: password
+        },
+        logger: false
+      });
+
+      await client.connect();
+      const lock = await client.getMailboxLock('INBOX');
+      const { simpleParser } = customRequire('mailparser');
+      const syncedEmails = [];
+
+      try {
+        // Fetch last 10 messages for speed
+        const mb = await client.mailboxOpen('INBOX');
+        const total = mb.exists;
+        const fetchRange = total > 10 ? `${total - 9}:*` : '1:*';
+        
+        for await (let message of client.fetch(fetchRange, { source: true, uid: true })) {
+          const parsed = await simpleParser(message.source);
+          
+          const fromEmail = parsed.from?.value[0]?.address || '';
+          const clientRes = await pool.query('SELECT id FROM clients WHERE user_id = $1 AND email = $2 LIMIT 1', [req.user.uid, fromEmail]);
+          const clientId = clientRes.rows.length > 0 ? clientRes.rows[0].id : null;
+
+          // Try to use messageId to prevent duplicates, fallback to uid
+          let messageIdStr = parsed.messageId;
+          if (!messageIdStr) {
+             messageIdStr = `msg_${username}_${message.uid}`;
+          }
+          // Truncate to 128 chars
+          messageIdStr = messageIdStr.substring(0, 128);
+
+          const existingRes = await pool.query('SELECT id FROM emails WHERE id = $1 AND user_id = $2', [messageIdStr, req.user.uid]);
+
+          if (existingRes.rows.length === 0) {
+            await pool.query(
+              `INSERT INTO emails (id, user_id, client_id, sender, sender_name, recipient, subject, body, date, read, type)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+              [
+                messageIdStr,
+                req.user.uid,
+                clientId,
+                fromEmail,
+                parsed.from?.value[0]?.name || '',
+                parsed.to?.value.map((v: any) => v.address).join(', ') || '',
+                parsed.subject || '(No Subject)',
+                parsed.text || parsed.html || '',
+                parsed.date ? new Date(parsed.date).toISOString() : new Date().toISOString(),
+                false,
+                'inbound'
+              ]
+            );
+            syncedEmails.push(messageIdStr);
+          }
+        }
+      } finally {
+        lock.release();
+        await client.logout();
+      }
+
+      res.json({ success: true, count: syncedEmails.length });
+    } catch (e: any) {
+      console.error('Email Sync Failed:', e);
+      res.status(500).json({ error: e.message || 'Failed to sync emails' });
     }
   });
 

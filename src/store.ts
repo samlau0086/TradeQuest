@@ -375,6 +375,7 @@ export interface StoreState {
   loadExpConfig: () => Promise<void>;
 
   fetchUserSettings: () => Promise<void>;
+  fetchEmails: () => Promise<void>;
   fetchInitialData: () => Promise<void>;
 }
 
@@ -1369,6 +1370,20 @@ export const useStore = create<StoreState>((set, get) => ({
       }
     } catch(e) {
       console.error('Failed to load user settings', e);
+    }
+  },
+
+  fetchEmails: async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const emailsRes = await fetch('/api/emails', { headers: { 'Authorization': `Bearer ${token}` } });
+      if (emailsRes.ok) {
+        const emails = await emailsRes.json();
+        set({ emails });
+      }
+    } catch(e) {
+      console.error('Failed to fetch emails', e);
     }
   },
 
