@@ -51,6 +51,7 @@ async function initDB() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS company_phone VARCHAR(100);
       ALTER TABLE users ADD COLUMN IF NOT EXISTS company_email VARCHAR(255);
       ALTER TABLE users ADD COLUMN IF NOT EXISTS company_website VARCHAR(255);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS settings JSONB DEFAULT '{}'::jsonb;
       
       CREATE TABLE IF NOT EXISTS clients (
         id VARCHAR(128) PRIMARY KEY,
@@ -467,6 +468,32 @@ No markdown wrappers, just valid JSON.`;
       res.sendStatus(500);
     }
   };
+
+  app.get('/api/user/settings', authenticateToken, async (req: any, res) => {
+    try {
+      const result = await pool.query('SELECT settings FROM users WHERE id = $1', [req.user.uid]);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      res.json(result.rows[0].settings || {});
+    } catch (e) {
+      console.error('Failed to fetch settings', e);
+      res.status(500).json({ error: 'Failed to fetch user settings' });
+    }
+  });
+
+  app.patch('/api/user/settings', authenticateToken, async (req: any, res) => {
+    try {
+      const result = await pool.query(
+        'UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING settings',
+        [JSON.stringify(req.body), req.user.uid]
+      );
+      res.json(result.rows[0].settings || {});
+    } catch (e) {
+      console.error('Failed to update settings', e);
+      res.status(500).json({ error: 'Failed to update user settings' });
+    }
+  });
 
   app.get('/api/users/:uid', authenticateToken, async (req, res) => {
     try {
@@ -1526,6 +1553,10 @@ No markdown wrappers, just valid JSON.`;
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Not found or permission denied' });
       }
+      
+      // Delete associated deals
+      await pool.query('DELETE FROM deals WHERE client_id = $1', [id]);
+      
       res.json({ success: true, softDeleted: true });
     } catch (e) {
       console.error(e);

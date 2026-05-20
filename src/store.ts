@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import { useAuthStore } from './authStore';
 
 export type ViewMode = 'kanban' | 'map' | 'inbox' | 'dashboard' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests' | 'list' | 'products' | 'quotes';
@@ -375,6 +374,7 @@ export interface StoreState {
   expConfig: Record<string, number>;
   loadExpConfig: () => Promise<void>;
 
+  fetchUserSettings: () => Promise<void>;
   fetchInitialData: () => Promise<void>;
 }
 
@@ -407,7 +407,7 @@ const INITIAL_ACHIEVEMENTS: Achievement[] = [
   { id: 'unstoppable', title: 'Unstoppable', description: 'Achieve a 10-day streak.', icon: '⚡', expReward: 1000, unlockedAt: null }
 ];
 
-export const useStore = create<StoreState>()(persist((set, get) => ({
+export const useStore = create<StoreState>((set, get) => ({
   knowledgeBase: [],
   fetchKnowledgeBase: () => {
     const token = localStorage.getItem('token');
@@ -901,6 +901,7 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
     }
     return {
       clients: state.clients.filter(c => c.id !== id),
+      deals: state.deals.filter(d => d.clientId !== id),
       selectedClientId: state.selectedClientId === id ? null : state.selectedClientId
     };
   }),
@@ -1348,11 +1349,35 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
     }
   },
 
+  fetchUserSettings: async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const res = await fetch('/api/user/settings', { headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) {
+        const settings = await res.json();
+        set((state) => ({
+          inboxConfigs: settings.inboxConfigs ?? state.inboxConfigs,
+          outboxConfigs: settings.outboxConfigs ?? state.outboxConfigs,
+          llmConfigs: settings.llmConfigs ?? state.llmConfigs,
+          llmMappings: settings.llmMappings ?? state.llmMappings,
+          outscraperApiKey: settings.outscraperApiKey ?? state.outscraperApiKey,
+          activeLLMId: settings.activeLLMId ?? state.activeLLMId,
+          language: settings.language ?? state.language,
+          theme: settings.theme ?? state.theme
+        }));
+      }
+    } catch(e) {
+      console.error('Failed to load user settings', e);
+    }
+  },
+
   fetchInitialData: async () => {
     const token = localStorage.getItem('token');
     if (!token) return;
 
     // Trigger background fetches for independent modules
+    get().fetchUserSettings();
     get().loadExpConfig();
     get().fetchProducts();
     get().fetchQuotes();
@@ -1380,19 +1405,11 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
       console.error("Failed to fetch initial data", e);
     }
   }
-}), {
-  name: 'crm-local-settings',
-  partialize: (state) => ({
-    inboxConfigs: state.inboxConfigs,
-    outboxConfigs: state.outboxConfigs,
-    llmConfigs: state.llmConfigs,
-    llmMappings: state.llmMappings,
-    outscraperApiKey: state.outscraperApiKey,
-    activeLLMId: state.activeLLMId,
-  })
 }));
 
 // Setup automatic achievement checking on state changes
+let settingsSaveTimeout: NodeJS.Timeout | null = null;
+
 useStore.subscribe((state, prevState) => {
   if (
     state.clients !== prevState.clients ||
@@ -1402,5 +1419,43 @@ useStore.subscribe((state, prevState) => {
     state.dailyQuests !== prevState.dailyQuests
   ) {
     state.checkAchievements();
+  }
+
+  // Sync user settings on change
+  if (
+    state.inboxConfigs !== prevState.inboxConfigs ||
+    state.outboxConfigs !== prevState.outboxConfigs ||
+    state.llmConfigs !== prevState.llmConfigs ||
+    state.llmMappings !== prevState.llmMappings ||
+    state.outscraperApiKey !== prevState.outscraperApiKey ||
+    state.activeLLMId !== prevState.activeLLMId ||
+    state.language !== prevState.language ||
+    state.theme !== prevState.theme
+  ) {
+    if (settingsSaveTimeout) {
+      clearTimeout(settingsSaveTimeout);
+    }
+    settingsSaveTimeout = setTimeout(() => {
+      const token = localStorage.getItem('token');
+      if (token) {
+        fetch('/api/user/settings', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            inboxConfigs: state.inboxConfigs,
+            outboxConfigs: state.outboxConfigs,
+            llmConfigs: state.llmConfigs,
+            llmMappings: state.llmMappings,
+            outscraperApiKey: state.outscraperApiKey,
+            activeLLMId: state.activeLLMId,
+            language: state.language,
+            theme: state.theme
+          })
+        }).catch(console.error);
+      }
+    }, 1000);
   }
 });
