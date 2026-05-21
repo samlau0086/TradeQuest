@@ -5,6 +5,7 @@ import { createRequire } from 'module';
 const customRequire = typeof require !== "undefined" ? require : createRequire(import.meta.url);
 const pdfParse = customRequire("pdf-parse");
 const nodemailer = customRequire("nodemailer");
+const geoip = customRequire("geoip-lite");
 const { ImapFlow } = customRequire("imapflow");
 const Pop3Command = customRequire("node-pop3").default || customRequire("node-pop3");
 import { GoogleGenAI } from "@google/genai";
@@ -158,6 +159,17 @@ async function initDB() {
       ALTER TABLE emails ADD COLUMN IF NOT EXISTS is_important BOOLEAN DEFAULT FALSE;
       ALTER TABLE emails ADD COLUMN IF NOT EXISTS todo_at TIMESTAMP WITH TIME ZONE;
       ALTER TABLE emails ADD COLUMN IF NOT EXISTS todo_note TEXT;
+
+      CREATE TABLE IF NOT EXISTS email_tracking (
+        id SERIAL PRIMARY KEY,
+        email_id VARCHAR(128) REFERENCES emails(id) ON DELETE CASCADE,
+        type VARCHAR(50) NOT NULL,
+        url TEXT,
+        ip_address VARCHAR(128),
+        location JSONB,
+        user_agent TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
 
       CREATE TABLE IF NOT EXISTS deals (
         id VARCHAR(128) PRIMARY KEY,
@@ -2226,7 +2238,13 @@ No markdown wrappers, just valid JSON.`;
   // Emails API
   app.get('/api/emails', authenticateToken, async (req: any, res) => {
     try {
-      const result = await pool.query('SELECT * FROM emails WHERE user_id = $1 ORDER BY date DESC', [req.user.uid]);
+      const result = await pool.query(`
+        SELECT e.*, 
+          COALESCE((SELECT json_agg(t.*) FROM email_tracking t WHERE t.email_id = e.id), '[]'::json) as tracking_events
+        FROM emails e 
+        WHERE e.user_id = $1 
+        ORDER BY e.date DESC
+      `, [req.user.uid]);
       res.json(result.rows.map(row => ({
         id: row.id,
         clientId: row.client_id,
@@ -2247,7 +2265,8 @@ No markdown wrappers, just valid JSON.`;
         pendingDelete: row.pending_delete,
         isImportant: row.is_important,
         todoAt: row.todo_at,
-        todoNote: row.todo_note
+        todoNote: row.todo_note,
+        trackingEvents: row.tracking_events
       })));
     } catch (e) {
       console.error(e);
@@ -2316,7 +2335,22 @@ No markdown wrappers, just valid JSON.`;
 
   app.post('/api/emails', authenticateToken, async (req: any, res) => {
     try {
-      const { id, clientId, sender, senderName, recipient, cc, bcc, subject, body, date, read, type, tags, comments, scheduledAt, attachments } = req.body;
+      const { id, clientId, sender, senderName, recipient, cc, bcc, subject, body, date, read, type, tags, comments, scheduledAt, attachments, enableTracking } = req.body;
+      
+      let finalBody = body;
+      const appUrl = `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.headers.host}`;
+      
+      if (body && enableTracking) {
+          const trackingPixel = `<img src="${appUrl}/api/track/open/${id}" width="1" height="1" style="display:none;" alt="" />`;
+          finalBody = body.replace(/href="([^"]+)"/g, (match: string, url: string) => {
+            if (url.startsWith('http') && !url.includes('/api/track/')) {
+              const encodedUrl = Buffer.from(url).toString('base64');
+              return `href="${appUrl}/api/track/click/${id}?url=${encodedUrl}"`;
+            }
+            return match;
+          });
+          finalBody += trackingPixel;
+      }
       
       // If type is sent, actually send the email using configured outbox
       if (type === 'sent') {
@@ -2344,7 +2378,7 @@ No markdown wrappers, just valid JSON.`;
               cc: cc || undefined,
               bcc: bcc || undefined,
               subject: subject,
-              html: body
+              html: finalBody
             });
           } else if (config.type === 'resend' && config.apiKey) {
             const resendRes = await fetch('https://api.resend.com/emails', {
@@ -2359,7 +2393,7 @@ No markdown wrappers, just valid JSON.`;
                 cc: cc ? cc.split(',').map((s: string) => s.trim()) : undefined,
                 bcc: bcc ? bcc.split(',').map((s: string) => s.trim()) : undefined,
                 subject: subject,
-                html: body
+                html: finalBody
               })
             });
             if (!resendRes.ok) {
@@ -2376,7 +2410,7 @@ No markdown wrappers, just valid JSON.`;
       await pool.query(
         `INSERT INTO emails (id, user_id, client_id, sender, sender_name, recipient, cc, bcc, subject, body, date, read, type, tags, comments, scheduled_at, attachments)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
-        [id, req.user.uid, clientId || null, sender, senderName, recipient, cc, bcc, subject, body, date || new Date().toISOString(), !!read, type, JSON.stringify(tags || []), JSON.stringify(comments || []), scheduledAt || null, JSON.stringify(attachments || [])]
+        [id, req.user.uid, clientId || null, sender, senderName, recipient, cc, bcc, subject, finalBody, date || new Date().toISOString(), !!read, type, JSON.stringify(tags || []), JSON.stringify(comments || []), scheduledAt || null, JSON.stringify(attachments || [])]
       );
       if (clientId) {
         await pool.query(`UPDATE clients SET last_contact = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND user_id = $2`, [clientId, req.user.uid]);
@@ -2417,6 +2451,67 @@ No markdown wrappers, just valid JSON.`;
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: 'Failed to update email' });
+    }
+  });
+
+  // Tracking API
+  app.get('/api/track/open/:id', async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      // Get IP
+      const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+      const ipAddr = Array.isArray(ip) ? ip[0] : ip.split(',')[0].trim();
+      const userAgent = req.headers['user-agent'] || '';
+      
+      const geo = geoip.lookup(ipAddr);
+      const location = geo ? { country: geo.country, region: geo.region, city: geo.city, ll: geo.ll } : null;
+
+      await pool.query(
+        `INSERT INTO email_tracking (email_id, type, ip_address, location, user_agent) VALUES ($1, $2, $3, $4, $5)`,
+        [id, 'open', ipAddr, location ? JSON.stringify(location) : null, userAgent]
+      );
+    } catch (e) {
+      console.error('Tracking open error:', e);
+    }
+    
+    // Serve a 1x1 transparent pixel
+    const pixel = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+    res.writeHead(200, {
+      'Content-Type': 'image/gif',
+      'Content-Length': pixel.length,
+      'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'
+    });
+    res.end(pixel);
+  });
+
+  app.get('/api/track/click/:id', async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { url } = req.query;
+      
+      if (!url) {
+        return res.status(400).send('Missing url');
+      }
+
+      const decodedUrl = Buffer.from(url.toString(), 'base64').toString();
+
+      // Get IP
+      const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+      const ipAddr = Array.isArray(ip) ? ip[0] : ip.split(',')[0].trim();
+      const userAgent = req.headers['user-agent'] || '';
+      
+      const geo = geoip.lookup(ipAddr);
+      const location = geo ? { country: geo.country, region: geo.region, city: geo.city, ll: geo.ll } : null;
+
+      await pool.query(
+        `INSERT INTO email_tracking (email_id, type, url, ip_address, location, user_agent) VALUES ($1, $2, $3, $4, $5, $6)`,
+        [id, 'click', decodedUrl, ipAddr, location ? JSON.stringify(location) : null, userAgent]
+      );
+
+      res.redirect(decodedUrl);
+    } catch (e) {
+      console.error('Tracking click error:', e);
+      res.status(500).send('Tracker error');
     }
   });
 

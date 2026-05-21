@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore, EmailMessage } from '../store';
 import { useAuthStore } from '../authStore';
-import { Mail, Send, Reply, Trash2, ArrowLeft, RefreshCw, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2, MoreHorizontal, Star, Clock } from 'lucide-react';
+import { Mail, Send, Reply, Trash2, ArrowLeft, RefreshCw, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2, MoreHorizontal, Star, Clock, Activity, Eye, MousePointerClick, Radar, Timer } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { CommentItem } from './CommentItem';
 import { AddressInput } from './AddressInput';
@@ -44,7 +44,7 @@ export function Inbox() {
   const filteredEmails = emails.filter(e => {
     // Support both new ('inbox'/'sent') and legacy ('inbound'/'outbound') types
     const typeMatch = (filter === 'inbox' && (e.type === 'inbox' || e.type === 'inbound')) ||
-                      (filter === 'sent' && (e.type === 'sent' || e.type === 'outbound')) ||
+                      (filter === 'sent' && (e.type === 'sent' || e.type === 'outbound' || e.type === 'scheduled')) ||
                       (filter === 'scheduled' && e.type === 'scheduled');
     
     if (!typeMatch) return false;
@@ -346,6 +346,22 @@ export function Inbox() {
                     {filter === 'inbox' ? (email.senderName || email.sender) : (email.recipient)}
                   </span>
                   <div className="flex items-center gap-2 shrink-0">
+                    {((email.type === 'sent' || email.type === 'scheduled' || email.type === 'outbound') && (email.body?.includes('/api/track/open/') || email.enableTracking)) && (
+                      <div className="relative flex items-center">
+                        <Radar 
+                          className={cn("w-3.5 h-3.5", email.trackingEvents && email.trackingEvents.length > 0 ? "text-emerald-400" : "text-slate-500")} 
+                          title={email.trackingEvents && email.trackingEvents.length > 0 ? `已记录 ${email.trackingEvents.length} 次跟踪事件` : "邮件跟踪已开启"}
+                        />
+                      </div>
+                    )}
+                    {(email.type === 'scheduled' && email.scheduledAt) && (
+                      <div className="relative flex items-center">
+                        <Timer 
+                          className="w-3.5 h-3.5 text-amber-500" 
+                          title={`将在 ${new Date(email.scheduledAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' })} 发送`} 
+                        />
+                      </div>
+                    )}
                     <span className="text-[10px] text-slate-500">
                       {email.type === 'scheduled' && email.scheduledAt ? `Sched: ${new Date(email.scheduledAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'})}` : new Date(email.date).toLocaleDateString()}
                     </span>
@@ -483,6 +499,48 @@ export function Inbox() {
             </div>
             
             <div className="p-6 overflow-y-auto scrollbar-thin flex-1">
+               {/* Tracking Details */}
+               {((selectedEmail.type === 'sent' || selectedEmail.type === 'scheduled' || selectedEmail.type === 'outbound') && (selectedEmail.body?.includes('/api/track/open/') || selectedEmail.enableTracking)) && (
+                 <div className="mb-6 bg-slate-800/30 border border-slate-700/50 rounded-xl p-4">
+                   <div className="flex items-center gap-2 text-xs font-bold text-slate-400 mb-3 uppercase tracking-wider">
+                     <Radar className="w-4 h-4 text-emerald-400" /> Interaction Tracking Activity
+                   </div>
+                   {(!selectedEmail.trackingEvents || selectedEmail.trackingEvents.length === 0) ? (
+                     <div className="text-sm text-slate-500 py-2">No tracking events have been recorded yet.</div>
+                   ) : (
+                   <div className="space-y-3">
+                     {selectedEmail.trackingEvents.map((evt: any, i: number) => (
+                       <div key={i} className="flex flex-wrap items-center gap-4 text-sm bg-slate-900/50 p-2.5 rounded-lg border border-slate-800/50">
+                         <div className="flex items-center gap-2 min-w-[100px]">
+                            {evt.type === 'open' ? <Eye className="w-4 h-4 text-cyan-500" /> : <MousePointerClick className="w-4 h-4 text-fuchsia-500" />}
+                            <span className="text-white font-medium capitalize">{evt.type}</span>
+                         </div>
+                         <div className="flex items-center gap-2 text-slate-400 text-xs min-w-[140px]">
+                           <Clock className="w-3.5 h-3.5" />
+                           {new Date(evt.created_at).toLocaleString()}
+                         </div>
+                         {(evt.location?.country || evt.location?.city) && (
+                           <div className="flex items-center gap-1.5 text-slate-300 text-xs">
+                             <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/50"></div>
+                             {evt.location.city ? `${evt.location.city}, ` : ''}{evt.location.region ? `${evt.location.region}, ` : ''}{evt.location.country}
+                           </div>
+                         )}
+                         <div className="text-slate-500 text-xs ml-auto font-mono bg-slate-800 px-2 py-0.5 rounded" title={evt.user_agent}>
+                           {evt.ip_address}
+                         </div>
+                         {evt.type === 'click' && evt.url && (
+                           <div className="w-full mt-1.5 text-xs">
+                             <span className="text-slate-500 mr-2">Link Clicked:</span>
+                             <a href={evt.url} target="_blank" rel="noopener noreferrer" className="text-fuchsia-400 hover:text-fuchsia-300 underline break-all">{evt.url}</a>
+                           </div>
+                         )}
+                       </div>
+                     ))}
+                   </div>
+                   )}
+                 </div>
+               )}
+
                {/* Tags Row */}
                <div className="flex flex-wrap items-center gap-2 mb-4">
                  {selectedEmail.tags?.map(tg => (
@@ -506,7 +564,7 @@ export function Inbox() {
                <h2 className="text-xl font-bold text-slate-200 mb-6">{selectedEmail.subject}</h2>
                <div 
                  className="text-sm bg-white text-black p-6 rounded-lg leading-relaxed overflow-x-auto"
-                 dangerouslySetInnerHTML={{ __html: selectedEmail.body || '' }}
+                 dangerouslySetInnerHTML={{ __html: (selectedEmail.body || '').replace(/<img[^>]*\/api\/track\/open\/[^>]*>/g, '') }}
                />
 
                {selectedEmail.attachments && selectedEmail.attachments.length > 0 && (
@@ -686,6 +744,7 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
   const [scheduleDateTime, setScheduleDateTime] = useState('');
   const [attachments, setAttachments] = useState<{name: string, size: string}[]>([]);
   const [showCcBcc, setShowCcBcc] = useState(false);
+  const [trackEmail, setTrackEmail] = useState(true);
 
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const [caretCoords, setCaretCoords] = useState<{top: number, left: number, matchText: string} | null>(null);
@@ -830,7 +889,8 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
       type: 'scheduled',
       clientId: matchedClient?.id,
       scheduledAt,
-      attachments: attachmentsPayload.length > 0 ? attachmentsPayload : undefined
+      attachments: attachmentsPayload.length > 0 ? attachmentsPayload : undefined,
+      enableTracking: trackEmail
     });
     if (matchedClient) {
       addLog(matchedClient.id, `Scheduled Email: ${subject} for ${new Date(scheduledAt).toLocaleString()}${purpose ? ` (Purpose: ${purpose})` : ''}`);
@@ -861,7 +921,8 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
       read: true,
       type: 'sent',
       clientId: matchedClient?.id,
-      attachments: attachmentsPayload.length > 0 ? attachmentsPayload : undefined
+      attachments: attachmentsPayload.length > 0 ? attachmentsPayload : undefined,
+      enableTracking: trackEmail
     });
     if (matchedClient) {
       addLog(matchedClient.id, `Sent Email: ${subject}${purpose ? ` (Purpose: ${purpose})` : ''}`);
@@ -1137,6 +1198,20 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
               Attach
               <input type="file" multiple className="hidden" onChange={handleFileUpload} />
             </label>
+
+            <button
+              onClick={() => setTrackEmail(!trackEmail)}
+              className={cn(
+                "text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg border transition-colors font-medium",
+                trackEmail 
+                  ? "bg-emerald-950/30 border-emerald-800 text-emerald-400 hover:bg-emerald-900/50" 
+                  : "bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-400 hover:bg-slate-700"
+              )}
+              title={trackEmail ? "Email tracking enabled" : "Email tracking disabled"}
+            >
+              <Radar className="w-3.5 h-3.5" />
+              Track
+            </button>
           </div>
 
           

@@ -185,6 +185,8 @@ export interface EmailMessage {
   isImportant?: boolean;
   todoAt?: string;
   todoNote?: string;
+  trackingEvents?: any[];
+  enableTracking?: boolean;
 }
 
 export interface Quest {
