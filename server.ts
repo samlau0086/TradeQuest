@@ -808,6 +808,75 @@ No markdown wrappers, just valid JSON.`;
   // Run agent polling every 10 minutes
   setInterval(runAgentPolling, 10 * 60 * 1000);
   
+  // Scheduled Emails Processor
+  const processScheduledEmails = async () => {
+    try {
+      if (!pool) return;
+      const now = new Date().toISOString();
+      const result = await pool.query(`
+        SELECT * FROM emails
+        WHERE type = 'scheduled' AND scheduled_at <= $1
+      `, [now]);
+
+      for (const email of result.rows) {
+        try {
+          const userRes = await pool.query('SELECT settings FROM users WHERE id = $1', [email.user_id]);
+          const settings = userRes.rows[0]?.settings || {};
+          const outboxConfigs = settings.outboxConfigs || [];
+          const config = outboxConfigs.find((c: any) => c.fromEmail === email.sender) || outboxConfigs[0];
+
+          if (config) {
+            let finalBody = email.body;
+            // The body is already processed with track pixels from POST /api/emails if enableTracking was true, since the tracking pixel was appended before inserting.
+
+            if (config.type === 'smtp') {
+              const transporter = nodemailer.createTransport({
+                host: config.host,
+                port: config.port ? parseInt(config.port) : (config.secure ? 465 : 587),
+                secure: (config.port && parseInt(config.port) === 465) ? true : !!config.secure,
+                tls: { rejectUnauthorized: false },
+                auth: { user: config.username, pass: config.password }
+              });
+              await transporter.sendMail({
+                from: `"${email.sender_name || config.fromName}" <${email.sender}>`,
+                to: email.recipient,
+                cc: email.cc || undefined,
+                bcc: email.bcc || undefined,
+                subject: email.subject,
+                html: finalBody
+              });
+            } else if (config.type === 'resend' && config.apiKey) {
+              await fetch('https://api.resend.com/emails', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${config.apiKey}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  from: `"${email.sender_name || config.fromName}" <${email.sender}>`,
+                  to: email.recipient,
+                  cc: email.cc ? email.cc.split(',').map((s: string) => s.trim()) : undefined,
+                  bcc: email.bcc ? email.bcc.split(',').map((s: string) => s.trim()) : undefined,
+                  subject: email.subject,
+                  html: finalBody
+                })
+              });
+            }
+          }
+          await pool.query(`UPDATE emails SET type = 'sent', date = $1 WHERE id = $2`, [new Date().toISOString(), email.id]);
+          console.log(`Sent scheduled email ${email.id}`);
+        } catch (err) {
+          console.error(`Failed to send scheduled email ${email.id}`, err);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to process scheduled emails:', e);
+    }
+  };
+
+  // Run scheduled emails processor every 1 minute
+  setInterval(processScheduledEmails, 60 * 1000);
+  
   // Deals API Endpoints
   app.get('/api/deals', authenticateToken, async (req: any, res) => {
     try {

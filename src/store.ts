@@ -396,6 +396,9 @@ export interface StoreState {
   language: 'en' | 'zh';
   setLanguage: (lang: 'en' | 'zh') => void;
 
+  timezone: string;
+  setTimezone: (timezone: string) => void;
+
   outscraperApiKey: string;
   setOutscraperApiKey: (key: string) => void;
 
@@ -1276,21 +1279,15 @@ export const useStore = create<StoreState>((set, get) => ({
       })
     };
   }),
-  checkScheduledEmails: () => set((state) => {
+  checkScheduledEmails: () => {
+    // Relying on backend to process emails. Just trigger a fetch if we suspect changes.
+    const state = get();
     const now = Date.now();
-    let changed = false;
-    const emails = state.emails.map(e => {
-      if (e.type === 'scheduled' && e.scheduledAt && new Date(e.scheduledAt).getTime() <= now) {
-        changed = true;
-        return { ...e, type: 'sent', date: new Date().toISOString() } as EmailMessage;
-      }
-      return e;
-    });
-    if (changed) {
-      return { emails };
+    const hasPastScheduled = state.emails.some(e => e.type === 'scheduled' && e.scheduledAt && new Date(e.scheduledAt).getTime() <= now);
+    if (hasPastScheduled) {
+      get().fetchEmails();
     }
-    return state;
-  }),
+  },
   deleteEmails: async (ids: string[]) => {
     const token = localStorage.getItem('token');
     if (!token) return;
@@ -1435,6 +1432,9 @@ export const useStore = create<StoreState>((set, get) => ({
   language: 'en',
   setLanguage: (lang) => set({ language: lang }),
 
+  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  setTimezone: (timezone) => set({ timezone }),
+
   outscraperApiKey: localStorage.getItem('outscraperApiKey') || '',
   setOutscraperApiKey: (key) => {
     localStorage.setItem('outscraperApiKey', key);
@@ -1489,7 +1489,8 @@ export const useStore = create<StoreState>((set, get) => ({
           outscraperApiKey: settings.outscraperApiKey ?? state.outscraperApiKey,
           activeLLMId: settings.activeLLMId ?? state.activeLLMId,
           language: settings.language ?? state.language,
-          theme: settings.theme ?? state.theme
+          theme: settings.theme ?? state.theme,
+          timezone: settings.timezone ?? state.timezone
         }));
       }
     } catch(e) {
@@ -1570,7 +1571,8 @@ useStore.subscribe((state, prevState) => {
     state.outscraperApiKey !== prevState.outscraperApiKey ||
     state.activeLLMId !== prevState.activeLLMId ||
     state.language !== prevState.language ||
-    state.theme !== prevState.theme
+    state.theme !== prevState.theme ||
+    state.timezone !== prevState.timezone
   ) {
     if (settingsSaveTimeout) {
       clearTimeout(settingsSaveTimeout);
@@ -1592,7 +1594,8 @@ useStore.subscribe((state, prevState) => {
             outscraperApiKey: state.outscraperApiKey,
             activeLLMId: state.activeLLMId,
             language: state.language,
-            theme: state.theme
+            theme: state.theme,
+            timezone: state.timezone
           })
         }).catch(console.error);
       }

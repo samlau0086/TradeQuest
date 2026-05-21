@@ -289,7 +289,7 @@ export function Inbox() {
           </div>
         </div>
         
-        <div className="flex-1 overflow-y-auto scrollbar-thin">
+        <div className="flex-1 overflow-y-auto scrollbar-thin pb-48">
           {filteredEmails.length > 0 && (
             <div className="flex items-center justify-between p-2 px-4 border-b border-slate-800 bg-slate-900/50 text-xs text-slate-400">
               <div className="flex items-center gap-2">
@@ -347,11 +347,30 @@ export function Inbox() {
                   </span>
                   <div className="flex items-center gap-2 shrink-0">
                     {((email.type === 'sent' || email.type === 'scheduled' || email.type === 'outbound') && (email.body?.includes('/api/track/open/') || email.enableTracking)) && (
-                      <div className="relative flex items-center">
+                      <div className="relative group/track flex items-center">
                         <Radar 
-                          className={cn("w-3.5 h-3.5", email.trackingEvents && email.trackingEvents.length > 0 ? "text-emerald-400" : "text-slate-500")} 
-                          title={email.trackingEvents && email.trackingEvents.length > 0 ? `已记录 ${email.trackingEvents.length} 次跟踪事件` : "邮件跟踪已开启"}
+                          className={cn("w-3.5 h-3.5 cursor-pointer", email.trackingEvents && email.trackingEvents.length > 0 ? "text-emerald-400" : "text-slate-500")} 
                         />
+                        <div className="absolute right-0 top-full mt-2 w-52 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-[999] p-2 opacity-0 invisible group-hover/track:opacity-100 group-hover/track:visible transition-all text-xs cursor-default" onClick={e => e.stopPropagation()}>
+                          <div className="font-bold text-slate-300 mb-2 border-b border-slate-700 pb-1">Tracking Activity</div>
+                          <div className="space-y-2 max-h-48 overflow-y-auto pr-1 scrollbar-thin">
+                            {(!email.trackingEvents || email.trackingEvents.length === 0) ? (
+                              <div className="text-slate-500 py-2 text-center">No tracking events yet</div>
+                            ) : (
+                              email.trackingEvents.map((evt: any, i: number) => (
+                                <div key={i} className="flex gap-2 text-left">
+                                  <div className="mt-0.5">{evt.type === 'open' ? <Eye className="w-3 h-3 text-cyan-400" /> : <MousePointerClick className="w-3 h-3 text-fuchsia-400" />}</div>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="text-white capitalize">{evt.type} {evt.type === 'click' && evt.url && <a href={evt.url} target="_blank" rel="noopener noreferrer" className="text-fuchsia-400 underline ml-1 truncate max-w-[120px] inline-block align-bottom px-1">{evt.url}</a>}</div>
+                                    <div className="text-slate-500 text-[10px] truncate">{new Date(evt.created_at).toLocaleString()}</div>
+                                    {evt.location && <div className="text-slate-400 text-[10px] truncate">{evt.location.city ? `${evt.location.city}, ` : ''}{evt.location.region ? `${evt.location.region}, ` : ''}{evt.location.country}</div>}
+                                    <div className="text-slate-600 text-[9px] truncate" title={evt.ip_address}>{evt.ip_address}</div>
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
                       </div>
                     )}
                     {(email.type === 'scheduled' && email.scheduledAt) && (
@@ -730,7 +749,7 @@ export function Inbox() {
 }
 
 function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: { onClose: () => void, initialRecipient?: string, initialSubject?: string }) {
-  const { clients, emails, logs, addEmail, addLog, outboxConfigs } = useStore();
+  const { clients, emails, logs, addEmail, addLog, outboxConfigs, timezone } = useStore();
   const [selectedOutboxId, setSelectedOutboxId] = useState<string>(outboxConfigs?.[0]?.id || '');
   const [recipient, setRecipient] = useState(initialRecipient);
   const [cc, setCc] = useState('');
@@ -867,7 +886,23 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
 
   const doSchedule = () => {
     if (!recipient || !subject || !scheduleDateTime) return;
-    const scheduledAt = new Date(scheduleDateTime).toISOString();
+    
+    // Parse the local datetime string into UTC, treating it as if it was in `timezone`
+    // scheduleDateTime format: "YYYY-MM-DDTHH:mm"
+    let scheduledAt = new Date(scheduleDateTime).toISOString();
+    try {
+      if (timezone && timezone !== Intl.DateTimeFormat().resolvedOptions().timeZone) {
+        // We have a custom timezone. We need to find the offset of `timezone` at the given time.
+        // A simple trick is to format the date in the target timezone and calculate the offset.
+        const dt = new Date(scheduleDateTime);
+        const invTzDateStr = dt.toLocaleString('en-US', { timeZone: timezone });
+        const invTzDate = new Date(invTzDateStr);
+        const diff = dt.getTime() - invTzDate.getTime();
+        scheduledAt = new Date(dt.getTime() + diff).toISOString();
+      }
+    } catch(e) {
+      console.warn("Timezone parsing failed", e);
+    }
     
     // We add attachments if any
     const attachmentsPayload = attachments.map(a => ({
@@ -1227,7 +1262,12 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
               </button>
               {showSchedule && (
                 <div className="absolute bottom-full right-0 mb-2 w-64 p-3 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-20 flex flex-col gap-2">
-                  <label className="text-xs font-bold text-slate-400">Select Date & Time</label>
+                  <div className="flex justify-between items-center">
+                    <label className="text-xs font-bold text-slate-400">Select Date & Time</label>
+                    <span className="text-[10px] text-slate-500 overflow-hidden text-ellipsis whitespace-nowrap pl-2 text-right" title={timezone || Intl.DateTimeFormat().resolvedOptions().timeZone}>
+                      {timezone || Intl.DateTimeFormat().resolvedOptions().timeZone}
+                    </span>
+                  </div>
                   <input
                     type="datetime-local"
                     value={scheduleDateTime}

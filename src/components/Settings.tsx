@@ -13,6 +13,7 @@ export function Settings() {
     llmConfigs, addLLMConfig, updateLLMConfig, deleteLLMConfig, activeLLMId, setActiveLLMId,
     paymentTerms, addPaymentTerm, updatePaymentTerm, deletePaymentTerm,
     llmMappings, setLLMMapping, language,
+    timezone, setTimezone,
     outscraperApiKey, setOutscraperApiKey,
     dailyQuests, achievements
   } = useStore();
@@ -302,6 +303,47 @@ export function Settings() {
         {activeTab === 'profile' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
             <ProfileSettings />
+            
+            {/* Preferences */}
+            <section className="bg-slate-800/20 border border-slate-700/50 rounded-2xl p-6 md:p-8 relative overflow-hidden group/card shadow-lg shadow-black/20">
+              <div className="absolute inset-x-0 -top-px h-px bg-gradient-to-r from-transparent via-cyan-500/20 to-transparent"></div>
+              
+              <div className="flex items-center gap-3 mb-8 relative z-10">
+                <div className="p-2 bg-gradient-to-br from-cyan-500/20 to-blue-500/20 rounded-xl border border-cyan-500/20 text-cyan-400 select-none">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2 tracking-tight">{t('Preferences') || 'Preferences'}</h2>
+                  <p className="text-sm text-slate-400 capitalize">Manage system timezone</p>
+                </div>
+              </div>
+
+              <div className="space-y-6 max-w-2xl relative z-10">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">System Timezone</label>
+                  <select
+                    value={timezone}
+                    onChange={(e) => setTimezone(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-slate-300 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/50 transition-all shadow-inner placeholder:text-slate-600 appearance-none"
+                  >
+                    {[
+                      'UTC', 'Pacific/Midway', 'Pacific/Honolulu', 'America/Anchorage',
+                      'America/Los_Angeles', 'America/Denver', 'America/Chicago',
+                      'America/New_York', 'America/Halifax', 'America/St_Johns',
+                      'America/Argentina/Buenos_Aires', 'America/Sao_Paulo', 'Atlantic/Cape_Verde',
+                      'Europe/London', 'Europe/Paris', 'Europe/Athens', 'Europe/Moscow',
+                      'Asia/Dubai', 'Asia/Kabul', 'Asia/Karachi', 'Asia/Kolkata',
+                      'Asia/Kathmandu', 'Asia/Dhaka', 'Asia/Bangkok', 'Asia/Shanghai',
+                      'Asia/Tokyo', 'Australia/Adelaide', 'Australia/Sydney', 'Pacific/Guadalcanal',
+                      'Pacific/Auckland'
+                    ].map(tz => (
+                      <option key={tz} value={tz}>{tz}</option>
+                    ))}
+                  </select>
+                  <p className="mt-2 text-xs text-slate-500">This timezone will be used when scheduling automated emails.</p>
+                </div>
+              </div>
+            </section>
           </div>
         )}
 
