@@ -839,6 +839,8 @@ export const useStore = create<StoreState>((set, get) => ({
       updatedAt: new Date().toISOString()
     };
     
+    get().addLog(deal.clientId, `Created new deal: ${deal.name} (Value: ${deal.value})`);
+    
     set((state) => ({ deals: [...state.deals, newDeal] }));
 
     const token = localStorage.getItem('token');
@@ -855,38 +857,58 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
 
-  updateDeal: (id, updates) => set((state) => {
-    if (updates.status === 'Closed Won') {
-      const deal = state.deals.find(d => d.id === id);
-      if (deal && deal.status !== 'Closed Won') {
-        setTimeout(() => get().addExp(get().expConfig['event_win_deal'] ?? 100, 'Won a deal!'), 0);
+  updateDeal: (id, updates) => {
+    const deal = get().deals.find(d => d.id === id);
+    if (deal) {
+      if (updates.status && updates.status !== deal.status) {
+         get().addLog(deal.clientId, `Deal "${deal.name}" status updated to: ${updates.status}`);
+      } else {
+         get().addLog(deal.clientId, `Deal "${deal.name}" updated: ${Object.keys(updates).join(', ')}`);
       }
     }
-    const token = localStorage.getItem('token');
-    if (token) {
-      fetch(`/api/deals/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify(updates)
-      }).catch(console.error);
-    }
-    return { deals: state.deals.map(d => d.id === id ? { ...d, ...updates } : d) };
-  }),
+    
+    set((state) => {
+      if (updates.status === 'Closed Won') {
+        const d = state.deals.find(d => d.id === id);
+        if (d && d.status !== 'Closed Won') {
+          setTimeout(() => get().addExp(get().expConfig['event_win_deal'] ?? 100, 'Won a deal!'), 0);
+        }
+      }
+      const token = localStorage.getItem('token');
+      if (token) {
+        fetch(`/api/deals/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(updates)
+        }).catch(console.error);
+      }
+      return { deals: state.deals.map(d => d.id === id ? { ...d, ...updates } : d) };
+    });
+  },
 
-  deleteDeal: (id) => set((state) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      fetch(`/api/deals/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      }).catch(console.error);
+  deleteDeal: (id) => {
+    const deal = get().deals.find(d => d.id === id);
+    if (deal) {
+      get().addLog(deal.clientId, `Deleted deal: ${deal.name}`);
     }
-    return { deals: state.deals.filter(d => d.id !== id) };
-  }),
+    
+    set((state) => {
+      const token = localStorage.getItem('token');
+      if (token) {
+        fetch(`/api/deals/${id}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).catch(console.error);
+      }
+      return { deals: state.deals.filter(d => d.id !== id) };
+    });
+  },
 
   addClient: async (client) => {
     const id = `c${Date.now()}`;
     const newClient = { ...client, id };
+    
+    get().addLog(id, `Created lead: ${client.name}`);
     
     set((state) => ({
       clients: [...state.clients, newClient],
@@ -931,22 +953,25 @@ export const useStore = create<StoreState>((set, get) => ({
     
     return id;
   },
-  editClient: (id, updates) => set((state) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      fetch(`/api/clients/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify(updates)
-      }).then(res => res.json()).then(data => {
-        if (data.pointsAdded) {
-          alert(`Enriched client! You earned ${data.pointsAdded} points.`);
-          useAuthStore.getState().fetchProfile();
-        }
-      }).catch(console.error);
-    }
-    return { clients: state.clients.map(c => c.id === id ? { ...c, ...updates } : c) };
-  }),
+  editClient: (id, updates) => {
+    get().addLog(id, `Enriched profile / updated client details: ${Object.keys(updates).join(', ')}`);
+    set((state) => {
+      const token = localStorage.getItem('token');
+      if (token) {
+        fetch(`/api/clients/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(updates)
+        }).then(res => res.json()).then(data => {
+          if (data.pointsAdded) {
+            alert(`Enriched client! You earned ${data.pointsAdded} points.`);
+            useAuthStore.getState().fetchProfile();
+          }
+        }).catch(console.error);
+      }
+      return { clients: state.clients.map(c => c.id === id ? { ...c, ...updates } : c) };
+    });
+  },
   submitClientEditRequest: (id, requestedData) => set((state) => {
     const token = localStorage.getItem('token');
     if (token) {
@@ -997,17 +1022,20 @@ export const useStore = create<StoreState>((set, get) => ({
       set({ globalLoading: false });
     }
   },
-  updateClientStatus: (id, status) => set((state) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      fetch(`/api/clients/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ status, isDormant: false })
-      }).catch(console.error);
-    }
-    return { clients: state.clients.map(c => c.id === id ? { ...c, status, isDormant: false } : c) };
-  }),
+  updateClientStatus: (id, status) => {
+    get().addLog(id, `Client status changed to: ${status}`);
+    set((state) => {
+      const token = localStorage.getItem('token');
+      if (token) {
+        fetch(`/api/clients/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ status, isDormant: false })
+        }).catch(console.error);
+      }
+      return { clients: state.clients.map(c => c.id === id ? { ...c, status, isDormant: false } : c) };
+    });
+  },
   
   publicClients: [],
   fetchPublicClients: async () => {
@@ -1037,6 +1065,9 @@ export const useStore = create<StoreState>((set, get) => ({
         });
         if (res.ok) {
           setTimeout(() => get().addExp(get().expConfig['event_claim_lead'] ?? 5, 'Claimed a lead from public pool'), 0);
+          
+          get().addLog(id, 'Claimed lead from public pool');
+          
           // Re-fetch both lists
           get().fetchPublicClients();
           get().fetchDeals(); // Fetch deals so the new deal shows up
