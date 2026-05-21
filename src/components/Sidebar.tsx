@@ -8,7 +8,7 @@ import { useAuthStore } from '../authStore';
 import { useTranslation } from '../lib/i18n';
 
 export function Sidebar() {
-  const { userExp, userLevel, userTitle, currentStreak, dailyQuests, view, setView, setKanbanSearch, clients, theme, setTheme, language, setLanguage } = useStore();
+  const { userExp, userLevel, userTitle, currentStreak, dailyQuests, view, setView, setKanbanSearch, clients, theme, setTheme, language, setLanguage, emails } = useStore();
   const { profile } = useAuthStore();
   const [showAddModal, setShowAddModal] = useState(false);
   const [showExpHistory, setShowExpHistory] = useState(false);
@@ -16,6 +16,7 @@ export function Sidebar() {
   const t = useTranslation(language);
 
   const allTags = Array.from(new Set(clients.flatMap(c => c.tags)));
+  const hasUnread = emails.some(e => !e.read && (e.type === 'inbox' || e.type === 'inbound'));
 
   return (
     <aside className="w-full h-full bg-slate-900 border-r border-slate-800 text-slate-300 flex flex-col pt-6 pb-4">
@@ -86,10 +87,12 @@ export function Sidebar() {
         >
           <div className="relative">
             <Mail className="w-5 h-5" />
-            <span className="absolute -top-1 -right-1 flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
-            </span>
+            {hasUnread && (
+              <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
+              </span>
+            )}
           </div>
           {t('inbox')}
         </button>

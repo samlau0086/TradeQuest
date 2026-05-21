@@ -160,6 +160,11 @@ async function initDB() {
       ALTER TABLE emails ADD COLUMN IF NOT EXISTS todo_at TIMESTAMP WITH TIME ZONE;
       ALTER TABLE emails ADD COLUMN IF NOT EXISTS todo_note TEXT;
 
+      CREATE TABLE IF NOT EXISTS deleted_emails (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE
+      );
+
       CREATE TABLE IF NOT EXISTS email_tracking (
         id SERIAL PRIMARY KEY,
         email_id VARCHAR(128) REFERENCES emails(id) ON DELETE CASCADE,
@@ -1767,6 +1772,7 @@ No markdown wrappers, just valid JSON.`;
        const updates = typeof editReq.requested_data === 'string' ? JSON.parse(editReq.requested_data) : editReq.requested_data;
        
        if (updates.action === 'delete_email') {
+         await pool.query(`INSERT INTO deleted_emails (id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [updates.email_id, editReq.user_id]);
          await pool.query(`DELETE FROM emails WHERE id = $1`, [updates.email_id]);
          res.json({ success: true });
          return;
@@ -2171,6 +2177,12 @@ No markdown wrappers, just valid JSON.`;
               : parsed.to?.value?.map((v: any) => v.address).join(', ') || '';
 
             const existingRes = await pool.query('SELECT id FROM emails WHERE id = $1 AND user_id = $2', [messageIdStr, req.user.uid]);
+            const deletedRes = await pool.query('SELECT id FROM deleted_emails WHERE id = $1 AND user_id = $2', [messageIdStr, req.user.uid]);
+            
+            if (deletedRes.rows.length > 0) {
+              continue; // Skip already hard-deleted emails
+            }
+            
             if (existingRes.rows.length === 0) {
               await pool.query(
                 `INSERT INTO emails (id, user_id, client_id, sender, sender_name, recipient, subject, body, date, read, type)
@@ -2266,6 +2278,11 @@ No markdown wrappers, just valid JSON.`;
             : parsed.to?.value?.map((v: any) => v.address).join(', ') || '';
 
           const existingRes = await pool.query('SELECT id FROM emails WHERE id = $1 AND user_id = $2', [messageIdStr, req.user.uid]);
+          const deletedRes = await pool.query('SELECT id FROM deleted_emails WHERE id = $1 AND user_id = $2', [messageIdStr, req.user.uid]);
+          
+          if (deletedRes.rows.length > 0) {
+            continue; // Skip already hard-deleted emails
+          }
 
           if (existingRes.rows.length === 0) {
             await pool.query(
@@ -2311,7 +2328,7 @@ No markdown wrappers, just valid JSON.`;
         SELECT e.*, 
           COALESCE((SELECT json_agg(t.*) FROM email_tracking t WHERE t.email_id = e.id), '[]'::json) as tracking_events
         FROM emails e 
-        WHERE e.user_id = $1 
+        WHERE e.user_id = $1 AND e.pending_delete = FALSE
         ORDER BY e.date DESC
       `, [req.user.uid]);
       res.json(result.rows.map(row => ({
@@ -2382,7 +2399,7 @@ No markdown wrappers, just valid JSON.`;
         }
 
         if (clientIdToUse) {
-          // Soft delete, pending admin review
+          // Soft delete, pending admin review or just soft delete
           await pool.query(
             `INSERT INTO client_edit_requests (client_id, user_id, original_data, requested_data) VALUES ($1, $2, $3, $4)`,
             [clientIdToUse, req.user.uid, JSON.stringify(email), JSON.stringify({ action: 'delete_email', email_id: email.id, subject: email.subject })]
@@ -2390,8 +2407,8 @@ No markdown wrappers, just valid JSON.`;
           await pool.query(`UPDATE emails SET pending_delete = TRUE, client_id = $2 WHERE id = $1`, [id, clientIdToUse]);
           pendingIds.push(id);
         } else {
-          // Hard delete
-          await pool.query(`DELETE FROM emails WHERE id = $1`, [id]);
+          // Soft delete even if no client is associated, to prevent IMAP re-syncing
+          await pool.query(`UPDATE emails SET pending_delete = TRUE WHERE id = $1`, [id]);
           deletedIds.push(id);
         }
       }

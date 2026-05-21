@@ -7,6 +7,7 @@ import { CommentItem } from './CommentItem';
 import { AddressInput } from './AddressInput';
 import { getCaretCoordinates } from '../utils/caret';
 import { ClientFormModal } from './ClientFormModal';
+import { UploadAttachmentModal } from './UploadAttachmentModal';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'react-resizable-panels';
 
 export function Inbox() {
@@ -20,6 +21,8 @@ export function Inbox() {
   const [isAddingTag, setIsAddingTag] = useState(false);
   const [newTag, setNewTag] = useState('');
   const [commentText, setCommentText] = useState('');
+  const [commentAttachments, setCommentAttachments] = useState<File[]>([]);
+  const [showCommentAttachmentModal, setShowCommentAttachmentModal] = useState(false);
   const [isCreatingLead, setIsCreatingLead] = useState(false);
   const [addingToRag, setAddingToRag] = useState(false);
   const [addedToRagId, setAddedToRagId] = useState<string | null>(null);
@@ -339,10 +342,16 @@ export function Inbox() {
                   className="rounded border-slate-700 bg-slate-800 text-cyan-500 focus:ring-cyan-500"
                 />
               </div>
+              <div 
+                className={cn("pt-0.5 cursor-pointer transition-opacity flex-shrink-0", email.isImportant ? "opacity-100" : "opacity-0 group-hover:opacity-100")}
+                onClick={(e) => { e.stopPropagation(); toggleImportant(email); }}
+                title={email.isImportant ? "Unmark Important" : "Mark Important"}
+              >
+                <Star className={cn("w-4 h-4", email.isImportant ? "text-yellow-500 fill-yellow-500" : "text-slate-500 hover:text-slate-300")} />
+              </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between mb-1 relative">
                   <span className={cn("text-sm font-bold truncate pr-2 flex items-center gap-1", !email.read && filter === 'inbox' ? "text-white" : "text-slate-300")}>
-                    {email.isImportant && <Star className="w-3 h-3 text-yellow-500 fill-yellow-500" />}
                     {filter === 'inbox' ? (email.senderName || email.sender) : (email.recipient)}
                   </span>
                   <div className="flex items-center gap-2 shrink-0">
@@ -374,10 +383,9 @@ export function Inbox() {
                       </div>
                     )}
                     {(email.type === 'scheduled' && email.scheduledAt) && (
-                      <div className="relative flex items-center">
+                      <div className="relative flex items-center" title={`将在 ${new Date(email.scheduledAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' })} 发送`}>
                         <Timer 
                           className="w-3.5 h-3.5 text-amber-500" 
-                          title={`将在 ${new Date(email.scheduledAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' })} 发送`} 
                         />
                       </div>
                     )}
@@ -434,9 +442,6 @@ export function Inbox() {
                     ))}
                   </div>
                 )}
-                <div className="text-[10px] text-slate-500 truncate h-4">
-                  {email.body.replace(/\n/g, ' ')}
-                </div>
               </div>
             </div>
           ))}
@@ -619,10 +624,54 @@ export function Inbox() {
                      className="w-full bg-transparent text-sm resize-none focus:outline-none text-slate-300 placeholder-slate-600 p-1 min-h-[60px]"
                      placeholder="Add a comment to this email..."
                    />
-                   <div className="flex justify-end pt-2">
+                   {commentAttachments.length > 0 && (
+                     <div className="flex flex-wrap gap-2 px-1 mb-2">
+                       {commentAttachments.map((f, idx) => (
+                         <div key={idx} className="relative group overflow-hidden border border-slate-700 rounded-md bg-slate-900 w-16 h-16 shrink-0">
+                           {f.type.startsWith('image/') ? (
+                             <img src={URL.createObjectURL(f)} alt={f.name} className="w-full h-full object-cover" />
+                           ) : (
+                             <div className="w-full h-full flex flex-col items-center justify-center text-[10px] text-slate-400 p-1 text-center break-words">
+                               <Paperclip className="w-3 h-3 mb-1" />
+                               <span className="truncate w-full line-clamp-2">{f.name}</span>
+                             </div>
+                           )}
+                           <button 
+                             onClick={() => setCommentAttachments(prev => prev.filter((_, i) => i !== idx))}
+                             className="absolute top-0 right-0 bg-red-500/80 hover:bg-red-500 text-white p-0.5 rounded-bl opacity-0 group-hover:opacity-100 transition-opacity"
+                           >
+                             <X className="w-3 h-3" />
+                           </button>
+                         </div>
+                       ))}
+                     </div>
+                   )}
+                   <div className="flex justify-between items-center pt-2">
+                     <div className="flex items-center gap-2 shrink-0 pb-1">
+                       <button onClick={() => setShowCommentAttachmentModal(true)} className="p-1.5 text-slate-500 hover:text-cyan-400 rounded-md transition-colors flex items-center gap-1" title="Attach Files">
+                         <Paperclip className="w-4 h-4" />
+                         {commentAttachments.length > 0 && <span className="text-xs bg-cyan-600 text-white px-1.5 py-0.5 rounded-full">{commentAttachments.length}</span>}
+                       </button>
+                     </div>
                      <button
-                       onClick={() => { if(commentText.trim()) { addEmailComment(selectedEmail.id, commentText); setCommentText(''); } }}
-                       disabled={!commentText.trim()}
+                       onClick={() => { 
+                         if (commentText.trim() || commentAttachments.length > 0) { 
+                           const attsPayload = commentAttachments.length > 0 
+                             ? commentAttachments.map(f => ({
+                                 id: `file${Date.now()}_${Math.random()}`,
+                                 name: f.name,
+                                 type: (f.type.includes('image') ? 'image' : 'document') as 'image' | 'document' | 'other',
+                                 url: URL.createObjectURL(f)
+                               })) 
+                             : undefined;
+                           if (commentText.trim() || attsPayload) {
+                             addEmailComment(selectedEmail.id, commentText || 'Uploaded attachment(s)', attsPayload); 
+                           }
+                           setCommentText(''); 
+                           setCommentAttachments([]);
+                         } 
+                       }}
+                       disabled={!commentText.trim() && commentAttachments.length === 0}
                        className="bg-slate-800 disabled:opacity-50 text-slate-300 px-3 py-1 text-xs rounded hover:text-white"
                      >
                        Post Comment
@@ -698,6 +747,16 @@ export function Inbox() {
         </div>
       )}
 
+      {showCommentAttachmentModal && (
+        <UploadAttachmentModal 
+          onClose={() => setShowCommentAttachmentModal(false)}
+          onUpload={(files) => {
+            setCommentAttachments(prev => [...prev, ...files]);
+            setShowCommentAttachmentModal(false);
+          }}
+        />
+      )}
+
       {tagModalEmail && (
         <div className="fixed inset-0 bg-black/50 z-50 flex flex-col items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 max-w-sm w-full">
@@ -761,7 +820,8 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
   const [loadingPurpose, setLoadingPurpose] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [scheduleDateTime, setScheduleDateTime] = useState('');
-  const [attachments, setAttachments] = useState<{name: string, size: string}[]>([]);
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [showAttachmentModal, setShowAttachmentModal] = useState(false);
   const [showCcBcc, setShowCcBcc] = useState(false);
   const [trackEmail, setTrackEmail] = useState(true);
 
@@ -908,8 +968,8 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
     const attachmentsPayload = attachments.map(a => ({
       id: `att_${Date.now()}_${Math.random()}`,
       name: a.name,
-      type: 'document' as const,
-      url: '#'
+      type: (a.type.includes('image') ? 'image' : 'document') as 'image' | 'document' | 'other',
+      url: URL.createObjectURL(a)
     }));
 
     addEmail({
@@ -941,8 +1001,8 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
     const attachmentsPayload = attachments.map(a => ({
       id: `att_${Date.now()}_${Math.random()}`,
       name: a.name,
-      type: 'document' as const,
-      url: '#'
+      type: (a.type.includes('image') ? 'image' : 'document') as 'image' | 'document' | 'other',
+      url: URL.createObjectURL(a)
     }));
 
     addEmail({
@@ -963,6 +1023,36 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
       addLog(matchedClient.id, `Sent Email: ${subject}${purpose ? ` (Purpose: ${purpose})` : ''}`);
     }
     onClose();
+  };
+
+  const handleOptimizeBody = async () => {
+    if (!body.trim()) return;
+    setLoading(true);
+    try {
+      const res = await fetch('/api/chat/magic', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${useAuthStore.getState().token}`
+        },
+        body: JSON.stringify({ 
+          command: `Please politely optimize the following email draft for clarity, professional tone, and grammatical correctness. Output ONLY the resulting optimized text, nothing else:\n\n${body}`,
+          context: { 
+             userLanguagePreference: language === 'zh' ? 'Chinese' : 'English'
+          },
+          llmConfig: getLLMConfig('drafting')
+        })
+      });
+      const data = await res.json();
+      if (data.result) {
+        setBody(data.result);
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Failed to optimize email body.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleInlineAI = async (matchText: string) => {
@@ -1003,11 +1093,7 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const newFiles = Array.from(e.target.files).map(f => ({
-        name: f.name,
-        size: (f.size / 1024 / 1024).toFixed(2) + ' MB'
-      }));
-      setAttachments(prev => [...prev, ...newFiles]);
+      setAttachments(prev => [...prev, ...Array.from(e.target.files!)]);
     }
   };
 
@@ -1145,6 +1231,17 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
           className="flex-1 w-full bg-transparent text-sm text-slate-300 resize-none focus:outline-none placeholder:text-slate-600 leading-relaxed scrollbar-thin relative z-0"
           placeholder="Write your email here... Type /ai:prompt to generate content inline."
         />
+        
+        {/* Optimize Button */}
+        <button
+          onClick={handleOptimizeBody}
+          disabled={loading || !body.trim()}
+          className="absolute bottom-4 right-6 p-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full shadow-[0_0_15px_rgba(79,70,229,0.5)] transition-all flex items-center justify-center disabled:opacity-50 group z-10"
+          title="Optimize Content with AI"
+        >
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 group-hover:rotate-12 transition-transform"/>}
+        </button>
+
         {caretCoords && (
           <div className="absolute z-10" style={{ top: caretCoords.top, left: Math.min(caretCoords.left, document.body.clientWidth - 150) }}>
              <button 
@@ -1183,13 +1280,19 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
         {attachments.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-2">
             {attachments.map((att, idx) => (
-              <div key={idx} className="flex items-center gap-2 bg-slate-800 border border-slate-700 px-3 py-1.5 rounded text-xs text-slate-300">
-                <Paperclip className="w-3 h-3" />
-                <span className="max-w-[120px] truncate">{att.name}</span>
-                <span className="text-slate-500">{att.size}</span>
+              <div key={idx} className="relative group overflow-hidden border border-slate-700 rounded-md bg-slate-800 w-24 h-24 shrink-0 flex items-center justify-center">
+                {att.type.startsWith('image/') ? (
+                  <img src={URL.createObjectURL(att)} alt={att.name} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center text-xs text-slate-400 p-2 text-center break-words">
+                    <Paperclip className="w-5 h-5 mb-2 text-slate-500" />
+                    <span className="truncate w-full line-clamp-2">{att.name}</span>
+                    <span className="text-[10px] text-slate-500 mt-1">{(att.size / 1024 / 1024).toFixed(2)} MB</span>
+                  </div>
+                )}
                 <button 
                   onClick={() => setAttachments(prev => prev.filter((_, i) => i !== idx))}
-                  className="hover:text-red-400 ml-1"
+                  className="absolute top-0 right-0 bg-red-500/80 hover:bg-red-500 text-white p-1 rounded-bl opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -1228,11 +1331,13 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
               AI Draft Full Email
             </button>
             
-            <label className="text-xs flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700 transition-colors font-medium cursor-pointer">
+            <button 
+              onClick={() => setShowAttachmentModal(true)}
+              className="text-xs flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700 transition-colors font-medium cursor-pointer"
+            >
               <Paperclip className="w-3.5 h-3.5"/>
               Attach
-              <input type="file" multiple className="hidden" onChange={handleFileUpload} />
-            </label>
+            </button>
 
             <button
               onClick={() => setTrackEmail(!trackEmail)}
@@ -1292,6 +1397,15 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
           </div>
         </div>
       </div>
+      {showAttachmentModal && (
+        <UploadAttachmentModal 
+          onClose={() => setShowAttachmentModal(false)}
+          onUpload={(files) => {
+            setAttachments(prev => [...prev, ...files]);
+            setShowAttachmentModal(false);
+          }}
+        />
+      )}
     </div>
   );
 }

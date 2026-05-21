@@ -212,8 +212,7 @@ function AgentSettingsModal({ client, onClose }: { client: Client, onClose: () =
          addQuest({
             title: `[Agent] Follow up via ${step.type} (${client.name})`,
             description: `Agent drafted instructions based on communication habits:\n\n"${step.templatePrompt}\n\n${languageInstruction}"\n\nPlease manually draft and send via ${step.type}. Draft will open when you execute this task.`,
-            expReward: 15,
-            completed: false
+            expReward: 15
          });
        });
     }
