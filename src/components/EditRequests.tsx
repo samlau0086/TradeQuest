@@ -45,6 +45,7 @@ export function EditRequests() {
       if (res.ok) {
         setRequests(requests.filter(r => r.id !== id));
         useStore.getState().fetchEmails();
+        useStore.getState().fetchDeals();
         await fetch('/api/clients', { headers: { 'Authorization': `Bearer ${token}` } })
           .then(r => r.json())
           .then(clients => useStore.setState({ clients }));
@@ -89,7 +90,12 @@ export function EditRequests() {
                 <div key={req.id} className="bg-slate-900 border border-slate-800 rounded-lg p-5">
                   <div className="flex items-start justify-between mb-4">
                     <div>
-                      <h3 className="text-lg font-bold text-white">{req.current_client_name} <span className="text-sm font-normal text-slate-500 ml-2">ID: {req.client_id}</span></h3>
+                      <h3 className="text-lg font-bold text-white">
+                        {next.action === 'delete_deal' ? `Deal: ${next.name || prev.name}` : req.current_client_name || 'Unknown Client'}
+                        <span className="text-sm font-normal text-slate-500 ml-2">
+                          {next.action === 'delete_deal' ? `Deal ID: ${next.deal_id}` : `ID: ${req.client_id}`}
+                        </span>
+                      </h3>
                       <p className="text-xs text-slate-400 mt-1">{t('requestedBy')} <span className="font-medium text-slate-300">{req.requester_name}</span> at {new Date(req.created_at).toLocaleString()}</p>
                     </div>
                     <div className="flex gap-2">
@@ -112,6 +118,11 @@ export function EditRequests() {
                           sender: prev.sender,
                           recipient: prev.recipient,
                           date: prev.date
+                        }, null, 2) : next.action === 'delete_deal' ? JSON.stringify({
+                          deal_id: prev.id,
+                          name: prev.name,
+                          value: prev.value,
+                          status: prev.status
                         }, null, 2) : JSON.stringify({ 
                            name: prev.name, 
                            company: prev.company, 
@@ -127,6 +138,8 @@ export function EditRequests() {
                       <pre className="text-[11px] text-slate-300 font-mono overflow-auto max-h-60 scrollbar-thin">
                         {next.action === 'delete_email' ? JSON.stringify({
                           action: 'DELETE EMAIL PERMANENTLY'
+                        }, null, 2) : next.action === 'delete_deal' ? JSON.stringify({
+                          action: 'DELETE DEAL PERMANENTLY'
                         }, null, 2) : JSON.stringify({ 
                            name: next.name, 
                            company: next.company, 

@@ -35,6 +35,12 @@ export function Inbox() {
   const [confirmDialog, setConfirmDialog] = useState<{message: string, onConfirm: () => void} | null>(null);
   const [alertDialog, setAlertDialog] = useState<string | null>(null);
 
+  useEffect(() => {
+    const closeMenu = () => setActiveMenu(null);
+    document.addEventListener('click', closeMenu);
+    return () => document.removeEventListener('click', closeMenu);
+  }, []);
+
   const filteredEmails = emails.filter(e => {
     // Support both new ('inbox'/'sent') and legacy ('inbound'/'outbound') types
     const typeMatch = (filter === 'inbox' && (e.type === 'inbox' || e.type === 'inbound')) ||

@@ -172,6 +172,8 @@ async function initDB() {
       );
       
       ALTER TABLE deals ADD COLUMN IF NOT EXISTS contact_info JSONB DEFAULT '{}'::jsonb;
+      ALTER TABLE deals ADD COLUMN IF NOT EXISTS pending_delete BOOLEAN DEFAULT FALSE;
+      ALTER TABLE deals ADD COLUMN IF NOT EXISTS pending_edit_request BOOLEAN DEFAULT FALSE;
 
       CREATE TABLE IF NOT EXISTS products (
         id VARCHAR(128) PRIMARY KEY,
@@ -797,7 +799,7 @@ No markdown wrappers, just valid JSON.`;
   // Deals API Endpoints
   app.get('/api/deals', authenticateToken, async (req: any, res) => {
     try {
-      const result = await pool.query('SELECT * FROM deals WHERE user_id = $1 ORDER BY updated_at DESC', [req.user.uid]);
+      const result = await pool.query('SELECT * FROM deals WHERE user_id = $1 AND pending_delete = FALSE ORDER BY updated_at DESC', [req.user.uid]);
       res.json(result.rows.map(row => ({
         id: row.id,
         clientId: row.client_id,
@@ -879,8 +881,26 @@ No markdown wrappers, just valid JSON.`;
   app.delete('/api/deals/:id', authenticateToken, async (req: any, res) => {
     try {
       const { id } = req.params;
-      await pool.query('DELETE FROM deals WHERE id = $1 AND user_id = $2', [id, req.user.uid]);
-      res.json({ success: true });
+      const userRes = await pool.query('SELECT role FROM users WHERE id = $1', [req.user.uid]);
+      const role = userRes.rows[0].role;
+      
+      const dealRes = await pool.query('SELECT * FROM deals WHERE id = $1 AND user_id = $2', [id, req.user.uid]);
+      if (dealRes.rows.length === 0) return res.status(404).json({ error: 'Deal not found' });
+      const deal = dealRes.rows[0];
+
+      if (role === 'superadmin') {
+        await pool.query('DELETE FROM deals WHERE id = $1', [id]);
+        return res.json({ success: true, permanent: true });
+      }
+
+      await pool.query(
+        `INSERT INTO client_edit_requests (client_id, user_id, original_data, requested_data) VALUES ($1, $2, $3, $4)`,
+        [deal.client_id, req.user.uid, JSON.stringify(deal), JSON.stringify({ action: 'delete_deal', deal_id: id, name: deal.name })]
+      );
+      
+      await pool.query(`UPDATE deals SET pending_delete = TRUE WHERE id = $1`, [id]);
+      
+      res.json({ success: true, pendingApproval: true });
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: 'Internal error' });
@@ -1640,7 +1660,7 @@ No markdown wrappers, just valid JSON.`;
       const result = await pool.query(`
         SELECT r.*, c.name as current_client_name, u.display_name as requester_name
         FROM client_edit_requests r
-        JOIN clients c ON r.client_id = c.id
+        LEFT JOIN clients c ON r.client_id = c.id
         JOIN users u ON r.user_id = u.id
         WHERE r.status = 'pending'
         ORDER BY r.created_at DESC
@@ -1667,6 +1687,12 @@ No markdown wrappers, just valid JSON.`;
        
        if (updates.action === 'delete_email') {
          await pool.query(`DELETE FROM emails WHERE id = $1`, [updates.email_id]);
+         res.json({ success: true });
+         return;
+       }
+
+       if (updates.action === 'delete_deal') {
+         await pool.query(`DELETE FROM deals WHERE id = $1`, [updates.deal_id]);
          res.json({ success: true });
          return;
        }
@@ -1716,6 +1742,8 @@ No markdown wrappers, just valid JSON.`;
 
        if (updates.action === 'delete_email') {
          await pool.query(`UPDATE emails SET pending_delete = FALSE WHERE id = $1`, [updates.email_id]);
+       } else if (updates.action === 'delete_deal') {
+         await pool.query(`UPDATE deals SET pending_delete = FALSE WHERE id = $1`, [updates.deal_id]);
        } else {
          await pool.query(`UPDATE clients SET pending_edit_request = FALSE WHERE id = $1`, [editReq.client_id]);
        }

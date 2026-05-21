@@ -297,7 +297,7 @@ export function PipelineList() {
               <p className="text-slate-400 mb-6 text-sm">{t('deleteDealContent')}</p>
               <div className="flex justify-end gap-3">
                 <button onClick={() => setDeleteDealId(null)} className="px-4 py-2 text-slate-300 hover:text-white transition-colors">{t('cancel')}</button>
-                <button onClick={() => { deleteDeal(deleteDealId); setDeleteDealId(null); }} className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg shadow font-medium transition-colors">{t('deleteClientButton')}</button>
+                <button onClick={() => { deleteDeal(deleteDealId); setDeleteDealId(null); }} className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg shadow font-medium transition-colors">Confirm Delete</button>
               </div>
             </div>
           </div>

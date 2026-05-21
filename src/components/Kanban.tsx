@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useStore, ClientStatus, Client } from '../store';
 import { cn } from '../lib/utils';
-import { Mail, Clock, CheckCircle, Search, Target, MessageCircle, Send, Phone, X, Plus, LayoutGrid, List as ListIcon, Download, Upload, Map as MapIcon, Edit2 } from 'lucide-react';
+import { Mail, Clock, CheckCircle, Search, Target, MessageCircle, Send, Phone, X, Plus, LayoutGrid, List as ListIcon, Download, Upload, Map as MapIcon, Edit2, Trash2 } from 'lucide-react';
 import { PipelineList } from './PipelineList';
 import { DealFormModal } from './DealFormModal';
 import { WorldMap } from './WorldMap';
@@ -263,10 +263,11 @@ export function Kanban() {
 }
 
 function DealCard({ deal, client, onClick }: { key?: string | number, deal: any, client: Client, onClick: () => void }) {
-  const { editClient, updateDeal, addClient } = useStore();
+  const { editClient, updateDeal, addClient, deleteDeal } = useStore();
   const [isEditingTags, setIsEditingTags] = useState(false);
   const [newTag, setNewTag] = useState('');
   const [showEditDeal, setShowEditDeal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const handleAddTag = (e: React.FormEvent) => {
     e.preventDefault();
@@ -340,12 +341,25 @@ function DealCard({ deal, client, onClick }: { key?: string | number, deal: any,
         client.isDormant && "border-orange-500/30 bg-orange-950/10"
       )}
     >
-      <button 
-        onClick={(e) => { e.stopPropagation(); setShowEditDeal(true); }}
-        className="absolute top-2 right-2 p-1.5 bg-slate-900 border border-slate-700 rounded-md text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity hover:text-cyan-400 hover:border-cyan-500/50 z-10"
-      >
-        <Edit2 className="w-3 h-3" />
-      </button>
+      <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+        <button 
+          onClick={(e) => { e.stopPropagation(); setShowEditDeal(true); }}
+          className="p-1.5 bg-slate-900 border border-slate-700 rounded-md text-slate-400 transition-colors hover:text-cyan-400 hover:border-cyan-500/50 shadow-sm"
+          title="Edit Deal"
+        >
+          <Edit2 className="w-3 h-3" />
+        </button>
+        <button 
+          onClick={(e) => { 
+            e.stopPropagation(); 
+            setShowDeleteConfirm(true);
+          }}
+          className="p-1.5 bg-slate-900 border border-slate-700 rounded-md text-slate-400 transition-colors hover:text-red-400 hover:border-red-500/50 shadow-sm"
+          title="Delete Deal"
+        >
+          <Trash2 className="w-3 h-3" />
+        </button>
+      </div>
 
       <div className="flex items-start justify-between mb-2 pr-8">
         <div>
@@ -428,6 +442,18 @@ function DealCard({ deal, client, onClick }: { key?: string | number, deal: any,
       </div>
     </div>
     {showEditDeal && <DealFormModal dealId={deal.id} onClose={() => setShowEditDeal(false)} />}
+    {showDeleteConfirm && (
+      <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[60]">
+        <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-xl max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
+          <h3 className="text-lg font-bold text-white mb-2">Delete Lead?</h3>
+          <p className="text-slate-400 mb-6 text-sm">Are you sure you want to delete this lead? This action cannot be undone.</p>
+          <div className="flex justify-end gap-3">
+            <button onClick={() => setShowDeleteConfirm(false)} className="px-4 py-2 text-slate-300 hover:text-white transition-colors">Cancel</button>
+            <button onClick={() => { if(deal.id) deleteDeal(deal.id); setShowDeleteConfirm(false); }} className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg shadow font-medium transition-colors">Confirm Delete</button>
+          </div>
+        </div>
+      </div>
+    )}
     </>
   );
 }
