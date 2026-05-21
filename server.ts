@@ -2318,6 +2318,61 @@ No markdown wrappers, just valid JSON.`;
     try {
       const { id, clientId, sender, senderName, recipient, cc, bcc, subject, body, date, read, type, tags, comments, scheduledAt, attachments } = req.body;
       
+      // If type is sent, actually send the email using configured outbox
+      if (type === 'sent') {
+        const userRes = await pool.query('SELECT settings FROM users WHERE id = $1', [req.user.uid]);
+        const settings = userRes.rows[0]?.settings || {};
+        const outboxConfigs = settings.outboxConfigs || [];
+        // Match outbox config by sender email, fallback to first config
+        const config = outboxConfigs.find((c: any) => c.fromEmail === sender) || outboxConfigs[0];
+
+        if (config) {
+          if (config.type === 'smtp') {
+            const transporter = nodemailer.createTransport({
+              host: config.host,
+              port: config.port ? parseInt(config.port) : (config.secure ? 465 : 587),
+              secure: (config.port && parseInt(config.port) === 465) ? true : !!config.secure,
+              tls: { rejectUnauthorized: false },
+              auth: {
+                user: config.username,
+                pass: config.password
+              }
+            });
+            await transporter.sendMail({
+              from: `"${senderName || config.fromName}" <${sender}>`,
+              to: recipient,
+              cc: cc || undefined,
+              bcc: bcc || undefined,
+              subject: subject,
+              html: body
+            });
+          } else if (config.type === 'resend' && config.apiKey) {
+            const resendRes = await fetch('https://api.resend.com/emails', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${config.apiKey}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                from: `"${senderName || config.fromName}" <${sender}>`,
+                to: recipient,
+                cc: cc ? cc.split(',').map((s: string) => s.trim()) : undefined,
+                bcc: bcc ? bcc.split(',').map((s: string) => s.trim()) : undefined,
+                subject: subject,
+                html: body
+              })
+            });
+            if (!resendRes.ok) {
+              const errTxt = await resendRes.text();
+              console.error('Resend Error:', errTxt);
+              throw new Error(`Failed to send via Resend: ${errTxt}`);
+            }
+          }
+        } else {
+          console.log('No outbox configured to send email, proceeding to save to DB only.');
+        }
+      }
+
       await pool.query(
         `INSERT INTO emails (id, user_id, client_id, sender, sender_name, recipient, cc, bcc, subject, body, date, read, type, tags, comments, scheduled_at, attachments)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
@@ -2327,9 +2382,9 @@ No markdown wrappers, just valid JSON.`;
         await pool.query(`UPDATE clients SET last_contact = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND user_id = $2`, [clientId, req.user.uid]);
       }
       res.json({ success: true });
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      res.status(500).json({ error: 'Failed to save email' });
+      res.status(500).json({ error: e.message || 'Failed to save or send email' });
     }
   });
 
