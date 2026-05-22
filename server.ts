@@ -86,6 +86,8 @@ async function initDB() {
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS agent_summary TEXT;
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS agent_next_step TEXT;
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS agent_last_run TIMESTAMP WITH TIME ZONE;
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS agent_workflow_id VARCHAR(128);
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS preferred_language VARCHAR(100);
 
       CREATE TABLE IF NOT EXISTS global_settings (
         key VARCHAR(128) PRIMARY KEY,
@@ -347,6 +349,44 @@ Respond only with the draft or the direct output of the action requested. Do not
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Failed to process magic command" });
+    }
+  });
+
+  // Workflow Auto-Planner
+  app.post("/api/ai/plan-workflow", authenticateToken, async (req: any, res) => {
+    try {
+      const { prompt: userPrompt, llmConfig, clientContext } = req.body;
+      
+      const prompt = `You are an AI assistant in a Foreign Trade CRM.
+You need to design a follow-up workflow based on the user's request.
+${clientContext ? `\n${clientContext}\n` : ''}
+User Request: "${userPrompt}"
+
+Generate a JSON object with a list of steps. Each step must have:
+- type: one of "email", "whatsapp", "call", "other"
+- delayDays: number of days to wait from the previous step (e.g. 1 for next day)
+- templatePrompt: simple instruction on what this message/step should say
+- sendTime: optional, formatted as "HH:mm" (e.g., "09:00"). Leave as empty string if no specific time needed.
+
+Output schema:
+{
+  "steps": [
+    {
+      "type": "email",
+      "delayDays": 1,
+      "templatePrompt": "greeting message",
+      "sendTime": ""
+    }
+  ]
+}
+No markdown wrappers, just valid JSON.`;
+
+      const text = await callAI(prompt, llmConfig, true);
+      const parsed = JSON.parse(text || '{}');
+      res.json(parsed);
+    } catch(e) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to plan workflow" });
     }
   });
 
@@ -727,29 +767,46 @@ No markdown wrappers, just valid JSON.`;
       if (isNaN(intervalHours) || intervalHours <= 0) return;
 
       const clientsRes = await pool.query(`
-        SELECT * FROM clients 
-        WHERE agent_enabled = TRUE 
-          AND (agent_last_run IS NULL OR agent_last_run < NOW() - INTERVAL '1 hour' * $1)
+        SELECT c.*, u.settings as user_settings 
+        FROM clients c
+        JOIN users u ON c.user_id = u.id
+        WHERE c.agent_enabled = TRUE 
+          AND (c.agent_last_run IS NULL OR c.agent_last_run < NOW() - INTERVAL '1 hour' * $1)
       `, [intervalHours]);
 
       for (const client of clientsRes.rows) {
         try {
           console.log(`Running background agent for client ${client.id}`);
+          const userSettingsStr = typeof client.user_settings === 'string' ? client.user_settings : JSON.stringify(client.user_settings || {});
+          const userSettings = JSON.parse(userSettingsStr || '{}');
+          const agentWorkflows = userSettings.agentWorkflows || [];
+          const userTimezone = userSettings.timezone || 'UTC';
+          const selectedWf = agentWorkflows.find((w: any) => w.id === client.agent_workflow_id);
+
           // Fetch context
           const emailsRes = await pool.query(`SELECT * FROM emails WHERE (client_id = $1 OR recipient = $2) AND user_id = $3 ORDER BY date DESC LIMIT 5`, [client.id, client.email || '', client.user_id]);
           const logsRes = await pool.query(`SELECT * FROM logs WHERE client_id = $1 ORDER BY date DESC LIMIT 5`, [client.id]);
           const productsRes = await pool.query(`SELECT * FROM products WHERE user_id = $1 ORDER BY created_at DESC LIMIT 5`, [client.user_id]); 
           const kbRes = await searchKnowledgeBase(client.user_id, client.id, `Agent follow up strategy for client in ${client.country || client.company || 'foreign trade'}`, undefined, 5);
+
+          let workflowInstructions = 'None specified.';
+          if (selectedWf) {
+            workflowInstructions = `Workflow: ${selectedWf.name}\nSteps sequence: ${JSON.stringify(selectedWf.steps)}\nStop on Meaningful Reply globally requested: ${!!selectedWf.stopOnMeaningfulReply}`;
+          }
           
           const contextPrompt = `
 You are an expert sales AI assistant tasked with following up with a specific client.
+Current Time in User Timezone (${userTimezone}): ${new Date().toLocaleString('en-US', { timeZone: userTimezone })}
 
 Client Information:
 Name: ${client.name}
 Company: ${client.company}
 Country: ${client.country}
+Preferred Language: ${client.preferred_language || 'Auto-detect or English'}
 Agent Context / Instructions: ${client.agent_context || 'None'}
 Long-term Summary: ${client.agent_summary || 'None'}
+
+${workflowInstructions}
 
 Knowledge Base context:
 ${kbRes.rows.map((kb: any) => `[${kb.title}]\n${kb.content}`).join('\n\n')}
@@ -766,11 +823,15 @@ ${JSON.stringify(productsRes.rows)}
 
           const prompt = `${contextPrompt}
 Based on the above context, you must decide on the next best action to advance this lead. 
+If the instruction is to "Stop on Meaningful Reply" and a meaningful reply has recently been received from the client, you MUST abort further follow ups (return an empty draftEmail and set suggestedNextStep to 'Stopped: received reply').
+If an email should be sent according to a workflow step, take note of its "delayDays" and "sendTime" (HH:mm form). Compute precisely when it should be sent in ISO format. If no specific time is required, just send it immediately (leave scheduledAt empty or set to now).
+
 Your output MUST be a JSON object with the following schema:
 {
   "newSummary": "An updated long-term summary incorporating the new history. Max 3 sentences.",
-  "suggestedNextStep": "A short sentence describing what should be done next to follow up. (e.g. 'Follow up on the pricing proposal from last week.')",
-  "draftEmail": "If an email should be sent, provide the body of a drafted email here. Otherwise, leave empty."
+  "suggestedNextStep": "A short sentence describing what should be done next to follow up.",
+  "draftEmail": "If an email should be sent, provide the body of a drafted email here. Otherwise, leave empty.",
+  "scheduledAt": "ISO date string for when to schedule the email. Leave empty if sending now."
 }
 No markdown wrappers, just valid JSON.`;
 
@@ -781,6 +842,7 @@ No markdown wrappers, just valid JSON.`;
           const newSummary = parsed.newSummary || client.agent_summary;
           const nextStep = parsed.suggestedNextStep || 'Needs follow up.';
           const draftEmail = parsed.draftEmail || '';
+          const scheduledAt = parsed.scheduledAt || new Date().toISOString();
 
           let nextRun = new Date().toISOString();
 
@@ -791,10 +853,11 @@ No markdown wrappers, just valid JSON.`;
 
           if (client.agent_mode === 'auto_email' && draftEmail) {
             const emailId = `e${Date.now()}${Math.floor(Math.random()*1000)}`;
+            const isScheduled = parsed.scheduledAt ? true : false;
             await pool.query(
-              `INSERT INTO emails (id, user_id, client_id, sender, recipient, subject, body, date, read, direction, type)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, 'outbound', 'Auto Follow-up')`,
-              [emailId, client.user_id, client.id, 'AutoAgent', client.email || 'unknown@example.com', 'Follow Up', draftEmail, new Date().toISOString()]
+              `INSERT INTO emails (id, user_id, client_id, sender, recipient, subject, body, date, scheduled_at, read, direction, type)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, FALSE, 'outbound', $10)`,
+              [emailId, client.user_id, client.id, 'AutoAgent', client.email || 'unknown@example.com', 'Follow Up', draftEmail, new Date().toISOString(), isScheduled ? scheduledAt : null, isScheduled ? 'scheduled' : 'outbound']
             );
             await pool.query(
               `INSERT INTO logs (id, client_id, date, content) VALUES ($1, $2, $3, $4)`,
@@ -1321,7 +1384,9 @@ Query: "${query}"`;
         agentMode: row.agent_mode,
         agentContext: row.agent_context,
         agentSummary: row.agent_summary,
-        agentNextStep: row.agent_next_step
+        agentNextStep: row.agent_next_step,
+        agentWorkflowId: row.agent_workflow_id,
+        preferredLanguage: row.preferred_language
       })));
     } catch (e) {
       console.error(e);
@@ -1350,7 +1415,9 @@ Query: "${query}"`;
         agentMode: row.agent_mode,
         agentContext: row.agent_context,
         agentSummary: row.agent_summary,
-        agentNextStep: row.agent_next_step
+        agentNextStep: row.agent_next_step,
+        agentWorkflowId: row.agent_workflow_id,
+        preferredLanguage: row.preferred_language
       })));
     } catch (e) {
       console.error(e);
@@ -1458,9 +1525,9 @@ Query: "${query}"`;
       }
 
       await pool.query(
-        `INSERT INTO clients (id, user_id, name, company, address, state, city, country, status, tags, last_contact, is_dormant, contact_methods, comments)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-        [id, req.body.isPublic ? null : req.user.uid, name, company, req.body.address || null, req.body.state || null, req.body.city || null, country, status, JSON.stringify(tags || []), lastContact || null, !!isDormant, JSON.stringify(contactMethods || []), JSON.stringify(comments || [])]
+        `INSERT INTO clients (id, user_id, name, company, address, state, city, country, status, tags, last_contact, is_dormant, contact_methods, comments, preferred_language, agent_workflow_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+        [id, req.body.isPublic ? null : req.user.uid, name, company, req.body.address || null, req.body.state || null, req.body.city || null, country, status, JSON.stringify(tags || []), lastContact || null, !!isDormant, JSON.stringify(contactMethods || []), JSON.stringify(comments || []), req.body.preferredLanguage || null, req.body.agentWorkflowId || null]
       );
 
       await pool.query(`UPDATE users SET points = points + 5 WHERE id = $1`, [req.user.uid]);
@@ -1487,7 +1554,8 @@ Query: "${query}"`;
         contactMethods: 'contact_methods', comments: 'comments',
         agentEnabled: 'agent_enabled', agentMode: 'agent_mode',
         agentContext: 'agent_context', agentSummary: 'agent_summary',
-        agentNextStep: 'agent_next_step'
+        agentNextStep: 'agent_next_step',
+        agentWorkflowId: 'agent_workflow_id', preferredLanguage: 'preferred_language'
       };
       
       let pointsToAward = 0;
@@ -1560,6 +1628,7 @@ Client Information:
 Name: ${client.name}
 Company: ${client.company}
 Country: ${client.country}
+Preferred Language: ${client.preferred_language || 'Auto-detect or English'}
 Agent Context / Instructions: ${client.agent_context || 'None'}
 Long-term Summary: ${client.agent_summary || 'None'}
 

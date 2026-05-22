@@ -32,6 +32,7 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
 
   const [status, setStatus] = useState<ClientStatus>(existingClient?.status || initialData?.status || 'Leads');
   const [tags, setTags] = useState<string>(existingClient?.tags.join(', ') || initialData?.tags?.join(', ') || '');
+  const [preferredLanguage, setPreferredLanguage] = useState(existingClient?.preferredLanguage || initialData?.preferredLanguage || '');
   const [contactMethods, setContactMethods] = useState<ContactMethod[]>(existingClient?.contactMethods || initialData?.contactMethods || [{ type: 'email', value: '' }]);
 
   const [isApplyMode, setIsApplyMode] = useState(false);
@@ -57,6 +58,7 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
       country,
       status: isPublicPool ? 'Leads' : status,
       tags: parsedTags,
+      preferredLanguage,
       lastContact: existingClient?.lastContact || new Date().toISOString().split('T')[0],
       isDormant: existingClient?.isDormant || false,
       contactMethods: validContactMethods,
@@ -226,9 +228,15 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
             )}
           </div>
 
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-400 uppercase">{t('tagsLabel')}</label>
-            <input value={tags} onChange={e => setTags(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500" placeholder="#HighValue, #CantonFair" />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-400 uppercase">{t('tagsLabel')}</label>
+              <input value={tags} onChange={e => setTags(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500" placeholder="#HighValue, #CantonFair" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-400 uppercase">Preferred Language {isLocked(existingClient?.preferredLanguage) && <span className="text-[10px] text-slate-500 ml-1">(Locked)</span>}</label>
+              <input disabled={isLocked(existingClient?.preferredLanguage)} value={preferredLanguage} onChange={e => setPreferredLanguage(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 disabled:opacity-50" placeholder="e.g. Spanish" />
+            </div>
           </div>
 
           <div className="space-y-2">

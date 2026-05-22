@@ -310,7 +310,7 @@ function AgentSettingsModal({ client, onClose }: { client: Client, onClose: () =
         </div>
       </div>
     </div>
-    {showWfManager && <WorkflowConfigModal onClose={() => setShowWfManager(false)} />}
+    {showWfManager && <WorkflowConfigModal clientId={client.id} onClose={() => setShowWfManager(false)} />}
     </>
   );
 }

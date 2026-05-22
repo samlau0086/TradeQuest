@@ -129,12 +129,14 @@ export interface Client {
   agentSummary?: string;
   agentNextStep?: string;
   agentWorkflowId?: string;
+  preferredLanguage?: string;
 }
 
 export interface WorkflowStep {
   id: string;
   type: 'email' | 'whatsapp' | 'call' | 'other';
   delayDays: number;
+  sendTime?: string; // Format: HH:mm
   templatePrompt: string;
 }
 
@@ -143,6 +145,7 @@ export interface AgentWorkflow {
   name: string;
   description: string;
   steps: WorkflowStep[];
+  stopOnMeaningfulReply?: boolean;
 }
 
 export interface ClientEditRequest {
@@ -447,39 +450,19 @@ export const useStore = create<StoreState>((set, get) => ({
 
   agentWorkflows: [],
   fetchAgentWorkflows: () => {
-    // In a real app we would fetch this. For now we use local storage or mock.
-    const saved = localStorage.getItem('agentWorkflows');
-    if (saved) {
-      set({ agentWorkflows: JSON.parse(saved) });
-    } else {
-      const defaultWorkflow: AgentWorkflow = {
-        id: 'wf_default_1',
-        name: 'Standard Follow-up',
-        description: '3-step outreach over 7 days',
-        steps: [
-          { id: 's1', type: 'email', delayDays: 1, templatePrompt: 'Write a short check-in email referencing our last conversation.' },
-          { id: 's2', type: 'whatsapp', delayDays: 3, templatePrompt: 'Write a casual whatsapp follow-up message asking if they had time to review.' },
-          { id: 's3', type: 'email', delayDays: 7, templatePrompt: 'Write a breakup email summarizing value and keeping the door open.' }
-        ]
-      };
-      set({ agentWorkflows: [defaultWorkflow] });
-      localStorage.setItem('agentWorkflows', JSON.stringify([defaultWorkflow]));
-    }
+    /* Kept alive for legacy UI compat if any, but now fetched with userSettings*/ 
   },
   addAgentWorkflow: (workflow) => set((state) => {
     const newWf = { ...workflow, id: `wf_${Date.now()}` };
     const newWorkflows = [...state.agentWorkflows, newWf];
-    localStorage.setItem('agentWorkflows', JSON.stringify(newWorkflows));
     return { agentWorkflows: newWorkflows };
   }),
   updateAgentWorkflow: (id, updates) => set((state) => {
     const newWorkflows = state.agentWorkflows.map(wf => wf.id === id ? { ...wf, ...updates } : wf);
-    localStorage.setItem('agentWorkflows', JSON.stringify(newWorkflows));
     return { agentWorkflows: newWorkflows };
   }),
   deleteAgentWorkflow: (id) => set((state) => {
     const newWorkflows = state.agentWorkflows.filter(wf => wf.id !== id);
-    localStorage.setItem('agentWorkflows', JSON.stringify(newWorkflows));
     return { agentWorkflows: newWorkflows };
   }),
 
@@ -1517,6 +1500,7 @@ export const useStore = create<StoreState>((set, get) => ({
           outboxConfigs: settings.outboxConfigs ?? state.outboxConfigs,
           llmConfigs: settings.llmConfigs ?? state.llmConfigs,
           llmMappings: settings.llmMappings ?? state.llmMappings,
+          agentWorkflows: settings.agentWorkflows ?? state.agentWorkflows,
           outscraperApiKey: settings.outscraperApiKey ?? state.outscraperApiKey,
           activeLLMId: settings.activeLLMId ?? state.activeLLMId,
           language: settings.language ?? state.language,
@@ -1599,6 +1583,7 @@ useStore.subscribe((state, prevState) => {
     state.outboxConfigs !== prevState.outboxConfigs ||
     state.llmConfigs !== prevState.llmConfigs ||
     state.llmMappings !== prevState.llmMappings ||
+    state.agentWorkflows !== prevState.agentWorkflows ||
     state.outscraperApiKey !== prevState.outscraperApiKey ||
     state.activeLLMId !== prevState.activeLLMId ||
     state.language !== prevState.language ||
@@ -1622,6 +1607,7 @@ useStore.subscribe((state, prevState) => {
             outboxConfigs: state.outboxConfigs,
             llmConfigs: state.llmConfigs,
             llmMappings: state.llmMappings,
+            agentWorkflows: state.agentWorkflows,
             outscraperApiKey: state.outscraperApiKey,
             activeLLMId: state.activeLLMId,
             language: state.language,

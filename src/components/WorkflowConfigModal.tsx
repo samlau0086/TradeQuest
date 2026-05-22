@@ -1,12 +1,65 @@
 import React, { useState } from 'react';
 import { useStore, AgentWorkflow, WorkflowStep } from '../store';
-import { X, Plus, Trash2, Edit2, Check } from 'lucide-react';
+import { X, Plus, Trash2, Edit2, Check, Sparkles, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { useAuthStore } from '../authStore';
 
-export function WorkflowConfigModal({ onClose }: { onClose: () => void }) {
-  const { agentWorkflows, addAgentWorkflow, updateAgentWorkflow, deleteAgentWorkflow } = useStore();
+export function WorkflowConfigModal({ onClose, clientId }: { onClose: () => void, clientId?: string }) {
+  const { agentWorkflows, addAgentWorkflow, updateAgentWorkflow, deleteAgentWorkflow, llmConfigs, activeLLMId, clients } = useStore();
   const [editingWfId, setEditingWfId] = useState<string | null>(null);
   const [formData, setFormData] = useState<Partial<AgentWorkflow>>({});
+  
+  const [showAiPrompt, setShowAiPrompt] = useState(false);
+  const [aiPromptText, setAiPromptText] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const client = clientId ? clients.find(c => c.id === clientId) : null;
+
+  const handleAiGenerate = async () => {
+    if (!aiPromptText.trim()) return;
+    setIsGenerating(true);
+    try {
+      let clientContext = '';
+      if (client) {
+        const methods = client.contactMethods || [];
+        const hasEmail = methods.some(m => m.type === 'email' && m.value);
+        const hasPhone = methods.some(m => ['whatsapp', 'phone', 'call', 'mobile', 'wechat'].includes(m.type) && m.value);
+        clientContext = `CRITICAL ASSISTANT RULE: You are planning a workflow tailored for a specific client. The client has the following contact methods: Email (${hasEmail ? 'Yes' : 'No'}), Phone/WhatsApp (${hasPhone ? 'Yes' : 'No'}). If they do not have a phone/WhatsApp contact, you MUST NOT include 'call' or 'whatsapp' steps. Only include steps for contact methods they actually have.`;
+      }
+
+      const activeLlm = llmConfigs.find(c => c.id === activeLLMId) || llmConfigs[0];
+      const res = await fetch('/api/ai/plan-workflow', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ prompt: aiPromptText, llmConfig: activeLlm, clientContext })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.steps && Array.isArray(data.steps)) {
+          const generatedSteps = data.steps.map((s: any, idx: number) => ({
+            id: `s_ai_${Date.now()}_${idx}`,
+            type: s.type || 'email',
+            delayDays: s.delayDays || 1,
+            templatePrompt: s.templatePrompt || '',
+            sendTime: s.sendTime || ''
+          }));
+          setFormData(prev => ({
+            ...prev,
+            steps: [...(prev.steps || []), ...generatedSteps]
+          }));
+          setAiPromptText('');
+          setShowAiPrompt(false);
+        }
+      }
+    } catch(e) {
+      console.error(e);
+    }
+    setIsGenerating(false);
+  };
+
 
   const handleEdit = (wf: AgentWorkflow) => {
     setEditingWfId(wf.id);
@@ -78,13 +131,51 @@ export function WorkflowConfigModal({ onClose }: { onClose: () => void }) {
                 />
               </div>
 
+              <div className="flex items-center gap-2 mt-4 bg-slate-950/50 p-3 rounded-lg border border-slate-700/50">
+                <input 
+                  type="checkbox" 
+                  id="stopOnReply"
+                  checked={!!formData.stopOnMeaningfulReply}
+                  onChange={(e) => setFormData({ ...formData, stopOnMeaningfulReply: e.target.checked })}
+                  className="w-4 h-4 rounded border-slate-700 text-indigo-600 focus:ring-indigo-600/20 bg-slate-900"
+                />
+                <label htmlFor="stopOnReply" className="text-sm font-medium text-slate-300 cursor-pointer">
+                  Stop workflow when client makes a meaningful reply
+                </label>
+              </div>
+
               <div className="space-y-3 pt-4 border-t border-slate-700">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-bold text-white">Follow-up Steps</h3>
-                  <button onClick={handleAddStep} className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300">
-                    <Plus className="w-3 h-3" /> Add Step
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => setShowAiPrompt(!showAiPrompt)} className="flex items-center gap-1 text-xs font-medium text-cyan-400 hover:text-cyan-300">
+                      <Sparkles className="w-3 h-3" /> Auto-Plan AI
+                    </button>
+                    <button onClick={handleAddStep} className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300">
+                      <Plus className="w-3 h-3" /> Add Step
+                    </button>
+                  </div>
                 </div>
+                {showAiPrompt && (
+                  <div className="flex gap-2 p-3 bg-cyan-950/30 border border-cyan-800/50 rounded-lg">
+                    <input 
+                      type="text" 
+                      value={aiPromptText}
+                      onChange={e => setAiPromptText(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleAiGenerate()}
+                      placeholder="e.g. 3 week follow up for cold leads starting tomorrow at 9am..."
+                      className="flex-1 bg-slate-900 border border-slate-700/50 rounded px-3 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500"
+                    />
+                    <button 
+                      onClick={handleAiGenerate}
+                      disabled={isGenerating || !aiPromptText.trim()}
+                      className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1 shrink-0"
+                    >
+                      {isGenerating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                      Generate
+                    </button>
+                  </div>
+                )}
                 {formData.steps?.map((step, idx) => (
                   <div key={step.id} className="p-3 bg-slate-950 rounded-lg space-y-3 relative group">
                     <div className="flex items-center gap-3">
@@ -99,15 +190,23 @@ export function WorkflowConfigModal({ onClose }: { onClose: () => void }) {
                         <option value="call">Call</option>
                         <option value="other">Other</option>
                       </select>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
                         <span className="text-xs text-slate-400">Delay:</span>
                         <input 
                           type="number"
                           value={step.delayDays}
                           onChange={e => handleUpdateStep(step.id, { delayDays: parseInt(e.target.value) || 0 })}
-                          className="w-16 bg-slate-900 border border-slate-700 rounded text-xs text-white px-2 py-1 text-center"
+                          className="w-12 bg-slate-900 border border-slate-700 rounded text-xs text-white px-2 py-1 text-center"
                         />
-                        <span className="text-xs text-slate-400">days</span>
+                        <span className="text-xs text-slate-400 mr-1">days</span>
+                        
+                        <span className="text-xs text-slate-400">at</span>
+                        <input 
+                          type="time"
+                          value={step.sendTime || ''}
+                          onChange={e => handleUpdateStep(step.id, { sendTime: e.target.value })}
+                          className="w-20 bg-slate-900 border border-slate-700 rounded text-xs text-white px-2 py-1 text-center"
+                        />
                       </div>
                       <button 
                         onClick={() => handleRemoveStep(step.id)}
@@ -151,12 +250,19 @@ export function WorkflowConfigModal({ onClose }: { onClose: () => void }) {
               {agentWorkflows.map(wf => (
                 <div key={wf.id} className="bg-slate-800 border border-slate-700 p-4 rounded-lg flex items-center justify-between group">
                   <div>
-                    <h3 className="text-white font-bold">{wf.name}</h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-white font-bold">{wf.name}</h3>
+                      {wf.stopOnMeaningfulReply && (
+                        <span className="bg-indigo-900/30 text-indigo-400 border border-indigo-700/50 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider">
+                          Stops on Reply
+                        </span>
+                      )}
+                    </div>
                     <p className="text-slate-400 text-xs mt-1">{wf.description}</p>
                     <div className="flex gap-2 mt-2">
                       {wf.steps.map((s, i) => (
                         <span key={i} className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-[10px] text-slate-300 uppercase tracking-wider">
-                          +{s.delayDays}d {s.type}
+                          +{s.delayDays}d {s.sendTime ? `@ ${s.sendTime}` : ''} {s.type}
                         </span>
                       ))}
                     </div>
