@@ -850,7 +850,7 @@ export function ClientDetails() {
 
       {/* Gmail-style sticky Compose block in corner */}
       {showEmailCompose && (
-        <div className="fixed bottom-0 right-8 w-full max-w-[500px] h-[550px] shadow-2xl z-50 rounded-t-xl overflow-hidden border-t border-l border-r border-slate-700 bg-slate-900 flex flex-col">
+        <div className="fixed inset-0 md:inset-auto md:bottom-0 md:right-8 w-full md:max-w-[550px] h-[100dvh] md:h-[600px] shadow-2xl z-50 md:rounded-t-xl overflow-hidden md:border-t md:border-l md:border-r border-slate-700 bg-slate-900 flex flex-col">
           <ComposeEmail 
             onClose={() => setShowEmailCompose(false)} 
             initialRecipient={composeRecipient} 

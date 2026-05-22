@@ -1419,10 +1419,22 @@ export const useStore = create<StoreState>((set, get) => ({
     if (emails.length > 0 && emails.filter(e => !e.read && e.type === 'inbox').length === 0) unlock('inbox_zero');
     
     if (logs.length >= 50) unlock('rich_history');
-    const logsAfter10pm = logs.some(l => new Date(l.date).getHours() >= 22);
+    
+    // Use user configured timezone to determine the correct hour
+    const getHourInTimezone = (dateStr: string) => {
+      try {
+        const formatter = new Intl.DateTimeFormat('en-US', { timeZone: state.timezone, hour: 'numeric', hourCycle: 'h23' });
+        const hourStr = formatter.format(new Date(dateStr));
+        return parseInt(hourStr, 10);
+      } catch (e) {
+        return new Date(dateStr).getHours();
+      }
+    };
+
+    const logsAfter10pm = logs.some(l => getHourInTimezone(l.date) >= 22);
     if (logsAfter10pm) unlock('night_owl');
     
-    const emailsBefore8am = emails.some(e => new Date(e.date).getHours() < 8 && e.type === 'sent');
+    const emailsBefore8am = emails.some(e => getHourInTimezone(e.date) < 8 && e.type === 'sent');
     if (emailsBefore8am) unlock('early_bird');
     
     // Persistent: follow up 5 times with a single client. Just check logs per client.
