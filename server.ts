@@ -135,8 +135,15 @@ async function initDB() {
         id VARCHAR(128) PRIMARY KEY,
         client_id VARCHAR(128) REFERENCES clients(id) ON DELETE CASCADE,
         date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        content TEXT
+        content TEXT,
+        related_email_id VARCHAR(128),
+        type VARCHAR(50) DEFAULT 'general',
+        metadata JSONB
       );
+      
+      ALTER TABLE logs ADD COLUMN IF NOT EXISTS related_email_id VARCHAR(128);
+      ALTER TABLE logs ADD COLUMN IF NOT EXISTS type VARCHAR(50) DEFAULT 'general';
+      ALTER TABLE logs ADD COLUMN IF NOT EXISTS metadata JSONB;
 
       CREATE TABLE IF NOT EXISTS emails (
         id VARCHAR(128) PRIMARY KEY,
@@ -2091,7 +2098,10 @@ No markdown wrappers, just valid JSON.`;
         id: row.id,
         clientId: row.client_id,
         date: row.date,
-        content: row.content
+        content: row.content,
+        relatedEmailId: row.related_email_id,
+        type: row.type || 'general',
+        metadata: row.metadata
       })));
     } catch (e) {
       console.error(e);
@@ -2101,7 +2111,7 @@ No markdown wrappers, just valid JSON.`;
 
   app.post('/api/logs', authenticateToken, async (req: any, res) => {
     try {
-      const { id, clientId, date, content } = req.body;
+      const { id, clientId, date, content, relatedEmailId, type, metadata } = req.body;
       
       const clientCheck = await pool.query('SELECT id FROM clients WHERE id = $1 AND user_id = $2', [clientId, req.user.uid]);
       if (clientCheck.rows.length === 0) {
@@ -2109,8 +2119,8 @@ No markdown wrappers, just valid JSON.`;
       }
 
       await pool.query(
-        `INSERT INTO logs (id, client_id, date, content) VALUES ($1, $2, $3, $4)`,
-        [id, clientId, date || new Date().toISOString(), content]
+        `INSERT INTO logs (id, client_id, date, content, related_email_id, type, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [id, clientId, date || new Date().toISOString(), content, relatedEmailId || null, type || 'general', metadata ? JSON.stringify(metadata) : null]
       );
       await pool.query(`UPDATE clients SET last_contact = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND user_id = $2`, [clientId, req.user.uid]);
       res.json({ success: true });

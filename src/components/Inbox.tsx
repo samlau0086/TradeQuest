@@ -11,8 +11,7 @@ import { UploadAttachmentModal } from './UploadAttachmentModal';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'react-resizable-panels';
 
 export function Inbox() {
-  const { emails, markEmailRead, clients, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem } = useStore();
-  const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
+  const { emails, markEmailRead, clients, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail } = useStore();
   const [filter, setFilter] = useState<'inbox' | 'sent' | 'scheduled'>('inbox');
   const [search, setSearch] = useState('');
   const [searchTags, setSearchTags] = useState<string[]>([]);
@@ -99,7 +98,7 @@ export function Inbox() {
       onConfirm: async () => {
         await useStore.getState().deleteEmails(Array.from(selectedIds));
         setSelectedIds(new Set());
-        if (selectedEmailId && selectedIds.has(selectedEmailId)) setSelectedEmailId(null);
+        if (selectedEmailId && selectedIds.has(selectedEmailId)) selectEmail(null);
         setConfirmDialog(null);
       }
     });
@@ -143,7 +142,7 @@ export function Inbox() {
   const selectedEmail = emails.find(e => e.id === selectedEmailId);
 
   const handleSelect = (id: string) => {
-    setSelectedEmailId(id);
+    selectEmail(id);
     markEmailRead(id);
   };
 
@@ -244,7 +243,7 @@ export function Inbox() {
                 <RefreshCw className={cn("w-4 h-4", isSyncing && "animate-spin")} />
               </button>
               <button 
-                onClick={() => { setComposeDefaults(null); setIsComposing(true); setSelectedEmailId(null); }}
+                onClick={() => { setComposeDefaults(null); setIsComposing(true); selectEmail(null); }}
                 className="p-1.5 bg-cyan-600 text-white rounded-md hover:bg-cyan-500 transition-colors shadow-lg shadow-cyan-600/20"
                 title="Compose"
               >
@@ -417,7 +416,7 @@ export function Inbox() {
                             setConfirmDialog({
                               message: 'Are you sure you want to delete this email? Emails associated with a client will be soft-deleted pending admin review.',
                               onConfirm: async () => {
-                                if (selectedEmailId === email.id) setSelectedEmailId(null);
+                                if (selectedEmailId === email.id) selectEmail(null);
                                 await useStore.getState().deleteEmails([email.id]);
                                 setConfirmDialog(null);
                               }
@@ -458,7 +457,7 @@ export function Inbox() {
           <>
             <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/80 sticky top-0 md:static backdrop-blur-sm z-10">
               <div className="flex items-center gap-3">
-                <button onClick={() => setSelectedEmailId(null)} className="md:hidden p-2 -ml-2 text-slate-400 hover:text-white">
+                <button onClick={() => selectEmail(null)} className="md:hidden p-2 -ml-2 text-slate-400 hover:text-white">
                   <ArrowLeft className="w-5 h-5" />
                 </button>
                 <div className="flex items-center gap-3">
@@ -467,10 +466,10 @@ export function Inbox() {
                   </div>
                   <div>
                     <div className="font-bold text-white text-sm">
-                      {filter === 'inbox' ? (selectedEmail.senderName || selectedEmail.sender) : selectedEmail.recipient}
+                      {selectedEmail.type === 'inbox' ? (selectedEmail.senderName || selectedEmail.sender) : selectedEmail.recipient}
                     </div>
                     <div className="text-[10px] text-slate-500 flex items-center gap-2 mt-1">
-                       {filter === 'inbox' ? `From: ${selectedEmail.sender}` : `To: ${selectedEmail.recipient}`}
+                       {selectedEmail.type === 'inbox' ? `From: ${selectedEmail.sender}` : `To: ${selectedEmail.recipient}`}
                        {selectedEmail.clientId ? (
                          <span onClick={() => selectClient(selectedEmail.clientId!)} className="bg-slate-800 px-2 py-0.5 rounded text-cyan-400 border border-slate-700 cursor-pointer hover:bg-slate-700 transition-colors">
                            {clients.find(c => c.id === selectedEmail.clientId)?.name || 'Linked'}
@@ -496,7 +495,7 @@ export function Inbox() {
                      message: 'Are you sure you want to delete this email? Emails associated with a client will be soft-deleted pending admin review.',
                      onConfirm: async () => {
                        const id = selectedEmail.id;
-                       setSelectedEmailId(null);
+                       selectEmail(null);
                        await useStore.getState().deleteEmails([id]);
                        setConfirmDialog(null);
                      }
@@ -807,7 +806,7 @@ export function Inbox() {
   );
 }
 
-function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '', originalEmailBody = '' }: { onClose: () => void, initialRecipient?: string, initialSubject?: string, originalEmailBody?: string }) {
+export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '', originalEmailBody = '', className = '' }: { onClose: () => void, initialRecipient?: string, initialSubject?: string, originalEmailBody?: string, className?: string }) {
   const { clients, emails, logs, addEmail, addLog, outboxConfigs, timezone } = useStore();
   const [selectedOutboxId, setSelectedOutboxId] = useState<string>(outboxConfigs?.[0]?.id || '');
   const [recipient, setRecipient] = useState(initialRecipient);
@@ -974,7 +973,7 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '', ori
 
     const finalBody = originalEmailBody ? `${body}<br><br><div class="gmail_quote" dir="ltr"><blockquote style="margin: 0px 0px 0px 0.8ex; border-left: 1px solid rgb(204, 204, 204); padding-left: 1ex;">${originalEmailBody}</blockquote></div>` : body;
 
-    addEmail({
+    const newEmailId = addEmail({
       recipient,
       cc: cc || undefined,
       bcc: bcc || undefined,
@@ -990,7 +989,7 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '', ori
       enableTracking: trackEmail
     });
     if (matchedClient) {
-      addLog(matchedClient.id, `Scheduled Email: ${subject} for ${new Date(scheduledAt).toLocaleString()}${purpose ? ` (Purpose: ${purpose})` : ''}`);
+      addLog(matchedClient.id, `Scheduled Email: ${subject} for ${new Date(scheduledAt).toLocaleString()}${purpose ? ` (Purpose: ${purpose})` : ''}`, newEmailId);
     }
     setShowSchedule(false);
     setScheduleDateTime('');
@@ -1009,7 +1008,7 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '', ori
 
     const finalBody = originalEmailBody ? `${body}<br><br><div class="gmail_quote" dir="ltr"><blockquote style="margin: 0px 0px 0px 0.8ex; border-left: 1px solid rgb(204, 204, 204); padding-left: 1ex;">${originalEmailBody}</blockquote></div>` : body;
 
-    addEmail({
+    const newEmailId = addEmail({
       recipient,
       cc: cc || undefined,
       bcc: bcc || undefined,
@@ -1024,7 +1023,7 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '', ori
       enableTracking: trackEmail
     });
     if (matchedClient) {
-      addLog(matchedClient.id, `Sent Email: ${subject}${purpose ? ` (Purpose: ${purpose})` : ''}`);
+      addLog(matchedClient.id, `Sent Email: ${subject}${purpose ? ` (Purpose: ${purpose})` : ''}`, newEmailId);
     }
     onClose();
   };
@@ -1139,7 +1138,7 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '', ori
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-slate-900 animate-in fade-in duration-200">
+    <div className={cn("flex-1 flex flex-col bg-slate-900 animate-in fade-in duration-200", className)}>
       <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-800/30">
         <h3 className="font-bold text-white text-sm">New Message</h3>
         <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800">
@@ -1232,9 +1231,19 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '', ori
               handleInlineAI(caretCoords.matchText);
             }
           }}
-          className="flex-1 w-full bg-transparent text-sm text-slate-300 resize-none focus:outline-none placeholder:text-slate-600 leading-relaxed scrollbar-thin relative z-0"
+          className={cn("w-full bg-transparent text-sm text-slate-300 resize-none focus:outline-none placeholder:text-slate-600 leading-relaxed relative z-0", originalEmailBody ? 'min-h-[200px] shrink-0' : 'flex-1 scrollbar-thin')}
           placeholder="Write your email here... Type /ai:prompt to generate content inline."
         />
+        
+        {originalEmailBody && (
+          <div className="mt-4 pt-4 border-t border-slate-800 shrink-0">
+            <div className="text-xs text-slate-500 mb-2 font-medium">Original Message</div>
+            <div 
+              className="text-sm text-slate-400 pl-3 border-l-2 border-slate-700 py-1"
+              dangerouslySetInnerHTML={{ __html: originalEmailBody }} 
+            />
+          </div>
+        )}
         
         {/* Optimize Button */}
         <button

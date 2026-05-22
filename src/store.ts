@@ -166,6 +166,9 @@ export interface Log {
   clientId: string;
   date: string;
   content: string;
+  relatedEmailId?: string;
+  type?: 'general' | 'whatsapp' | 'email';
+  metadata?: any;
 }
 
 export interface EmailMessage {
@@ -369,10 +372,10 @@ export interface StoreState {
   addReply: (clientId: string, commentId: string, content: string, attachments?: Attachment[]) => void;
 
   logs: Log[];
-  addLog: (clientId: string, content: string) => void;
+  addLog: (clientId: string, content: string, relatedEmailId?: string, type?: 'general' | 'whatsapp' | 'email', metadata?: any) => void;
 
   emails: EmailMessage[];
-  addEmail: (email: Omit<EmailMessage, 'id' | 'date'>) => void;
+  addEmail: (email: Omit<EmailMessage, 'id' | 'date'>) => string;
   editEmail: (id: string, updates: Partial<EmailMessage>) => void;
   markEmailRead: (id: string) => void;
   addEmailComment: (emailId: string, content: string, attachments?: Attachment[]) => void;
@@ -382,6 +385,9 @@ export interface StoreState {
 
   selectedClientId: string | null;
   selectClient: (id: string | null) => void;
+  
+  selectedEmailId: string | null;
+  selectEmail: (id: string | null) => void;
 
   dailyQuests: Quest[];
   addQuest: (quest: Omit<Quest, 'id' | 'completed'>) => void;
@@ -1174,13 +1180,13 @@ export const useStore = create<StoreState>((set, get) => ({
   }),
 
   logs: INITIAL_LOGS,
-  addLog: (clientId, content) => {
+  addLog: (clientId, content, relatedEmailId, type = 'general', metadata) => {
     set((state) => {
       const client = state.clients.find(c => c.id === clientId);
       if (client && client.isDormant) {
          setTimeout(() => get().completeQuest('q1'), 0);
       }
-      const newLog = { id: `log_${Date.now()}`, clientId, date: new Date().toISOString(), content };
+      const newLog = { id: `log_${Date.now()}`, clientId, date: new Date().toISOString(), content, relatedEmailId, type, metadata };
       
       const token = localStorage.getItem('token');
       if (token) {
@@ -1199,6 +1205,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   emails: INITIAL_EMAILS,
   addEmail: (email) => {
+    const newEmailId = `e${Date.now()}`;
     set((state) => {
       if (email.type === 'sent') {
          setTimeout(() => get().completeQuest('q2'), 0);
@@ -1210,7 +1217,7 @@ export const useStore = create<StoreState>((set, get) => ({
       
       setTimeout(() => get().addExp(get().expConfig['event_send_email'] ?? 5, 'Sent an email'), 0);
       
-      const newEmail = { ...email, id: `e${Date.now()}`, date: new Date().toISOString() } as EmailMessage;
+      const newEmail = { ...email, id: newEmailId, date: new Date().toISOString() } as EmailMessage;
       
       const token = localStorage.getItem('token');
       if (token) {
@@ -1225,6 +1232,7 @@ export const useStore = create<StoreState>((set, get) => ({
         emails: [newEmail, ...state.emails]
       };
     });
+    return newEmailId;
   },
   editEmail: (id, updates) => set((state) => {
     const token = localStorage.getItem('token');
@@ -1338,6 +1346,9 @@ export const useStore = create<StoreState>((set, get) => ({
 
   selectedClientId: null,
   selectClient: (id) => set({ selectedClientId: id }),
+  
+  selectedEmailId: null,
+  selectEmail: (id) => set({ selectedEmailId: id }),
 
   dailyQuests: [
     { id: 'q1', title: 'Wake up Dormant Clients', description: 'Contact 1 client inactive for >30 days.', expReward: 50, completed: false },
