@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { useAuthStore } from './authStore';
 
-export type ViewMode = 'kanban' | 'map' | 'inbox' | 'dashboard' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests' | 'list' | 'products' | 'quotes' | 'knowledge-base';
+export type ViewMode = 'kanban' | 'map' | 'inbox' | 'dashboard' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests' | 'list' | 'products' | 'quotes' | 'knowledge-base' | 'media-library';
 
 export type ClientStatus = 'Leads' | 'Contacted' | 'Sample Sent' | 'Negotiating' | 'Closed Won'; // Kept for legacy compatibility if needed, better to rename to DealStage but will keep for now.
 
@@ -32,6 +32,15 @@ export interface Attachment {
   name: string;
   type: 'image' | 'document' | 'other';
   url: string;
+}
+
+export interface MediaItem {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  url: string;
+  createdAt: string;
 }
 
 export interface Comment {
@@ -285,6 +294,11 @@ export interface StoreState {
   updateKnowledgeItem: (id: string, updates: Partial<KnowledgeItem>) => void;
   deleteKnowledgeItem: (id: string) => void;
 
+  mediaLibrary: MediaItem[];
+  fetchMediaLibrary: () => void;
+  addMedia: (media: Omit<MediaItem, 'id' | 'createdAt'>) => void;
+  deleteMedia: (id: string) => void;
+
   paymentTerms: PaymentTerm[];
   fetchPaymentTerms: () => void;
   addPaymentTerm: (term: Omit<PaymentTerm, 'id'>) => void;
@@ -537,6 +551,23 @@ export const useStore = create<StoreState>((set, get) => ({
         headers: { 'Authorization': `Bearer ${token}` }
       }).catch(console.error);
     }
+  },
+
+  mediaLibrary: [],
+  fetchMediaLibrary: () => {
+    // For now we manage it mostly client-side with IndexedDB, but due to context let's hold in memory
+    // In a real app we'd fetch from server. If there's an API we can query it.
+  },
+  addMedia: (media) => {
+    const newItem = {
+      ...media,
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString()
+    };
+    set((state) => ({ mediaLibrary: [newItem, ...state.mediaLibrary] }));
+  },
+  deleteMedia: (id) => {
+    set((state) => ({ mediaLibrary: state.mediaLibrary.filter(m => m.id !== id) }));
   },
 
   paymentTerms: [],

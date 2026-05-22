@@ -22,6 +22,7 @@ import { Loader2 } from 'lucide-react';
 
 import { ProductsList } from './components/ProductsList';
 import { QuotesList } from './components/QuotesList';
+import { MediaLibrary } from './components/MediaLibrary';
 
 export default function App() {
   const { view, selectedClientId, checkScheduledEmails, fetchInitialData, language, globalLoading } = useStore();
@@ -80,6 +81,7 @@ export default function App() {
            view === 'inbox' ? <Inbox /> : 
            view === 'settings' ? <Settings /> : 
            view === 'knowledge-base' ? <div className="flex-1 bg-slate-900 border-t border-slate-800 p-6 overflow-y-auto"><div className="w-full text-white"><KnowledgeBaseManager /></div></div> :
+           view === 'media-library' ? <MediaLibrary /> :
            view === 'user-management' ? <div className="flex-1 bg-slate-900 overflow-y-auto p-6"><div className="w-full text-white"><UserManagement /></div></div> :
            (view === 'dormant' || view === 'leads' || view === 'followups') ? <ActionableClients /> : 
            <Dashboard />}
