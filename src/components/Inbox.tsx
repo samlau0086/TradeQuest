@@ -1,22 +1,23 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore, EmailMessage } from '../store';
 import { useAuthStore } from '../authStore';
-import { Mail, Send, Reply, Trash2, ArrowLeft, RefreshCw, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2, MoreHorizontal, Star, Clock, Activity, Eye, MousePointerClick, Radar, Timer } from 'lucide-react';
+import { Mail, Send, Reply, Trash2, ArrowLeft, RefreshCw, PenLine, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2, MoreHorizontal, Star, Clock, Activity, Eye, MousePointerClick, Radar, Timer } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { CommentItem } from './CommentItem';
 import { AddressInput } from './AddressInput';
 import { getCaretCoordinates } from '../utils/caret';
 import { ClientFormModal } from './ClientFormModal';
 import { UploadAttachmentModal } from './UploadAttachmentModal';
-import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'react-resizable-panels';
+import { Group as PanelGroup, Panel, Separator as PanelResizeHandle, useDefaultLayout } from 'react-resizable-panels';
 
 export function Inbox() {
   const { emails, markEmailRead, clients, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail } = useStore();
-  const [filter, setFilter] = useState<'inbox' | 'sent' | 'scheduled'>('inbox');
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'inbox-layout' });
+  const [filter, setFilter] = useState<'inbox' | 'sent' | 'scheduled' | 'drafts'>('inbox');
   const [search, setSearch] = useState('');
   const [searchTags, setSearchTags] = useState<string[]>([]);
   const [isComposing, setIsComposing] = useState(false);
-  const [composeDefaults, setComposeDefaults] = useState<{recipient: string, subject: string, originalEmailBody?: string} | null>(null);
+  const [composeDefaults, setComposeDefaults] = useState<{recipient: string, subject: string, originalEmailBody?: string, initialBody?: string, draftId?: string} | null>(null);
   const [isAddingTag, setIsAddingTag] = useState(false);
   const [newTag, setNewTag] = useState('');
   const [commentText, setCommentText] = useState('');
@@ -46,8 +47,9 @@ export function Inbox() {
   const filteredEmails = emails.filter(e => {
     // Support both new ('inbox'/'sent') and legacy ('inbound'/'outbound') types
     const typeMatch = (filter === 'inbox' && (e.type === 'inbox' || e.type === 'inbound')) ||
-                      (filter === 'sent' && (e.type === 'sent' || e.type === 'outbound' || e.type === 'scheduled')) ||
-                      (filter === 'scheduled' && e.type === 'scheduled');
+                      (filter === 'sent' && (e.type === 'sent' || e.type === 'outbound')) ||
+                      (filter === 'scheduled' && e.type === 'scheduled') ||
+                      (filter === 'drafts' && e.type === 'draft');
     
     if (!typeMatch) return false;
     if (e.pendingDelete) return false;
@@ -142,6 +144,7 @@ export function Inbox() {
   const selectedEmail = emails.find(e => e.id === selectedEmailId);
 
   const handleSelect = (id: string) => {
+    setIsComposing(false);
     selectEmail(id);
     markEmailRead(id);
   };
@@ -208,9 +211,9 @@ export function Inbox() {
   };
 
   return (
-    <PanelGroup orientation="horizontal" id="inbox-layout" className="flex-1 overflow-hidden bg-slate-900 border-t border-slate-800">
+    <PanelGroup id="inbox-layout" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged} orientation="horizontal" className="flex-1 overflow-hidden bg-slate-900 border-t border-slate-800">
       {/* Sidebar List */}
-      <Panel defaultSize={320} minSize={250} maxSize={500} className={cn("flex flex-col transition-transform relative z-10", selectedEmailId && "hidden md:flex")}>
+      <Panel id="inbox-list" defaultSize={320} minSize={250} maxSize={500} className={cn("flex flex-col transition-transform relative z-10", selectedEmailId && "hidden md:flex")}>
         <div className="p-4 border-b border-slate-800 flex flex-col gap-3 bg-slate-900">
           <div className="flex justify-between items-center bg-slate-900">
             <div className="flex bg-slate-800/50 rounded-lg p-1 border border-slate-700/50">
@@ -231,6 +234,12 @@ export function Inbox() {
                 className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors", filter === 'scheduled' ? "bg-slate-700 text-white" : "text-slate-400 hover:text-slate-200")}
               >
                 Scheduled
+              </button>
+              <button 
+                onClick={() => setFilter('drafts')}
+                className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors", filter === 'drafts' ? "bg-slate-700 text-white" : "text-slate-400 hover:text-slate-200")}
+              >
+                Drafts
               </button>
             </div>
             <div className="flex gap-2">
@@ -351,7 +360,7 @@ export function Inbox() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between mb-1 relative">
                   <span className={cn("text-sm font-bold truncate pr-2 flex items-center gap-1", !email.read && filter === 'inbox' ? "text-white" : "text-slate-300")}>
-                    {filter === 'inbox' ? (email.senderName || email.sender) : (email.recipient)}
+                    {filter === 'inbox' ? (email.senderName || email.sender) : (filter === 'drafts' ? `Draft: ${email.recipient || '(No Recipient)'}` : email.recipient)}
                   </span>
                   <div className="flex items-center gap-2 shrink-0">
                     {((email.type === 'sent' || email.type === 'scheduled' || email.type === 'outbound') && (email.body?.includes('/api/track/open/') || email.enableTracking)) && (
@@ -450,9 +459,9 @@ export function Inbox() {
       <PanelResizeHandle className="w-1 bg-slate-800 hover:bg-cyan-500 cursor-col-resize transition-colors hidden md:block" />
 
       {/* Reading Pane / Compose Pane */}
-      <Panel className={cn("flex flex-col bg-slate-950/50 relative", !selectedEmailId && !isComposing && "hidden md:flex")}>
+      <Panel id="inbox-content" className={cn("flex flex-col bg-slate-950/50 relative", !selectedEmailId && !isComposing && "hidden md:flex")}>
         {isComposing ? (
-          <ComposeEmail onClose={() => setIsComposing(false)} initialRecipient={composeDefaults?.recipient} initialSubject={composeDefaults?.subject} originalEmailBody={composeDefaults?.originalEmailBody} />
+          <ComposeEmail onClose={() => setIsComposing(false)} initialRecipient={composeDefaults?.recipient} initialSubject={composeDefaults?.subject} initialBody={composeDefaults?.initialBody} originalEmailBody={composeDefaults?.originalEmailBody} draftId={composeDefaults?.draftId} />
         ) : selectedEmail ? (
           <>
             <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/80 sticky top-0 md:static backdrop-blur-sm z-10">
@@ -466,10 +475,10 @@ export function Inbox() {
                   </div>
                   <div>
                     <div className="font-bold text-white text-sm">
-                      {selectedEmail.type === 'inbox' ? (selectedEmail.senderName || selectedEmail.sender) : selectedEmail.recipient}
+                      {selectedEmail.type === 'inbox' ? (selectedEmail.senderName || selectedEmail.sender) : (selectedEmail.type === 'draft' ? `Draft: ${selectedEmail.recipient || '(No Recipient)'}` : selectedEmail.recipient)}
                     </div>
                     <div className="text-[10px] text-slate-500 flex items-center gap-2 mt-1">
-                       {selectedEmail.type === 'inbox' ? `From: ${selectedEmail.sender}` : `To: ${selectedEmail.recipient}`}
+                       {selectedEmail.type === 'inbox' ? `From: ${selectedEmail.sender}` : (selectedEmail.type === 'draft' ? `To: ${selectedEmail.recipient || '(No Recipient)'}` : `To: ${selectedEmail.recipient}`)}
                        {selectedEmail.clientId ? (
                          <span onClick={() => selectClient(selectedEmail.clientId!)} className="bg-slate-800 px-2 py-0.5 rounded text-cyan-400 border border-slate-700 cursor-pointer hover:bg-slate-700 transition-colors">
                            {clients.find(c => c.id === selectedEmail.clientId)?.name || 'Linked'}
@@ -503,9 +512,27 @@ export function Inbox() {
                  }} className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-900/30 rounded transition-colors" title="Delete">
                    <Trash2 className="w-4 h-4" />
                  </button>
-                 <button onClick={() => { setComposeDefaults({ recipient: selectedEmail.sender, subject: `Re: ${selectedEmail.subject.replace(/^Re:\s*/i, '')}`, originalEmailBody: `On ${new Date(selectedEmail.date).toLocaleString()}, ${selectedEmail.senderName || selectedEmail.sender} wrote:<br>${selectedEmail.body || ''}` }); setIsComposing(true); }} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors" title="Reply">
-                   <Reply className="w-4 h-4" />
-                 </button>
+                 {selectedEmail.type === 'draft' ? (
+                   <button 
+                     onClick={() => { 
+                       setComposeDefaults({ 
+                         recipient: selectedEmail.recipient, 
+                         subject: selectedEmail.subject, 
+                         initialBody: selectedEmail.body,
+                         draftId: selectedEmail.id 
+                       }); 
+                       setIsComposing(true); 
+                     }} 
+                     className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors" 
+                     title="Edit Draft"
+                   >
+                     <PenLine className="w-4 h-4" />
+                   </button>
+                 ) : (
+                   <button onClick={() => { setComposeDefaults({ recipient: selectedEmail.sender, subject: `Re: ${selectedEmail.subject.replace(/^Re:\s*/i, '')}`, originalEmailBody: `On ${new Date(selectedEmail.date).toLocaleString()}, ${selectedEmail.senderName || selectedEmail.sender} wrote:<br>${selectedEmail.body || ''}` }); setIsComposing(true); }} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors" title="Reply">
+                     <Reply className="w-4 h-4" />
+                   </button>
+                 )}
                  {selectedEmail.clientId && (
                    <button 
                      onClick={handleAddToRag} 
@@ -806,14 +833,14 @@ export function Inbox() {
   );
 }
 
-export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '', originalEmailBody = '', className = '' }: { onClose: () => void, initialRecipient?: string, initialSubject?: string, originalEmailBody?: string, className?: string }) {
-  const { clients, emails, logs, addEmail, addLog, outboxConfigs, timezone } = useStore();
+export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '', initialBody = '', originalEmailBody = '', draftId, className = '' }: { onClose: () => void, initialRecipient?: string, initialSubject?: string, initialBody?: string, originalEmailBody?: string, draftId?: string, className?: string }) {
+  const { clients, emails, logs, addEmail, editEmail, deleteEmails, addLog, outboxConfigs, timezone } = useStore();
   const [selectedOutboxId, setSelectedOutboxId] = useState<string>(outboxConfigs?.[0]?.id || '');
   const [recipient, setRecipient] = useState(initialRecipient);
   const [cc, setCc] = useState('');
   const [bcc, setBcc] = useState('');
   const [subject, setSubject] = useState(initialSubject);
-  const [body, setBody] = useState('');
+  const [body, setBody] = useState(initialBody);
   const [purpose, setPurpose] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingPurpose, setLoadingPurpose] = useState(false);
@@ -996,6 +1023,46 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
     onClose();
   };
 
+  const handleSaveDraft = () => {
+    if (!recipient && !subject && !body) {
+      onClose();
+      return;
+    }
+
+    const attachmentsPayload = attachments.map(a => ({
+      id: `att_${Date.now()}_${Math.random()}`,
+      name: a.name,
+      type: (a.type.includes('image') ? 'image' : 'document') as 'image' | 'document' | 'other',
+      url: URL.createObjectURL(a)
+    }));
+
+    const finalBody = originalEmailBody ? `${body}<br><br><div class="gmail_quote" dir="ltr"><blockquote style="margin: 0px 0px 0px 0.8ex; border-left: 1px solid rgb(204, 204, 204); padding-left: 1ex;">${originalEmailBody}</blockquote></div>` : body;
+
+    const emailPayload = {
+      recipient,
+      cc: cc || undefined,
+      bcc: bcc || undefined,
+      sender: senderEmail,
+      senderName: senderName,
+      subject: subject || 'No Subject',
+      body: finalBody,
+      read: true,
+      type: 'draft' as const,
+      clientId: matchedClient?.id,
+      attachments: attachmentsPayload.length > 0 ? attachmentsPayload : undefined,
+      enableTracking: trackEmail
+    };
+
+    if (draftId) {
+      editEmail(draftId, emailPayload);
+    } else {
+      addEmail(emailPayload);
+      // Removed addLog for drafts
+    }
+    
+    onClose();
+  };
+
   const handleSend = () => {
     if (!recipient || !subject) return;
 
@@ -1022,6 +1089,11 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
       attachments: attachmentsPayload.length > 0 ? attachmentsPayload : undefined,
       enableTracking: trackEmail
     });
+    
+    if (draftId) {
+       deleteEmails([draftId]);
+    }
+    
     if (matchedClient) {
       addLog(matchedClient.id, `Sent Email: ${subject}${purpose ? ` (Purpose: ${purpose})` : ''}`, newEmailId);
     }
@@ -1400,6 +1472,12 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
                 </div>
               )}
             </div>
+            <button 
+              onClick={handleSaveDraft}
+              className="text-sm border border-slate-700 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 px-4 py-2 rounded-lg transition-colors"
+            >
+              Save Draft
+            </button>
             <button 
               onClick={handleSend}
               disabled={!recipient || !body}

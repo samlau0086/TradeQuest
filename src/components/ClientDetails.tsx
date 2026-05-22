@@ -219,14 +219,14 @@ function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { met
               ) : (
                 emails.filter(e => e.clientId === client.id).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(email => (
                   <div key={email.id} className="relative flex items-start pl-6 group">
-                    <div className={`absolute left-[5px] top-1 flex items-center justify-center w-2.5 h-2.5 rounded-full border-2 ${email.type === 'sent' ? 'border-cyan-500/30 bg-cyan-500' : 'border-indigo-500/30 bg-indigo-500'}`}></div>
+                    <div className={`absolute left-[5px] top-1 flex items-center justify-center w-2.5 h-2.5 rounded-full border-2 ${email.type === 'draft' ? 'border-amber-500/30 bg-amber-500' : email.type === 'sent' ? 'border-cyan-500/30 bg-cyan-500' : 'border-indigo-500/30 bg-indigo-500'}`}></div>
                     <div 
                       onClick={() => { setView('inbox'); selectEmail(email.id); onClose(); }}
                       className="flex flex-col gap-1.5 w-full bg-slate-800/30 p-2.5 rounded-lg border border-slate-700/30 group-hover:border-slate-700/60 transition-colors cursor-pointer hover:bg-slate-800/50"
                     >
                       <div className="flex items-center justify-between gap-4">
                         <span className="text-[11px] font-medium text-slate-300 truncate">
-                          {email.type === 'sent' ? `To: ${email.recipient}` : `From: ${email.sender}`}
+                          {email.type === 'draft' ? `Draft: ${email.recipient || 'No recipient'}` : email.type === 'sent' ? `To: ${email.recipient}` : `From: ${email.sender}`}
                         </span>
                         <time className="text-[10px] text-slate-500 font-mono whitespace-nowrap">
                           {new Date(email.date).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
@@ -747,7 +747,15 @@ export function ClientDetails() {
             <History className="w-4 h-4" /> Growth Logs
           </h3>
           <div className="space-y-3 relative before:absolute before:inset-0 before:ml-2 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-800 before:to-transparent">
-            {useStore(s => s.logs).filter(l => l.clientId === client.id).map(log => (
+            {useStore(s => s.logs).filter(l => {
+              if (l.clientId !== client.id) return false;
+              if (l.content.startsWith('Saved Draft:')) return false;
+              if (l.relatedEmailId) {
+                const relatedEmail = useStore.getState().emails.find(e => e.id === l.relatedEmailId);
+                if (relatedEmail && relatedEmail.type === 'draft') return false;
+              }
+              return true;
+            }).map(log => (
               <div key={log.id} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
                 <div className="flex items-center justify-center w-5 h-5 rounded-full border border-slate-700 bg-slate-900 text-slate-500 shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2">
                   <div className="w-1.5 h-1.5 bg-slate-500 rounded-full"></div>

@@ -17,7 +17,7 @@ import { EditRequests } from './components/EditRequests';
 import { KnowledgeBaseManager } from './components/KnowledgeBaseManager';
 import { AuthPage } from './components/AuthPage';
 import { ResetPasswordPage } from './components/ResetPasswordPage';
-import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'react-resizable-panels';
+import { Group as PanelGroup, Panel, Separator as PanelResizeHandle, useDefaultLayout } from 'react-resizable-panels';
 import { Loader2 } from 'lucide-react';
 
 import { ProductsList } from './components/ProductsList';
@@ -26,6 +26,7 @@ import { QuotesList } from './components/QuotesList';
 export default function App() {
   const { view, selectedClientId, checkScheduledEmails, fetchInitialData, language, globalLoading } = useStore();
   const { token, isInitializing } = useAuthStore();
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'app-layout' });
 
   const urlParams = new URLSearchParams(window.location.search);
   const resetToken = urlParams.get('resetToken');
@@ -60,12 +61,12 @@ export default function App() {
 
   return (
     <>
-      <PanelGroup orientation="horizontal" id="app-layout" className="absolute inset-0 flex bg-slate-950 text-slate-200 overflow-hidden font-sans selection:bg-cyan-500/30">
-        <Panel defaultSize={260} minSize={200} maxSize={400}>
+      <PanelGroup id="app-layout" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged} orientation="horizontal" className="absolute inset-0 flex bg-slate-950 text-slate-200 overflow-hidden font-sans selection:bg-cyan-500/30">
+        <Panel id="sidebar" defaultSize={260} minSize={200} maxSize={400}>
           <Sidebar />
         </Panel>
         <PanelResizeHandle className="w-1 bg-slate-800 hover:bg-cyan-500 cursor-col-resize transition-colors" />
-        <Panel className="flex-1 flex flex-col relative overflow-hidden">
+        <Panel id="main-content" className="flex-1 flex flex-col relative overflow-hidden">
           <TopBar />
           <MagicCommand />
           
@@ -87,7 +88,7 @@ export default function App() {
         {selectedClientId && (
           <>
             <PanelResizeHandle className="w-1 bg-slate-800 hover:bg-cyan-500 cursor-col-resize transition-colors" />
-            <Panel defaultSize={384} minSize={300} maxSize={600}>
+            <Panel id="client-details" defaultSize={384} minSize={300} maxSize={600}>
               <ClientDetails />
             </Panel>
           </>

@@ -2610,13 +2610,15 @@ No markdown wrappers, just valid JSON.`;
       
       const mapping: Record<string, string> = {
         read: 'read', type: 'type', tags: 'tags', comments: 'comments', date: 'date',
-        isImportant: 'is_important', todoAt: 'todo_at', todoNote: 'todo_note'
+        isImportant: 'is_important', todoAt: 'todo_at', todoNote: 'todo_note',
+        recipient: 'recipient', cc: 'cc', bcc: 'bcc', subject: 'subject', body: 'body',
+        attachments: 'attachments'
       };
       
       for (const [key, val] of Object.entries(updates)) {
         if (mapping[key]) {
           setClauses.push(`${mapping[key]} = $${valIdx}`);
-          values.push((key === 'tags' || key === 'comments') ? JSON.stringify(val) : val);
+          values.push((key === 'tags' || key === 'comments' || key === 'attachments') ? JSON.stringify(val) : val);
           valIdx++;
         }
       }

@@ -183,7 +183,7 @@ export interface EmailMessage {
   body: string;
   date: string;
   read: boolean;
-  type: 'inbox' | 'sent' | 'scheduled' | 'inbound' | 'outbound';
+  type: 'inbox' | 'sent' | 'scheduled' | 'inbound' | 'outbound' | 'draft';
   tags?: string[];
   comments?: Comment[];
   scheduledAt?: string;
