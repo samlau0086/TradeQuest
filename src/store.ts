@@ -555,8 +555,13 @@ export const useStore = create<StoreState>((set, get) => ({
 
   mediaLibrary: [],
   fetchMediaLibrary: () => {
-    // For now we manage it mostly client-side with IndexedDB, but due to context let's hold in memory
-    // In a real app we'd fetch from server. If there's an API we can query it.
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch('/api/media', { headers: { 'Authorization': `Bearer ${token}` } })
+        .then(res => res.json())
+        .then(mediaLibrary => set({ mediaLibrary: Array.isArray(mediaLibrary) ? mediaLibrary : [] }))
+        .catch(console.error);
+    }
   },
   addMedia: (media) => {
     const newItem = {
@@ -565,9 +570,24 @@ export const useStore = create<StoreState>((set, get) => ({
       createdAt: new Date().toISOString()
     };
     set((state) => ({ mediaLibrary: [newItem, ...state.mediaLibrary] }));
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch('/api/media', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(newItem)
+      }).catch(console.error);
+    }
   },
   deleteMedia: (id) => {
     set((state) => ({ mediaLibrary: state.mediaLibrary.filter(m => m.id !== id) }));
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch(`/api/media/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).catch(console.error);
+    }
   },
 
   paymentTerms: [],
@@ -1596,6 +1616,7 @@ export const useStore = create<StoreState>((set, get) => ({
     get().fetchDocuments();
     get().fetchPaymentTerms();
     get().fetchKnowledgeBase();
+    get().fetchMediaLibrary();
     get().fetchAgentWorkflows();
 
     try {

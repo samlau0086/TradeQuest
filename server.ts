@@ -248,6 +248,16 @@ async function initDB() {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
 
+      CREATE TABLE IF NOT EXISTS media_library (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        type VARCHAR(50) NOT NULL,
+        size BIGINT DEFAULT 0,
+        url TEXT NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
       -- Migrate existing clients to a default deal if none exist for that client
       INSERT INTO deals (id, user_id, client_id, name, status, created_at, updated_at)
       SELECT 
@@ -335,7 +345,8 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json());
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
   // Magic command completion
   app.post("/api/chat/magic", authenticateToken, async (req: any, res) => {
@@ -1329,6 +1340,38 @@ No markdown wrappers, just valid JSON.`;
   app.delete('/api/documents/:id', authenticateToken, async (req: any, res) => {
     try {
       await pool.query('DELETE FROM documents WHERE id = $1 AND user_id = $2', [req.params.id, req.user.uid]);
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e); res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  // Media Library APIs
+  app.get('/api/media', authenticateToken, async (req: any, res) => {
+    try {
+      const { rows } = await pool.query('SELECT * FROM media_library WHERE user_id = $1 ORDER BY created_at DESC', [req.user.uid]);
+      res.json(rows);
+    } catch (e) {
+      console.error(e); res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  app.post('/api/media', authenticateToken, async (req: any, res) => {
+    try {
+      const { id, name, type, size, url } = req.body;
+      await pool.query(
+        'INSERT INTO media_library (id, user_id, name, type, size, url) VALUES ($1, $2, $3, $4, $5, $6)',
+        [id, req.user.uid, name, type, size, url]
+      );
+      res.json({ success: true, pointsAdded: 0 });
+    } catch (e) {
+      console.error(e); res.status(500).json({ error: 'Internal error' });
+    }
+  });
+
+  app.delete('/api/media/:id', authenticateToken, async (req: any, res) => {
+    try {
+      await pool.query('DELETE FROM media_library WHERE id = $1 AND user_id = $2', [req.params.id, req.user.uid]);
       res.json({ success: true });
     } catch (e) {
       console.error(e); res.status(500).json({ error: 'Internal error' });

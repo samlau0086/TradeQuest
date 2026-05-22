@@ -1,44 +1,15 @@
-import React, { useState, useRef } from 'react';
-import { Upload, X, File, Image as ImageIcon, Trash2, Copy, PlaySquare, CheckCircle2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { Upload, File, Image as ImageIcon, Trash2, Copy, PlaySquare, CheckCircle2 } from 'lucide-react';
 import { useStore, MediaItem } from '../store';
 import { cn } from '../lib/utils';
 import { useTranslation } from '../lib/i18n';
+import { UploadMediaModal } from './UploadMediaModal';
 
 export function MediaLibrary() {
-  const { mediaLibrary, addMedia, deleteMedia, language } = useStore();
+  const { mediaLibrary, deleteMedia, language } = useStore();
   const t = useTranslation(language);
-  const [isUploading, setIsUploading] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      setIsUploading(true);
-      const files = Array.from(e.target.files);
-      
-      files.forEach(file => {
-        // Prevent huge files from crashing base64 memory limit
-        if (file.size > 10 * 1024 * 1024) {
-          alert(`File ${file.name} is too large. Limit is 10MB.`);
-          return;
-        }
-
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          if (event.target?.result) {
-            addMedia({
-              name: file.name,
-              type: file.type,
-              size: file.size,
-              url: event.target.result as string,
-            });
-          }
-        };
-        reader.readAsDataURL(file);
-      });
-      setIsUploading(false);
-    }
-  };
+  const [showUploadModal, setShowUploadModal] = useState(false);
 
   const copyToClipboard = (url: string, id: string) => {
     navigator.clipboard.writeText(url);
@@ -89,19 +60,12 @@ export function MediaLibrary() {
           <p className="text-sm text-slate-400 mt-1">Manage all your uploaded media assets centrally.</p>
         </div>
         <button 
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => setShowUploadModal(true)}
           className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
         >
           <Upload className="w-4 h-4" />
           {t('uploadDoc') || 'Upload Media'}
         </button>
-        <input 
-          type="file" 
-          multiple 
-          className="hidden" 
-          ref={fileInputRef} 
-          onChange={handleFileSelect} 
-        />
       </div>
 
       <div className="flex-1 overflow-y-auto p-6 scrollbar-thin scrollbar-thumb-slate-700">
@@ -157,6 +121,10 @@ export function MediaLibrary() {
           </div>
         )}
       </div>
+
+      {showUploadModal && (
+        <UploadMediaModal onClose={() => setShowUploadModal(false)} />
+      )}
     </div>
   );
 }

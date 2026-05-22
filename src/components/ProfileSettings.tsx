@@ -3,6 +3,7 @@ import { useAuthStore } from '../authStore';
 import { useStore } from '../store';
 import { User, Lock, Save, Loader2, Image as ImageIcon, Eye, EyeOff } from 'lucide-react';
 import { useTranslation } from '../lib/i18n';
+import { MediaSelectorModal } from './MediaSelectorModal';
 
 export function ProfileSettings() {
   const { profile, token, fetchProfile } = useAuthStore();
@@ -10,6 +11,7 @@ export function ProfileSettings() {
   const t = useTranslation(language);
   const [displayName, setDisplayName] = useState(profile?.displayName || '');
   const [avatarUrl, setAvatarUrl] = useState(profile?.avatarUrl || '');
+  const [showMediaSelector, setShowMediaSelector] = useState(false);
   const [companyName, setCompanyName] = useState(profile?.companyName || '');
   const [companyAddress, setCompanyAddress] = useState(profile?.companyAddress || '');
   const [companyPhone, setCompanyPhone] = useState(profile?.companyPhone || '');
@@ -111,18 +113,27 @@ export function ProfileSettings() {
           </div>
           <div className="space-y-1">
             <label className="text-xs text-slate-400 font-bold uppercase">{t('avatarUrl')}</label>
-            <div className="relative">
-              <ImageIcon className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
-              <input 
-                type="text" 
-                value={avatarUrl}
-                onChange={e => setAvatarUrl(e.target.value)}
-                placeholder="https://example.com/avatar.png"
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm focus:border-indigo-500 outline-none"
-              />
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <ImageIcon className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
+                <input 
+                  type="text" 
+                  value={avatarUrl}
+                  onChange={e => setAvatarUrl(e.target.value)}
+                  placeholder="https://example.com/avatar.png"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm focus:border-indigo-500 outline-none"
+                />
+              </div>
+              <button 
+                type="button"
+                onClick={() => setShowMediaSelector(true)}
+                className="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm font-medium text-slate-200 transition-colors whitespace-nowrap"
+              >
+                Media Library
+              </button>
             </div>
             {avatarUrl && (
-              <div className="mt-2">
+              <div className="mt-2 text-center flex justify-start">
                 <img src={avatarUrl} alt="Avatar Preview" className="w-12 h-12 rounded-full object-cover border border-slate-700" />
               </div>
             )}
@@ -234,6 +245,14 @@ export function ProfileSettings() {
           </button>
         </div>
       </div>
+      
+      {showMediaSelector && (
+        <MediaSelectorModal 
+          onSelect={(url) => setAvatarUrl(url)}
+          onClose={() => setShowMediaSelector(false)}
+          allowedTypes={['image']}
+        />
+      )}
     </div>
   );
 }

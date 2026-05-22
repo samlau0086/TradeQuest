@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useStore, Product } from '../store';
 import { useTranslation } from '../lib/i18n';
-import { X, Plus, Trash2 } from 'lucide-react';
+import { X, Plus, Trash2, Image as ImageIcon } from 'lucide-react';
+import { MediaSelectorModal } from './MediaSelectorModal';
 
 interface ProductFormModalProps {
   onClose: () => void;
@@ -19,6 +20,7 @@ export function ProductFormModal({ onClose, productId, initialData, onSave }: Pr
   const [name, setName] = useState(existingProduct?.name || initialData?.name || '');
   const [description, setDescription] = useState(existingProduct?.description || initialData?.description || '');
   const [imageUrl, setImageUrl] = useState(existingProduct?.imageUrl || initialData?.imageUrl || '');
+  const [showMediaSelector, setShowMediaSelector] = useState(false);
   const [bulkPrices, setBulkPrices] = useState<{minQuantity: number, price: number}[]>(
     existingProduct?.bulkPrices || initialData?.bulkPrices || [{ minQuantity: 1, price: 0 }]
   );
@@ -99,7 +101,30 @@ export function ProductFormModal({ onClose, productId, initialData, onSave }: Pr
 
           <div className="space-y-1">
             <label className="text-xs font-bold text-slate-400 uppercase">{t('imageUrl')}</label>
-            <input value={imageUrl} onChange={e => setImageUrl(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500" placeholder="https://example.com/image.png" />
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <ImageIcon className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
+                <input 
+                  value={imageUrl} 
+                  onChange={e => setImageUrl(e.target.value)} 
+                  type="text" 
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500" 
+                  placeholder="https://example.com/image.png" 
+                />
+              </div>
+              <button 
+                type="button"
+                onClick={() => setShowMediaSelector(true)}
+                className="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm font-medium text-slate-200 transition-colors whitespace-nowrap"
+              >
+                Media Library
+              </button>
+            </div>
+            {imageUrl && (
+              <div className="mt-2 flex justify-start">
+                <img src={imageUrl} alt="Preview" className="h-16 w-16 object-cover rounded border border-slate-700" />
+              </div>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -159,6 +184,14 @@ export function ProductFormModal({ onClose, productId, initialData, onSave }: Pr
           </button>
         </div>
       </div>
+
+      {showMediaSelector && (
+        <MediaSelectorModal 
+          onSelect={(url) => setImageUrl(url)}
+          onClose={() => setShowMediaSelector(false)}
+          allowedTypes={['image']}
+        />
+      )}
     </div>
   );
 }
