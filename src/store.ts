@@ -240,6 +240,13 @@ export interface InboxConfig {
   secure: boolean;
 }
 
+export interface EmailSignature {
+  id: string;
+  name: string;
+  content: string; // HTML or Markdown
+  isDefault?: boolean;
+}
+
 export interface OutboxConfig {
   id: string;
   name: string;
@@ -318,6 +325,12 @@ export interface StoreState {
   addInboxConfig: (config: Omit<InboxConfig, 'id'>) => void;
   updateInboxConfig: (id: string, updates: Partial<InboxConfig>) => void;
   deleteInboxConfig: (id: string) => void;
+
+  signatures: EmailSignature[];
+  addSignature: (signature: Omit<EmailSignature, 'id'>) => void;
+  updateSignature: (id: string, updates: Partial<EmailSignature>) => void;
+  deleteSignature: (id: string) => void;
+  setDefaultSignature: (id: string) => void;
 
   outboxConfigs: OutboxConfig[];
   addOutboxConfig: (config: Omit<OutboxConfig, 'id'>) => void;
@@ -655,6 +668,22 @@ export const useStore = create<StoreState>((set, get) => ({
   addInboxConfig: (config) => set((state) => ({ inboxConfigs: [...state.inboxConfigs, { ...config, id: `inbox_${Date.now()}` }] })),
   updateInboxConfig: (id, updates) => set((state) => ({ inboxConfigs: state.inboxConfigs.map(a => a.id === id ? { ...a, ...updates } : a) })),
   deleteInboxConfig: (id) => set((state) => ({ inboxConfigs: state.inboxConfigs.filter(a => a.id !== id) })),
+
+  signatures: [],
+  addSignature: (signature) => set((state) => {
+    const isFirst = state.signatures.length === 0;
+    return { signatures: [...state.signatures, { ...signature, id: `sig_${Date.now()}`, isDefault: isFirst }] };
+  }),
+  updateSignature: (id, updates) => set((state) => ({ signatures: state.signatures.map(s => s.id === id ? { ...s, ...updates } : s) })),
+  deleteSignature: (id) => set((state) => ({
+    signatures: state.signatures.map(s => {
+      if (s.id === id) return null;
+      return s;
+    }).filter(Boolean) as EmailSignature[]
+  })),
+  setDefaultSignature: (id) => set((state) => ({
+    signatures: state.signatures.map(s => ({ ...s, isDefault: s.id === id }))
+  })),
 
   outboxConfigs: [],
   addOutboxConfig: (config) => set((state) => ({ outboxConfigs: [...state.outboxConfigs, { ...config, id: `outbox_${Date.now()}` }] })),
@@ -1573,6 +1602,7 @@ export const useStore = create<StoreState>((set, get) => ({
       if (res.ok) {
         const settings = await res.json();
         set((state) => ({
+          signatures: settings.signatures ?? state.signatures,
           inboxConfigs: settings.inboxConfigs ?? state.inboxConfigs,
           outboxConfigs: settings.outboxConfigs ?? state.outboxConfigs,
           llmConfigs: settings.llmConfigs ?? state.llmConfigs,
@@ -1657,6 +1687,7 @@ useStore.subscribe((state, prevState) => {
 
   // Sync user settings on change
   if (
+    state.signatures !== prevState.signatures ||
     state.inboxConfigs !== prevState.inboxConfigs ||
     state.outboxConfigs !== prevState.outboxConfigs ||
     state.llmConfigs !== prevState.llmConfigs ||
@@ -1681,6 +1712,7 @@ useStore.subscribe((state, prevState) => {
             'Authorization': `Bearer ${token}`
           },
           body: JSON.stringify({
+            signatures: state.signatures,
             inboxConfigs: state.inboxConfigs,
             outboxConfigs: state.outboxConfigs,
             llmConfigs: state.llmConfigs,

@@ -150,7 +150,10 @@ export function AddressInput({ label, value, onChange, placeholder, autoFocus }:
             return (
               <div 
                 key={c.id} 
-                onClick={() => addToken(emails[0].value)}
+                onMouseDown={(e) => {
+                  e.preventDefault(); // Prevent input onBlur from firing immediately
+                  addToken(emails[0].value);
+                }}
                 className={cn(
                   "p-2 hover:bg-slate-700 cursor-pointer flex flex-col gap-0.5 border-b border-slate-700/50 last:border-0",
                   selectedIndex === idx && "bg-slate-700"

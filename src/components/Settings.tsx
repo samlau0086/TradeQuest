@@ -10,6 +10,7 @@ export function Settings() {
   const { 
     inboxConfigs, addInboxConfig, updateInboxConfig, deleteInboxConfig, 
     outboxConfigs, addOutboxConfig, updateOutboxConfig, deleteOutboxConfig,
+    signatures, addSignature, updateSignature, deleteSignature, setDefaultSignature,
     llmConfigs, addLLMConfig, updateLLMConfig, deleteLLMConfig, activeLLMId, setActiveLLMId,
     paymentTerms, addPaymentTerm, updatePaymentTerm, deletePaymentTerm,
     llmMappings, setLLMMapping, language,
@@ -60,6 +61,28 @@ export function Settings() {
 
   const [editingOutboxId, setEditingOutboxId] = useState<string | null>(null);
   const [outboxFormData, setOutboxFormData] = useState<Partial<OutboxConfig>>({});
+
+  const [editingSigId, setEditingSigId] = useState<string | null>(null);
+  const [sigFormData, setSigFormData] = useState<Partial<EmailSignature>>({});
+
+  const handleEditSig = (sig: EmailSignature) => {
+    setEditingSigId(sig.id);
+    setSigFormData(sig);
+  };
+
+  const handleAddNewSig = () => {
+    setEditingSigId('new');
+    setSigFormData({ name: 'My Signature', content: '---\nBest regards,\nYour Name' });
+  };
+
+  const handleSaveSig = () => {
+    if (editingSigId === 'new') {
+      addSignature(sigFormData as Omit<EmailSignature, 'id'>);
+    } else if (editingSigId) {
+      updateSignature(editingSigId, sigFormData);
+    }
+    setEditingSigId(null);
+  };
 
   const [testingInbox, setTestingInbox] = useState(false);
   const [testInboxResult, setTestInboxResult] = useState<'success' | 'failed' | null>(null);
@@ -925,6 +948,109 @@ export function Settings() {
             })}
           </div>
         </section>
+        {/* Signatures Section */}
+        <section className="space-y-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-bold flex items-center gap-2">
+              <Mail className="w-5 h-5 text-indigo-400" /> Signatures
+            </h2>
+            {editingSigId === null && (
+              <button onClick={handleAddNewSig} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-bold shadow-lg transition-colors">
+                <Plus className="w-4 h-4" /> Add Signature
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 gap-4">
+            {signatures.length === 0 && editingSigId !== 'new' && (
+              <div className="text-center py-12 bg-slate-950/30 rounded-xl border border-slate-800 text-slate-500">
+                No signatures configured
+              </div>
+            )}
+            
+            {(editingSigId === 'new' ? [...signatures, { ...sigFormData, id: 'new' } as EmailSignature] : signatures).map((sig) => {
+              const isEditing = editingSigId === sig.id;
+
+              if (isEditing) {
+                return (
+                  <div key={sig.id} className="bg-slate-900 border border-indigo-500/50 rounded-xl p-6 shadow-xl space-y-6">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-indigo-500/20 rounded-lg text-indigo-400">
+                          <Mail className="w-5 h-5" />
+                        </div>
+                        <h3 className="font-bold text-lg text-white">Configure Signature</h3>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button onClick={handleSaveSig} className="flex items-center gap-2 text-sm font-bold bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded-lg transition-colors shadow-lg">
+                          <Save className="w-4 h-4" /> Save
+                        </button>
+                        <button onClick={() => setEditingSigId(null)} className="flex items-center gap-1 text-sm font-bold bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-lg transition-colors text-white">
+                          <X className="w-4 h-4" /> Cancel
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div className="space-y-4">
+                        <div className="space-y-1">
+                          <label className="text-xs text-slate-400 font-bold uppercase">Name</label>
+                          <input 
+                            type="text" 
+                            placeholder="Work Signature"
+                            value={sigFormData.name || ''}
+                            onChange={e => setSigFormData({ ...sigFormData, name: e.target.value })}
+                            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div className="space-y-1">
+                          <label className="text-xs text-slate-400 font-bold uppercase">Content</label>
+                          <textarea 
+                            placeholder="Best Regards, ..."
+                            value={sigFormData.content || ''}
+                            onChange={e => setSigFormData({ ...sigFormData, content: e.target.value })}
+                            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 outline-none h-32 resize-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div key={sig.id} className="bg-slate-950 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-colors flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-lg text-white mb-2 flex items-center gap-2">
+                      {sig.name}
+                      {sig.isDefault && <span className="bg-emerald-500/20 text-emerald-400 text-[10px] px-2 py-0.5 rounded uppercase font-bold tracking-wider">Default</span>}
+                    </h3>
+                    <div className="flex items-center gap-6 text-sm text-slate-400">
+                      <span className="truncate max-w-sm">{sig.content.substring(0, 50)}...</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {!sig.isDefault && (
+                      <button onClick={() => setDefaultSignature(sig.id)} className="p-2 text-slate-400 hover:text-emerald-400 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors border border-slate-700" title="Set as default">
+                        <Target className="w-4 h-4" />
+                      </button>
+                    )}
+                    <button onClick={() => handleEditSig(sig)} className="p-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors">
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => deleteSignature(sig.id)} className="p-2 text-red-400 hover:text-white bg-red-950/30 hover:bg-red-900/50 rounded-lg transition-colors">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
         </div>
         )}
 

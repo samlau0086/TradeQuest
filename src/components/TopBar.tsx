@@ -74,8 +74,112 @@ export function MagicCommand() {
 
   // Autocomplete state
   const [showMenu, setShowMenu] = useState(false);
-  const [filteredItems, setFilteredItems] = useState<{ type: string; text: string; desc: string }[]>([]);
+  const [filteredItems, setFilteredItems] = useState<{ type: string; text: string; desc: string; action?: () => void }[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
+
+  const SYSTEM_COMMANDS = [
+    { label: '/home', desc: 'Go to Dashboard', action: () => useStore.getState().setView('dashboard') },
+    { label: '/clients', desc: 'View All Clients', action: () => useStore.getState().setView('clients') },
+    { label: '/kanban', desc: 'Board View', action: () => useStore.getState().setView('kanban') },
+    { label: '/pipeline', desc: 'List View', action: () => useStore.getState().setView('list') },
+    { label: '/inbox', desc: 'View Emails', action: () => { useStore.getState().setView('inbox'); useStore.getState().selectEmail(null); } },
+    { label: '/products', desc: 'Product Catalog', action: () => useStore.getState().setView('products') },
+    { label: '/quotes', desc: 'Sales Quotes', action: () => useStore.getState().setView('quotes') },
+    { label: '/knowledge', desc: 'Knowledge Base', action: () => useStore.getState().setView('knowledge-base') },
+    { label: '/media', desc: 'Media Files', action: () => useStore.getState().setView('media-library') },
+    { label: '/settings', desc: 'System Settings', action: () => useStore.getState().setView('settings') },
+  ];
+
+  const updateFilteredItems = (val: string) => {
+    const term = val.trim().toLowerCase();
+    
+    if (!term) {
+      setFilteredItems(SYSTEM_COMMANDS.map(m => ({ type: 'command', text: m.label, desc: m.desc, action: m.action })));
+      setShowMenu(true);
+      setActiveIndex(0);
+      return;
+    }
+
+    const items: { type: string; text: string; desc: string; action?: () => void }[] = [];
+
+    // Filter commands
+    if (term.startsWith('/')) {
+      const matches = SYSTEM_COMMANDS.filter(c => c.label.startsWith(term));
+      items.push(...matches.map(m => ({ type: 'command', text: m.label, desc: m.desc, action: m.action })));
+    } else if (term.startsWith('@')) {
+      const name = term.slice(1);
+      const matches = clients.filter(c => c.name.toLowerCase().includes(name));
+      items.push(...matches.map(m => ({
+        type: 'client', 
+        text: `@${m.name.replace(/\s+/g, '')}`, 
+        desc: m.company,
+        action: () => { useStore.getState().selectClient(m.id); useStore.getState().setView('clients'); }
+      })));
+    } else {
+      // General search over commands and clients
+      const commandMatches = SYSTEM_COMMANDS.filter(c => c.label.includes(term) || c.desc.toLowerCase().includes(term));
+      const clientMatches = clients.filter(c => c.name.toLowerCase().includes(term) || c.company.toLowerCase().includes(term));
+      
+      items.push(...commandMatches.map(m => ({ type: 'command', text: m.label, desc: m.desc, action: m.action })));
+      items.push(...clientMatches.map(m => ({
+        type: 'client', 
+        text: m.name, 
+        desc: m.company,
+        action: () => { useStore.getState().selectClient(m.id); useStore.getState().setView('clients'); }
+      })));
+      
+      items.push({ type: 'ai', text: term, desc: `Ask AI Assistant: "${term}"`, action: () => { executeAskAi(val); } });
+    }
+
+    setFilteredItems(items);
+    setShowMenu(items.length > 0);
+    setActiveIndex(0);
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setInput(val);
+    updateFilteredItems(val);
+  };
+
+  const handleFocus = () => {
+    updateFilteredItems(input);
+  };
+
+  const executeAskAi = async (query: string) => {
+    if (!query.trim()) return;
+    setLoading(true);
+    setInput('');
+    setShowMenu(false);
+    try {
+      const res = await fetch('/api/chat/magic', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${useAuthStore.getState().token}` 
+        },
+        body: JSON.stringify({ command: query, context: {}, llmConfig: activeLLMConfig, embeddingLlmConfig })
+      });
+      const data = await res.json();
+      setOutput(data.result);
+    } catch(err) {
+      setOutput("Command failed. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const insertSuggestion = (item: { text: string; action?: () => void }) => {
+    if (item.action) {
+      item.action();
+      setInput('');
+      setShowMenu(false);
+      inputRef.current?.blur();
+    } else {
+      setInput(item.text);
+      inputRef.current?.focus();
+    }
+  };
 
   React.useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
@@ -87,64 +191,6 @@ export function MagicCommand() {
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, []);
-
-  const COMMANDS = [
-    { label: '/quote', desc: 'Draft a quote based on recent interactions' },
-    { label: '/followup', desc: 'Draft a follow-up email for a client' },
-    { label: '/icebreaker', desc: 'Generate a personalized icebreaker' },
-    { label: '/summarize', desc: 'Summarize client communication history' },
-    { label: '/sentiment', desc: 'Analyze client mood and sentiment' },
-    { label: '/pitch', desc: 'Create a tailored product pitch' },
-    { label: '/dormant', desc: 'Generate re-engagement message for dormant client' }
-  ];
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setInput(val);
-
-    const words = val.split(' ');
-    const lastWord = words[words.length - 1];
-
-    if (val.trim() === '') {
-      setFilteredItems(COMMANDS.map(m => ({ type: 'command', text: m.label, desc: m.desc })));
-      setShowMenu(true);
-      setActiveIndex(0);
-    } else if (lastWord.startsWith('/')) {
-      const term = lastWord.toLowerCase();
-      const matches = COMMANDS.filter(c => c.label.startsWith(term));
-      setFilteredItems(matches.map(m => ({ type: 'command', text: m.label, desc: m.desc })));
-      setShowMenu(matches.length > 0);
-      setActiveIndex(0);
-    } else if (lastWord.startsWith('@')) {
-      const term = lastWord.slice(1).toLowerCase();
-      const matches = clients.filter(c => c.name.toLowerCase().includes(term));
-      setFilteredItems(matches.map(m => ({ type: 'client', text: `@${m.name.replace(/\s+/g, '')}`, desc: m.company })));
-      setShowMenu(matches.length > 0);
-      setActiveIndex(0);
-    } else {
-      setShowMenu(false);
-    }
-  };
-
-  const handleFocus = () => {
-    if (input.trim() === '') {
-      setFilteredItems(COMMANDS.map(m => ({ type: 'command', text: m.label, desc: m.desc })));
-      setShowMenu(true);
-      setActiveIndex(0);
-    } else {
-      // Re-trigger the logic
-      handleInputChange({ target: { value: input } } as React.ChangeEvent<HTMLInputElement>);
-    }
-  };
-
-  const insertSuggestion = (item: { text: string }) => {
-    const words = input.split(' ');
-    words.pop();
-    words.push(item.text);
-    setInput(words.join(' ') + ' ');
-    setShowMenu(false);
-    inputRef.current?.focus();
-  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!showMenu) return;
@@ -167,26 +213,7 @@ export function MagicCommand() {
     e.preventDefault();
     if (showMenu) return; // Handled by handleKeyDown
     if (!input.trim()) return;
-
-    setLoading(true);
-    try {
-      const res = await fetch('/api/chat/magic', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${useAuthStore.getState().token}` 
-        },
-        body: JSON.stringify({ command: input, context: {}, llmConfig: activeLLMConfig, embeddingLlmConfig })
-      });
-      const data = await res.json();
-      setOutput(data.result);
-    } catch(err) {
-      setOutput("Command failed. Please try again.");
-    } finally {
-      setLoading(false);
-      setInput('');
-      setShowMenu(false);
-    }
+    executeAskAi(input);
   };
 
   return (
@@ -197,7 +224,7 @@ export function MagicCommand() {
           <input 
             ref={inputRef}
             type="text" 
-            placeholder="Type /followup @name, or any magic AI command..."
+            placeholder="Search clients, or type / for commands..."
             className="flex-1 bg-transparent text-slate-200 focus:outline-none placeholder:text-slate-500 text-sm py-1"
             value={input}
             onChange={handleInputChange}
@@ -225,7 +252,8 @@ export function MagicCommand() {
                   idx === activeIndex ? 'bg-slate-800/80' : 'hover:bg-slate-800/40'
                 }`}
               >
-                <span className={`text-sm font-medium ${item.type === 'command' ? 'text-cyan-400' : 'text-orange-400'}`}>
+                <span className={`text-sm font-medium ${item.type === 'command' ? 'text-indigo-400' : item.type === 'ai' ? 'text-cyan-400' : 'text-orange-400'}`}>
+                  {item.type === 'ai' ? <Sparkles className="w-3 h-3 inline mr-1" /> : null}
                   {item.text}
                 </span>
                 <span className="text-xs text-slate-500">

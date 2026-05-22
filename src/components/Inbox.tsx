@@ -834,13 +834,24 @@ export function Inbox() {
 }
 
 export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '', initialBody = '', originalEmailBody = '', draftId, className = '' }: { onClose: () => void, initialRecipient?: string, initialSubject?: string, initialBody?: string, originalEmailBody?: string, draftId?: string, className?: string }) {
-  const { clients, emails, logs, addEmail, editEmail, deleteEmails, addLog, outboxConfigs, timezone } = useStore();
+  const { clients, emails, logs, addEmail, editEmail, deleteEmails, addLog, outboxConfigs, signatures, timezone } = useStore();
   const [selectedOutboxId, setSelectedOutboxId] = useState<string>(outboxConfigs?.[0]?.id || '');
+  const [selectedSignatureId, setSelectedSignatureId] = useState<string>(
+    signatures?.find(s => s.isDefault)?.id || signatures?.[0]?.id || ''
+  );
+  
   const [recipient, setRecipient] = useState(initialRecipient);
   const [cc, setCc] = useState('');
   const [bcc, setBcc] = useState('');
   const [subject, setSubject] = useState(initialSubject);
-  const [body, setBody] = useState(initialBody);
+  const [body, setBody] = useState(() => {
+    let b = initialBody;
+    if (!draftId && !initialBody) {
+       const sig = signatures?.find(s => s.isDefault) || signatures?.[0];
+       if (sig) b = '\n\n' + sig.content;
+    }
+    return b;
+  });
   const [purpose, setPurpose] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingPurpose, setLoadingPurpose] = useState(false);
@@ -1200,7 +1211,8 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
         })
       });
       const data = await res.json();
-      setBody(data.result);
+      const currentSig = signatures.find(s => s.id === selectedSignatureId);
+      setBody(data.result + (currentSig ? '\n\n' + currentSig.content : ''));
       if (!subject) setSubject('Follow up from Alex');
     } catch(err) {
       console.error(err);
@@ -1276,6 +1288,36 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
               <option key={c.id} value={c.id} className="bg-slate-900">{c.name} ({c.fromEmail})</option>
             ))}
             {outboxConfigs.length === 0 && <option value="" className="bg-slate-900">Default Backend Sender (me@soho.com)</option>}
+          </select>
+        </div>
+        <div className="flex items-center gap-3 pt-1 border-t border-transparent focus-within:border-indigo-500/30">
+          <label className="text-xs font-bold text-slate-500 w-12 text-right">Sign:</label>
+          <select 
+            value={selectedSignatureId}
+            onChange={(e) => {
+              const newId = e.target.value;
+              const newSig = signatures.find(s => s.id === newId);
+              const oldSig = signatures.find(s => s.id === selectedSignatureId);
+              
+              setSelectedSignatureId(newId);
+              
+              if (newSig) {
+                if (oldSig && body.includes(oldSig.content)) {
+                  setBody(prev => prev.replace(oldSig.content, newSig.content));
+                } else {
+                  setBody(prev => prev + '\n\n' + newSig.content);
+                }
+              } else if (oldSig && body.includes(oldSig.content)) {
+                // If removing signature
+                setBody(prev => prev.replace('\n\n' + oldSig.content, '').replace(oldSig.content, ''));
+              }
+            }}
+            className="flex-1 bg-transparent text-sm text-slate-200 focus:outline-none focus:ring-0 pb-1 w-full truncate"
+          >
+            <option value="" className="bg-slate-900">None</option>
+            {signatures.map(s => (
+              <option key={s.id} value={s.id} className="bg-slate-900">{s.name}</option>
+            ))}
           </select>
         </div>
         <div className="flex items-center gap-3 pt-1 border-t border-transparent focus-within:border-indigo-500/30">
