@@ -69,7 +69,6 @@ export default function App() {
         <PanelResizeHandle className="w-1 bg-slate-800 hover:bg-cyan-500 cursor-col-resize transition-colors" />
         <Panel id="main-content" className="flex-1 flex flex-col relative overflow-hidden">
           <TopBar />
-          <MagicCommand />
           
           {view === 'kanban' ? <Kanban /> : 
            view === 'list' ? <PipelineList /> :

@@ -11,7 +11,7 @@ export function TopBar() {
   const latestBroadcast = broadcasts[0];
 
   return (
-    <header className="h-14 border-b border-slate-800 bg-slate-900/50 backdrop-blur-md flex items-center justify-between px-6 shrink-0 sticky top-0 z-20">
+    <header className="h-14 border-b border-slate-800 bg-slate-900/50 backdrop-blur-md flex items-center justify-between px-6 shrink-0 sticky top-0 z-40">
       <div className="flex-1 flex items-center space-x-4">
         {/* Real-time Broadcast left side */}
         <div className="flex bg-slate-800/80 rounded-full pl-3 pr-4 py-1.5 items-center gap-2 border border-slate-700/50 shadow-sm w-fit">
@@ -25,8 +25,12 @@ export function TopBar() {
         </div>
       </div>
       
+      <div className="flex-1 max-w-2xl mx-6">
+        <MagicCommand />
+      </div>
+
       {/* User Actions */}
-        <div className="flex items-center gap-4">
+      <div className="flex-1 flex items-center justify-end gap-4">
         {profile?.points !== undefined && (
           <div className="bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1">
             <Sparkles className="w-3 h-3" />
@@ -73,11 +77,25 @@ export function MagicCommand() {
   const [filteredItems, setFilteredItems] = useState<{ type: string; text: string; desc: string }[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
 
+  React.useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, []);
+
   const COMMANDS = [
-    { label: '/followup', desc: 'Draft a follow-up email' },
+    { label: '/quote', desc: 'Draft a quote based on recent interactions' },
+    { label: '/followup', desc: 'Draft a follow-up email for a client' },
     { label: '/icebreaker', desc: 'Generate a personalized icebreaker' },
-    { label: '/summarize', desc: 'Summarize recent logs' },
-    { label: '/schedule', desc: 'Set a reminder for next contact' }
+    { label: '/summarize', desc: 'Summarize client communication history' },
+    { label: '/sentiment', desc: 'Analyze client mood and sentiment' },
+    { label: '/pitch', desc: 'Create a tailored product pitch' },
+    { label: '/dormant', desc: 'Generate re-engagement message for dormant client' }
   ];
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -172,16 +190,15 @@ export function MagicCommand() {
   };
 
   return (
-    <div className="absolute top-4 left-1/2 -translate-x-1/2 w-full max-w-2xl z-30 pointer-events-none">
-      <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.5)] shadow-cyan-500/10 overflow-visible pointer-events-auto relative">
-        <form onSubmit={handleSubmit} className="flex items-center px-4 py-3 gap-3">
-          <Terminal className="w-5 h-5 text-cyan-400" />
+    <div className="relative w-full z-50">
+      <div className="bg-slate-950/50 border border-slate-700/50 focus-within:border-cyan-500/50 focus-within:bg-slate-900 focus-within:shadow-[0_0_20px_-5px_rgba(6,182,212,0.3)] transition-all duration-300 rounded-lg overflow-visible relative">
+        <form onSubmit={handleSubmit} className="flex items-center px-3 py-1.5 gap-2">
+          <Terminal className="w-4 h-4 text-cyan-400/70" />
           <input 
             ref={inputRef}
-            autoFocus
             type="text" 
-            placeholder="Type /followup @name, or any magic command..."
-            className="flex-1 bg-transparent text-slate-200 focus:outline-none placeholder:text-slate-600 text-sm"
+            placeholder="Type /followup @name, or any magic AI command..."
+            className="flex-1 bg-transparent text-slate-200 focus:outline-none placeholder:text-slate-500 text-sm py-1"
             value={input}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
@@ -189,20 +206,23 @@ export function MagicCommand() {
             onBlur={() => setTimeout(() => setShowMenu(false), 200)}
           />
           {loading ? (
-            <Loader2 className="w-4 h-4 text-slate-500 animate-spin" />
+            <Loader2 className="w-4 h-4 text-cyan-500 animate-spin" />
           ) : (
-            <Sparkles className="w-4 h-4 text-slate-500" />
+            <div className="flex items-center gap-1 border border-slate-700/50 bg-slate-800/50 rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-500">
+              <span className="text-cyan-500/50">⌘</span>K
+            </div>
           )}
         </form>
 
         {showMenu && (
-          <div className="absolute top-full left-0 w-full mt-2 bg-slate-900 border border-slate-700 rounded-xl shadow-xl overflow-hidden py-2 z-40">
+          <div className="absolute top-full left-0 w-full mt-2 bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl overflow-hidden py-2 z-50 backdrop-blur-xl">
             {filteredItems.map((item, idx) => (
               <button
                 key={idx}
-                onClick={() => insertSuggestion(item)}
-                className={`w-full text-left px-4 py-2 flex items-center justify-between transition-colors ${
-                  idx === activeIndex ? 'bg-slate-800' : 'hover:bg-slate-800/50'
+                type="button"
+                onMouseDown={(e) => { e.preventDefault(); insertSuggestion(item); }}
+                className={`w-full text-left px-4 py-2.5 flex items-center justify-between transition-colors ${
+                  idx === activeIndex ? 'bg-slate-800/80' : 'hover:bg-slate-800/40'
                 }`}
               >
                 <span className={`text-sm font-medium ${item.type === 'command' ? 'text-cyan-400' : 'text-orange-400'}`}>
@@ -217,10 +237,15 @@ export function MagicCommand() {
         )}
 
         {output && (
-          <div className="p-4 bg-slate-800/50 text-sm text-slate-300 border-t border-slate-800/50">
-            <div className="font-mono text-xs text-slate-500 mb-2">AI Output Draft</div>
-            <p className="whitespace-pre-wrap">{output}</p>
-            <div className="mt-4 flex justify-end">
+          <div className="absolute top-full left-0 w-full mt-2 p-5 bg-slate-900 border border-slate-700/80 shadow-2xl rounded-xl z-50 backdrop-blur-xl">
+            <div className="font-mono text-xs text-cyan-500/70 mb-3 flex items-center gap-2">
+              <Sparkles className="w-3 h-3" /> AI Output Draft
+            </div>
+            <p className="whitespace-pre-wrap text-sm text-slate-300 leading-relaxed">{output}</p>
+            <div className="mt-5 flex justify-end gap-3">
+              <button type="button" onClick={() => setOutput('')} className="px-3 py-1.5 rounded-lg font-medium text-xs text-slate-400 hover:text-slate-200 transition-colors">
+                Dismiss
+              </button>
               <button onClick={() => setOutput('')} className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-1.5 rounded-lg font-medium text-xs transition-colors shadow-lg shadow-cyan-600/20">
                 <Send className="w-3 h-3" /> {t('execute')}
               </button>
