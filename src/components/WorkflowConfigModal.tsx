@@ -24,7 +24,11 @@ export function WorkflowConfigModal({ onClose, clientId }: { onClose: () => void
         const methods = client.contactMethods || [];
         const hasEmail = methods.some(m => m.type === 'email' && m.value);
         const hasPhone = methods.some(m => ['whatsapp', 'phone', 'call', 'mobile', 'wechat'].includes(m.type) && m.value);
-        clientContext = `CRITICAL ASSISTANT RULE: You are planning a workflow tailored for a specific client. The client has the following contact methods: Email (${hasEmail ? 'Yes' : 'No'}), Phone/WhatsApp (${hasPhone ? 'Yes' : 'No'}). If they do not have a phone/WhatsApp contact, you MUST NOT include 'call' or 'whatsapp' steps. Only include steps for contact methods they actually have.`;
+        clientContext = `CRITICAL ASSISTANT RULE: You are planning a workflow tailored for a specific client.
+The client has the following contact methods: Email (${hasEmail ? 'Yes' : 'No'}), Phone/WhatsApp (${hasPhone ? 'Yes' : 'No'}). If they do not have a phone/WhatsApp contact, you MUST NOT include 'call' or 'whatsapp' steps. Only include steps for contact methods they actually have.
+Client's Preferred Language: ${client.preferredLanguage || 'Auto-detect or English'}
+Client's Preferred Communication Time: ${client.preferredTimeRange || 'Any time'} (in Client's Local Time)
+When outputting steps, take the client's language and preferred time range into account. IMPORTANT: All time references and the 'sendTime' provided MUST be strictly planned in the Client's Local Time, NOT Beijing time. The step's 'sendTime' should try to match the preferred communication time if applicable. If 'sendTime' is provided, format it as "HH:mm".`;
       }
 
       const activeLlm = llmConfigs.find(c => c.id === activeLLMId) || llmConfigs[0];

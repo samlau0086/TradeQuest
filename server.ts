@@ -88,6 +88,7 @@ async function initDB() {
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS agent_last_run TIMESTAMP WITH TIME ZONE;
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS agent_workflow_id VARCHAR(128);
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS preferred_language VARCHAR(100);
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS preferred_time_range VARCHAR(255);
 
       CREATE TABLE IF NOT EXISTS global_settings (
         key VARCHAR(128) PRIMARY KEY,
@@ -801,8 +802,9 @@ Current Time in User Timezone (${userTimezone}): ${new Date().toLocaleString('en
 Client Information:
 Name: ${client.name}
 Company: ${client.company}
-Country: ${client.country}
+Country/Local Region: ${client.country || 'Unknown'} (Compute their local time based on this)
 Preferred Language: ${client.preferred_language || 'Auto-detect or English'}
+Preferred Comm Time: ${client.preferred_time_range || 'Any'} (This is in the Client's Local Time)
 Agent Context / Instructions: ${client.agent_context || 'None'}
 Long-term Summary: ${client.agent_summary || 'None'}
 
@@ -824,7 +826,7 @@ ${JSON.stringify(productsRes.rows)}
           const prompt = `${contextPrompt}
 Based on the above context, you must decide on the next best action to advance this lead. 
 If the instruction is to "Stop on Meaningful Reply" and a meaningful reply has recently been received from the client, you MUST abort further follow ups (return an empty draftEmail and set suggestedNextStep to 'Stopped: received reply').
-If an email should be sent according to a workflow step, take note of its "delayDays" and "sendTime" (HH:mm form). Compute precisely when it should be sent in ISO format. If no specific time is required, just send it immediately (leave scheduledAt empty or set to now).
+If an email should be sent according to a workflow step, take note of its "delayDays" and "sendTime" (HH:mm form). Compute precisely when it should be sent in ISO format. IMPORTANT: you must calculate the ISO schedule time so that it hits the "sendTime" in the **Client's Local Time** (based on their Country/Local Region), rather than Beijing time or your system time. If no specific time is required, just send it immediately (leave scheduledAt empty or set to now).
 
 Your output MUST be a JSON object with the following schema:
 {
@@ -1386,7 +1388,8 @@ Query: "${query}"`;
         agentSummary: row.agent_summary,
         agentNextStep: row.agent_next_step,
         agentWorkflowId: row.agent_workflow_id,
-        preferredLanguage: row.preferred_language
+        preferredLanguage: row.preferred_language,
+        preferredTimeRange: row.preferred_time_range
       })));
     } catch (e) {
       console.error(e);
@@ -1417,7 +1420,8 @@ Query: "${query}"`;
         agentSummary: row.agent_summary,
         agentNextStep: row.agent_next_step,
         agentWorkflowId: row.agent_workflow_id,
-        preferredLanguage: row.preferred_language
+        preferredLanguage: row.preferred_language,
+        preferredTimeRange: row.preferred_time_range
       })));
     } catch (e) {
       console.error(e);
@@ -1525,9 +1529,9 @@ Query: "${query}"`;
       }
 
       await pool.query(
-        `INSERT INTO clients (id, user_id, name, company, address, state, city, country, status, tags, last_contact, is_dormant, contact_methods, comments, preferred_language, agent_workflow_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
-        [id, req.body.isPublic ? null : req.user.uid, name, company, req.body.address || null, req.body.state || null, req.body.city || null, country, status, JSON.stringify(tags || []), lastContact || null, !!isDormant, JSON.stringify(contactMethods || []), JSON.stringify(comments || []), req.body.preferredLanguage || null, req.body.agentWorkflowId || null]
+        `INSERT INTO clients (id, user_id, name, company, address, state, city, country, status, tags, last_contact, is_dormant, contact_methods, comments, preferred_language, preferred_time_range, agent_workflow_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+        [id, req.body.isPublic ? null : req.user.uid, name, company, req.body.address || null, req.body.state || null, req.body.city || null, country, status, JSON.stringify(tags || []), lastContact || null, !!isDormant, JSON.stringify(contactMethods || []), JSON.stringify(comments || []), req.body.preferredLanguage || null, req.body.preferredTimeRange || null, req.body.agentWorkflowId || null]
       );
 
       await pool.query(`UPDATE users SET points = points + 5 WHERE id = $1`, [req.user.uid]);
@@ -1555,7 +1559,8 @@ Query: "${query}"`;
         agentEnabled: 'agent_enabled', agentMode: 'agent_mode',
         agentContext: 'agent_context', agentSummary: 'agent_summary',
         agentNextStep: 'agent_next_step',
-        agentWorkflowId: 'agent_workflow_id', preferredLanguage: 'preferred_language'
+        agentWorkflowId: 'agent_workflow_id', preferredLanguage: 'preferred_language',
+        preferredTimeRange: 'preferred_time_range'
       };
       
       let pointsToAward = 0;
@@ -1629,6 +1634,7 @@ Name: ${client.name}
 Company: ${client.company}
 Country: ${client.country}
 Preferred Language: ${client.preferred_language || 'Auto-detect or English'}
+Preferred Comm Time: ${client.preferred_time_range || 'Any'}
 Agent Context / Instructions: ${client.agent_context || 'None'}
 Long-term Summary: ${client.agent_summary || 'None'}
 
@@ -2096,6 +2102,12 @@ No markdown wrappers, just valid JSON.`;
   app.post('/api/logs', authenticateToken, async (req: any, res) => {
     try {
       const { id, clientId, date, content } = req.body;
+      
+      const clientCheck = await pool.query('SELECT id FROM clients WHERE id = $1 AND user_id = $2', [clientId, req.user.uid]);
+      if (clientCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Client not found' });
+      }
+
       await pool.query(
         `INSERT INTO logs (id, client_id, date, content) VALUES ($1, $2, $3, $4)`,
         [id, clientId, date || new Date().toISOString(), content]

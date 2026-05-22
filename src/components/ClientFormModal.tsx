@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useStore, Client, ClientStatus, ContactMethod } from '../store';
-import { X, Plus, Trash2, ChevronDown } from 'lucide-react';
+import { X, Plus, Trash2, ChevronDown, Clock } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useTranslation } from '../lib/i18n';
 
@@ -33,6 +33,7 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
   const [status, setStatus] = useState<ClientStatus>(existingClient?.status || initialData?.status || 'Leads');
   const [tags, setTags] = useState<string>(existingClient?.tags.join(', ') || initialData?.tags?.join(', ') || '');
   const [preferredLanguage, setPreferredLanguage] = useState(existingClient?.preferredLanguage || initialData?.preferredLanguage || '');
+  const [preferredTimeRange, setPreferredTimeRange] = useState(existingClient?.preferredTimeRange || initialData?.preferredTimeRange || '');
   const [contactMethods, setContactMethods] = useState<ContactMethod[]>(existingClient?.contactMethods || initialData?.contactMethods || [{ type: 'email', value: '' }]);
 
   const [isApplyMode, setIsApplyMode] = useState(false);
@@ -59,6 +60,7 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
       status: isPublicPool ? 'Leads' : status,
       tags: parsedTags,
       preferredLanguage,
+      preferredTimeRange: preferredTimeRange || '09:00 - 17:00',
       lastContact: existingClient?.lastContact || new Date().toISOString().split('T')[0],
       isDormant: existingClient?.isDormant || false,
       contactMethods: validContactMethods,
@@ -236,6 +238,26 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
             <div className="space-y-1">
               <label className="text-xs font-bold text-slate-400 uppercase">Preferred Language {isLocked(existingClient?.preferredLanguage) && <span className="text-[10px] text-slate-500 ml-1">(Locked)</span>}</label>
               <input disabled={isLocked(existingClient?.preferredLanguage)} value={preferredLanguage} onChange={e => setPreferredLanguage(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 disabled:opacity-50" placeholder="e.g. Spanish" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-400 uppercase">Pref. Comm. Time {isLocked(existingClient?.preferredTimeRange) && <span className="text-[10px] text-slate-500 ml-1">(Locked)</span>}</label>
+              <div className="flex items-center gap-2 relative">
+                <div className="relative">
+                  <Clock className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-500 pointer-events-none" />
+                  <input disabled={isLocked(existingClient?.preferredTimeRange)} value={preferredTimeRange.split('-')[0]?.trim() || '09:00'} onChange={e => {
+                    const end = preferredTimeRange.split('-')[1]?.trim() || '17:00';
+                    setPreferredTimeRange(`${e.target.value || '09:00'} - ${end}`);
+                  }} type="time" className="w-[120px] bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-2 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 disabled:opacity-50" />
+                </div>
+                <span className="text-slate-500">-</span>
+                <div className="relative">
+                  <Clock className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-500 pointer-events-none" />
+                  <input disabled={isLocked(existingClient?.preferredTimeRange)} value={preferredTimeRange.split('-')[1]?.trim() || '17:00'} onChange={e => {
+                    const start = preferredTimeRange.split('-')[0]?.trim() || '09:00';
+                    setPreferredTimeRange(`${start} - ${e.target.value || '17:00'}`);
+                  }} type="time" className="w-[120px] bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-2 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 disabled:opacity-50" />
+                </div>
+              </div>
             </div>
           </div>
 

@@ -17,7 +17,7 @@ export function Inbox() {
   const [search, setSearch] = useState('');
   const [searchTags, setSearchTags] = useState<string[]>([]);
   const [isComposing, setIsComposing] = useState(false);
-  const [composeDefaults, setComposeDefaults] = useState<{recipient: string, subject: string} | null>(null);
+  const [composeDefaults, setComposeDefaults] = useState<{recipient: string, subject: string, originalEmailBody?: string} | null>(null);
   const [isAddingTag, setIsAddingTag] = useState(false);
   const [newTag, setNewTag] = useState('');
   const [commentText, setCommentText] = useState('');
@@ -453,7 +453,7 @@ export function Inbox() {
       {/* Reading Pane / Compose Pane */}
       <Panel className={cn("flex flex-col bg-slate-950/50 relative", !selectedEmailId && !isComposing && "hidden md:flex")}>
         {isComposing ? (
-          <ComposeEmail onClose={() => setIsComposing(false)} initialRecipient={composeDefaults?.recipient} initialSubject={composeDefaults?.subject} />
+          <ComposeEmail onClose={() => setIsComposing(false)} initialRecipient={composeDefaults?.recipient} initialSubject={composeDefaults?.subject} originalEmailBody={composeDefaults?.originalEmailBody} />
         ) : selectedEmail ? (
           <>
             <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/80 sticky top-0 md:static backdrop-blur-sm z-10">
@@ -504,7 +504,7 @@ export function Inbox() {
                  }} className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-900/30 rounded transition-colors" title="Delete">
                    <Trash2 className="w-4 h-4" />
                  </button>
-                 <button onClick={() => { setComposeDefaults({ recipient: selectedEmail.sender, subject: `Re: ${selectedEmail.subject}` }); setIsComposing(true); }} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors" title="Reply">
+                 <button onClick={() => { setComposeDefaults({ recipient: selectedEmail.sender, subject: `Re: ${selectedEmail.subject.replace(/^Re:\s*/i, '')}`, originalEmailBody: `On ${new Date(selectedEmail.date).toLocaleString()}, ${selectedEmail.senderName || selectedEmail.sender} wrote:<br>${selectedEmail.body || ''}` }); setIsComposing(true); }} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors" title="Reply">
                    <Reply className="w-4 h-4" />
                  </button>
                  {selectedEmail.clientId && (
@@ -807,7 +807,7 @@ export function Inbox() {
   );
 }
 
-function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: { onClose: () => void, initialRecipient?: string, initialSubject?: string }) {
+function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '', originalEmailBody = '' }: { onClose: () => void, initialRecipient?: string, initialSubject?: string, originalEmailBody?: string }) {
   const { clients, emails, logs, addEmail, addLog, outboxConfigs, timezone } = useStore();
   const [selectedOutboxId, setSelectedOutboxId] = useState<string>(outboxConfigs?.[0]?.id || '');
   const [recipient, setRecipient] = useState(initialRecipient);
@@ -972,6 +972,8 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
       url: URL.createObjectURL(a)
     }));
 
+    const finalBody = originalEmailBody ? `${body}<br><br><div class="gmail_quote" dir="ltr"><blockquote style="margin: 0px 0px 0px 0.8ex; border-left: 1px solid rgb(204, 204, 204); padding-left: 1ex;">${originalEmailBody}</blockquote></div>` : body;
+
     addEmail({
       recipient,
       cc: cc || undefined,
@@ -979,7 +981,7 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
       sender: senderEmail,
       senderName: senderName,
       subject,
-      body,
+      body: finalBody,
       read: true,
       type: 'scheduled',
       clientId: matchedClient?.id,
@@ -1005,6 +1007,8 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
       url: URL.createObjectURL(a)
     }));
 
+    const finalBody = originalEmailBody ? `${body}<br><br><div class="gmail_quote" dir="ltr"><blockquote style="margin: 0px 0px 0px 0.8ex; border-left: 1px solid rgb(204, 204, 204); padding-left: 1ex;">${originalEmailBody}</blockquote></div>` : body;
+
     addEmail({
       recipient,
       cc: cc || undefined,
@@ -1012,7 +1016,7 @@ function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '' }: {
       sender: senderEmail,
       senderName: senderName,
       subject,
-      body,
+      body: finalBody,
       read: true,
       type: 'sent',
       clientId: matchedClient?.id,

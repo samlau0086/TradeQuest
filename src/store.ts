@@ -130,6 +130,7 @@ export interface Client {
   agentNextStep?: string;
   agentWorkflowId?: string;
   preferredLanguage?: string;
+  preferredTimeRange?: string;
 }
 
 export interface WorkflowStep {
@@ -891,8 +892,6 @@ export const useStore = create<StoreState>((set, get) => ({
     const id = `c${Date.now()}`;
     const newClient = { ...client, id };
     
-    get().addLog(id, `Created lead: ${client.name}`);
-    
     set((state) => ({
       clients: [...state.clients, newClient],
       globalLoading: true
@@ -920,10 +919,13 @@ export const useStore = create<StoreState>((set, get) => ({
             clients: state.clients.filter(c => c.id !== id)
           }));
           return null;
-        } else if (res.ok && data.pointsAdded) {
-          console.log(`Lead added successfully! You earned ${data.pointsAdded} points.`);
-          useAuthStore.getState().fetchProfile();
-          setTimeout(() => get().addExp(get().expConfig['event_add_client'] ?? 10, 'Added a new client'), 0);
+        } else if (res.ok) {
+          get().addLog(id, `Created lead: ${client.name}`);
+          if (data.pointsAdded) {
+            console.log(`Lead added successfully! You earned ${data.pointsAdded} points.`);
+            useAuthStore.getState().fetchProfile();
+            setTimeout(() => get().addExp(get().expConfig['event_add_client'] ?? 10, 'Added a new client'), 0);
+          }
         }
       } catch (err) {
         console.error(err);
@@ -931,6 +933,7 @@ export const useStore = create<StoreState>((set, get) => ({
         set({ globalLoading: false });
       }
     } else {
+      get().addLog(id, `Created lead: ${client.name}`);
       set({ globalLoading: false });
     }
     

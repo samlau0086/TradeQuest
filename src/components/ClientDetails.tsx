@@ -19,6 +19,7 @@ import { User } from 'lucide-react';
 import { CommentItem } from './CommentItem';
 import { KnowledgeBaseManager } from './KnowledgeBaseManager';
 import { WorkflowConfigModal } from './WorkflowConfigModal';
+import { LocalTime } from './LocalTime';
 
 function ContactActionBox({ method, client, onClose }: { method: ContactMethod, client: Client, onClose: () => void }) {
   const [purpose, setPurpose] = useState('');
@@ -417,16 +418,17 @@ export function ClientDetails() {
     <div className="w-full h-full bg-slate-900 border-l border-slate-800 flex flex-col shrink-0 shadow-2xl transition-transform">
       {/* Header */}
       <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/50">
-        <div>
+        <div className="flex-1 min-w-0 mr-4">
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             {client.name}
-            <button onClick={() => setShowEditModal(true)} className="text-slate-500 hover:text-cyan-400 p-1 rounded transition-colors inline-block"><Edit className="w-4 h-4" /></button>
+            <button onClick={() => setShowEditModal(true)} className="text-slate-500 hover:text-cyan-400 p-1 rounded transition-colors inline-block shrink-0"><Edit className="w-4 h-4" /></button>
+            <LocalTime country={client.country} />
           </h2>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-400 truncate mt-1">
             {client.company} · {[client.city, client.state, client.country].filter(Boolean).join(', ')}
           </p>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 shrink-0">
           <button onClick={() => setConfirmDeleteTarget(true)} className="p-2 text-slate-500 hover:text-red-400 rounded-lg hover:bg-slate-800 transition-colors">
             <Trash2 className="w-4 h-4" />
           </button>
