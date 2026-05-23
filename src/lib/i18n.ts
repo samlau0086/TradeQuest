@@ -893,13 +893,18 @@ export const uiLiteralTranslations: Record<string, string> = {
   'Unread Emails': '未读邮件',
   Channels: '渠道',
   'Generate Plan for Review': '生成待审核计划',
+  'AI Planner': 'AI 规划器',
+  'AI Planner:': 'AI 规划器：',
   'Human approval required': '需要人工审核',
+  Reject: '拒绝',
   'Approve & Execute': '审核通过并执行',
   'Public Pool': '公海',
   'Global Agent plan is ready for human review.': '全局 Agent 计划已生成，等待人工审核。',
   'AI planning failed, so a safe default plan was created for review.': 'AI 规划失败，已生成安全的默认计划供审核。',
   'Global Agent plan completed.': '全局 Agent 计划已执行完成。',
-  'Global Agent execution stopped. Review the failed step.': '全局 Agent 执行已停止，请检查失败步骤。'
+  'Global Agent execution stopped. Review the failed step.': '全局 Agent 执行已停止，请检查失败步骤。',
+  'Global Agent plan rejected. Nothing was executed.': '全局 Agent 计划已拒绝，未执行任何动作。',
+  'Default internal AI': '默认内部 AI'
 };
 
 const reverseUiLiteralTranslations = Object.fromEntries(

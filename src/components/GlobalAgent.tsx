@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Bot, CheckCircle2, ClipboardCheck, Loader2, Play, ShieldCheck, Sparkles, Target, XCircle } from 'lucide-react';
 import { useAuthStore } from '../authStore';
-import { ClientStatus, GlobalAgentPlan, GlobalAgentPlanStep, LeadCampaign, useStore } from '../store';
+import { ClientStatus, GlobalAgentPlan, GlobalAgentPlanStep, LeadCampaign, LeadDataProvider, useStore } from '../store';
 
 const DEFAULT_OBJECTIVES = {
   en: 'Acquire high-quality leads and create an execution plan from public-pool claiming through first touch and ongoing conversion.',
@@ -9,6 +9,7 @@ const DEFAULT_OBJECTIVES = {
 };
 
 const CLIENT_STATUSES: ClientStatus[] = ['Leads', 'Contacted', 'Sample Sent', 'Negotiating', 'Closed Won'];
+const ENRICHMENT_PROVIDERS: LeadDataProvider[] = ['clay', 'apify', 'phantombuster', 'scrapio', 'hasdata', 'decodo', 'outscraper'];
 
 function fallbackPlan(objective: string, language: 'en' | 'zh'): Omit<GlobalAgentPlan, 'id' | 'createdAt' | 'updatedAt'> {
   const isZh = language === 'zh';
@@ -73,6 +74,16 @@ function fallbackPlan(objective: string, language: 'en' | 'zh'): Omit<GlobalAgen
       },
       {
         id: `step_${Date.now()}_5`,
+        title: isZh ? '补全客户资料' : 'Enrich client data',
+        description: isZh
+          ? '使用已配置的数据渠道补全客户公司、联系方式、地址和标签等资料。'
+          : 'Use configured data channels to enrich company, contact, address, and tag data for a client.',
+        actionType: 'enrich_client_data',
+        status: 'pending',
+        payload: { provider: 'clay', fields: ['company', 'contactMethods', 'address', 'tags'] }
+      },
+      {
+        id: `step_${Date.now()}_6`,
         title: isZh ? '创建报价草稿' : 'Create quote draft',
         description: isZh
           ? '在客户有明确需求时创建报价草稿，供销售继续完善和发送。'
@@ -85,7 +96,7 @@ function fallbackPlan(objective: string, language: 'en' | 'zh'): Omit<GlobalAgen
         }
       },
       {
-        id: `step_${Date.now()}_6`,
+        id: `step_${Date.now()}_7`,
         title: isZh ? '创建转化 Workflow' : 'Create conversion workflow',
         description: isZh
           ? '为新线索创建跟进 workflow，包含邮件、电话任务提示，并在收到有效回复后停止后续动作。'
@@ -103,7 +114,7 @@ function fallbackPlan(objective: string, language: 'en' | 'zh'): Omit<GlobalAgen
         }
       },
       {
-        id: `step_${Date.now()}_7`,
+        id: `step_${Date.now()}_8`,
         title: isZh ? '记录转化备注' : 'Add conversion comment',
         description: isZh
           ? '将全局 Agent 的处理摘要写入客户 comments，方便人工接手。'
@@ -143,8 +154,10 @@ export function GlobalAgent() {
     addAgentWorkflow,
     addEmail,
     markEmailRead,
+    editClient,
     updateClientStatus,
     addComment,
+    addDeal,
     addQuote,
     setView,
     notify
@@ -186,16 +199,41 @@ export function GlobalAgent() {
       company: c.company,
       status: c.status,
       country: c.country,
-      tags: c.tags
+      tags: c.tags,
+      contactMethods: c.contactMethods
     })),
+    availableActions: [
+      'create_lead_campaign',
+      'run_lead_campaign',
+      'create_followup_workflow',
+      'process_customer_reply',
+      'send_email',
+      'update_client_stage',
+      'add_client_comment',
+      'enrich_client_data',
+      'create_deal',
+      'create_quote',
+      'prioritize_leads',
+      'review_pipeline'
+    ],
     configuredChannels: Object.entries(leadDataChannelConfigs).filter(([, cfg]) => cfg.enabled && cfg.apiKey).map(([provider]) => provider),
     existingCampaigns: leadCampaigns.length
   }), [clients, publicClients, deals, quotes, emails, leadDataChannelConfigs, leadCampaigns]);
 
   const parsePlan = (text: string) => {
     try {
-      const cleaned = text.replace(/```json|```/g, '').trim();
-      const parsed = JSON.parse(cleaned);
+      const cleaned = text
+        .replace(/```json|```/g, '')
+        .trim();
+      const jsonStart = cleaned.indexOf('{');
+      const jsonEnd = cleaned.lastIndexOf('}');
+      const jsonText = cleaned.startsWith('{')
+        ? cleaned
+        : jsonStart >= 0 && jsonEnd > jsonStart
+          ? cleaned.slice(jsonStart, jsonEnd + 1)
+          : '';
+      if (!jsonText) throw new Error('Missing JSON object');
+      const parsed = JSON.parse(jsonText);
       if (!Array.isArray(parsed.steps)) throw new Error('Missing steps');
       return {
         objective,
@@ -210,8 +248,9 @@ export function GlobalAgent() {
           payload: step.payload || {}
         }))
       };
-    } catch {
-      return fallbackPlan(objective, language);
+    } catch (error) {
+      console.error('Global Agent plan parse failed:', error, text);
+      throw error;
     }
   };
 
@@ -228,7 +267,7 @@ Return JSON only:
     {
       "title": "short step title",
       "description": "what will happen",
-      "actionType": "create_lead_campaign | run_lead_campaign | create_followup_workflow | process_customer_reply | send_email | update_client_stage | add_client_comment | create_quote | prioritize_leads | review_pipeline",
+      "actionType": "create_lead_campaign | run_lead_campaign | create_followup_workflow | process_customer_reply | send_email | update_client_stage | add_client_comment | enrich_client_data | create_deal | create_quote | prioritize_leads | review_pipeline",
       "payload": {}
     }
   ]
@@ -239,7 +278,11 @@ Action payload guidance:
 - send_email: { "clientId": "optional", "replyToEmailId": "optional", "recipient": "optional", "subject": "...", "body": "...", "scheduledAt": "optional ISO string" }
 - update_client_stage: { "clientId": "optional", "status": "Leads | Contacted | Sample Sent | Negotiating | Closed Won" }
 - add_client_comment: { "clientId": "optional", "content": "comment text" }
+- enrich_client_data: { "clientId": "optional", "provider": "optional enrichment provider", "fields": ["company", "contactMethods", "address", "tags"] }
+- create_deal: { "clientId": "optional", "name": "deal name", "value": 0, "status": "Leads | Contacted | Sample Sent | Negotiating | Closed Won" }
 - create_quote: { "clientId": "optional", "quoteNumber": "optional", "status": "Draft", "items": [{ "name": "...", "quantity": 1, "unitPrice": 0, "notes": "..." }] }
+
+Do not limit yourself to acquisition. Include any conversion-improving action that the CRM can execute, especially customer data enrichment, reply handling, stage changes, comments, deals, quotes, follow-up workflows, and scheduled emails.
 
 Available context:
 ${JSON.stringify(context, null, 2)}
@@ -247,15 +290,16 @@ ${JSON.stringify(context, null, 2)}
 User objective:
 ${objective}`;
 
-      const res = await fetch('/api/chat/magic', {
+      const res = await fetch('/api/global-agent/plan', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ command: prompt, context, llmConfig: activeLLMConfig })
+        body: JSON.stringify({ prompt, context, llmConfig: activeLLMConfig })
       });
-      const data = res.ok ? await res.json() : null;
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || 'AI planner request failed');
       const text = data?.result || data?.response || '';
       addGlobalAgentPlan(parsePlan(text));
       notify('Global Agent plan is ready for human review.', 'info');
@@ -321,6 +365,13 @@ ${objective}`;
     return `${leads.length} leads imported to public pool`;
   };
 
+  const getEnrichmentConfig = (provider: LeadDataProvider) => {
+    if (provider === 'outscraper') {
+      return { ...leadDataChannelConfigs.outscraper, apiKey: leadDataChannelConfigs.outscraper?.apiKey || outscraperApiKey };
+    }
+    return leadDataChannelConfigs[provider];
+  };
+
   const findTargetClient = (payload: any = {}) => {
     const state = useStore.getState();
     if (payload.clientId) {
@@ -349,6 +400,46 @@ ${objective}`;
   const getClientEmail = (client: ReturnType<typeof findTargetClient>) => {
     if (!client?.contactMethods) return '';
     return client.contactMethods.find(method => method.type === 'email')?.value || '';
+  };
+
+  const enrichClientData = async (payload: any = {}) => {
+    const client = findTargetClient(payload);
+    if (!client) throw new Error('No client available for data enrichment');
+    const provider = ENRICHMENT_PROVIDERS.includes(payload.provider)
+      ? payload.provider
+      : (context.configuredChannels.find(provider => ENRICHMENT_PROVIDERS.includes(provider as LeadDataProvider)) as LeadDataProvider) || 'clay';
+    const config = getEnrichmentConfig(provider);
+    if (!config?.enabled || !config?.apiKey) throw new Error(`Data enrichment channel ${provider} is not configured`);
+
+    const response = await fetch('/api/lead-data/enrich', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({
+        provider,
+        config,
+        leads: [{
+          id: client.id,
+          name: client.name,
+          company: client.company,
+          address: client.address,
+          city: client.city,
+          state: client.state,
+          country: client.country,
+          tags: client.tags,
+          contactMethods: client.contactMethods
+        }]
+      })
+    });
+    if (!response.ok) throw new Error('Client data enrichment failed');
+    const data = await response.json();
+    const enriched = data.leads?.[0] || {};
+    const updates: any = {};
+    for (const field of ['name', 'company', 'address', 'city', 'state', 'country', 'tags', 'contactMethods']) {
+      if (enriched[field] !== undefined && enriched[field] !== null) updates[field] = enriched[field];
+    }
+    if (Object.keys(updates).length) editClient(client.id, updates);
+    addComment(client.id, payload.comment || `Global Agent enriched client data via ${provider}.`);
+    return `${client.name} enriched via ${provider}`;
   };
 
   const executeStep = async (plan: GlobalAgentPlan, step: GlobalAgentPlanStep, previousCampaignId?: string) => {
@@ -440,6 +531,34 @@ ${objective}`;
         return previousCampaignId;
       }
 
+      if (step.actionType === 'enrich_client_data') {
+        const result = await enrichClientData(payload);
+        updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result });
+        return previousCampaignId;
+      }
+
+      if (step.actionType === 'create_deal') {
+        const client = findTargetClient(payload);
+        if (!client) throw new Error('No client available for deal creation');
+        const status = CLIENT_STATUSES.includes(payload.status) ? payload.status : client.status;
+        addDeal({
+          clientId: client.id,
+          name: payload.name || `${client.company || client.name} opportunity`,
+          value: Number(payload.value) || 0,
+          status,
+          contactInfo: {
+            name: client.name,
+            company: client.company,
+            country: client.country,
+            tags: client.tags,
+            contactMethods: client.contactMethods || []
+          }
+        });
+        addComment(client.id, payload.comment || `Global Agent created a deal: ${payload.name || `${client.company || client.name} opportunity`}.`);
+        updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: `Deal created for ${client.name}` });
+        return previousCampaignId;
+      }
+
       if (step.actionType === 'create_quote') {
         const client = findTargetClient(payload);
         const quoteNumber = payload.quoteNumber || `GA-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Date.now().toString().slice(-4)}`;
@@ -515,6 +634,16 @@ ${objective}`;
     }
   };
 
+  const rejectPlan = (plan: GlobalAgentPlan) => {
+    updateGlobalAgentPlan(plan.id, {
+      status: 'rejected',
+      rejectedAt: new Date().toISOString(),
+      rejectedReason: 'Rejected by human reviewer',
+      steps: plan.steps.map(step => step.status === 'pending' ? { ...step, status: 'skipped' as const } : step)
+    });
+    notify('Global Agent plan rejected. Nothing was executed.', 'info');
+  };
+
   const statusIcon = (status: string) => {
     if (status === 'completed') return <CheckCircle2 className="w-4 h-4 text-emerald-400" />;
     if (status === 'failed') return <XCircle className="w-4 h-4 text-rose-400" />;
@@ -576,6 +705,9 @@ ${objective}`;
             {planning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
             Generate Plan for Review
           </button>
+          <div className="text-xs text-slate-500">
+            AI Planner: {activeLLMConfig?.name || 'Default internal AI'}
+          </div>
         </section>
 
         {activePlan && (
@@ -595,6 +727,15 @@ ${objective}`;
                 <p className="text-sm text-slate-400 mt-1">{activePlan.objective}</p>
               </div>
               {activePlan.status === 'pending_review' && (
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    onClick={() => rejectPlan(activePlan)}
+                    disabled={executingPlanId === activePlan.id}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:bg-slate-800 disabled:text-slate-500 border border-slate-700 rounded-lg font-bold flex items-center gap-2"
+                  >
+                    <XCircle className="w-4 h-4" />
+                    Reject
+                  </button>
                 <button
                   onClick={() => approveAndExecute(activePlan)}
                   disabled={executingPlanId === activePlan.id}
@@ -603,6 +744,7 @@ ${objective}`;
                   {executingPlanId === activePlan.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
                   Approve & Execute
                 </button>
+                </div>
               )}
             </div>
 

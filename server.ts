@@ -371,6 +371,18 @@ Respond only with the draft or the direct output of the action requested. Do not
     }
   });
 
+  app.post("/api/global-agent/plan", authenticateToken, async (req: any, res) => {
+    try {
+      const { prompt, llmConfig } = req.body;
+      if (!prompt) return res.status(400).json({ error: "Missing planning prompt" });
+      const result = await callAI(prompt, llmConfig, false);
+      res.json({ result });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to generate Global Agent plan" });
+    }
+  });
+
   // Workflow Auto-Planner
   app.post("/api/ai/plan-workflow", authenticateToken, async (req: any, res) => {
     try {

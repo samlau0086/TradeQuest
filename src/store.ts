@@ -200,7 +200,7 @@ export interface LeadCampaign {
   lastRunAt?: string;
 }
 
-export type GlobalAgentPlanStatus = 'draft' | 'pending_review' | 'approved' | 'running' | 'completed' | 'failed';
+export type GlobalAgentPlanStatus = 'draft' | 'pending_review' | 'approved' | 'rejected' | 'running' | 'completed' | 'failed';
 export type GlobalAgentStepStatus = 'pending' | 'approved' | 'running' | 'completed' | 'failed' | 'skipped';
 export type GlobalAgentActionType =
   | 'create_lead_campaign'
@@ -210,6 +210,8 @@ export type GlobalAgentActionType =
   | 'send_email'
   | 'update_client_stage'
   | 'add_client_comment'
+  | 'enrich_client_data'
+  | 'create_deal'
   | 'create_quote'
   | 'prioritize_leads'
   | 'review_pipeline';
@@ -234,6 +236,8 @@ export interface GlobalAgentPlan {
   createdAt: string;
   updatedAt: string;
   approvedAt?: string;
+  rejectedAt?: string;
+  rejectedReason?: string;
   completedAt?: string;
 }
 
