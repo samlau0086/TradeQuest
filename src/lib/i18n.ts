@@ -865,7 +865,21 @@ export const uiLiteralTranslations: Record<string, string> = {
   'Campaign failed. Please check the settings and try again.': 'Campaign 运行失败，请检查设置后重试。',
   'Please set keywords, industry, country, and lead count.': '请设置关键词、行业、国家和单次数量。',
   'Campaign created. Agent is starting lead acquisition.': 'Campaign 已创建，Agent 正在开始获客。',
-  'Campaign saved.': 'Campaign 已保存。'
+  'Campaign saved.': 'Campaign 已保存。',
+  'Lead Data Channels': 'Lead 数据渠道',
+  'Configure lead acquisition and enrichment providers used by campaign agents.': '配置 Campaign Agent 使用的获客与数据补全服务。',
+  Enabled: '启用',
+  'Lead Channel': '获客渠道',
+  Enrichment: '数据补全',
+  'Enrichment Channel': '补全渠道',
+  'Enrich before import': '导入前补全',
+  'Import without enrichment': '不补全直接导入',
+  'Optional enrichment runs before import when the selected enrichment channel is configured.': '配置补全渠道后，可在导入公海前先补全线索数据。',
+  'Configure this data channel in Settings before running campaigns.': '运行 Campaign 前，请先在设置中配置该数据渠道。',
+  'Open provider console': '打开服务控制台',
+  'Enrichment Endpoint': '补全端点',
+  'Optional enrichment webhook/API endpoint': '可选补全 webhook/API 端点',
+  'Configure {provider} before running acquisition campaigns.': '运行获客 Campaign 前，请先配置渠道。'
 };
 
 const reverseUiLiteralTranslations = Object.fromEntries(

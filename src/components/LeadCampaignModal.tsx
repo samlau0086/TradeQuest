@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Bot, Database, Loader2, Play, Plus, Search, Trash2, X } from 'lucide-react';
-import { useStore, LeadCampaign, LeadCampaignMode } from '../store';
+import { useStore, LeadCampaign, LeadCampaignMode, LeadDataProvider } from '../store';
 import { useAuthStore } from '../authStore';
 import { cn } from '../lib/utils';
 
@@ -11,6 +11,7 @@ export function LeadCampaignModal({ onClose }: { onClose: () => void }) {
     updateLeadCampaign,
     deleteLeadCampaign,
     outscraperApiKey,
+    leadDataChannelConfigs,
     importPublicLeads,
     fetchPublicClients,
     llmMappings,
@@ -25,6 +26,9 @@ export function LeadCampaignModal({ onClose }: { onClose: () => void }) {
   const [country, setCountry] = useState('');
   const [limit, setLimit] = useState(10);
   const [mode, setMode] = useState<LeadCampaignMode>('manual');
+  const [provider, setProvider] = useState<LeadDataProvider>('outscraper');
+  const [enrichBeforeImport, setEnrichBeforeImport] = useState(false);
+  const [enrichmentProvider, setEnrichmentProvider] = useState<LeadDataProvider>('clay');
   const [runningId, setRunningId] = useState<string | null>(null);
 
   const canSave = keywords.trim() && industry.trim() && country.trim() && limit > 0;
@@ -40,6 +44,23 @@ export function LeadCampaignModal({ onClose }: { onClose: () => void }) {
       .replace(/\s+/g, ' ')
       .trim()
   );
+
+  const providerOptions: { id: LeadDataProvider; label: string; kind: string }[] = [
+    { id: 'outscraper', label: 'Outscraper', kind: 'Maps search' },
+    { id: 'apify', label: 'Apify', kind: 'Actor' },
+    { id: 'phantombuster', label: 'PhantomBuster', kind: 'Agent' },
+    { id: 'scrapio', label: 'Scrap.io', kind: 'Search API' },
+    { id: 'hasdata', label: 'HasData', kind: 'Search API' },
+    { id: 'decodo', label: 'Decodo', kind: 'Scraping API' },
+    { id: 'clay', label: 'Clay', kind: 'Enrichment' }
+  ];
+
+  const getProviderConfig = (providerId: LeadDataProvider) => {
+    if (providerId === 'outscraper') {
+      return { ...leadDataChannelConfigs.outscraper, apiKey: leadDataChannelConfigs.outscraper?.apiKey || outscraperApiKey };
+    }
+    return leadDataChannelConfigs[providerId];
+  };
 
   const normalizeRows = (rows: any[], campaign: LeadCampaign) => {
     const leads: any[] = [];
@@ -69,8 +90,9 @@ export function LeadCampaignModal({ onClose }: { onClose: () => void }) {
   };
 
   const runCampaign = async (campaign: LeadCampaign) => {
-    if (!outscraperApiKey) {
-      notify('Configure your Outscraper API key before running acquisition campaigns.', 'warning');
+    const providerConfig = getProviderConfig(campaign.provider || 'outscraper');
+    if (!providerConfig?.enabled || !providerConfig?.apiKey) {
+      notify(`Configure ${campaign.provider || 'outscraper'} before running acquisition campaigns.`, 'warning');
       return;
     }
     if (!token) return;
@@ -99,23 +121,49 @@ export function LeadCampaignModal({ onClose }: { onClose: () => void }) {
         }
       }
 
-      const searchResponse = await fetch('/api/outscraper/search', {
+      const searchResponse = await fetch('/api/lead-data/search', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
+          provider: campaign.provider || 'outscraper',
           query,
+          keywords: campaign.keywords,
+          industry: campaign.industry,
+          country: campaign.country,
           limit: campaign.limit,
-          apiKey: outscraperApiKey
+          config: providerConfig
         })
       });
 
       if (!searchResponse.ok) throw new Error('Lead search failed');
       const data = await searchResponse.json();
-      const rows = data.data && data.data.length > 0 ? data.data[0] || [] : [];
-      const leads = normalizeRows(rows, campaign);
+      const rows = data.leads || (data.data && data.data.length > 0 ? data.data[0] || [] : []);
+      let leads = normalizeRows(rows, campaign);
+
+      if (campaign.enrichBeforeImport && campaign.enrichmentProvider) {
+        const enrichmentConfig = getProviderConfig(campaign.enrichmentProvider);
+        if (enrichmentConfig?.apiKey || enrichmentConfig?.enrichEndpoint) {
+          const enrichResponse = await fetch('/api/lead-data/enrich', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              provider: campaign.enrichmentProvider,
+              leads,
+              config: enrichmentConfig
+            })
+          });
+          if (enrichResponse.ok) {
+            const enriched = await enrichResponse.json();
+            if (Array.isArray(enriched.leads)) leads = enriched.leads;
+          }
+        }
+      }
 
       if (leads.length === 0) {
         updateLeadCampaign(campaign.id, {
@@ -163,6 +211,9 @@ export function LeadCampaignModal({ onClose }: { onClose: () => void }) {
       country: country.trim(),
       limit,
       mode,
+      provider,
+      enrichBeforeImport,
+      enrichmentProvider,
       query: buildQuery({ keywords, industry, country })
     });
     const campaign = useStore.getState().leadCampaigns.find(c => c.id === id);
@@ -174,6 +225,9 @@ export function LeadCampaignModal({ onClose }: { onClose: () => void }) {
     setCountry('');
     setLimit(10);
     setMode('manual');
+    setProvider('outscraper');
+    setEnrichBeforeImport(false);
+    setEnrichmentProvider('clay');
 
     if (runNow && campaign) await runCampaign(campaign);
   };
@@ -192,9 +246,9 @@ export function LeadCampaignModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="p-6 overflow-y-auto space-y-6">
-          {!outscraperApiKey && (
+          {!getProviderConfig(provider)?.apiKey && (
             <div className="bg-amber-500/10 border border-amber-500/20 text-amber-300 p-4 rounded-lg text-sm">
-              Configure your Outscraper API key in Settings before running campaigns.
+              Configure this data channel in Settings before running campaigns.
             </div>
           )}
 
@@ -227,6 +281,47 @@ export function LeadCampaignModal({ onClose }: { onClose: () => void }) {
                       </button>
                     ))}
                   </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-400 uppercase">Lead Channel</label>
+                  <select
+                    value={provider}
+                    onChange={e => setProvider(e.target.value as LeadDataProvider)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 text-slate-200 outline-none focus:border-cyan-500"
+                  >
+                    {providerOptions.filter(option => option.id !== 'clay').map(option => (
+                      <option key={option.id} value={option.id}>{option.label} - {option.kind}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-400 uppercase">Enrichment</label>
+                  <button
+                    type="button"
+                    onClick={() => setEnrichBeforeImport(!enrichBeforeImport)}
+                    className={cn(
+                      'w-full rounded-lg border px-4 py-2 text-left text-sm font-bold transition-colors',
+                      enrichBeforeImport ? 'border-cyan-500/40 bg-cyan-950/30 text-cyan-300' : 'border-slate-800 bg-slate-950 text-slate-400 hover:text-white'
+                    )}
+                  >
+                    {enrichBeforeImport ? 'Enrich before import' : 'Import without enrichment'}
+                  </button>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-400 uppercase">Enrichment Channel</label>
+                  <select
+                    value={enrichmentProvider}
+                    onChange={e => setEnrichmentProvider(e.target.value as LeadDataProvider)}
+                    disabled={!enrichBeforeImport}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 text-slate-200 outline-none focus:border-cyan-500 disabled:opacity-50"
+                  >
+                    {providerOptions.map(option => (
+                      <option key={option.id} value={option.id}>{option.label}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -282,7 +377,7 @@ export function LeadCampaignModal({ onClose }: { onClose: () => void }) {
                   </button>
                   <button
                     onClick={() => handleSave(true)}
-                    disabled={!outscraperApiKey || !canSave || !!runningId}
+                    disabled={!getProviderConfig(provider)?.enabled || !getProviderConfig(provider)?.apiKey || !canSave || !!runningId}
                     className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-lg font-bold transition-colors flex items-center gap-2"
                   >
                     {runningId ? <Loader2 className="w-4 h-4 animate-spin" /> : mode === 'agent' ? <Bot className="w-4 h-4" /> : <Search className="w-4 h-4" />}
@@ -294,8 +389,9 @@ export function LeadCampaignModal({ onClose }: { onClose: () => void }) {
 
             <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 text-sm text-slate-400 space-y-3">
               <div className="text-slate-200 font-bold">How it works</div>
-              <p>Manual campaigns use your exact keywords, industry, country, and lead count.</p>
+              <p>Manual campaigns use your selected channel with the exact keywords, industry, country, and lead count.</p>
               <p>Agent campaigns refine the search query first, then import found businesses into the public pool by default.</p>
+              <p>Optional enrichment runs before import when the selected enrichment channel is configured.</p>
             </div>
           </div>
 
@@ -321,7 +417,7 @@ export function LeadCampaignModal({ onClose }: { onClose: () => void }) {
                         <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">{campaign.status}</span>
                       </div>
                       <div className="text-xs text-slate-500 mt-1 truncate">
-                        {campaign.keywords} / {campaign.industry} / {campaign.country} / {campaign.limit}
+                        {campaign.provider || 'outscraper'} / {campaign.keywords} / {campaign.industry} / {campaign.country} / {campaign.limit}
                       </div>
                       {campaign.query && (
                         <div className="text-xs text-slate-600 mt-1 truncate">Query: {campaign.query}</div>
@@ -336,7 +432,7 @@ export function LeadCampaignModal({ onClose }: { onClose: () => void }) {
                     <div className="flex items-center gap-1 shrink-0">
                       <button
                         onClick={() => runCampaign(campaign)}
-                        disabled={!outscraperApiKey || runningId === campaign.id}
+                        disabled={!getProviderConfig(campaign.provider || 'outscraper')?.enabled || !getProviderConfig(campaign.provider || 'outscraper')?.apiKey || runningId === campaign.id}
                         className="p-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-cyan-600 hover:text-white disabled:opacity-50 transition-colors"
                         title="Run Campaign"
                       >

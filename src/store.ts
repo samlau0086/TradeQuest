@@ -168,6 +168,17 @@ export interface AgentWorkflow {
 
 export type LeadCampaignMode = 'manual' | 'agent';
 export type LeadCampaignStatus = 'draft' | 'running' | 'completed' | 'failed';
+export type LeadDataProvider = 'outscraper' | 'apify' | 'phantombuster' | 'scrapio' | 'hasdata' | 'decodo' | 'clay';
+
+export interface LeadDataChannelConfig {
+  enabled: boolean;
+  apiKey: string;
+  searchEndpoint?: string;
+  enrichEndpoint?: string;
+  actorId?: string;
+  agentId?: string;
+  notes?: string;
+}
 
 export interface LeadCampaign {
   id: string;
@@ -177,7 +188,10 @@ export interface LeadCampaign {
   country: string;
   limit: number;
   mode: LeadCampaignMode;
+  provider: LeadDataProvider;
   status: LeadCampaignStatus;
+  enrichBeforeImport?: boolean;
+  enrichmentProvider?: LeadDataProvider;
   query?: string;
   importedCount?: number;
   lastError?: string;
@@ -324,6 +338,8 @@ export interface StoreState {
   deleteAgentWorkflow: (id: string) => void;
 
   leadCampaigns: LeadCampaign[];
+  leadDataChannelConfigs: Record<LeadDataProvider, LeadDataChannelConfig>;
+  updateLeadDataChannelConfig: (provider: LeadDataProvider, updates: Partial<LeadDataChannelConfig>) => void;
   addLeadCampaign: (campaign: Omit<LeadCampaign, 'id' | 'createdAt' | 'updatedAt' | 'status'> & Partial<Pick<LeadCampaign, 'status'>>) => string;
   updateLeadCampaign: (id: string, updates: Partial<LeadCampaign>) => void;
   deleteLeadCampaign: (id: string) => void;
@@ -491,6 +507,16 @@ const INITIAL_LOGS: Log[] = [];
 
 const INITIAL_EMAILS: EmailMessage[] = [];
 
+const INITIAL_LEAD_DATA_CHANNEL_CONFIGS: Record<LeadDataProvider, LeadDataChannelConfig> = {
+  outscraper: { enabled: true, apiKey: localStorage.getItem('outscraperApiKey') || '' },
+  apify: { enabled: false, apiKey: '', actorId: '' },
+  phantombuster: { enabled: false, apiKey: '', agentId: '' },
+  scrapio: { enabled: false, apiKey: '', searchEndpoint: '' },
+  hasdata: { enabled: false, apiKey: '', searchEndpoint: '' },
+  decodo: { enabled: false, apiKey: '', searchEndpoint: '' },
+  clay: { enabled: false, apiKey: '', enrichEndpoint: '' }
+};
+
 const INITIAL_ACHIEVEMENTS: Achievement[] = [
   { id: 'first_client', title: 'First Contact', description: 'Add your first client to the CRM.', icon: 'UserPlus', expReward: 100, unlockedAt: null },
   { id: 'networking', title: 'Networker', description: 'Grow your list to 10 clients.', icon: 'Users', expReward: 250, unlockedAt: null },
@@ -537,6 +563,23 @@ export const useStore = create<StoreState>((set, get) => ({
   }),
 
   leadCampaigns: [],
+  leadDataChannelConfigs: INITIAL_LEAD_DATA_CHANNEL_CONFIGS,
+  updateLeadDataChannelConfig: (provider, updates) => set((state) => {
+    const nextConfig = {
+      ...(state.leadDataChannelConfigs[provider] || INITIAL_LEAD_DATA_CHANNEL_CONFIGS[provider]),
+      ...updates
+    };
+    if (provider === 'outscraper' && updates.apiKey !== undefined) {
+      localStorage.setItem('outscraperApiKey', updates.apiKey);
+    }
+    return {
+      leadDataChannelConfigs: {
+        ...state.leadDataChannelConfigs,
+        [provider]: nextConfig
+      },
+      ...(provider === 'outscraper' && updates.apiKey !== undefined ? { outscraperApiKey: updates.apiKey } : {})
+    };
+  }),
   addLeadCampaign: (campaign) => {
     const now = new Date().toISOString();
     const id = `campaign_${Date.now()}`;
@@ -1638,7 +1681,16 @@ export const useStore = create<StoreState>((set, get) => ({
   outscraperApiKey: localStorage.getItem('outscraperApiKey') || '',
   setOutscraperApiKey: (key) => {
     localStorage.setItem('outscraperApiKey', key);
-    set({ outscraperApiKey: key });
+    set((state) => ({
+      outscraperApiKey: key,
+      leadDataChannelConfigs: {
+        ...state.leadDataChannelConfigs,
+        outscraper: {
+          ...state.leadDataChannelConfigs.outscraper,
+          apiKey: key
+        }
+      }
+    }));
   },
 
   expConfig: {},
@@ -1689,6 +1741,9 @@ export const useStore = create<StoreState>((set, get) => ({
           llmMappings: settings.llmMappings ?? state.llmMappings,
           agentWorkflows: settings.agentWorkflows ?? state.agentWorkflows,
           leadCampaigns: settings.leadCampaigns ?? state.leadCampaigns,
+          leadDataChannelConfigs: settings.leadDataChannelConfigs
+            ? { ...INITIAL_LEAD_DATA_CHANNEL_CONFIGS, ...settings.leadDataChannelConfigs }
+            : state.leadDataChannelConfigs,
           outscraperApiKey: settings.outscraperApiKey ?? state.outscraperApiKey,
           activeLLMId: settings.activeLLMId ?? state.activeLLMId,
           language: settings.language ?? state.language,
@@ -1775,6 +1830,7 @@ useStore.subscribe((state, prevState) => {
     state.llmMappings !== prevState.llmMappings ||
     state.agentWorkflows !== prevState.agentWorkflows ||
     state.leadCampaigns !== prevState.leadCampaigns ||
+    state.leadDataChannelConfigs !== prevState.leadDataChannelConfigs ||
     state.outscraperApiKey !== prevState.outscraperApiKey ||
     state.activeLLMId !== prevState.activeLLMId ||
     state.language !== prevState.language ||
@@ -1801,6 +1857,7 @@ useStore.subscribe((state, prevState) => {
             llmMappings: state.llmMappings,
             agentWorkflows: state.agentWorkflows,
             leadCampaigns: state.leadCampaigns,
+            leadDataChannelConfigs: state.leadDataChannelConfigs,
             outscraperApiKey: state.outscraperApiKey,
             activeLLMId: state.activeLLMId,
             language: state.language,

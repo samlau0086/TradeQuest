@@ -1413,6 +1413,123 @@ Query: "${query}"`;
     }
   });
 
+  const normalizeLeadRows = (rows: any[], fallbackCountry = '', fallbackTag = '') => {
+    return rows.filter(Boolean).map((row: any) => {
+      const name = row.name || row.title || row.company || row.companyName || row.organization_name || row.business_name;
+      const emails = row.emails || row.email || row.email_address || row.emailAddresses;
+      const phones = row.phones || row.phone || row.phone_number || row.phoneNumbers;
+      const contactMethods: any[] = [];
+      const emailList = Array.isArray(emails) ? emails : (emails ? String(emails).split(',') : []);
+      const phoneList = Array.isArray(phones) ? phones : (phones ? String(phones).split(',') : []);
+      if (emailList[0]) contactMethods.push({ type: 'email', value: String(emailList[0]).trim() });
+      if (phoneList[0]) contactMethods.push({ type: 'phone', value: String(phoneList[0]).trim() });
+      return {
+        name,
+        company: row.company || row.companyName || row.organization_name || row.business_name || name,
+        address: row.full_address || row.address || row.formatted_address || '',
+        city: row.city || '',
+        state: row.state || row.region || '',
+        country: row.country || fallbackCountry || 'Unknown',
+        tags: [row.type || row.category || row.industry || fallbackTag].filter(Boolean),
+        contactMethods: contactMethods.length > 0 ? contactMethods : undefined
+      };
+    }).filter((lead: any) => lead.name);
+  };
+
+  const pickLeadRows = (provider: string, data: any) => {
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data?.leads)) return data.leads;
+    if (Array.isArray(data?.data?.[0])) return data.data[0];
+    if (Array.isArray(data?.data)) return data.data;
+    if (Array.isArray(data?.results)) return data.results;
+    if (Array.isArray(data?.items)) return data.items;
+    if (provider === 'apify' && Array.isArray(data?.defaultDatasetItems)) return data.defaultDatasetItems;
+    return [];
+  };
+
+  app.post('/api/lead-data/search', authenticateToken, async (req: any, res) => {
+    try {
+      const { provider = 'outscraper', query, keywords, industry, country, limit, config = {} } = req.body;
+      if (!config.apiKey) return res.status(400).json({ error: 'Data channel API key required' });
+
+      if (provider === 'outscraper') {
+        const url = `https://api.outscraper.com/maps/search-v2?query=${encodeURIComponent(query)}&limit=${limit || 10}&async=false`;
+        const outRes = await fetch(url, { headers: { 'X-API-KEY': config.apiKey } });
+        if (!outRes.ok) return res.status(outRes.status).json({ error: 'Outscraper API error' });
+        const data = await outRes.json();
+        return res.json({ provider, leads: normalizeLeadRows(pickLeadRows(provider, data), country, industry), raw: data });
+      }
+
+      if (provider === 'apify' && config.actorId) {
+        const actorId = String(config.actorId).replace('/', '~');
+        const runRes = await fetch(`https://api.apify.com/v2/acts/${encodeURIComponent(actorId)}/run-sync-get-dataset-items?token=${encodeURIComponent(config.apiKey)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, keywords, industry, country, limit })
+        });
+        if (!runRes.ok) return res.status(runRes.status).json({ error: 'Apify actor failed' });
+        const data = await runRes.json();
+        return res.json({ provider, leads: normalizeLeadRows(pickLeadRows(provider, data), country, industry), raw: data });
+      }
+
+      if (provider === 'phantombuster' && config.agentId) {
+        const launchRes = await fetch('https://api.phantombuster.com/api/v2/agents/launch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Phantombuster-Key': config.apiKey },
+          body: JSON.stringify({ id: config.agentId, argument: { query, keywords, industry, country, limit } })
+        });
+        if (!launchRes.ok) return res.status(launchRes.status).json({ error: 'PhantomBuster agent failed to launch' });
+        const data = await launchRes.json();
+        return res.json({ provider, leads: normalizeLeadRows(pickLeadRows(provider, data), country, industry), raw: data });
+      }
+
+      if (!config.searchEndpoint) {
+        return res.status(400).json({ error: 'Search endpoint or provider workflow ID required' });
+      }
+
+      const genericRes = await fetch(config.searchEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${config.apiKey}`,
+          'X-API-Key': config.apiKey
+        },
+        body: JSON.stringify({ query, keywords, industry, country, limit })
+      });
+      if (!genericRes.ok) return res.status(genericRes.status).json({ error: `${provider} search failed` });
+      const data = await genericRes.json();
+      res.json({ provider, leads: normalizeLeadRows(pickLeadRows(provider, data), country, industry), raw: data });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to search lead data channel' });
+    }
+  });
+
+  app.post('/api/lead-data/enrich', authenticateToken, async (req: any, res) => {
+    try {
+      const { provider, leads, config = {} } = req.body;
+      if (!Array.isArray(leads)) return res.status(400).json({ error: 'Invalid leads' });
+      if (!config.enrichEndpoint) return res.json({ provider, leads });
+
+      const enrichRes = await fetch(config.enrichEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${config.apiKey || ''}`,
+          'X-API-Key': config.apiKey || ''
+        },
+        body: JSON.stringify({ leads })
+      });
+      if (!enrichRes.ok) return res.status(enrichRes.status).json({ error: `${provider} enrichment failed` });
+      const data = await enrichRes.json();
+      const enrichedRows = Array.isArray(data?.leads) ? data.leads : Array.isArray(data?.data) ? data.data : leads;
+      res.json({ provider, leads: enrichedRows });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to enrich leads' });
+    }
+  });
+
   // Clients API Endpoints
   app.get('/api/clients', authenticateToken, async (req: any, res) => {
     try {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useStore, InboxConfig, OutboxConfig, LLMConfig, PaymentTerm } from '../store';
+import { useStore, InboxConfig, OutboxConfig, LLMConfig, PaymentTerm, LeadDataProvider } from '../store';
 import { useAuthStore } from '../authStore';
 import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark, Clock, Book, Target, Trophy, Eye, EyeOff } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -16,6 +16,7 @@ export function Settings() {
     llmMappings, setLLMMapping, language,
     timezone, setTimezone,
     outscraperApiKey, setOutscraperApiKey,
+    leadDataChannelConfigs, updateLeadDataChannelConfig,
     dailyQuests, achievements
   } = useStore();
   const t = useTranslation(language);
@@ -97,6 +98,7 @@ export function Settings() {
   const [showOutboxApiKey, setShowOutboxApiKey] = useState(false);
   const [showLLMApiKey, setShowLLMApiKey] = useState(false);
   const [showOutscraperApiKey, setShowOutscraperApiKey] = useState(false);
+  const [visibleLeadChannelKeys, setVisibleLeadChannelKeys] = useState<Record<string, boolean>>({});
 
   const [editingLLMId, setEditingLLMId] = useState<string | null>(null);
   const [llmFormData, setLLMFormData] = useState<Partial<LLMConfig>>({});
@@ -270,6 +272,16 @@ export function Settings() {
   };
 
   const [activeTab, setActiveTab] = useState<'profile' | 'mail' | 'ai' | 'system' | 'gamification'>('profile');
+
+  const leadDataProviders: { id: LeadDataProvider; label: string; description: string; docsUrl: string; workflowLabel: string }[] = [
+    { id: 'outscraper', label: 'Outscraper', description: 'Google Maps business search for lead acquisition.', docsUrl: 'https://outscraper.com/', workflowLabel: 'Native Maps Search' },
+    { id: 'apify', label: 'Apify', description: 'Run a configured Actor for prospect scraping or enrichment.', docsUrl: 'https://console.apify.com/', workflowLabel: 'Actor ID' },
+    { id: 'phantombuster', label: 'PhantomBuster', description: 'Launch a configured Phantom for social/web lead workflows.', docsUrl: 'https://phantombuster.com/', workflowLabel: 'Agent ID' },
+    { id: 'scrapio', label: 'Scrap.io', description: 'Use a Scrap.io endpoint for lead search or enrichment.', docsUrl: 'https://scrap.io/', workflowLabel: 'Search Endpoint' },
+    { id: 'hasdata', label: 'HasData', description: 'Use HasData scraping/search endpoints for lead sources.', docsUrl: 'https://hasdata.com/', workflowLabel: 'Search Endpoint' },
+    { id: 'decodo', label: 'Decodo', description: 'Use Decodo scraping APIs for targeted lead collection.', docsUrl: 'https://decodo.com/', workflowLabel: 'Search Endpoint' },
+    { id: 'clay', label: 'Clay', description: 'Use Clay enrichment workflows to complete company/contact data.', docsUrl: 'https://www.clay.com/', workflowLabel: 'Enrichment Endpoint' }
+  ];
 
   return (
     <div className="flex-1 bg-slate-900 border-t border-slate-800 p-6 overflow-y-auto w-full">
@@ -1089,6 +1101,118 @@ export function Settings() {
                   </div>
                   <p className="text-xs text-slate-500 mt-1">Used for searching and importing leads directly from Google Maps into the public pool.</p>
                 </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
+              <div className="flex items-start justify-between gap-4 mb-5">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-300 px-1 flex items-center gap-2">
+                    Lead Data Channels
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1 px-1">
+                    Configure lead acquisition and enrichment providers used by campaign agents.
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {leadDataProviders.map(provider => {
+                  const config = leadDataChannelConfigs[provider.id];
+                  const isSecretVisible = visibleLeadChannelKeys[provider.id];
+                  return (
+                    <div key={provider.id} className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="font-bold text-slate-200">{provider.label}</div>
+                          <div className="text-xs text-slate-500 mt-1">{provider.description}</div>
+                        </div>
+                        <label className="flex items-center gap-2 text-xs text-slate-400">
+                          <input
+                            type="checkbox"
+                            checked={config?.enabled || false}
+                            onChange={e => updateLeadDataChannelConfig(provider.id, { enabled: e.target.checked })}
+                            className="accent-cyan-500"
+                          />
+                          Enabled
+                        </label>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs text-slate-400 font-bold uppercase">API Key</label>
+                        <div className="relative">
+                          <input
+                            type={isSecretVisible ? 'text' : 'password'}
+                            value={config?.apiKey || ''}
+                            onChange={e => {
+                              updateLeadDataChannelConfig(provider.id, { apiKey: e.target.value });
+                              if (provider.id === 'outscraper') setOutscraperApiKey(e.target.value);
+                            }}
+                            placeholder={`${provider.label} API Key`}
+                            className="w-full bg-slate-900 border border-slate-700/50 rounded-lg px-3 py-2 pr-10 text-sm text-slate-200 outline-none focus:border-indigo-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setVisibleLeadChannelKeys(prev => ({ ...prev, [provider.id]: !prev[provider.id] }))}
+                            className="absolute right-3 top-2.5 text-slate-500 hover:text-slate-300 transition-colors"
+                            tabIndex={-1}
+                          >
+                            {isSecretVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      {provider.id === 'apify' && (
+                        <div className="space-y-1">
+                          <label className="text-xs text-slate-400 font-bold uppercase">{provider.workflowLabel}</label>
+                          <input
+                            value={config?.actorId || ''}
+                            onChange={e => updateLeadDataChannelConfig(provider.id, { actorId: e.target.value })}
+                            placeholder="username/actor-name"
+                            className="w-full bg-slate-900 border border-slate-700/50 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                      )}
+
+                      {provider.id === 'phantombuster' && (
+                        <div className="space-y-1">
+                          <label className="text-xs text-slate-400 font-bold uppercase">{provider.workflowLabel}</label>
+                          <input
+                            value={config?.agentId || ''}
+                            onChange={e => updateLeadDataChannelConfig(provider.id, { agentId: e.target.value })}
+                            placeholder="Phantom agent id"
+                            className="w-full bg-slate-900 border border-slate-700/50 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                      )}
+
+                      {!['outscraper', 'apify', 'phantombuster', 'clay'].includes(provider.id) && (
+                        <div className="space-y-1">
+                          <label className="text-xs text-slate-400 font-bold uppercase">{provider.workflowLabel}</label>
+                          <input
+                            value={config?.searchEndpoint || ''}
+                            onChange={e => updateLeadDataChannelConfig(provider.id, { searchEndpoint: e.target.value })}
+                            placeholder="https://api.provider.com/lead-search"
+                            className="w-full bg-slate-900 border border-slate-700/50 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                      )}
+
+                      <div className="space-y-1">
+                        <label className="text-xs text-slate-400 font-bold uppercase">Enrichment Endpoint</label>
+                        <input
+                          value={config?.enrichEndpoint || ''}
+                          onChange={e => updateLeadDataChannelConfig(provider.id, { enrichEndpoint: e.target.value })}
+                          placeholder="Optional enrichment webhook/API endpoint"
+                          className="w-full bg-slate-900 border border-slate-700/50 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-indigo-500"
+                        />
+                      </div>
+
+                      <a href={provider.docsUrl} target="_blank" rel="noreferrer" className="inline-flex text-xs text-cyan-400 hover:text-cyan-300">
+                        Open provider console
+                      </a>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
