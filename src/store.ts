@@ -166,6 +166,26 @@ export interface AgentWorkflow {
   stopOnMeaningfulReply?: boolean;
 }
 
+export type LeadCampaignMode = 'manual' | 'agent';
+export type LeadCampaignStatus = 'draft' | 'running' | 'completed' | 'failed';
+
+export interface LeadCampaign {
+  id: string;
+  name: string;
+  keywords: string;
+  industry: string;
+  country: string;
+  limit: number;
+  mode: LeadCampaignMode;
+  status: LeadCampaignStatus;
+  query?: string;
+  importedCount?: number;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastRunAt?: string;
+}
+
 export interface ClientEditRequest {
   id: number;
   client_id: string;
@@ -302,6 +322,11 @@ export interface StoreState {
   addAgentWorkflow: (workflow: Omit<AgentWorkflow, 'id'>) => void;
   updateAgentWorkflow: (id: string, updates: Partial<AgentWorkflow>) => void;
   deleteAgentWorkflow: (id: string) => void;
+
+  leadCampaigns: LeadCampaign[];
+  addLeadCampaign: (campaign: Omit<LeadCampaign, 'id' | 'createdAt' | 'updatedAt' | 'status'> & Partial<Pick<LeadCampaign, 'status'>>) => string;
+  updateLeadCampaign: (id: string, updates: Partial<LeadCampaign>) => void;
+  deleteLeadCampaign: (id: string) => void;
 
   knowledgeBase: KnowledgeItem[];
   fetchKnowledgeBase: () => void;
@@ -510,6 +535,29 @@ export const useStore = create<StoreState>((set, get) => ({
     const newWorkflows = state.agentWorkflows.filter(wf => wf.id !== id);
     return { agentWorkflows: newWorkflows };
   }),
+
+  leadCampaigns: [],
+  addLeadCampaign: (campaign) => {
+    const now = new Date().toISOString();
+    const id = `campaign_${Date.now()}`;
+    const newCampaign: LeadCampaign = {
+      ...campaign,
+      id,
+      status: campaign.status || 'draft',
+      createdAt: now,
+      updatedAt: now
+    };
+    set((state) => ({ leadCampaigns: [newCampaign, ...state.leadCampaigns] }));
+    return id;
+  },
+  updateLeadCampaign: (id, updates) => set((state) => ({
+    leadCampaigns: state.leadCampaigns.map(campaign => (
+      campaign.id === id ? { ...campaign, ...updates, updatedAt: new Date().toISOString() } : campaign
+    ))
+  })),
+  deleteLeadCampaign: (id) => set((state) => ({
+    leadCampaigns: state.leadCampaigns.filter(campaign => campaign.id !== id)
+  })),
 
   knowledgeBase: [],
   fetchKnowledgeBase: () => {
@@ -1640,6 +1688,7 @@ export const useStore = create<StoreState>((set, get) => ({
           llmConfigs: settings.llmConfigs ?? state.llmConfigs,
           llmMappings: settings.llmMappings ?? state.llmMappings,
           agentWorkflows: settings.agentWorkflows ?? state.agentWorkflows,
+          leadCampaigns: settings.leadCampaigns ?? state.leadCampaigns,
           outscraperApiKey: settings.outscraperApiKey ?? state.outscraperApiKey,
           activeLLMId: settings.activeLLMId ?? state.activeLLMId,
           language: settings.language ?? state.language,
@@ -1725,6 +1774,7 @@ useStore.subscribe((state, prevState) => {
     state.llmConfigs !== prevState.llmConfigs ||
     state.llmMappings !== prevState.llmMappings ||
     state.agentWorkflows !== prevState.agentWorkflows ||
+    state.leadCampaigns !== prevState.leadCampaigns ||
     state.outscraperApiKey !== prevState.outscraperApiKey ||
     state.activeLLMId !== prevState.activeLLMId ||
     state.language !== prevState.language ||
@@ -1750,6 +1800,7 @@ useStore.subscribe((state, prevState) => {
             llmConfigs: state.llmConfigs,
             llmMappings: state.llmMappings,
             agentWorkflows: state.agentWorkflows,
+            leadCampaigns: state.leadCampaigns,
             outscraperApiKey: state.outscraperApiKey,
             activeLLMId: state.activeLLMId,
             language: state.language,

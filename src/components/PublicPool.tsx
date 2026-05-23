@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useStore, Client } from '../store';
 import { useAuthStore } from '../authStore';
 import { useTranslation } from '../lib/i18n';
-import { Globe, Search, ArrowRight, Loader2, Clock, Upload, List as ListIcon, Tags as TagsIcon, LayoutGrid, Map as MapIcon, Plus, ArrowUpFromLine, Trash2, MapPin } from 'lucide-react';
+import { Globe, Search, ArrowRight, Loader2, Clock, Upload, List as ListIcon, Tags as TagsIcon, LayoutGrid, Map as MapIcon, Plus, ArrowUpFromLine, Trash2, MapPin, Bot } from 'lucide-react';
 import { cn } from '../lib/utils';
 import Papa from 'papaparse';
 import { ComposableMap, Geographies, Geography, Marker } from 'react-simple-maps';
@@ -28,6 +28,7 @@ const COUNTRY_COORDS: Record<string, [number, number]> = {
 type ViewMode = 'grid' | 'list' | 'map' | 'tags';
 
 import { OutscraperSearchModal } from './OutscraperSearchModal';
+import { LeadCampaignModal } from './LeadCampaignModal';
 
 export function PublicPool() {
   const { publicClients, fetchPublicClients, claimClient, importPublicLeads, language } = useStore();
@@ -40,6 +41,7 @@ export function PublicPool() {
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showOutscraperModal, setShowOutscraperModal] = useState(false);
+  const [showCampaignModal, setShowCampaignModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
 
   useEffect(() => {
@@ -420,6 +422,13 @@ export function PublicPool() {
                   {t('newClientTarget') || 'Add Lead'}
                 </button>
                 <button 
+                  onClick={() => setShowCampaignModal(true)}
+                  className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg flex items-center gap-2 font-medium transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  <Bot className="w-4 h-4" />
+                  Acquisition Agent
+                </button>
+                <button 
                   onClick={() => setShowOutscraperModal(true)}
                   className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg flex items-center gap-2 font-medium transition-colors cursor-pointer border border-slate-700 whitespace-nowrap"
                 >
@@ -483,6 +492,7 @@ export function PublicPool() {
       </div>
       {showUploadModal && <UploadCSVModal onClose={() => setShowUploadModal(false)} onUpload={handleCSVUpload} />}
       {showOutscraperModal && <OutscraperSearchModal onClose={() => setShowOutscraperModal(false)} />}
+      {showCampaignModal && <LeadCampaignModal onClose={() => setShowCampaignModal(false)} />}
       {showAddModal && <ClientFormModal isPublicPool onClose={() => setShowAddModal(false)} />}
       
       {confirmClaimId && (
