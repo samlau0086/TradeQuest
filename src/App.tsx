@@ -19,6 +19,7 @@ import { AuthPage } from './components/AuthPage';
 import { ResetPasswordPage } from './components/ResetPasswordPage';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle, useDefaultLayout } from 'react-resizable-panels';
 import { Loader2 } from 'lucide-react';
+import { translateLiteral, useTranslation } from './lib/i18n';
 
 import { ProductsList } from './components/ProductsList';
 import { QuotesList } from './components/QuotesList';
@@ -26,6 +27,7 @@ import { MediaLibrary } from './components/MediaLibrary';
 
 export default function App() {
   const { view, selectedClientId, checkScheduledEmails, fetchInitialData, language, globalLoading } = useStore();
+  const t = useTranslation(language);
   const { token, isInitializing } = useAuthStore();
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'app-layout' });
 
@@ -47,6 +49,43 @@ export default function App() {
     const interval = setInterval(checkScheduledEmails, 10000);
     return () => clearInterval(interval);
   }, [checkScheduledEmails]);
+
+  useEffect(() => {
+    const localizeNode = (node: Node) => {
+      if (node.nodeType === Node.TEXT_NODE && node.textContent) {
+        const next = translateLiteral(node.textContent, language);
+        if (next !== node.textContent) node.textContent = next;
+        return;
+      }
+
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+      const element = node as Element;
+      for (const attr of ['placeholder', 'title', 'aria-label']) {
+        const value = element.getAttribute(attr);
+        if (!value) continue;
+        const next = translateLiteral(value, language);
+        if (next !== value) element.setAttribute(attr, next);
+      }
+      element.childNodes.forEach(localizeNode);
+    };
+
+    localizeNode(document.body);
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        mutation.addedNodes.forEach(localizeNode);
+        if (mutation.type === 'characterData') localizeNode(mutation.target);
+        if (mutation.type === 'attributes') localizeNode(mutation.target);
+      }
+    });
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ['placeholder', 'title', 'aria-label']
+    });
+    return () => observer.disconnect();
+  }, [language]);
 
   if (isInitializing) {
     return (
@@ -99,7 +138,7 @@ export default function App() {
       {globalLoading && (
         <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-sm z-[9999] flex flex-col items-center justify-center text-slate-200">
           <Loader2 className="w-12 h-12 animate-spin text-cyan-500 mb-4" />
-          <p className="text-sm font-medium animate-pulse text-cyan-400">Processing...</p>
+          <p className="text-sm font-medium animate-pulse text-cyan-400">{t('processing')}</p>
         </div>
       )}
     </>

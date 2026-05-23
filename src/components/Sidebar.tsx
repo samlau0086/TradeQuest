@@ -21,7 +21,7 @@ export function Sidebar() {
   return (
     <aside className="w-full h-full bg-slate-900 border-r border-slate-800 text-slate-300 flex flex-col pt-6 pb-4">
       {/* Profile / Gamer Card */}
-      <div className="px-6 mb-8 cursor-pointer group flex-none" onClick={() => setShowExpHistory(true)} title="View Experience History">
+      <div className="px-6 mb-8 cursor-pointer group flex-none" onClick={() => setShowExpHistory(true)} title={t('viewExperienceHistory')}>
         <div className="flex items-center gap-3 mb-4 relative">
           <div className="w-12 h-12 rounded-lg bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20 group-hover:shadow-cyan-500/40 transition-shadow">
             <Swords className="text-white w-6 h-6" />
@@ -37,14 +37,14 @@ export function Sidebar() {
             <button 
               onClick={(e) => { e.stopPropagation(); setLanguage(language === 'en' ? 'zh' : 'en'); }}
               className="p-1.5 text-slate-400 hover:text-cyan-400 bg-slate-800/50 hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-slate-700 font-medium text-[10px]"
-              title="Toggle Language"
+              title={t('toggleLanguage')}
             >
               {language === 'en' ? 'EN' : '中'}
             </button>
             <button 
               onClick={(e) => { e.stopPropagation(); setTheme(theme === 'dark' ? 'light' : 'dark'); }}
               className="p-1.5 text-slate-400 hover:text-cyan-400 bg-slate-800/50 hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-slate-700"
-              title={`Toggle ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
+              title={theme === 'dark' ? t('toggleLightMode') : t('toggleDarkMode')}
             >
               {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
@@ -65,7 +65,7 @@ export function Sidebar() {
           </div>
           <div className="flex items-center gap-1 text-xs text-orange-400 font-medium pt-1">
             <Flame className="w-4 h-4 fill-orange-400" />
-            {currentStreak} Day Streak (+5% Luck)
+            {currentStreak} {t('dayStreakLuck')}
           </div>
         </div>
       </div>
@@ -118,7 +118,7 @@ export function Sidebar() {
             view === 'products' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
         >
           <Package className="w-5 h-5" />
-          Products
+          {t('products')}
         </button>
         <button 
           onClick={() => setView('quotes')}
@@ -126,7 +126,7 @@ export function Sidebar() {
             view === 'quotes' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
         >
           <FileText className="w-5 h-5" />
-          Quotes
+          {t('quotes')}
         </button>
         <button 
           onClick={() => setView('public-pool')}
@@ -150,7 +150,7 @@ export function Sidebar() {
             view === 'media-library' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
         >
           <ImageIcon className="w-5 h-5" />
-          {t('mediaLibrary') || 'Media Library'}
+          {t('mediaLibrary')}
         </button>
         <button 
           onClick={() => setView('settings')}
@@ -177,7 +177,7 @@ export function Sidebar() {
               view === 'edit-requests' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
           >
             <Shield className="w-5 h-5 text-yellow-400" />
-            Review Edits
+            {t('reviewEdits')}
           </button>
         )}
       </div>
@@ -226,8 +226,8 @@ export function Sidebar() {
           {dailyQuests.map(quest => (
             <div key={quest.id} className={cn("p-3 rounded-lg border text-sm transition-all relative overflow-hidden", 
               quest.completed ? "bg-green-950/30 border-green-900/50 text-slate-500" : "bg-slate-800/50 border-slate-700/50 hover:border-cyan-500/50")}>
-              <div className="font-medium text-slate-200 mb-1">{quest.title}</div>
-              <div className="text-xs text-slate-400 truncate">{quest.description}</div>
+              <div className="font-medium text-slate-200 mb-1">{t(quest.title)}</div>
+              <div className="text-xs text-slate-400 truncate">{t(quest.description)}</div>
               {!quest.completed && (
                 <div className="text-cyan-400 text-xs font-bold mt-2">+{quest.expReward} EXP</div>
               )}

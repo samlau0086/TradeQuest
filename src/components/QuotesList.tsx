@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useStore } from '../store';
 import { useTranslation } from '../lib/i18n';
-import { FileText, Plus, Search, Eye, Download, Send, Edit2, Trash2 } from 'lucide-react';
+import { FileText, Plus, Search, Download, Edit2, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '../lib/utils'; // if needed
 import { QuoteFormModal } from './QuoteFormModal';
@@ -52,7 +52,7 @@ export function QuotesList() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-white">{t('quotesList')}</h1>
-              <p className="text-sm text-slate-400">{filteredQuotes.length} quotes</p>
+              <p className="text-sm text-slate-400">{filteredQuotes.length} {t('quoteCount')}</p>
             </div>
           </div>
           <div className="flex items-center gap-3 w-full sm:w-auto">
@@ -60,7 +60,7 @@ export function QuotesList() {
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input 
                 type="text" 
-                placeholder="Search quotes..." 
+                placeholder={t('searchQuotes')} 
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-4 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
@@ -81,8 +81,8 @@ export function QuotesList() {
             <thead className="bg-slate-900/50 text-xs uppercase text-slate-400 border-b border-slate-800">
               <tr>
                 <th className="px-4 py-3 font-medium">{t('quoteNo')}</th>
-                <th className="px-4 py-3 font-medium">Date</th>
-                <th className="px-4 py-3 font-medium">Client</th>
+                <th className="px-4 py-3 font-medium">{t('date')}</th>
+                <th className="px-4 py-3 font-medium">{t('client')}</th>
                 <th className="px-4 py-3 font-medium">{t('stage')}</th>
                 <th className="px-4 py-3 font-medium text-right">{t('actions')}</th>
               </tr>
@@ -105,7 +105,7 @@ export function QuotesList() {
                           {client.company && <div className="text-xs text-slate-400">{client.company}</div>}
                         </div>
                       ) : (
-                        <span className="text-slate-500 italic">General/No Client</span>
+                        <span className="text-slate-500 italic">{t('generalNoClient')}</span>
                       )}
                     </td>
                     <td className="px-4 py-3">
@@ -121,13 +121,13 @@ export function QuotesList() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-1">
-                        <button onClick={() => handleEdit(quote.id)} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors" title="View/Edit">
+                        <button onClick={() => handleEdit(quote.id)} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors" title={t('viewEdit')}>
                           <Edit2 className="w-4 h-4" />
                         </button>
-                        <button onClick={() => handleDownload(quote.id)} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors" title="Download PDF">
+                        <button onClick={() => handleDownload(quote.id)} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors" title={t('downloadPdf')}>
                           <Download className="w-4 h-4" />
                         </button>
-                        <button onClick={() => handleDelete(quote.id)} className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-950/50 rounded transition-colors" title="Delete">
+                        <button onClick={() => handleDelete(quote.id)} className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-950/50 rounded transition-colors" title={t('deleteClientButton')}>
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
@@ -139,8 +139,8 @@ export function QuotesList() {
                 <tr>
                   <td colSpan={5} className="px-4 py-12 text-center">
                     <FileText className="w-12 h-12 text-slate-700 mx-auto mb-4" />
-                    <h3 className="text-lg font-bold text-slate-400 mb-1">No quotes found</h3>
-                    <p className="text-slate-500">Create your first quote.</p>
+                    <h3 className="text-lg font-bold text-slate-400 mb-1">{t('noQuotes')}</h3>
+                    <p className="text-slate-500">{t('createFirstQuote')}</p>
                   </td>
                 </tr>
               )}
@@ -159,11 +159,11 @@ export function QuotesList() {
       {deleteId && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-xl max-w-sm w-full">
-            <h3 className="text-lg font-bold text-white mb-2">Delete Quote?</h3>
-            <p className="text-slate-400 mb-6 text-sm">Are you sure you want to delete this quote? This action cannot be undone.</p>
+            <h3 className="text-lg font-bold text-white mb-2">{t('deleteQuoteTitle')}</h3>
+            <p className="text-slate-400 mb-6 text-sm">{t('deleteQuoteContent')}</p>
             <div className="flex justify-end gap-3">
-              <button onClick={() => setDeleteId(null)} className="px-4 py-2 text-slate-300 hover:text-white transition-colors">Cancel</button>
-              <button onClick={confirmDelete} className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg shadow font-medium transition-colors">Delete</button>
+              <button onClick={() => setDeleteId(null)} className="px-4 py-2 text-slate-300 hover:text-white transition-colors">{t('cancel')}</button>
+              <button onClick={confirmDelete} className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg shadow font-medium transition-colors">{t('deleteClientButton')}</button>
             </div>
           </div>
         </div>

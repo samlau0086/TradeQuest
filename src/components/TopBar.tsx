@@ -34,7 +34,7 @@ export function TopBar() {
         {profile?.points !== undefined && (
           <div className="bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1">
             <Sparkles className="w-3 h-3" />
-            {profile.points} pts
+            {profile.points} {t('points')}
           </div>
         )}
         <div className="flex items-center gap-2">
@@ -78,16 +78,16 @@ export function MagicCommand() {
   const [activeIndex, setActiveIndex] = useState(0);
 
   const SYSTEM_COMMANDS = [
-    { label: '/home', desc: 'Go to Dashboard', action: () => useStore.getState().setView('dashboard') },
-    { label: '/clients', desc: 'View All Clients', action: () => useStore.getState().setView('clients') },
-    { label: '/kanban', desc: 'Board View', action: () => useStore.getState().setView('kanban') },
-    { label: '/pipeline', desc: 'List View', action: () => useStore.getState().setView('list') },
-    { label: '/inbox', desc: 'View Emails', action: () => { useStore.getState().setView('inbox'); useStore.getState().selectEmail(null); } },
-    { label: '/products', desc: 'Product Catalog', action: () => useStore.getState().setView('products') },
-    { label: '/quotes', desc: 'Sales Quotes', action: () => useStore.getState().setView('quotes') },
-    { label: '/knowledge', desc: 'Knowledge Base', action: () => useStore.getState().setView('knowledge-base') },
-    { label: '/media', desc: 'Media Files', action: () => useStore.getState().setView('media-library') },
-    { label: '/settings', desc: 'System Settings', action: () => useStore.getState().setView('settings') },
+    { label: '/home', desc: t('commandDashboard'), action: () => useStore.getState().setView('dashboard') },
+    { label: '/clients', desc: t('commandClients'), action: () => useStore.getState().setView('clients') },
+    { label: '/kanban', desc: t('commandKanban'), action: () => useStore.getState().setView('kanban') },
+    { label: '/pipeline', desc: t('commandPipeline'), action: () => useStore.getState().setView('list') },
+    { label: '/inbox', desc: t('commandInbox'), action: () => { useStore.getState().setView('inbox'); useStore.getState().selectEmail(null); } },
+    { label: '/products', desc: t('commandProducts'), action: () => useStore.getState().setView('products') },
+    { label: '/quotes', desc: t('commandQuotes'), action: () => useStore.getState().setView('quotes') },
+    { label: '/knowledge', desc: t('commandKnowledge'), action: () => useStore.getState().setView('knowledge-base') },
+    { label: '/media', desc: t('commandMedia'), action: () => useStore.getState().setView('media-library') },
+    { label: '/settings', desc: t('commandSettings'), action: () => useStore.getState().setView('settings') },
   ];
 
   const updateFilteredItems = (val: string) => {
@@ -128,7 +128,7 @@ export function MagicCommand() {
         action: () => { useStore.getState().selectClient(m.id); useStore.getState().setView('clients'); }
       })));
       
-      items.push({ type: 'ai', text: term, desc: `Ask AI Assistant: "${term}"`, action: () => { executeAskAi(val); } });
+      items.push({ type: 'ai', text: term, desc: `${t('askAiAssistant')}: "${term}"`, action: () => { executeAskAi(val); } });
     }
 
     setFilteredItems(items);
@@ -163,7 +163,7 @@ export function MagicCommand() {
       const data = await res.json();
       setOutput(data.result);
     } catch(err) {
-      setOutput("Command failed. Please try again.");
+      setOutput(t('commandFailed'));
     } finally {
       setLoading(false);
     }
@@ -224,7 +224,7 @@ export function MagicCommand() {
           <input 
             ref={inputRef}
             type="text" 
-            placeholder="Search clients, or type / for commands..."
+            placeholder={t('searchCommandsPlaceholder')}
             className="flex-1 bg-transparent text-slate-200 focus:outline-none placeholder:text-slate-500 text-sm py-1"
             value={input}
             onChange={handleInputChange}
@@ -267,12 +267,12 @@ export function MagicCommand() {
         {output && (
           <div className="absolute top-full left-0 w-full mt-2 p-5 bg-slate-900 border border-slate-700/80 shadow-2xl rounded-xl z-50 backdrop-blur-xl">
             <div className="font-mono text-xs text-cyan-500/70 mb-3 flex items-center gap-2">
-              <Sparkles className="w-3 h-3" /> AI Output Draft
+              <Sparkles className="w-3 h-3" /> {t('aiOutputDraft')}
             </div>
             <p className="whitespace-pre-wrap text-sm text-slate-300 leading-relaxed">{output}</p>
             <div className="mt-5 flex justify-end gap-3">
               <button type="button" onClick={() => setOutput('')} className="px-3 py-1.5 rounded-lg font-medium text-xs text-slate-400 hover:text-slate-200 transition-colors">
-                Dismiss
+                {t('dismiss')}
               </button>
               <button onClick={() => setOutput('')} className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-1.5 rounded-lg font-medium text-xs transition-colors shadow-lg shadow-cyan-600/20">
                 <Send className="w-3 h-3" /> {t('execute')}

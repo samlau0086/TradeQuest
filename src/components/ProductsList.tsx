@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { useStore } from '../store';
 import { useTranslation } from '../lib/i18n';
 import { Package, Plus, Search, MoreVertical, Edit2, Trash2 } from 'lucide-react';
-import { format } from 'date-fns';
 import { ProductFormModal } from './ProductFormModal';
 
 export function ProductsList() {
@@ -92,13 +91,13 @@ export function ProductsList() {
                 </div>
                 <p className="text-xs text-slate-400 mb-3 font-mono">{product.sku}</p>
                 <p className="text-sm text-slate-400 line-clamp-2 mb-4 h-10">
-                  {product.description || "No description"}
+                  {product.description || t('noDescription')}
                 </p>
                 
                 <div className="flex flex-wrap gap-2">
                    {product.bulkPrices?.slice(0, 2).map((bp, i) => (
                      <span key={i} className="text-xs px-2 py-1 bg-slate-800 text-slate-300 rounded">
-                       ≥{bp.minQuantity}: ${bp.price}
+                       {t('minQuantityPrefix')} {bp.minQuantity}: ${bp.price}
                      </span>
                    ))}
                    {(product.bulkPrices?.length || 0) > 2 && (
@@ -128,11 +127,11 @@ export function ProductsList() {
       {deleteId && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-xl max-w-sm w-full">
-            <h3 className="text-lg font-bold text-white mb-2">Delete Product?</h3>
-            <p className="text-slate-400 mb-6 text-sm">Are you sure you want to delete this product? This action cannot be undone.</p>
+            <h3 className="text-lg font-bold text-white mb-2">{t('deleteProductTitle')}</h3>
+            <p className="text-slate-400 mb-6 text-sm">{t('deleteProductContent')}</p>
             <div className="flex justify-end gap-3">
-              <button onClick={() => setDeleteId(null)} className="px-4 py-2 text-slate-300 hover:text-white transition-colors">Cancel</button>
-              <button onClick={confirmDelete} className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg shadow font-medium transition-colors">Delete</button>
+              <button onClick={() => setDeleteId(null)} className="px-4 py-2 text-slate-300 hover:text-white transition-colors">{t('cancel')}</button>
+              <button onClick={confirmDelete} className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg shadow font-medium transition-colors">{t('deleteClientButton')}</button>
             </div>
           </div>
         </div>
