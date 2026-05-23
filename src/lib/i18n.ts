@@ -171,6 +171,7 @@ const en: TranslationMap = {
   clientRag: 'Client Knowledge Base (RAG)',
   globalRag: 'Global Knowledge Base (RAG)',
   mediaLibrary: 'Media Library',
+  globalAgent: 'Global Agent',
   products: 'Products',
   quotes: 'Quotes',
   reviewEdits: 'Review Edits',
@@ -475,6 +476,7 @@ const zh: TranslationMap = {
   clientRag: '客户知识库 (RAG)',
   globalRag: '全局知识库 (RAG)',
   mediaLibrary: '媒体素材库',
+  globalAgent: '全局 Agent',
   products: '产品',
   quotes: '报价',
   reviewEdits: '审批修改',
@@ -879,7 +881,25 @@ export const uiLiteralTranslations: Record<string, string> = {
   'Open provider console': '打开服务控制台',
   'Enrichment Endpoint': '补全端点',
   'Optional enrichment webhook/API endpoint': '可选补全 webhook/API 端点',
-  'Configure {provider} before running acquisition campaigns.': '运行获客 Campaign 前，请先配置渠道。'
+  'Configure {provider} before running acquisition campaigns.': '运行获客 Campaign 前，请先配置渠道。',
+  'Global Agent': '全局 Agent',
+  'Full-system planning agent for lead acquisition, lead enrichment, public-pool growth, and conversion coordination. Every plan requires human approval before execution.': '拥有全系统视角的规划 Agent，用于获客、线索补全、公海增长和转化统筹。所有计划执行前都需要人工审核。',
+  'Full-system planning agent for lead acquisition, enrichment, email handling, client stage updates, comments, quotes, and conversion coordination. Every plan requires human approval before execution.': '拥有全系统视角的规划 Agent，可统筹获客、补全、邮件处理、客户阶段、comments、报价和转化协同。所有计划执行前都需要人工审核。',
+  Objective: '目标',
+  Clients: '客户',
+  'Public Leads': '公海线索',
+  Deals: '商机',
+  Quotes: '报价',
+  'Unread Emails': '未读邮件',
+  Channels: '渠道',
+  'Generate Plan for Review': '生成待审核计划',
+  'Human approval required': '需要人工审核',
+  'Approve & Execute': '审核通过并执行',
+  'Public Pool': '公海',
+  'Global Agent plan is ready for human review.': '全局 Agent 计划已生成，等待人工审核。',
+  'AI planning failed, so a safe default plan was created for review.': 'AI 规划失败，已生成安全的默认计划供审核。',
+  'Global Agent plan completed.': '全局 Agent 计划已执行完成。',
+  'Global Agent execution stopped. Review the failed step.': '全局 Agent 执行已停止，请检查失败步骤。'
 };
 
 const reverseUiLiteralTranslations = Object.fromEntries(

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { useAuthStore } from './authStore';
 
-export type ViewMode = 'kanban' | 'map' | 'inbox' | 'dashboard' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests' | 'list' | 'products' | 'quotes' | 'knowledge-base' | 'media-library';
+export type ViewMode = 'kanban' | 'map' | 'inbox' | 'dashboard' | 'global-agent' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests' | 'list' | 'products' | 'quotes' | 'knowledge-base' | 'media-library';
 
 export type ClientStatus = 'Leads' | 'Contacted' | 'Sample Sent' | 'Negotiating' | 'Closed Won'; // Kept for legacy compatibility if needed, better to rename to DealStage but will keep for now.
 
@@ -200,6 +200,43 @@ export interface LeadCampaign {
   lastRunAt?: string;
 }
 
+export type GlobalAgentPlanStatus = 'draft' | 'pending_review' | 'approved' | 'running' | 'completed' | 'failed';
+export type GlobalAgentStepStatus = 'pending' | 'approved' | 'running' | 'completed' | 'failed' | 'skipped';
+export type GlobalAgentActionType =
+  | 'create_lead_campaign'
+  | 'run_lead_campaign'
+  | 'create_followup_workflow'
+  | 'process_customer_reply'
+  | 'send_email'
+  | 'update_client_stage'
+  | 'add_client_comment'
+  | 'create_quote'
+  | 'prioritize_leads'
+  | 'review_pipeline';
+
+export interface GlobalAgentPlanStep {
+  id: string;
+  title: string;
+  description: string;
+  actionType: GlobalAgentActionType;
+  status: GlobalAgentStepStatus;
+  payload?: any;
+  result?: string;
+  error?: string;
+}
+
+export interface GlobalAgentPlan {
+  id: string;
+  objective: string;
+  summary: string;
+  status: GlobalAgentPlanStatus;
+  steps: GlobalAgentPlanStep[];
+  createdAt: string;
+  updatedAt: string;
+  approvedAt?: string;
+  completedAt?: string;
+}
+
 export interface ClientEditRequest {
   id: number;
   client_id: string;
@@ -343,6 +380,11 @@ export interface StoreState {
   addLeadCampaign: (campaign: Omit<LeadCampaign, 'id' | 'createdAt' | 'updatedAt' | 'status'> & Partial<Pick<LeadCampaign, 'status'>>) => string;
   updateLeadCampaign: (id: string, updates: Partial<LeadCampaign>) => void;
   deleteLeadCampaign: (id: string) => void;
+
+  globalAgentPlans: GlobalAgentPlan[];
+  addGlobalAgentPlan: (plan: Omit<GlobalAgentPlan, 'id' | 'createdAt' | 'updatedAt'>) => string;
+  updateGlobalAgentPlan: (id: string, updates: Partial<GlobalAgentPlan>) => void;
+  updateGlobalAgentPlanStep: (planId: string, stepId: string, updates: Partial<GlobalAgentPlanStep>) => void;
 
   knowledgeBase: KnowledgeItem[];
   fetchKnowledgeBase: () => void;
@@ -600,6 +642,37 @@ export const useStore = create<StoreState>((set, get) => ({
   })),
   deleteLeadCampaign: (id) => set((state) => ({
     leadCampaigns: state.leadCampaigns.filter(campaign => campaign.id !== id)
+  })),
+
+  globalAgentPlans: [],
+  addGlobalAgentPlan: (plan) => {
+    const now = new Date().toISOString();
+    const id = `global_agent_${Date.now()}`;
+    set((state) => ({
+      globalAgentPlans: [{
+        ...plan,
+        id,
+        createdAt: now,
+        updatedAt: now
+      }, ...state.globalAgentPlans]
+    }));
+    return id;
+  },
+  updateGlobalAgentPlan: (id, updates) => set((state) => ({
+    globalAgentPlans: state.globalAgentPlans.map(plan => (
+      plan.id === id ? { ...plan, ...updates, updatedAt: new Date().toISOString() } : plan
+    ))
+  })),
+  updateGlobalAgentPlanStep: (planId, stepId, updates) => set((state) => ({
+    globalAgentPlans: state.globalAgentPlans.map(plan => (
+      plan.id === planId
+        ? {
+            ...plan,
+            updatedAt: new Date().toISOString(),
+            steps: plan.steps.map(step => step.id === stepId ? { ...step, ...updates } : step)
+          }
+        : plan
+    ))
   })),
 
   knowledgeBase: [],
@@ -1741,6 +1814,7 @@ export const useStore = create<StoreState>((set, get) => ({
           llmMappings: settings.llmMappings ?? state.llmMappings,
           agentWorkflows: settings.agentWorkflows ?? state.agentWorkflows,
           leadCampaigns: settings.leadCampaigns ?? state.leadCampaigns,
+          globalAgentPlans: settings.globalAgentPlans ?? state.globalAgentPlans,
           leadDataChannelConfigs: settings.leadDataChannelConfigs
             ? { ...INITIAL_LEAD_DATA_CHANNEL_CONFIGS, ...settings.leadDataChannelConfigs }
             : state.leadDataChannelConfigs,
@@ -1830,6 +1904,7 @@ useStore.subscribe((state, prevState) => {
     state.llmMappings !== prevState.llmMappings ||
     state.agentWorkflows !== prevState.agentWorkflows ||
     state.leadCampaigns !== prevState.leadCampaigns ||
+    state.globalAgentPlans !== prevState.globalAgentPlans ||
     state.leadDataChannelConfigs !== prevState.leadDataChannelConfigs ||
     state.outscraperApiKey !== prevState.outscraperApiKey ||
     state.activeLLMId !== prevState.activeLLMId ||
@@ -1857,6 +1932,7 @@ useStore.subscribe((state, prevState) => {
             llmMappings: state.llmMappings,
             agentWorkflows: state.agentWorkflows,
             leadCampaigns: state.leadCampaigns,
+            globalAgentPlans: state.globalAgentPlans,
             leadDataChannelConfigs: state.leadDataChannelConfigs,
             outscraperApiKey: state.outscraperApiKey,
             activeLLMId: state.activeLLMId,

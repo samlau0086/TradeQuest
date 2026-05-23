@@ -25,6 +25,7 @@ import { ProductsList } from './components/ProductsList';
 import { QuotesList } from './components/QuotesList';
 import { MediaLibrary } from './components/MediaLibrary';
 import { NotificationCenter } from './components/NotificationCenter';
+import { GlobalAgent } from './components/GlobalAgent';
 
 export default function App() {
   const { view, selectedClientId, checkScheduledEmails, fetchInitialData, language, globalLoading } = useStore();
@@ -114,6 +115,7 @@ export default function App() {
            view === 'list' ? <PipelineList /> :
            view === 'products' ? <ProductsList /> :
            view === 'quotes' ? <QuotesList /> :
+           view === 'global-agent' ? <GlobalAgent /> :
            view === 'clients' ? <ClientsList /> :
            view === 'public-pool' ? <PublicPool /> :
            view === 'edit-requests' ? <EditRequests /> :

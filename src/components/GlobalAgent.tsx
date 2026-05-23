@@ -1,0 +1,635 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { Bot, CheckCircle2, ClipboardCheck, Loader2, Play, ShieldCheck, Sparkles, Target, XCircle } from 'lucide-react';
+import { useAuthStore } from '../authStore';
+import { ClientStatus, GlobalAgentPlan, GlobalAgentPlanStep, LeadCampaign, useStore } from '../store';
+
+const DEFAULT_OBJECTIVES = {
+  en: 'Acquire high-quality leads and create an execution plan from public-pool claiming through first touch and ongoing conversion.',
+  zh: '获取高质量 lead，并制定从公海认领到首次跟进、持续转化的执行计划。'
+};
+
+const CLIENT_STATUSES: ClientStatus[] = ['Leads', 'Contacted', 'Sample Sent', 'Negotiating', 'Closed Won'];
+
+function fallbackPlan(objective: string, language: 'en' | 'zh'): Omit<GlobalAgentPlan, 'id' | 'createdAt' | 'updatedAt'> {
+  const isZh = language === 'zh';
+  return {
+    objective,
+    summary: isZh
+      ? '创建公海获客计划，在渠道已配置时执行补全，并建立后续转化 workflow。'
+      : 'Acquire new public-pool leads, enrich them when configured, then create a follow-up workflow for conversion.',
+    status: 'pending_review',
+    steps: [
+      {
+        id: `step_${Date.now()}_1`,
+        title: isZh ? '创建获客 Campaign' : 'Create lead acquisition campaign',
+        description: isZh
+          ? '创建 agent 模式的获客 Campaign，面向高质量 B2B 潜客，结果默认进入公海。'
+          : 'Create an agent-mode campaign targeting qualified B2B prospects and defaulting results into the public pool.',
+        actionType: 'create_lead_campaign',
+        status: 'pending',
+        payload: {
+          name: 'Global Agent Prospecting',
+          keywords: 'distributor importer wholesaler',
+          industry: 'target industry',
+          country: 'United States',
+          limit: 10,
+          mode: 'agent',
+          provider: 'outscraper',
+          enrichBeforeImport: false,
+          enrichmentProvider: 'clay'
+        }
+      },
+      {
+        id: `step_${Date.now()}_2`,
+        title: isZh ? '执行 Campaign 并导入线索' : 'Run campaign and import leads',
+        description: isZh
+          ? '执行获客 Campaign，将获取到的线索导入公海，供后续认领和转化。'
+          : 'Execute the campaign and import found leads into the public pool for claiming.',
+        actionType: 'run_lead_campaign',
+        status: 'pending',
+        payload: { usePreviousCampaign: true }
+      },
+      {
+        id: `step_${Date.now()}_3`,
+        title: isZh ? '处理未读客户回复' : 'Process customer replies',
+        description: isZh
+          ? '读取一个未处理的客户回复，标记为已读，并在客户 comments 中记录处理摘要。'
+          : 'Read one unhandled customer reply, mark it as read, and record a handling summary in client comments.',
+        actionType: 'process_customer_reply',
+        status: 'pending',
+        payload: {
+          comment: isZh ? 'Global Agent 已处理客户回复，并记录后续跟进行动。' : 'Global Agent processed the customer reply and recorded the follow-up action.'
+        }
+      },
+      {
+        id: `step_${Date.now()}_4`,
+        title: isZh ? '更新客户跟进阶段' : 'Update client follow-up stage',
+        description: isZh
+          ? '根据客户互动状态将客户推进到合适阶段，便于后续转化管理。'
+          : 'Move the client to the appropriate stage based on engagement so conversion can continue.',
+        actionType: 'update_client_stage',
+        status: 'pending',
+        payload: { status: 'Contacted' }
+      },
+      {
+        id: `step_${Date.now()}_5`,
+        title: isZh ? '创建报价草稿' : 'Create quote draft',
+        description: isZh
+          ? '在客户有明确需求时创建报价草稿，供销售继续完善和发送。'
+          : 'Create a quote draft when the client has a clear buying need so sales can refine and send it.',
+        actionType: 'create_quote',
+        status: 'pending',
+        payload: {
+          status: 'Draft',
+          items: [{ name: 'Product / solution to confirm', quantity: 1, unitPrice: 0, notes: 'Global Agent draft item' }]
+        }
+      },
+      {
+        id: `step_${Date.now()}_6`,
+        title: isZh ? '创建转化 Workflow' : 'Create conversion workflow',
+        description: isZh
+          ? '为新线索创建跟进 workflow，包含邮件、电话任务提示，并在收到有效回复后停止后续动作。'
+          : 'Create a follow-up workflow for new leads with email, WhatsApp/call task prompts, and stop-on-reply behavior.',
+        actionType: 'create_followup_workflow',
+        status: 'pending',
+        payload: {
+          name: 'Global Agent Lead Conversion',
+          description: 'Follow up newly acquired leads with a concise qualification and value-proposition sequence.',
+          steps: [
+            { type: 'email', delayDays: 0, sendTime: '09:00', templatePrompt: 'Draft a concise first-touch email tailored to the lead industry and country.' },
+            { type: 'call', delayDays: 2, sendTime: '10:00', templatePrompt: 'Create a call task to qualify demand, purchasing role, and next step.' },
+            { type: 'email', delayDays: 4, sendTime: '09:30', templatePrompt: 'Draft a polite follow-up referencing the original value proposition.' }
+          ]
+        }
+      },
+      {
+        id: `step_${Date.now()}_7`,
+        title: isZh ? '记录转化备注' : 'Add conversion comment',
+        description: isZh
+          ? '将全局 Agent 的处理摘要写入客户 comments，方便人工接手。'
+          : 'Write the Global Agent handling summary into client comments so a human can pick up cleanly.',
+        actionType: 'add_client_comment',
+        status: 'pending',
+        payload: {
+          content: isZh ? 'Global Agent：已完成获客与转化计划编排，等待销售跟进关键客户。' : 'Global Agent: acquisition and conversion plan has been coordinated; sales should follow up key accounts.'
+        }
+      }
+    ]
+  };
+}
+
+export function GlobalAgent() {
+  const {
+    clients,
+    publicClients,
+    deals,
+    quotes,
+    emails,
+    leadCampaigns,
+    leadDataChannelConfigs,
+    outscraperApiKey,
+    llmConfigs,
+    llmMappings,
+    activeLLMId,
+    language,
+    addGlobalAgentPlan,
+    updateGlobalAgentPlan,
+    updateGlobalAgentPlanStep,
+    globalAgentPlans,
+    addLeadCampaign,
+    updateLeadCampaign,
+    importPublicLeads,
+    fetchPublicClients,
+    addAgentWorkflow,
+    addEmail,
+    markEmailRead,
+    updateClientStatus,
+    addComment,
+    addQuote,
+    setView,
+    notify
+  } = useStore();
+  const { token } = useAuthStore();
+  const defaultObjective = DEFAULT_OBJECTIVES[language];
+  const [objective, setObjective] = useState(defaultObjective);
+  const [planning, setPlanning] = useState(false);
+  const [executingPlanId, setExecutingPlanId] = useState<string | null>(null);
+
+  const activePlan = globalAgentPlans[0] || null;
+  const activeLLMConfig = llmConfigs.find(l => l.id === (llmMappings['magic'] || activeLLMId)) || null;
+
+  useEffect(() => {
+    setObjective(prev => (
+      prev === DEFAULT_OBJECTIVES.en || prev === DEFAULT_OBJECTIVES.zh ? defaultObjective : prev
+    ));
+  }, [defaultObjective]);
+
+  const context = useMemo(() => ({
+    clients: clients.length,
+    publicLeads: publicClients.length,
+    deals: deals.length,
+    quotes: quotes.length,
+    unreadEmails: emails.filter(e => !e.read && (e.type === 'inbox' || e.type === 'inbound')).length,
+    replyCandidates: emails
+      .filter(e => !e.read && (e.type === 'inbox' || e.type === 'inbound'))
+      .slice(0, 5)
+      .map(e => ({
+        id: e.id,
+        clientId: e.clientId,
+        sender: e.sender,
+        subject: e.subject,
+        receivedAt: e.date
+      })),
+    activeClients: clients.slice(0, 8).map(c => ({
+      id: c.id,
+      name: c.name,
+      company: c.company,
+      status: c.status,
+      country: c.country,
+      tags: c.tags
+    })),
+    configuredChannels: Object.entries(leadDataChannelConfigs).filter(([, cfg]) => cfg.enabled && cfg.apiKey).map(([provider]) => provider),
+    existingCampaigns: leadCampaigns.length
+  }), [clients, publicClients, deals, quotes, emails, leadDataChannelConfigs, leadCampaigns]);
+
+  const parsePlan = (text: string) => {
+    try {
+      const cleaned = text.replace(/```json|```/g, '').trim();
+      const parsed = JSON.parse(cleaned);
+      if (!Array.isArray(parsed.steps)) throw new Error('Missing steps');
+      return {
+        objective,
+        summary: parsed.summary || (language === 'zh' ? '全局 Agent 已生成待审核计划。' : 'Global agent plan generated for review.'),
+        status: 'pending_review' as const,
+        steps: parsed.steps.map((step: any, index: number) => ({
+          id: `step_${Date.now()}_${index}`,
+          title: step.title || `Step ${index + 1}`,
+          description: step.description || '',
+          actionType: step.actionType || 'review_pipeline',
+          status: 'pending' as const,
+          payload: step.payload || {}
+        }))
+      };
+    } catch {
+      return fallbackPlan(objective, language);
+    }
+  };
+
+  const generatePlan = async () => {
+    setPlanning(true);
+    try {
+      const prompt = `You are the Global Agent for a CRM. Your core goal is acquiring leads and converting leads.
+You may plan across all system functions, but execution must wait for human approval.
+Return content in ${language === 'zh' ? 'Chinese' : 'English'}.
+Return JSON only:
+{
+  "summary": "short summary",
+  "steps": [
+    {
+      "title": "short step title",
+      "description": "what will happen",
+      "actionType": "create_lead_campaign | run_lead_campaign | create_followup_workflow | process_customer_reply | send_email | update_client_stage | add_client_comment | create_quote | prioritize_leads | review_pipeline",
+      "payload": {}
+    }
+  ]
+}
+
+Action payload guidance:
+- process_customer_reply: { "emailId": "optional", "clientId": "optional", "comment": "summary to add" }
+- send_email: { "clientId": "optional", "replyToEmailId": "optional", "recipient": "optional", "subject": "...", "body": "...", "scheduledAt": "optional ISO string" }
+- update_client_stage: { "clientId": "optional", "status": "Leads | Contacted | Sample Sent | Negotiating | Closed Won" }
+- add_client_comment: { "clientId": "optional", "content": "comment text" }
+- create_quote: { "clientId": "optional", "quoteNumber": "optional", "status": "Draft", "items": [{ "name": "...", "quantity": 1, "unitPrice": 0, "notes": "..." }] }
+
+Available context:
+${JSON.stringify(context, null, 2)}
+
+User objective:
+${objective}`;
+
+      const res = await fetch('/api/chat/magic', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ command: prompt, context, llmConfig: activeLLMConfig })
+      });
+      const data = res.ok ? await res.json() : null;
+      const text = data?.result || data?.response || '';
+      addGlobalAgentPlan(parsePlan(text));
+      notify('Global Agent plan is ready for human review.', 'info');
+    } catch (error) {
+      console.error(error);
+      addGlobalAgentPlan(fallbackPlan(objective, language));
+      notify('AI planning failed, so a safe default plan was created for review.', 'warning');
+    } finally {
+      setPlanning(false);
+    }
+  };
+
+  const normalizeRows = (rows: any[], campaign: LeadCampaign) => rows.filter(Boolean).map((row: any) => {
+    const contactMethods = [];
+    const emails = row.emails || row.email;
+    const phones = row.phones || row.phone;
+    const emailList = Array.isArray(emails) ? emails : emails ? String(emails).split(',') : [];
+    const phoneList = Array.isArray(phones) ? phones : phones ? String(phones).split(',') : [];
+    if (emailList[0]) contactMethods.push({ type: 'email', value: String(emailList[0]).trim() });
+    if (phoneList[0]) contactMethods.push({ type: 'phone', value: String(phoneList[0]).trim() });
+    return {
+      name: row.name || row.company || row.title,
+      company: row.company || row.name || row.title || '',
+      address: row.full_address || row.address || '',
+      city: row.city || '',
+      state: row.state || '',
+      country: row.country || campaign.country || 'Unknown',
+      tags: [row.type || row.category || campaign.industry, 'Global Agent'].filter(Boolean),
+      contactMethods: contactMethods.length ? contactMethods : undefined
+    };
+  }).filter((lead: any) => lead.name);
+
+  const runCampaign = async (campaign: LeadCampaign) => {
+    const config = campaign.provider === 'outscraper'
+      ? { ...leadDataChannelConfigs.outscraper, apiKey: leadDataChannelConfigs.outscraper?.apiKey || outscraperApiKey }
+      : leadDataChannelConfigs[campaign.provider];
+    if (!config?.enabled || !config?.apiKey) throw new Error(`Data channel ${campaign.provider} is not configured`);
+
+    const query = campaign.query || [campaign.keywords, campaign.industry, `in ${campaign.country}`].join(' ');
+    const response = await fetch('/api/lead-data/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({
+        provider: campaign.provider,
+        query,
+        keywords: campaign.keywords,
+        industry: campaign.industry,
+        country: campaign.country,
+        limit: campaign.limit,
+        config
+      })
+    });
+    if (!response.ok) throw new Error('Lead search failed');
+    const data = await response.json();
+    const leads = normalizeRows(data.leads || [], campaign);
+    if (leads.length > 0) await importPublicLeads(leads);
+    fetchPublicClients();
+    updateLeadCampaign(campaign.id, {
+      status: 'completed',
+      importedCount: leads.length,
+      lastRunAt: new Date().toISOString()
+    });
+    return `${leads.length} leads imported to public pool`;
+  };
+
+  const findTargetClient = (payload: any = {}) => {
+    const state = useStore.getState();
+    if (payload.clientId) {
+      const byId = state.clients.find(c => c.id === payload.clientId);
+      if (byId) return byId;
+    }
+    if (payload.emailId || payload.replyToEmailId) {
+      const email = state.emails.find(e => e.id === (payload.emailId || payload.replyToEmailId));
+      if (email?.clientId) {
+        const byEmail = state.clients.find(c => c.id === email.clientId);
+        if (byEmail) return byEmail;
+      }
+    }
+    return state.clients[0] || null;
+  };
+
+  const findTargetReply = (payload: any = {}) => {
+    const state = useStore.getState();
+    if (payload.emailId || payload.replyToEmailId) {
+      const byId = state.emails.find(e => e.id === (payload.emailId || payload.replyToEmailId));
+      if (byId) return byId;
+    }
+    return state.emails.find(e => !e.read && (e.type === 'inbox' || e.type === 'inbound')) || null;
+  };
+
+  const getClientEmail = (client: ReturnType<typeof findTargetClient>) => {
+    if (!client?.contactMethods) return '';
+    return client.contactMethods.find(method => method.type === 'email')?.value || '';
+  };
+
+  const executeStep = async (plan: GlobalAgentPlan, step: GlobalAgentPlanStep, previousCampaignId?: string) => {
+    updateGlobalAgentPlanStep(plan.id, step.id, { status: 'running', error: undefined });
+    try {
+      const payload = step.payload || {};
+
+      if (step.actionType === 'create_lead_campaign') {
+        const id = addLeadCampaign({
+          name: payload.name || 'Global Agent Campaign',
+          keywords: payload.keywords || 'distributor importer',
+          industry: payload.industry || 'target industry',
+          country: payload.country || 'United States',
+          limit: Number(payload.limit) || 10,
+          mode: payload.mode || 'agent',
+          provider: payload.provider || 'outscraper',
+          enrichBeforeImport: Boolean(payload.enrichBeforeImport),
+          enrichmentProvider: payload.enrichmentProvider || 'clay',
+          query: payload.query || ''
+        });
+        updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: `Campaign created: ${id}` });
+        return id;
+      }
+
+      if (step.actionType === 'run_lead_campaign') {
+        const campaignId = step.payload?.campaignId || previousCampaignId || leadCampaigns[0]?.id;
+        const campaign = useStore.getState().leadCampaigns.find(c => c.id === campaignId);
+        if (!campaign) throw new Error('No campaign available to run');
+        const result = await runCampaign(campaign);
+        updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result });
+        return previousCampaignId;
+      }
+
+      if (step.actionType === 'process_customer_reply') {
+        const email = findTargetReply(payload);
+        if (!email) {
+          updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: 'No unread customer reply found' });
+          return previousCampaignId;
+        }
+        markEmailRead(email.id);
+        const client = findTargetClient({ ...payload, emailId: email.id });
+        if (client) {
+          addComment(
+            client.id,
+            payload.comment || `Global Agent processed customer reply: ${email.subject || '(no subject)'}`
+          );
+        }
+        updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: `Reply processed: ${email.subject || email.id}` });
+        return previousCampaignId;
+      }
+
+      if (step.actionType === 'send_email') {
+        const reply = findTargetReply(payload);
+        const client = findTargetClient(payload);
+        const recipient = payload.recipient || reply?.sender || getClientEmail(client);
+        if (!recipient) throw new Error('No recipient available for email');
+        const emailId = addEmail({
+          clientId: payload.clientId || reply?.clientId || client?.id,
+          sender: payload.sender || 'Global Agent',
+          senderName: payload.senderName || 'Global Agent',
+          recipient,
+          subject: payload.subject || (reply ? `Re: ${reply.subject}` : 'Following up'),
+          body: payload.body || payload.content || '',
+          read: true,
+          type: payload.scheduledAt ? 'scheduled' : (payload.type || 'sent'),
+          scheduledAt: payload.scheduledAt
+        });
+        if (client) {
+          addComment(client.id, payload.comment || `Global Agent prepared/sent email: ${payload.subject || 'Following up'}`);
+        }
+        updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: `Email queued: ${emailId}` });
+        return previousCampaignId;
+      }
+
+      if (step.actionType === 'update_client_stage') {
+        const client = findTargetClient(payload);
+        if (!client) throw new Error('No client available for stage update');
+        const status = CLIENT_STATUSES.includes(payload.status) ? payload.status : 'Contacted';
+        updateClientStatus(client.id, status);
+        updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: `${client.name} moved to ${status}` });
+        return previousCampaignId;
+      }
+
+      if (step.actionType === 'add_client_comment') {
+        const client = findTargetClient(payload);
+        if (!client) throw new Error('No client available for comment');
+        addComment(client.id, payload.content || payload.comment || 'Global Agent added a follow-up note.');
+        updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: `Comment added to ${client.name}` });
+        return previousCampaignId;
+      }
+
+      if (step.actionType === 'create_quote') {
+        const client = findTargetClient(payload);
+        const quoteNumber = payload.quoteNumber || `GA-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Date.now().toString().slice(-4)}`;
+        addQuote({
+          quoteNumber,
+          clientId: payload.clientId || client?.id || null,
+          paymentTerms: payload.paymentTerms || '',
+          paymentTermId: payload.paymentTermId || '',
+          advanceRatio: Number(payload.advanceRatio) || 0,
+          balanceRatio: Number(payload.balanceRatio) || 0,
+          status: payload.status || 'Draft',
+          items: Array.isArray(payload.items) && payload.items.length
+            ? payload.items.map((item: any) => ({
+                productId: item.productId || '',
+                name: item.name || item.description || 'Product / service',
+                description: item.description || '',
+                quantity: Number(item.quantity) || 1,
+                unitPrice: Number(item.unitPrice) || 0,
+                total: Number(item.total) || (Number(item.quantity) || 1) * (Number(item.unitPrice) || 0),
+                notes: item.notes || '',
+                isManualPrice: true
+              }))
+            : [{ name: 'Product / service', quantity: 1, unitPrice: 0, total: 0, notes: 'Global Agent draft item', isManualPrice: true }],
+          fees: Array.isArray(payload.fees) ? payload.fees : [],
+          comments: []
+        });
+        if (client) addComment(client.id, `Global Agent created quote draft ${quoteNumber}.`);
+        updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: `Quote created: ${quoteNumber}` });
+        return previousCampaignId;
+      }
+
+      if (step.actionType === 'create_followup_workflow') {
+        addAgentWorkflow({
+          name: payload.name || 'Global Agent Conversion Workflow',
+          description: payload.description || 'Global agent follow-up workflow for newly acquired leads.',
+          stopOnMeaningfulReply: true,
+          steps: (payload.steps || []).map((s: any, index: number) => ({
+            id: `wf_step_${Date.now()}_${index}`,
+            type: s.type || 'email',
+            delayDays: Number(s.delayDays) || 0,
+            sendTime: s.sendTime || '',
+            templatePrompt: s.templatePrompt || 'Draft a concise follow-up message.'
+          }))
+        });
+        updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: 'Follow-up workflow created' });
+        return previousCampaignId;
+      }
+
+      updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: 'Reviewed and queued for operator attention' });
+      return previousCampaignId;
+    } catch (error: any) {
+      updateGlobalAgentPlanStep(plan.id, step.id, { status: 'failed', error: error?.message || 'Step failed' });
+      throw error;
+    }
+  };
+
+  const approveAndExecute = async (plan: GlobalAgentPlan) => {
+    setExecutingPlanId(plan.id);
+    updateGlobalAgentPlan(plan.id, { status: 'running', approvedAt: new Date().toISOString() });
+    let campaignId: string | undefined;
+    try {
+      for (const step of plan.steps) {
+        campaignId = await executeStep(plan, step, campaignId) || campaignId;
+      }
+      updateGlobalAgentPlan(plan.id, { status: 'completed', completedAt: new Date().toISOString() });
+      notify('Global Agent plan completed.', 'success');
+    } catch (error) {
+      console.error(error);
+      updateGlobalAgentPlan(plan.id, { status: 'failed' });
+      notify('Global Agent execution stopped. Review the failed step.', 'error');
+    } finally {
+      setExecutingPlanId(null);
+    }
+  };
+
+  const statusIcon = (status: string) => {
+    if (status === 'completed') return <CheckCircle2 className="w-4 h-4 text-emerald-400" />;
+    if (status === 'failed') return <XCircle className="w-4 h-4 text-rose-400" />;
+    if (status === 'running') return <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />;
+    return <ClipboardCheck className="w-4 h-4 text-slate-500" />;
+  };
+
+  return (
+    <div className="flex-1 overflow-y-auto bg-slate-900 border-t border-slate-800 p-6">
+      <div className="w-full space-y-6 text-white">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-800 pb-5">
+          <div>
+            <h1 className="text-3xl font-bold flex items-center gap-3">
+              <Bot className="w-8 h-8 text-cyan-400" />
+              Global Agent
+            </h1>
+            <p className="text-slate-400 mt-2 max-w-3xl">
+              Full-system planning agent for lead acquisition, enrichment, email handling, client stage updates, comments, quotes, and conversion coordination. Every plan requires human approval before execution.
+            </p>
+          </div>
+          <button
+            onClick={() => setView('public-pool')}
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm font-bold"
+          >
+            Public Pool
+          </button>
+        </div>
+
+        <section className="bg-slate-950 border border-slate-800 rounded-xl p-5 space-y-4">
+          <div className="flex items-center gap-2 text-sm font-bold text-slate-300 uppercase tracking-wider">
+            <Target className="w-4 h-4 text-cyan-400" />
+            Objective
+          </div>
+          <textarea
+            value={objective}
+            onChange={e => setObjective(e.target.value)}
+            className="w-full min-h-24 bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 outline-none focus:border-cyan-500 resize-none"
+          />
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+            {[
+              ['Clients', context.clients],
+              ['Public Leads', context.publicLeads],
+              ['Deals', context.deals],
+              ['Quotes', context.quotes],
+              ['Unread Emails', context.unreadEmails],
+              ['Channels', context.configuredChannels.length]
+            ].map(([label, value]) => (
+              <div key={label} className="bg-slate-900 border border-slate-800 rounded-lg p-3">
+                <div className="text-xs text-slate-500">{label}</div>
+                <div className="text-xl font-black text-slate-100">{value}</div>
+              </div>
+            ))}
+          </div>
+          <button
+            onClick={generatePlan}
+            disabled={planning || !objective.trim()}
+            className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-800 disabled:text-slate-500 rounded-lg font-bold flex items-center gap-2"
+          >
+            {planning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            Generate Plan for Review
+          </button>
+        </section>
+
+        {activePlan && (
+          <section className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden">
+            <div className="p-5 border-b border-slate-800 flex items-start justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xs uppercase tracking-wider px-2 py-1 rounded bg-slate-800 text-cyan-300 font-bold">{activePlan.status}</span>
+                  {activePlan.status === 'pending_review' && (
+                    <span className="text-xs text-amber-300 flex items-center gap-1">
+                      <ShieldCheck className="w-3 h-3" />
+                      Human approval required
+                    </span>
+                  )}
+                </div>
+                <h2 className="text-lg font-bold text-white">{activePlan.summary}</h2>
+                <p className="text-sm text-slate-400 mt-1">{activePlan.objective}</p>
+              </div>
+              {activePlan.status === 'pending_review' && (
+                <button
+                  onClick={() => approveAndExecute(activePlan)}
+                  disabled={executingPlanId === activePlan.id}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 rounded-lg font-bold flex items-center gap-2 shrink-0"
+                >
+                  {executingPlanId === activePlan.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                  Approve & Execute
+                </button>
+              )}
+            </div>
+
+            <div className="divide-y divide-slate-800">
+              {activePlan.steps.map((step, index) => (
+                <div key={step.id} className="p-5 flex gap-4">
+                  <div className="w-8 h-8 rounded-lg bg-slate-900 border border-slate-700 flex items-center justify-center font-black text-slate-400 shrink-0">
+                    {index + 1}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      {statusIcon(step.status)}
+                      <h3 className="font-bold text-slate-100">{step.title}</h3>
+                    </div>
+                    <p className="text-sm text-slate-400 mt-1">{step.description}</p>
+                    <div className="mt-3 text-xs text-slate-500 font-mono bg-slate-900 border border-slate-800 rounded-lg p-3 overflow-x-auto">
+                      {JSON.stringify(step.payload || {}, null, 2)}
+                    </div>
+                    {step.result && <div className="text-xs text-emerald-400 mt-2">{step.result}</div>}
+                    {step.error && <div className="text-xs text-rose-400 mt-2">{step.error}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
+    </div>
+  );
+}
