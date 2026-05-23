@@ -160,6 +160,7 @@ const en: TranslationMap = {
   claimConfirm: 'Are you sure you want to claim this lead?',
   vectorization: 'Text Vectorization',
   descMagic: '/icebreaker, /draft',
+  descGlobalAgent: 'Planning, enrichment & conversion orchestration',
   descDrafting: 'Auto-detect purpose & write',
   descAnalysis: 'Icebreakers & actionables',
   descEmbedding: 'Knowledge Base Embeddings',
@@ -465,6 +466,7 @@ const zh: TranslationMap = {
   claimConfirm: '确定要认领这条线索吗？',
   vectorization: '文本向量化',
   descMagic: '/icebreaker, /draft',
+  descGlobalAgent: '全局规划、客户补全与转化编排',
   descDrafting: '自动识别意图并撰写',
   descAnalysis: '破冰话术与行动建议',
   descEmbedding: '知识库向量嵌入',
@@ -901,6 +903,7 @@ export const uiLiteralTranslations: Record<string, string> = {
   'Public Pool': '公海',
   'Global Agent plan is ready for human review.': '全局 Agent 计划已生成，等待人工审核。',
   'AI planning failed, so a safe default plan was created for review.': 'AI 规划失败，已生成安全的默认计划供审核。',
+  'Global Agent AI planning failed. Check the Global Agent provider in AI & Integrations; a safe default plan was created for review.': '全局 Agent AI 规划失败。请检查 AI & Integrations 中的 Global Agent provider；系统已生成安全默认计划供审核。',
   'Global Agent plan completed.': '全局 Agent 计划已执行完成。',
   'Global Agent execution stopped. Review the failed step.': '全局 Agent 执行已停止，请检查失败步骤。',
   'Global Agent plan rejected. Nothing was executed.': '全局 Agent 计划已拒绝，未执行任何动作。',
@@ -927,7 +930,7 @@ export function translateLiteral(text: string, language: 'en' | 'zh') {
 export function useTranslation(language: 'en' | 'zh') {
   return useCallback(function t(key: string): string {
     const keys = key.split('.');
-    let value: TranslationValue | undefined = translations[language];
+    let value: TranslationValue | TranslationMap | undefined = translations[language];
     for (const k of keys) {
       if (value && typeof value === 'object') {
         value = value[k];

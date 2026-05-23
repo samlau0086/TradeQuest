@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useStore, InboxConfig, OutboxConfig, LLMConfig, PaymentTerm, LeadDataProvider } from '../store';
+import { useStore, InboxConfig, OutboxConfig, LLMConfig, PaymentTerm, LeadDataProvider, EmailSignature } from '../store';
 import { useAuthStore } from '../authStore';
 import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark, Clock, Book, Target, Trophy, Eye, EyeOff } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -1238,6 +1238,7 @@ export function Settings() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   {[
                     { key: 'magic', label: t('magicCommands'), desc: t('descMagic') },
+                    { key: 'global_agent', label: t('globalAgent'), desc: t('descGlobalAgent') },
                     { key: 'drafting', label: t('emailDrafting'), desc: t('descDrafting') },
                     { key: 'analysis', label: t('clientAnalysis'), desc: t('descAnalysis') },
                     { key: 'embedding', label: t('vectorization'), desc: t('descEmbedding') },

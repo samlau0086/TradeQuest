@@ -169,7 +169,8 @@ export function GlobalAgent() {
   const [executingPlanId, setExecutingPlanId] = useState<string | null>(null);
 
   const activePlan = globalAgentPlans[0] || null;
-  const activeLLMConfig = llmConfigs.find(l => l.id === (llmMappings['magic'] || activeLLMId)) || null;
+  const globalAgentLLMId = llmMappings['global_agent'] || activeLLMId;
+  const activeLLMConfig = llmConfigs.find(l => l.id === globalAgentLLMId) || null;
 
   useEffect(() => {
     setObjective(prev => (
@@ -306,7 +307,7 @@ ${objective}`;
     } catch (error) {
       console.error(error);
       addGlobalAgentPlan(fallbackPlan(objective, language));
-      notify('AI planning failed, so a safe default plan was created for review.', 'warning');
+      notify('Global Agent AI planning failed. Check the Global Agent provider in AI & Integrations; a safe default plan was created for review.', 'warning');
     } finally {
       setPlanning(false);
     }

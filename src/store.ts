@@ -832,6 +832,7 @@ export const useStore = create<StoreState>((set, get) => ({
   }),
   llmMappings: {
     magic: null,
+    global_agent: null,
     drafting: null,
     analysis: null,
     embedding: null,
