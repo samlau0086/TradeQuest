@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Bot, Database, Loader2, Play, Plus, Search, Trash2, X } from 'lucide-react';
+import { Bot, Database, Edit2, Loader2, Play, Plus, Save, Search, Trash2, X } from 'lucide-react';
 import { useStore, LeadCampaign, LeadCampaignMode, LeadDataProvider } from '../store';
 import { useAuthStore } from '../authStore';
 import { cn } from '../lib/utils';
@@ -30,6 +30,7 @@ export function LeadCampaignModal({ onClose }: { onClose: () => void }) {
   const [enrichBeforeImport, setEnrichBeforeImport] = useState(false);
   const [enrichmentProvider, setEnrichmentProvider] = useState<LeadDataProvider>('clay');
   const [runningId, setRunningId] = useState<string | null>(null);
+  const [editingCampaignId, setEditingCampaignId] = useState<string | null>(null);
 
   const canSave = keywords.trim() && industry.trim() && country.trim() && limit > 0;
   const suggestedName = useMemo(() => {
@@ -198,13 +199,39 @@ export function LeadCampaignModal({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const resetForm = () => {
+    setName('');
+    setKeywords('');
+    setIndustry('');
+    setCountry('');
+    setLimit(10);
+    setMode('manual');
+    setProvider('outscraper');
+    setEnrichBeforeImport(false);
+    setEnrichmentProvider('clay');
+    setEditingCampaignId(null);
+  };
+
+  const startEditCampaign = (campaign: LeadCampaign) => {
+    setEditingCampaignId(campaign.id);
+    setName(campaign.name || '');
+    setKeywords(campaign.keywords || '');
+    setIndustry(campaign.industry || '');
+    setCountry(campaign.country || '');
+    setLimit(campaign.limit || 10);
+    setMode(campaign.mode || 'manual');
+    setProvider(campaign.provider || 'outscraper');
+    setEnrichBeforeImport(Boolean(campaign.enrichBeforeImport));
+    setEnrichmentProvider(campaign.enrichmentProvider || 'clay');
+  };
+
   const handleSave = async (runNow: boolean) => {
     if (!canSave) {
       notify('Please set keywords, industry, country, and lead count.', 'warning');
       return;
     }
 
-    const id = addLeadCampaign({
+    const campaignPayload = {
       name: name.trim() || suggestedName,
       keywords: keywords.trim(),
       industry: industry.trim(),
@@ -215,19 +242,20 @@ export function LeadCampaignModal({ onClose }: { onClose: () => void }) {
       enrichBeforeImport,
       enrichmentProvider,
       query: buildQuery({ keywords, industry, country })
-    });
-    const campaign = useStore.getState().leadCampaigns.find(c => c.id === id);
-    notify(runNow ? 'Campaign created. Agent is starting lead acquisition.' : 'Campaign saved.', runNow ? 'info' : 'success');
+    };
 
-    setName('');
-    setKeywords('');
-    setIndustry('');
-    setCountry('');
-    setLimit(10);
-    setMode('manual');
-    setProvider('outscraper');
-    setEnrichBeforeImport(false);
-    setEnrichmentProvider('clay');
+    let campaign: LeadCampaign | undefined;
+    if (editingCampaignId) {
+      updateLeadCampaign(editingCampaignId, campaignPayload);
+      campaign = { ...useStore.getState().leadCampaigns.find(c => c.id === editingCampaignId), ...campaignPayload } as LeadCampaign;
+      notify(runNow ? 'Campaign updated. Agent is starting lead acquisition.' : 'Campaign updated.', runNow ? 'info' : 'success');
+    } else {
+      const id = addLeadCampaign(campaignPayload);
+      campaign = useStore.getState().leadCampaigns.find(c => c.id === id);
+      notify(runNow ? 'Campaign created. Agent is starting lead acquisition.' : 'Campaign saved.', runNow ? 'info' : 'success');
+    }
+
+    resetForm();
 
     if (runNow && campaign) await runCampaign(campaign);
   };
@@ -372,16 +400,24 @@ export function LeadCampaignModal({ onClose }: { onClose: () => void }) {
                     onClick={() => handleSave(false)}
                     className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-bold transition-colors flex items-center gap-2"
                   >
-                    <Plus className="w-4 h-4" />
-                    Save Campaign
+                    {editingCampaignId ? <Save className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                    {editingCampaignId ? 'Update Campaign' : 'Save Campaign'}
                   </button>
+                  {editingCampaignId && (
+                    <button
+                      onClick={resetForm}
+                      className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 rounded-lg font-bold transition-colors"
+                    >
+                      Cancel Edit
+                    </button>
+                  )}
                   <button
                     onClick={() => handleSave(true)}
                     disabled={!getProviderConfig(provider)?.enabled || !getProviderConfig(provider)?.apiKey || !canSave || !!runningId}
                     className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-lg font-bold transition-colors flex items-center gap-2"
                   >
                     {runningId ? <Loader2 className="w-4 h-4 animate-spin" /> : mode === 'agent' ? <Bot className="w-4 h-4" /> : <Search className="w-4 h-4" />}
-                    Create & Run
+                    {editingCampaignId ? 'Update & Run' : 'Create & Run'}
                   </button>
                 </div>
               </div>
@@ -430,6 +466,13 @@ export function LeadCampaignModal({ onClose }: { onClose: () => void }) {
                       )}
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => startEditCampaign(campaign)}
+                        className="p-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-indigo-600 hover:text-white transition-colors"
+                        title="Edit Campaign"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
                       <button
                         onClick={() => runCampaign(campaign)}
                         disabled={!getProviderConfig(campaign.provider || 'outscraper')?.enabled || !getProviderConfig(campaign.provider || 'outscraper')?.apiKey || runningId === campaign.id}

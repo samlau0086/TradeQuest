@@ -10,6 +10,7 @@ const DEFAULT_OBJECTIVES = {
 
 const CLIENT_STATUSES: ClientStatus[] = ['Leads', 'Contacted', 'Sample Sent', 'Negotiating', 'Closed Won'];
 const ENRICHMENT_PROVIDERS: LeadDataProvider[] = ['clay', 'apify', 'phantombuster', 'scrapio', 'hasdata', 'decodo', 'outscraper'];
+const SEARCH_PROVIDERS: LeadDataProvider[] = ['outscraper', 'apify', 'phantombuster', 'scrapio', 'hasdata', 'decodo'];
 
 function fallbackPlan(objective: string, language: 'en' | 'zh'): Omit<GlobalAgentPlan, 'id' | 'createdAt' | 'updatedAt'> {
   const isZh = language === 'zh';
@@ -334,17 +335,29 @@ ${objective}`;
   }).filter((lead: any) => lead.name);
 
   const runCampaign = async (campaign: LeadCampaign) => {
-    const config = campaign.provider === 'outscraper'
+    const preferredProvider = campaign.provider || 'outscraper';
+    const provider = SEARCH_PROVIDERS.find(providerId => {
+      const cfg = providerId === 'outscraper'
+        ? { ...leadDataChannelConfigs.outscraper, apiKey: leadDataChannelConfigs.outscraper?.apiKey || outscraperApiKey }
+        : leadDataChannelConfigs[providerId];
+      return providerId === preferredProvider && cfg?.enabled && cfg?.apiKey;
+    }) || SEARCH_PROVIDERS.find(providerId => {
+      const cfg = providerId === 'outscraper'
+        ? { ...leadDataChannelConfigs.outscraper, apiKey: leadDataChannelConfigs.outscraper?.apiKey || outscraperApiKey }
+        : leadDataChannelConfigs[providerId];
+      return cfg?.enabled && cfg?.apiKey;
+    }) || preferredProvider;
+    const config = provider === 'outscraper'
       ? { ...leadDataChannelConfigs.outscraper, apiKey: leadDataChannelConfigs.outscraper?.apiKey || outscraperApiKey }
-      : leadDataChannelConfigs[campaign.provider];
-    if (!config?.enabled || !config?.apiKey) throw new Error(`Data channel ${campaign.provider} is not configured`);
+      : leadDataChannelConfigs[provider];
+    if (!config?.enabled || !config?.apiKey) throw new Error(`Data channel ${provider} is not configured`);
 
     const query = campaign.query || [campaign.keywords, campaign.industry, `in ${campaign.country}`].join(' ');
     const response = await fetch('/api/lead-data/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({
-        provider: campaign.provider,
+        provider,
         query,
         keywords: campaign.keywords,
         industry: campaign.industry,
@@ -360,6 +373,7 @@ ${objective}`;
     fetchPublicClients();
     updateLeadCampaign(campaign.id, {
       status: 'completed',
+      provider,
       importedCount: leads.length,
       lastRunAt: new Date().toISOString()
     });
@@ -618,10 +632,24 @@ ${objective}`;
 
   const approveAndExecute = async (plan: GlobalAgentPlan) => {
     setExecutingPlanId(plan.id);
-    updateGlobalAgentPlan(plan.id, { status: 'running', approvedAt: new Date().toISOString() });
-    let campaignId: string | undefined;
+    const executableSteps = plan.steps.map(step => (
+      step.status === 'failed' || step.status === 'running'
+        ? { ...step, status: 'pending' as const, error: undefined }
+        : step
+    ));
+    updateGlobalAgentPlan(plan.id, {
+      status: 'running',
+      approvedAt: new Date().toISOString(),
+      steps: executableSteps
+    });
+    let campaignId = plan.steps
+      .filter(step => step.actionType === 'create_lead_campaign' && step.result?.startsWith('Campaign created: '))
+      .map(step => step.result?.replace('Campaign created: ', '').trim())
+      .filter(Boolean)
+      .at(-1);
     try {
-      for (const step of plan.steps) {
+      for (const step of executableSteps) {
+        if (step.status === 'completed' || step.status === 'skipped') continue;
         campaignId = await executeStep(plan, step, campaignId) || campaignId;
       }
       updateGlobalAgentPlan(plan.id, { status: 'completed', completedAt: new Date().toISOString() });
@@ -633,6 +661,18 @@ ${objective}`;
     } finally {
       setExecutingPlanId(null);
     }
+  };
+
+  const resetPlanForReview = (plan: GlobalAgentPlan) => {
+    updateGlobalAgentPlan(plan.id, {
+      status: 'pending_review',
+      steps: plan.steps.map(step => (
+        step.status === 'failed' || step.status === 'running'
+          ? { ...step, status: 'pending' as const, error: undefined }
+          : step
+      ))
+    });
+    notify('Global Agent plan is ready for human review.', 'info');
   };
 
   const rejectPlan = (plan: GlobalAgentPlan) => {
@@ -709,6 +749,14 @@ ${objective}`;
           <div className="text-xs text-slate-500">
             AI Planner: {activeLLMConfig?.name || 'Default internal AI'}
           </div>
+          {activePlan?.status === 'failed' && activePlan.steps.some(step => step.error?.includes('Data channel')) && (
+            <button
+              onClick={() => setView('settings')}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-bold"
+            >
+              Configure Data Channels
+            </button>
+          )}
         </section>
 
         {activePlan && (
@@ -727,8 +775,19 @@ ${objective}`;
                 <h2 className="text-lg font-bold text-white">{activePlan.summary}</h2>
                 <p className="text-sm text-slate-400 mt-1">{activePlan.objective}</p>
               </div>
-              {activePlan.status === 'pending_review' && (
+              {(activePlan.status === 'pending_review' || activePlan.status === 'failed') && (
                 <div className="flex gap-2 shrink-0">
+                  {activePlan.status === 'failed' && (
+                    <button
+                      onClick={() => resetPlanForReview(activePlan)}
+                      disabled={executingPlanId === activePlan.id}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:bg-slate-800 disabled:text-slate-500 border border-slate-700 rounded-lg font-bold flex items-center gap-2"
+                    >
+                      <ClipboardCheck className="w-4 h-4" />
+                      Review Again
+                    </button>
+                  )}
+                  {activePlan.status === 'pending_review' && (
                   <button
                     onClick={() => rejectPlan(activePlan)}
                     disabled={executingPlanId === activePlan.id}
@@ -737,13 +796,14 @@ ${objective}`;
                     <XCircle className="w-4 h-4" />
                     Reject
                   </button>
+                  )}
                 <button
                   onClick={() => approveAndExecute(activePlan)}
                   disabled={executingPlanId === activePlan.id}
                   className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 rounded-lg font-bold flex items-center gap-2 shrink-0"
                 >
                   {executingPlanId === activePlan.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                  Approve & Execute
+                  {activePlan.status === 'failed' ? 'Retry Failed Steps' : 'Approve & Execute'}
                 </button>
                 </div>
               )}
