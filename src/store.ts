@@ -116,6 +116,14 @@ export interface ExpLog {
   date: string;
 }
 
+export type NotificationTone = 'success' | 'error' | 'info' | 'warning';
+
+export interface AppNotification {
+  id: string;
+  message: string;
+  tone: NotificationTone;
+}
+
 export interface Client {
   id: string;
   name: string;
@@ -426,6 +434,9 @@ export interface StoreState {
 
   broadcasts: { id: string, message: string }[];
   addBroadcast: (message: string) => void;
+  notifications: AppNotification[];
+  notify: (message: string, tone?: NotificationTone) => void;
+  removeNotification: (id: string) => void;
 
   theme: 'dark' | 'light';
   setTheme: (theme: 'dark' | 'light') => void;
@@ -1036,7 +1047,12 @@ export const useStore = create<StoreState>((set, get) => ({
           body: JSON.stringify(updates)
         }).then(res => res.json()).then(data => {
           if (data.pointsAdded) {
-            alert(`Enriched client! You earned ${data.pointsAdded} points.`);
+            get().notify(
+              get().language === 'zh'
+                ? `客户资料已更新，获得 ${data.pointsAdded} 积分。`
+                : `Client profile updated. You earned ${data.pointsAdded} points.`,
+              'success'
+            );
             useAuthStore.getState().fetchProfile();
           }
         }).catch(console.error);
@@ -1054,7 +1070,12 @@ export const useStore = create<StoreState>((set, get) => ({
       }).then(async (res) => {
         if (res.ok) {
           const data = await res.json();
-          alert(`Edit request submitted! You earned ${data.pointsAdded || 0} points.`);
+          get().notify(
+            get().language === 'zh'
+              ? `修改请求已提交，获得 ${data.pointsAdded || 0} 积分。`
+              : `Edit request submitted. You earned ${data.pointsAdded || 0} points.`,
+            'success'
+          );
           useAuthStore.getState().fetchProfile();
           // We need to fetch the updated state, but we can optimistically set the pendingEditRequest flag
         }
@@ -1081,9 +1102,9 @@ export const useStore = create<StoreState>((set, get) => ({
         });
         const data = await res.json();
         if (!data.permanent && data.softDeleted) {
-          alert('Client successfully discarded to public pool.');
+          get().notify('Client moved to the public pool.', 'success');
         } else if (data.permanent) {
-          alert('Client deleted permanently.');
+          get().notify('Client deleted permanently.', 'success');
         }
       } catch (err) {
         console.error(err);
@@ -1152,9 +1173,9 @@ export const useStore = create<StoreState>((set, get) => ({
         } else {
           try {
             const body = await res.json();
-            alert(body.error || 'Claim failed');
+            get().notify(body.error || 'Claim failed. Please try again.', 'error');
           } catch(err) {
-            alert('Claim failed');
+            get().notify('Claim failed. Please try again.', 'error');
           }
         }
       } catch(e) {
@@ -1191,7 +1212,7 @@ export const useStore = create<StoreState>((set, get) => ({
       }
     } catch(e) {
       console.error(e);
-      alert("Error importing public leads");
+      get().notify('Could not import public leads. Please check the file and try again.', 'error');
     } finally {
       set({ globalLoading: false });
     }
@@ -1415,7 +1436,7 @@ export const useStore = create<StoreState>((set, get) => ({
         }));
       } else {
         const data = await res.json().catch(() => ({}));
-        alert(data.error || 'Failed to delete emails');
+        get().notify(data.error || 'Failed to delete emails.', 'error');
       }
     } catch(e) {
       console.error('Failed to delete emails', e);
@@ -1537,6 +1558,17 @@ export const useStore = create<StoreState>((set, get) => ({
   ],
   addBroadcast: (message) => set((state) => ({
     broadcasts: [{ id: Date.now().toString(), message }, ...state.broadcasts].slice(0, 3)
+  })),
+  notifications: [],
+  notify: (message, tone = 'info') => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    set((state) => ({
+      notifications: [{ id, message, tone }, ...state.notifications].slice(0, 4)
+    }));
+    window.setTimeout(() => get().removeNotification(id), 4800);
+  },
+  removeNotification: (id) => set((state) => ({
+    notifications: state.notifications.filter(notification => notification.id !== id)
   })),
   
   theme: 'dark',

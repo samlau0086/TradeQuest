@@ -8,7 +8,7 @@ interface UploadMediaModalProps {
 }
 
 export function UploadMediaModal({ onClose }: UploadMediaModalProps) {
-  const { language, addMedia } = useStore();
+  const { language, addMedia, notify } = useStore();
   const t = useTranslation(language);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -35,7 +35,12 @@ export function UploadMediaModal({ onClose }: UploadMediaModalProps) {
     files.forEach((file) => {
       // Prevent huge files from crashing base64 memory limit
       if (file.size > 10 * 1024 * 1024) {
-        alert(`File ${file.name} is too large. Limit is 10MB.`);
+        notify(
+          language === 'zh'
+            ? `${file.name} 太大了，单个文件上限为 10MB。`
+            : `${file.name} is too large. The limit is 10MB.`,
+          'warning'
+        );
         processedCount++;
         setProgress(Math.round((processedCount / files.length) * 100));
         if (processedCount === files.length) {

@@ -263,7 +263,7 @@ export function Kanban() {
 }
 
 function DealCard({ deal, client, onClick }: { key?: string | number, deal: any, client: Client, onClick: () => void }) {
-  const { editClient, updateDeal, addClient, deleteDeal } = useStore();
+  const { editClient, updateDeal, addClient, deleteDeal, notify } = useStore();
   const [isEditingTags, setIsEditingTags] = useState(false);
   const [newTag, setNewTag] = useState('');
   const [showEditDeal, setShowEditDeal] = useState(false);
@@ -314,10 +314,10 @@ function DealCard({ deal, client, onClick }: { key?: string | number, deal: any,
         if (clientId) {
           updateDeal(deal.id, { clientId });
         } else {
-          window.alert("Failed to convert: A client with this contact method may already exist.");
+          notify('Could not convert this lead. A client with this contact method may already exist.', 'error');
         }
       } catch (err) {
-        window.alert("Error converting lead to contact.");
+        notify('Could not convert this lead to a contact. Please try again.', 'error');
       }
     }
   };

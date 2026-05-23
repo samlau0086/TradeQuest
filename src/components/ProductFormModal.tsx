@@ -12,7 +12,7 @@ interface ProductFormModalProps {
 }
 
 export function ProductFormModal({ onClose, productId, initialData, onSave }: ProductFormModalProps) {
-  const { products, addProduct, updateProduct, language } = useStore();
+  const { products, addProduct, updateProduct, language, notify } = useStore();
   const t = useTranslation(language);
   const existingProduct = productId ? products.find(p => p.id === productId) : null;
 
@@ -27,7 +27,7 @@ export function ProductFormModal({ onClose, productId, initialData, onSave }: Pr
 
   const handleSubmit = async () => {
     if (!name) {
-      alert("Name is required");
+      notify('Product name is required.', 'warning');
       return;
     }
 

@@ -10,7 +10,7 @@ interface UploadCSVModalProps {
 }
 
 export function UploadCSVModal({ onClose, onUpload }: UploadCSVModalProps) {
-  const { language } = useStore();
+  const { language, notify } = useStore();
   const t = useTranslation(language);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -34,7 +34,7 @@ export function UploadCSVModal({ onClose, onUpload }: UploadCSVModalProps) {
       if (file.type === 'text/csv' || file.name.endsWith('.csv')) {
         onUpload(file);
       } else {
-        alert('Please upload a valid CSV file.');
+        notify('Please upload a valid CSV file.', 'warning');
       }
     }
   }, [onUpload]);

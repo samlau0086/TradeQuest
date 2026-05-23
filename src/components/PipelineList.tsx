@@ -9,7 +9,7 @@ import { useTranslation } from '../lib/i18n';
 import { DealFormModal } from './DealFormModal';
 
 export function PipelineList() {
-  const { clients, deals, selectClient, deleteDeal, updateDeal, kanbanSearch, setKanbanSearch, addClient, addDeal, language } = useStore();
+  const { clients, deals, selectClient, deleteDeal, updateDeal, kanbanSearch, setKanbanSearch, addClient, addDeal, language, notify } = useStore();
   const t = useTranslation(language);
   const [localSearch, setLocalSearch] = useState('');
   const [showColumnFilter, setShowColumnFilter] = useState(false);
@@ -256,10 +256,10 @@ export function PipelineList() {
                               if (newClientId) {
                                 updateDeal(deal.id, { clientId: newClientId });
                               } else {
-                                window.alert("Failed to convert: A client with this contact info may already exist.");
+                                notify('Could not convert this lead. A client with this contact info may already exist.', 'error');
                               }
                             } catch (err) {
-                              window.alert("Error converting lead to contact.");
+                              notify('Could not convert this lead to a contact. Please try again.', 'error');
                             }
                           }} 
                           className="p-1 hover:text-green-400 hover:bg-green-950/50 rounded transition-colors text-slate-400" 

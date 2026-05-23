@@ -18,7 +18,8 @@ export function ActionableClients() {
     selectClient,
     llmConfigs,
     activeLLMId,
-    llmMappings
+    llmMappings,
+    notify
   } = useStore();
   
   const [analyzing, setAnalyzing] = useState(false);
@@ -107,7 +108,7 @@ export function ActionableClients() {
       setAnalysisList(parsed);
     } catch(err) {
       console.error(err);
-      alert('Failed to analyze clients.');
+      notify('Failed to analyze clients.', 'error');
     } finally {
       setAnalyzing(false);
     }

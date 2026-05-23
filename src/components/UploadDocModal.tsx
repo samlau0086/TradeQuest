@@ -11,7 +11,7 @@ interface UploadDocModalProps {
 }
 
 export function UploadDocModal({ onClose, onUpload, isUploading }: UploadDocModalProps) {
-  const { language } = useStore();
+  const { language, notify } = useStore();
   const t = useTranslation(language);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -41,7 +41,7 @@ export function UploadDocModal({ onClose, onUpload, isUploading }: UploadDocModa
       if (validFiles.length > 0) {
         onUpload(validFiles);
       } else {
-        alert('Please upload a valid document (.pdf, .txt, .doc, .docx).');
+        notify('Please upload a valid document (.pdf, .txt, .doc, .docx).', 'warning');
       }
     }
   }, [onUpload]);

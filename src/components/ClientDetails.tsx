@@ -28,7 +28,7 @@ function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { met
   const [loading, setLoading] = useState(false);
   const [loadingPurpose, setLoadingPurpose] = useState(false);
   const [activeTab, setActiveTab] = useState<'compose' | 'history'>('compose');
-  const { addLog, logs, emails, userTitle, outboxConfigs, addEmail, llmConfigs, activeLLMId, llmMappings, language, setView, selectEmail } = useStore();
+  const { addLog, logs, emails, userTitle, outboxConfigs, addEmail, llmConfigs, activeLLMId, llmMappings, language, setView, selectEmail, notify } = useStore();
   const [selectedOutboxId, setSelectedOutboxId] = useState<string>(outboxConfigs?.[0]?.id || '');
 
   const getLLMConfig = (module: string) => {
@@ -110,7 +110,7 @@ function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { met
         clientId: client.id,
       });
       addLog(client.id, `Sent Email via app: ${purpose || 'Follow up'}`, newEmailId);
-      alert("Email sent successfully!");
+      notify('Email sent successfully.', 'success');
     } else if (method.type === 'whatsapp') {
       const phone = method.value.replace(/[^a-zA-Z0-9+]/g, '');
       window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(text)}`, '_blank');
@@ -121,7 +121,7 @@ function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { met
     } else if (method.type === 'wechat') {
       navigator.clipboard.writeText(text);
       // WeChat doesn't have a reliable web url scheme that takes pre-filled text like WhatsApp
-      alert("Text copied to clipboard. Please paste it in WeChat.");
+      notify('Text copied to clipboard. Please paste it in WeChat.', 'success');
     } else {
       navigator.clipboard.writeText(text);
     }

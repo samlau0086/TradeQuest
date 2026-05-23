@@ -11,7 +11,7 @@ interface QuoteFormModalProps {
 }
 
 export function QuoteFormModal({ onClose, quoteId, initialData, onSave }: QuoteFormModalProps) {
-  const { quotes, clients, products, addQuote, updateQuote, language, paymentTerms: configuredPaymentTerms } = useStore();
+  const { quotes, clients, products, addQuote, updateQuote, language, paymentTerms: configuredPaymentTerms, notify } = useStore();
   const t = useTranslation(language);
   const existingQuote = quoteId ? quotes.find(q => q.id === quoteId) : null;
 
@@ -46,7 +46,7 @@ export function QuoteFormModal({ onClose, quoteId, initialData, onSave }: QuoteF
 
   const handleSubmit = async () => {
     if (!quoteNumber) {
-      alert("Quote Number is required");
+      notify('Quote number is required.', 'warning');
       return;
     }
 

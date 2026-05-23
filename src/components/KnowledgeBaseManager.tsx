@@ -8,7 +8,7 @@ import { useTranslation } from '../lib/i18n';
 import { UploadDocModal } from './UploadDocModal';
 
 export function KnowledgeBaseManager({ clientId = null }: { clientId?: string | null }) {
-  const { knowledgeBase, addKnowledgeItem, updateKnowledgeItem, deleteKnowledgeItem, language } = useStore();
+  const { knowledgeBase, addKnowledgeItem, updateKnowledgeItem, deleteKnowledgeItem, language, notify } = useStore();
   const t = useTranslation(language);
   const token = useAuthStore(s => s.token);
   const [isUploading, setIsUploading] = useState(false);
@@ -49,7 +49,7 @@ export function KnowledgeBaseManager({ clientId = null }: { clientId?: string | 
       }
     } catch (err) {
       console.error('Upload error', err);
-      alert('One or more files failed to upload');
+      notify('One or more files failed to upload.', 'error');
     } finally {
       setIsUploading(false);
       setShowUploadModal(false);

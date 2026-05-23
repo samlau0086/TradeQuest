@@ -24,6 +24,7 @@ import { translateLiteral, useTranslation } from './lib/i18n';
 import { ProductsList } from './components/ProductsList';
 import { QuotesList } from './components/QuotesList';
 import { MediaLibrary } from './components/MediaLibrary';
+import { NotificationCenter } from './components/NotificationCenter';
 
 export default function App() {
   const { view, selectedClientId, checkScheduledEmails, fetchInitialData, language, globalLoading } = useStore();
@@ -141,6 +142,7 @@ export default function App() {
           <p className="text-sm font-medium animate-pulse text-cyan-400">{t('processing')}</p>
         </div>
       )}
+      <NotificationCenter />
     </>
   );
 }

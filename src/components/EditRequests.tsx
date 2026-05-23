@@ -6,7 +6,7 @@ import { useTranslation } from '../lib/i18n';
 
 export function EditRequests() {
   const { profile } = useAuthStore();
-  const { language } = useStore();
+  const { language, notify } = useStore();
   const t = useTranslation(language);
   const [requests, setRequests] = useState<ClientEditRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,7 +57,7 @@ export function EditRequests() {
           .then(r => r.json())
           .then(clients => useStore.setState({ clients }));
       } else {
-        alert("Failed to process request");
+        notify('Failed to process request.', 'error');
       }
     } catch (e) {
       console.error(e);
@@ -104,11 +104,11 @@ export function EditRequests() {
         .then(clients => useStore.setState({ clients }));
         
       if (successfulIds.size !== selectedIds.size) {
-        alert("Some requests failed to process.");
+        notify('Some requests failed to process.', 'warning');
       }
     } catch (e) {
       console.error(e);
-      alert("An error occurred during bulk action.");
+      notify('An error occurred during bulk action.', 'error');
     } finally {
       useStore.setState({ globalLoading: false });
     }

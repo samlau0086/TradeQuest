@@ -816,7 +816,30 @@ export const uiLiteralTranslations: Record<string, string> = {
   Restore: '恢复',
   'Permanent Delete': '永久删除',
   'Copy Password Reset Link': '复制密码重置链接',
-  'Set as default': '设为默认'
+  'Set as default': '设为默认',
+  'Client moved to the public pool.': '客户已移入公海。',
+  'Client deleted permanently.': '客户已永久删除。',
+  'Claim failed. Please try again.': '认领失败，请重试。',
+  'Could not import public leads. Please check the file and try again.': '无法导入公海线索，请检查文件后重试。',
+  'Failed to delete emails.': '删除邮件失败。',
+  'Failed to analyze clients.': '客户分析失败。',
+  'Email sent successfully.': '邮件已成功发送。',
+  'Text copied to clipboard. Please paste it in WeChat.': '文本已复制到剪贴板，请粘贴到微信。',
+  'Failed to process request.': '处理请求失败。',
+  'Some requests failed to process.': '部分请求处理失败。',
+  'An error occurred during bulk action.': '批量操作时发生错误。',
+  'Could not convert this lead. A client with this contact method may already exist.': '无法转换该线索，可能已存在使用此联系方式的客户。',
+  'Could not convert this lead. A client with this contact info may already exist.': '无法转换该线索，可能已存在使用此联系信息的客户。',
+  'Could not convert this lead to a contact. Please try again.': '无法将该线索转换为客户，请重试。',
+  'Failed to optimize email body.': '优化邮件正文失败。',
+  'Add a /ai:prompt instruction to the email body first.': '请先在邮件正文中添加 /ai:提示词 指令。',
+  'Enter a recipient email that matches a lead before using AI drafting.': '使用 AI 起草前，请输入一个匹配线索的收件邮箱。',
+  'One or more files failed to upload.': '一个或多个文件上传失败。',
+  'Product name is required.': '请填写产品名称。',
+  'Quote number is required.': '请填写报价单号。',
+  'Please upload a valid CSV file.': '请上传有效的 CSV 文件。',
+  'Please upload a valid document (.pdf, .txt, .doc, .docx).': '请上传有效文档（.pdf、.txt、.doc、.docx）。',
+  'Dismiss notification': '关闭通知'
 };
 
 const reverseUiLiteralTranslations = Object.fromEntries(

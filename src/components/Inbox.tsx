@@ -834,7 +834,7 @@ export function Inbox() {
 }
 
 export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '', initialBody = '', originalEmailBody = '', draftId, className = '' }: { onClose: () => void, initialRecipient?: string, initialSubject?: string, initialBody?: string, originalEmailBody?: string, draftId?: string, className?: string }) {
-  const { clients, emails, logs, addEmail, editEmail, deleteEmails, addLog, outboxConfigs, signatures, timezone } = useStore();
+  const { clients, emails, logs, addEmail, editEmail, deleteEmails, addLog, outboxConfigs, signatures, timezone, notify } = useStore();
   const [selectedOutboxId, setSelectedOutboxId] = useState<string>(outboxConfigs?.[0]?.id || '');
   const [selectedSignatureId, setSelectedSignatureId] = useState<string>(
     signatures?.find(s => s.isDefault)?.id || signatures?.[0]?.id || ''
@@ -1135,7 +1135,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
       }
     } catch (e) {
       console.error(e);
-      alert("Failed to optimize email body.");
+      notify('Failed to optimize email body.', 'error');
     } finally {
       setLoading(false);
     }
@@ -1145,7 +1145,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
     const aiPattern = /\/ai:(.*?)(?=\n|$)/;
     const match = matchText.match(aiPattern);
     if (!match) {
-      alert("No /ai:prompt found in the email body.");
+      notify('Add a /ai:prompt instruction to the email body first.', 'warning');
       return;
     }
     
@@ -1185,7 +1185,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
 
   const handleMagicDraft = async () => {
     if (!recipient || !matchedClient) {
-      alert("Please enter a recipient email that matches a Lead to use AI drafting.");
+      notify('Enter a recipient email that matches a lead before using AI drafting.', 'warning');
       return;
     }
     setLoading(true);
