@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { useAuthStore } from './authStore';
 
-export type ViewMode = 'kanban' | 'map' | 'inbox' | 'dashboard' | 'global-agent' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests' | 'list' | 'products' | 'quotes' | 'knowledge-base' | 'media-library';
+export type ViewMode = 'kanban' | 'map' | 'inbox' | 'whatsapp-hub' | 'dashboard' | 'global-agent' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests' | 'list' | 'products' | 'quotes' | 'knowledge-base' | 'media-library';
 
 export type ClientStatus = 'Leads' | 'Contacted' | 'Sample Sent' | 'Negotiating' | 'Closed Won'; // Kept for legacy compatibility if needed, better to rename to DealStage but will keep for now.
 
@@ -208,6 +208,7 @@ export type GlobalAgentActionType =
   | 'create_followup_workflow'
   | 'process_customer_reply'
   | 'send_email'
+  | 'send_whatsapp'
   | 'update_client_stage'
   | 'add_client_comment'
   | 'enrich_client_data'
@@ -344,6 +345,14 @@ export interface OutboxConfig {
   fromName: string;
 }
 
+export interface WhatsAppHubConfig {
+  enabled: boolean;
+  baseUrl: string;
+  apiToken: string;
+  dailyBaseQuota: number;
+  minReplyRate: number;
+}
+
 export interface LLMConfig {
   id: string;
   name: string;
@@ -431,6 +440,9 @@ export interface StoreState {
   addOutboxConfig: (config: Omit<OutboxConfig, 'id'>) => void;
   updateOutboxConfig: (id: string, updates: Partial<OutboxConfig>) => void;
   deleteOutboxConfig: (id: string) => void;
+
+  whatsappHubConfig: WhatsAppHubConfig;
+  updateWhatsAppHubConfig: (updates: Partial<WhatsAppHubConfig>) => void;
   
   view: ViewMode;
   setView: (view: ViewMode) => void;
@@ -552,6 +564,14 @@ const INITIAL_CLIENTS: Client[] = [];
 const INITIAL_LOGS: Log[] = [];
 
 const INITIAL_EMAILS: EmailMessage[] = [];
+
+const INITIAL_WHATSAPP_HUB_CONFIG: WhatsAppHubConfig = {
+  enabled: false,
+  baseUrl: '',
+  apiToken: '',
+  dailyBaseQuota: 40,
+  minReplyRate: 0.25
+};
 
 const INITIAL_LEAD_DATA_CHANNEL_CONFIGS: Record<LeadDataProvider, LeadDataChannelConfig> = {
   outscraper: { enabled: true, apiKey: localStorage.getItem('outscraperApiKey') || '' },
@@ -869,6 +889,11 @@ export const useStore = create<StoreState>((set, get) => ({
   addOutboxConfig: (config) => set((state) => ({ outboxConfigs: [...state.outboxConfigs, { ...config, id: `outbox_${Date.now()}` }] })),
   updateOutboxConfig: (id, updates) => set((state) => ({ outboxConfigs: state.outboxConfigs.map(a => a.id === id ? { ...a, ...updates } : a) })),
   deleteOutboxConfig: (id) => set((state) => ({ outboxConfigs: state.outboxConfigs.filter(a => a.id !== id) })),
+
+  whatsappHubConfig: INITIAL_WHATSAPP_HUB_CONFIG,
+  updateWhatsAppHubConfig: (updates) => set((state) => ({
+    whatsappHubConfig: { ...state.whatsappHubConfig, ...updates }
+  })),
 
   view: 'kanban',
   setView: (view) => set({ view }),
@@ -1815,6 +1840,9 @@ export const useStore = create<StoreState>((set, get) => ({
           signatures: settings.signatures ?? state.signatures,
           inboxConfigs: settings.inboxConfigs ?? state.inboxConfigs,
           outboxConfigs: settings.outboxConfigs ?? state.outboxConfigs,
+          whatsappHubConfig: settings.whatsappHubConfig
+            ? { ...INITIAL_WHATSAPP_HUB_CONFIG, ...settings.whatsappHubConfig }
+            : state.whatsappHubConfig,
           llmConfigs: settings.llmConfigs ?? state.llmConfigs,
           llmMappings: settings.llmMappings ?? state.llmMappings,
           agentWorkflows: settings.agentWorkflows ?? state.agentWorkflows,
@@ -1905,6 +1933,7 @@ useStore.subscribe((state, prevState) => {
     state.signatures !== prevState.signatures ||
     state.inboxConfigs !== prevState.inboxConfigs ||
     state.outboxConfigs !== prevState.outboxConfigs ||
+    state.whatsappHubConfig !== prevState.whatsappHubConfig ||
     state.llmConfigs !== prevState.llmConfigs ||
     state.llmMappings !== prevState.llmMappings ||
     state.agentWorkflows !== prevState.agentWorkflows ||
@@ -1933,6 +1962,7 @@ useStore.subscribe((state, prevState) => {
             signatures: state.signatures,
             inboxConfigs: state.inboxConfigs,
             outboxConfigs: state.outboxConfigs,
+            whatsappHubConfig: state.whatsappHubConfig,
             llmConfigs: state.llmConfigs,
             llmMappings: state.llmMappings,
             agentWorkflows: state.agentWorkflows,

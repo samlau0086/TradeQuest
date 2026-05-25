@@ -210,6 +210,7 @@ export function GlobalAgent() {
       'create_followup_workflow',
       'process_customer_reply',
       'send_email',
+      'send_whatsapp',
       'update_client_stage',
       'add_client_comment',
       'enrich_client_data',
@@ -269,7 +270,7 @@ Return JSON only:
     {
       "title": "short step title",
       "description": "what will happen",
-      "actionType": "create_lead_campaign | run_lead_campaign | create_followup_workflow | process_customer_reply | send_email | update_client_stage | add_client_comment | enrich_client_data | create_deal | create_quote | prioritize_leads | review_pipeline",
+      "actionType": "create_lead_campaign | run_lead_campaign | create_followup_workflow | process_customer_reply | send_email | send_whatsapp | update_client_stage | add_client_comment | enrich_client_data | create_deal | create_quote | prioritize_leads | review_pipeline",
       "payload": {}
     }
   ]
@@ -278,13 +279,14 @@ Return JSON only:
 Action payload guidance:
 - process_customer_reply: { "emailId": "optional", "clientId": "optional", "comment": "summary to add" }
 - send_email: { "clientId": "optional", "replyToEmailId": "optional", "recipient": "optional", "subject": "...", "body": "...", "scheduledAt": "optional ISO string" }
+- send_whatsapp: { "clientId": "optional CRM client id", "hubClientId": "optional WhatsApp Actor Hub client id", "to": "optional phone", "body": "message body" }
 - update_client_stage: { "clientId": "optional", "status": "Leads | Contacted | Sample Sent | Negotiating | Closed Won" }
 - add_client_comment: { "clientId": "optional", "content": "comment text" }
 - enrich_client_data: { "clientId": "optional", "provider": "optional enrichment provider", "fields": ["company", "contactMethods", "address", "tags"] }
 - create_deal: { "clientId": "optional", "name": "deal name", "value": 0, "status": "Leads | Contacted | Sample Sent | Negotiating | Closed Won" }
 - create_quote: { "clientId": "optional", "quoteNumber": "optional", "status": "Draft", "items": [{ "name": "...", "quantity": 1, "unitPrice": 0, "notes": "..." }] }
 
-Do not limit yourself to acquisition. Include any conversion-improving action that the CRM can execute, especially customer data enrichment, reply handling, stage changes, comments, deals, quotes, follow-up workflows, and scheduled emails.
+Do not limit yourself to acquisition. Include any conversion-improving action that the CRM can execute, especially customer data enrichment, reply handling, WhatsApp outreach, stage changes, comments, deals, quotes, follow-up workflows, and scheduled emails.
 
 Available context:
 ${JSON.stringify(context, null, 2)}
@@ -417,6 +419,11 @@ ${objective}`;
     return client.contactMethods.find(method => method.type === 'email')?.value || '';
   };
 
+  const getClientWhatsApp = (client: ReturnType<typeof findTargetClient>) => {
+    if (!client?.contactMethods) return '';
+    return client.contactMethods.find(method => ['whatsapp', 'phone'].includes(method.type))?.value || '';
+  };
+
   const enrichClientData = async (payload: any = {}) => {
     const client = findTargetClient(payload);
     if (!client) throw new Error('No client available for data enrichment');
@@ -526,6 +533,27 @@ ${objective}`;
           addComment(client.id, payload.comment || `Global Agent prepared/sent email: ${payload.subject || 'Following up'}`);
         }
         updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: `Email queued: ${emailId}` });
+        return previousCampaignId;
+      }
+
+      if (step.actionType === 'send_whatsapp') {
+        const client = findTargetClient(payload);
+        const to = payload.to || getClientWhatsApp(client);
+        if (!to) throw new Error('No WhatsApp phone available for client');
+        const response = await fetch('/api/whatsapp-hub/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({
+            to,
+            body: payload.body || payload.content || 'Following up.',
+            clientId: payload.hubClientId,
+            metadata: { clientId: client?.id, source: 'global-agent' }
+          })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'WhatsApp send failed');
+        if (client) addComment(client.id, `Global Agent queued WhatsApp message via ${data.selectedClientId || 'Actor Hub'}.`);
+        updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: `WhatsApp queued: ${data.task?.id || data.selectedClientId || to}` });
         return previousCampaignId;
       }
 

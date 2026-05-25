@@ -21,6 +21,7 @@ import { KnowledgeBaseManager } from './KnowledgeBaseManager';
 import { WorkflowConfigModal } from './WorkflowConfigModal';
 import { LocalTime } from './LocalTime';
 import { ComposeEmail } from './Inbox';
+import { WhatsAppChatModal } from './WhatsAppChatModal';
 
 function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { method: ContactMethod, client: Client, onClose: () => void, onOpenEmailCompose?: (email: string) => void }) {
   const [purpose, setPurpose] = useState('');
@@ -28,6 +29,7 @@ function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { met
   const [loading, setLoading] = useState(false);
   const [loadingPurpose, setLoadingPurpose] = useState(false);
   const [activeTab, setActiveTab] = useState<'compose' | 'history'>('compose');
+  const [showWhatsAppChat, setShowWhatsAppChat] = useState(false);
   const { addLog, logs, emails, userTitle, outboxConfigs, addEmail, llmConfigs, activeLLMId, llmMappings, language, setView, selectEmail, notify } = useStore();
   const [selectedOutboxId, setSelectedOutboxId] = useState<string>(outboxConfigs?.[0]?.id || '');
 
@@ -112,12 +114,8 @@ function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { met
       addLog(client.id, `Sent Email via app: ${purpose || 'Follow up'}`, newEmailId);
       notify('Email sent successfully.', 'success');
     } else if (method.type === 'whatsapp') {
-      const phone = method.value.replace(/[^a-zA-Z0-9+]/g, '');
-      window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(text)}`, '_blank');
-      addLog(client.id, `WhatsApp Follow-up: ${purpose || 'General'}`, undefined, 'whatsapp', {
-        purpose: purpose || 'General',
-        text: text
-      });
+      setShowWhatsAppChat(true);
+      return;
     } else if (method.type === 'wechat') {
       navigator.clipboard.writeText(text);
       // WeChat doesn't have a reliable web url scheme that takes pre-filled text like WhatsApp
@@ -131,6 +129,17 @@ function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { met
 
   return (
     <div className="mt-2 p-3 bg-slate-900 border border-slate-700/50 rounded-lg space-y-3 cursor-default" onClick={e => e.stopPropagation()}>
+       {showWhatsAppChat && (
+         <WhatsAppChatModal
+           client={client}
+           phone={method.value}
+           initialMessage={draft || purpose}
+           onClose={() => {
+             setShowWhatsAppChat(false);
+             onClose();
+           }}
+         />
+       )}
        {method.type === 'email' && (
          <div className="flex items-center gap-4 border-b border-slate-800 pb-2 mb-3">
            <button 
@@ -382,7 +391,7 @@ function AgentSettingsModal({ client, onClose }: { client: Client, onClose: () =
               
               {mode === 'auto_email' && hasNonEmailSteps && (
                 <div className="p-3 bg-orange-900/30 border border-orange-900/50 rounded-lg text-xs leading-relaxed text-orange-200 mt-2">
-                  <span className="font-bold">Note:</span> Fully automatic follow-up is only supported for Emails. Steps for <span className="font-bold text-orange-300">WhatsApp/Call/Other</span> will generate task reminders. The AI will draft the message using past communication habits (or local language defaults), and you can manually execute it.
+                  <span className="font-bold">Note:</span> WhatsApp workflow steps can be sent automatically through WhatsApp Actor Hub when the client has a WhatsApp/phone contact and Hub is configured. Call/Other steps still generate task reminders.
                 </div>
               )}
             </div>

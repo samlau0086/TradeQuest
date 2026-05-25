@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useStore, InboxConfig, OutboxConfig, LLMConfig, PaymentTerm, LeadDataProvider, EmailSignature } from '../store';
 import { useAuthStore } from '../authStore';
-import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark, Clock, Book, Target, Trophy, Eye, EyeOff } from 'lucide-react';
+import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark, Clock, Book, Target, Trophy, Eye, EyeOff, MessageCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ProfileSettings } from './ProfileSettings';
 import { useTranslation } from '../lib/i18n';
@@ -17,6 +17,7 @@ export function Settings() {
     timezone, setTimezone,
     outscraperApiKey, setOutscraperApiKey,
     leadDataChannelConfigs, updateLeadDataChannelConfig,
+    whatsappHubConfig, updateWhatsAppHubConfig,
     dailyQuests, achievements
   } = useStore();
   const t = useTranslation(language);
@@ -1082,6 +1083,70 @@ export function Settings() {
           </div>
           
           <div className="grid gap-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-300 px-1 flex items-center gap-2">
+                    <MessageCircle className="w-4 h-4 text-green-400" />
+                    WhatsApp Actor Hub
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1 px-1">Connect the central WhatsApp client hub for multi-client conversations and automated sends.</p>
+                </div>
+                <label className="flex items-center gap-2 text-xs text-slate-400">
+                  <input
+                    type="checkbox"
+                    checked={whatsappHubConfig.enabled}
+                    onChange={e => updateWhatsAppHubConfig({ enabled: e.target.checked })}
+                    className="accent-green-500"
+                  />
+                  Enabled
+                </label>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs text-slate-400 font-bold uppercase">Hub Base URL</label>
+                  <input
+                    value={whatsappHubConfig.baseUrl}
+                    onChange={e => updateWhatsAppHubConfig({ baseUrl: e.target.value })}
+                    placeholder="https://ws.geekmt.com"
+                    className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-green-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-slate-400 font-bold uppercase">Hub API Token</label>
+                  <input
+                    type="password"
+                    value={whatsappHubConfig.apiToken}
+                    onChange={e => updateWhatsAppHubConfig({ apiToken: e.target.value })}
+                    placeholder="x-hub-token"
+                    className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-green-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-slate-400 font-bold uppercase">Daily Base Quota / Client</label>
+                  <input
+                    type="number"
+                    min={5}
+                    value={whatsappHubConfig.dailyBaseQuota}
+                    onChange={e => updateWhatsAppHubConfig({ dailyBaseQuota: Number(e.target.value) || 40 })}
+                    className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-green-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-slate-400 font-bold uppercase">Minimum Reply Rate</label>
+                  <input
+                    type="number"
+                    min={0.05}
+                    max={1}
+                    step={0.05}
+                    value={whatsappHubConfig.minReplyRate}
+                    onChange={e => updateWhatsAppHubConfig({ minReplyRate: Number(e.target.value) || 0.25 })}
+                    className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-green-500"
+                  />
+                </div>
+              </div>
+            </div>
+
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
               <h3 className="text-sm font-bold text-slate-300 mb-4 px-1 flex items-center gap-2">
                 Outscraper API

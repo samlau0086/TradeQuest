@@ -593,6 +593,134 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
+  const getWhatsAppHubConfig = async (userId: string) => {
+    const result = await pool.query('SELECT settings FROM users WHERE id = $1', [userId]);
+    const settings = result.rows[0]?.settings || {};
+    const config = settings.whatsappHubConfig || {};
+    if (!config.enabled || !config.baseUrl || !config.apiToken) {
+      throw new Error('WhatsApp Actor Hub is not configured');
+    }
+    return {
+      baseUrl: String(config.baseUrl).replace(/\/+$/, ''),
+      apiToken: String(config.apiToken),
+      dailyBaseQuota: Number(config.dailyBaseQuota || 40),
+      minReplyRate: Number(config.minReplyRate || 0.25)
+    };
+  };
+
+  const callWhatsAppHub = async (userId: string, path: string, init: RequestInit = {}) => {
+    const config = await getWhatsAppHubConfig(userId);
+    const response = await fetch(`${config.baseUrl}${path}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-hub-token': config.apiToken,
+        ...(init.headers || {})
+      }
+    });
+    const text = await response.text();
+    const body = text ? JSON.parse(text) : {};
+    if (!response.ok) {
+      const error: any = new Error(body.error || `WhatsApp Hub request failed: ${response.status}`);
+      error.status = response.status;
+      throw error;
+    }
+    return body;
+  };
+
+  const normalizeWhatsAppPhone = (value: string) => String(value || '').replace(/[^0-9]/g, '');
+
+  const getWhatsAppClientQuota = async (userId: string, clientId: string) => {
+    const config = await getWhatsAppHubConfig(userId);
+    const data = await callWhatsAppHub(userId, `/api/messages?clientId=${encodeURIComponent(clientId)}&limit=500`);
+    const messages = Array.isArray(data.messages) ? data.messages : [];
+    const now = Date.now();
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+    const recent = messages.filter((message: any) => now - new Date(message.created_at || message.received_at || 0).getTime() <= 7 * 86400000);
+    const outboundRecent = recent.filter((message: any) => message.direction === 'outbound').length;
+    const inboundRecent = recent.filter((message: any) => message.direction === 'inbound').length;
+    const replyRate = outboundRecent > 0 ? inboundRecent / outboundRecent : 1;
+    const sentToday = messages.filter((message: any) => (
+      message.direction === 'outbound' &&
+      new Date(message.created_at || message.received_at || 0).getTime() >= dayStart.getTime()
+    )).length;
+    const replyFactor = Math.max(0.25, Math.min(1.5, replyRate / Math.max(config.minReplyRate, 0.01)));
+    const dailyQuota = Math.max(5, Math.floor(config.dailyBaseQuota * replyFactor));
+    return { clientId, sentToday, dailyQuota, replyRate, remaining: Math.max(0, dailyQuota - sentToday) };
+  };
+
+  const chooseWhatsAppClient = async (userId: string, targetPhone: string, requestedClientId?: string) => {
+    if (requestedClientId) return requestedClientId;
+    const history = await callWhatsAppHub(userId, `/api/messages?targetPhone=${encodeURIComponent(targetPhone)}&limit=100`).catch(() => ({ messages: [] }));
+    const sticky = (history.messages || []).find((message: any) => message.direction === 'outbound' && message.client_id)?.client_id;
+    if (sticky) return sticky;
+
+    const clientsData = await callWhatsAppHub(userId, '/api/clients');
+    const onlineClients = (clientsData.clients || []).filter((client: any) => client.status === 'online');
+    const candidates = [];
+    for (const client of onlineClients) {
+      const quota = await getWhatsAppClientQuota(userId, client.id).catch(() => null);
+      if (!quota || quota.remaining > 0) candidates.push(client);
+    }
+    if (candidates.length === 0) throw new Error('no online WhatsApp clients with available quota');
+    return candidates[Math.floor(Math.random() * candidates.length)].id;
+  };
+
+  app.get('/api/whatsapp-hub/clients', authenticateToken, async (req: any, res) => {
+    try {
+      const data = await callWhatsAppHub(req.user.uid, '/api/clients');
+      const quotas = await Promise.all((data.clients || []).map((client: any) => getWhatsAppClientQuota(req.user.uid, client.id).catch(() => null)));
+      res.json({ clients: (data.clients || []).map((client: any, index: number) => ({ ...client, quota: quotas[index] })) });
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message || 'Failed to fetch WhatsApp clients' });
+    }
+  });
+
+  app.get('/api/whatsapp-hub/messages', authenticateToken, async (req: any, res) => {
+    try {
+      const params = new URLSearchParams();
+      for (const key of ['clientId', 'targetPhone', 'sender', 'chatId', 'limit']) {
+        if (req.query[key]) params.set(key, String(req.query[key]));
+      }
+      const data = await callWhatsAppHub(req.user.uid, `/api/messages?${params.toString()}`);
+      res.json(data);
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message || 'Failed to fetch WhatsApp messages' });
+    }
+  });
+
+  app.get('/api/whatsapp-hub/tasks', authenticateToken, async (req: any, res) => {
+    try {
+      const data = await callWhatsAppHub(req.user.uid, '/api/tasks?limit=100');
+      res.json(data);
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message || 'Failed to fetch WhatsApp tasks' });
+    }
+  });
+
+  app.post('/api/whatsapp-hub/send', authenticateToken, async (req: any, res) => {
+    try {
+      const to = normalizeWhatsAppPhone(req.body.to);
+      if (!to || !req.body.body) return res.status(400).json({ error: 'Missing WhatsApp recipient or message body' });
+      const clientId = await chooseWhatsAppClient(req.user.uid, to, req.body.clientId || undefined);
+      const quota = await getWhatsAppClientQuota(req.user.uid, clientId);
+      if (quota.remaining <= 0) return res.status(429).json({ error: `WhatsApp client ${clientId} reached today's dynamic quota`, quota });
+      const data = await callWhatsAppHub(req.user.uid, '/api/tasks/send-message', {
+        method: 'POST',
+        body: JSON.stringify({
+          clientId,
+          to,
+          body: req.body.body,
+          metadata: { source: 'tradequest-crm', ...(req.body.metadata || {}) }
+        })
+      });
+      res.status(202).json({ ...data, selectedClientId: clientId, quota });
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message || 'Failed to send WhatsApp message' });
+    }
+  });
+
   app.get('/api/users/:uid', authenticateToken, async (req, res) => {
     try {
       const { uid } = req.params;
@@ -863,6 +991,7 @@ Your output MUST be a JSON object with the following schema:
   "newSummary": "An updated long-term summary incorporating the new history. Max 3 sentences.",
   "suggestedNextStep": "A short sentence describing what should be done next to follow up.",
   "draftEmail": "If an email should be sent, provide the body of a drafted email here. Otherwise, leave empty.",
+  "draftWhatsApp": "If a WhatsApp step should be sent, provide a short WhatsApp message here. Otherwise, leave empty.",
   "scheduledAt": "ISO date string for when to schedule the email. Leave empty if sending now."
 }
 No markdown wrappers, just valid JSON.`;
@@ -874,6 +1003,7 @@ No markdown wrappers, just valid JSON.`;
           const newSummary = parsed.newSummary || client.agent_summary;
           const nextStep = parsed.suggestedNextStep || 'Needs follow up.';
           const draftEmail = parsed.draftEmail || '';
+          const draftWhatsApp = parsed.draftWhatsApp || '';
           const scheduledAt = parsed.scheduledAt || new Date().toISOString();
 
           let nextRun = new Date().toISOString();
@@ -895,6 +1025,34 @@ No markdown wrappers, just valid JSON.`;
               `INSERT INTO logs (id, client_id, date, content) VALUES ($1, $2, $3, $4)`,
               [`l${Date.now()}${Math.floor(Math.random()*1000)}`, client.id, new Date().toISOString(), 'Auto-Agent sent follow up email.']
             );
+          }
+          if (client.agent_mode === 'auto_email' && draftWhatsApp) {
+            try {
+              const contactMethods = typeof client.contact_methods === 'string' ? JSON.parse(client.contact_methods || '[]') : (client.contact_methods || []);
+              const whatsapp = contactMethods.find((method: any) => ['whatsapp', 'phone'].includes(method.type) && method.value)?.value;
+              if (whatsapp) {
+                const to = normalizeWhatsAppPhone(whatsapp);
+                const clientId = await chooseWhatsAppClient(client.user_id, to);
+                const quota = await getWhatsAppClientQuota(client.user_id, clientId);
+                if (quota.remaining > 0) {
+                  await callWhatsAppHub(client.user_id, '/api/tasks/send-message', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                      clientId,
+                      to,
+                      body: draftWhatsApp,
+                      metadata: { source: 'tradequest-follow-up-agent', clientId: client.id }
+                    })
+                  });
+                  await pool.query(
+                    `INSERT INTO logs (id, client_id, date, content, type, metadata) VALUES ($1, $2, $3, $4, $5, $6)`,
+                    [`l${Date.now()}${Math.floor(Math.random()*1000)}`, client.id, new Date().toISOString(), 'Auto-Agent queued WhatsApp follow up.', 'whatsapp', JSON.stringify({ clientId, quota })]
+                  );
+                }
+              }
+            } catch (whatsappErr) {
+              console.error(`Failed to send WhatsApp agent follow-up for ${client.id}`, whatsappErr);
+            }
           }
         } catch (err) {
           console.error(`Failed to run agent for ${client.id}`, err);
