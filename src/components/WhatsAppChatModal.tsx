@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FileText, Loader2, MessageCircle, Paperclip, Send, Smile, X } from 'lucide-react';
-import { Client, useStore } from '../store';
+import { FileText, FolderOpen, Loader2, MessageCircle, Paperclip, Send, Smile, X } from 'lucide-react';
+import { Client, MediaItem, useStore } from '../store';
+import { MediaSelectorModal } from './MediaSelectorModal';
 
 interface WhatsAppHubClient {
   id: string;
@@ -32,6 +33,14 @@ interface Props {
 
 const cleanPhone = (value: string) => value.replace(/[^0-9]/g, '');
 
+const isInlineMedia = (mimeType: string) => mimeType.startsWith('image/') || mimeType.startsWith('video/');
+
+const dataUrlToFile = async (dataUrl: string, name: string, mimeType: string) => {
+  const response = await fetch(dataUrl);
+  const blob = await response.blob();
+  return new File([blob], name, { type: mimeType || blob.type || 'application/octet-stream' });
+};
+
 export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose }: Props) {
   const { notify, addLog } = useStore();
   const [hubClients, setHubClients] = useState<WhatsAppHubClient[]>([]);
@@ -39,6 +48,8 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
   const [selectedClientId, setSelectedClientId] = useState('');
   const [body, setBody] = useState(initialMessage);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedMedia, setSelectedMedia] = useState<MediaItem | null>(null);
+  const [showMediaSelector, setShowMediaSelector] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -72,13 +83,13 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
   }, [targetPhone]);
 
   const sendMessage = async () => {
-    if ((!body.trim() && !selectedFile) || !targetPhone) return;
+    if ((!body.trim() && !selectedFile && !selectedMedia) || !targetPhone) return;
     setSending(true);
     try {
       let media: any;
-      if (selectedFile) {
+      const uploadFileToHub = async (fileToUpload: File) => {
         const form = new FormData();
-        form.append('file', selectedFile);
+        form.append('file', fileToUpload);
         const uploadResponse = await fetch('/api/whatsapp-hub/upload', {
           method: 'POST',
           headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
@@ -87,12 +98,28 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
         const uploadData = await uploadResponse.json();
         if (!uploadResponse.ok) throw new Error(uploadData.error || 'Failed to upload WhatsApp media');
         const file = uploadData.file;
-        media = {
+        return {
           url: file.url,
-          originalName: file.originalName || selectedFile.name,
-          mimeType: file.mimeType || selectedFile.type,
-          sendAsDocument: !(selectedFile.type.startsWith('image/') || selectedFile.type.startsWith('video/'))
+          originalName: file.originalName || fileToUpload.name,
+          mimeType: file.mimeType || fileToUpload.type,
+          sendAsDocument: !isInlineMedia(file.mimeType || fileToUpload.type)
         };
+      };
+
+      if (selectedFile) {
+        media = await uploadFileToHub(selectedFile);
+      } else if (selectedMedia) {
+        if (selectedMedia.url.startsWith('data:')) {
+          const file = await dataUrlToFile(selectedMedia.url, selectedMedia.name, selectedMedia.type);
+          media = await uploadFileToHub(file);
+        } else {
+          media = {
+            url: selectedMedia.url,
+            originalName: selectedMedia.name,
+            mimeType: selectedMedia.type,
+            sendAsDocument: !isInlineMedia(selectedMedia.type)
+          };
+        }
       }
       const response = await fetch('/api/whatsapp-hub/send', {
         method: 'POST',
@@ -114,6 +141,7 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
       if (client) addLog(client.id, `WhatsApp Hub message sent: ${body.slice(0, 120)}`, undefined, 'whatsapp', data);
       setBody('');
       setSelectedFile(null);
+      setSelectedMedia(null);
       notify('WhatsApp message queued.', 'success');
       await loadData();
     } catch (error: any) {
@@ -191,6 +219,17 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
               </button>
             </div>
           )}
+          {selectedMedia && (
+            <div className="flex items-center justify-between gap-3 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300">
+              <span className="truncate flex items-center gap-2">
+                <FileText className="w-4 h-4 text-indigo-400" />
+                {selectedMedia.name}
+              </span>
+              <button onClick={() => setSelectedMedia(null)} className="text-slate-500 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
           {showEmoji && (
             <div className="flex flex-wrap gap-2 bg-slate-950 border border-slate-700 rounded-lg p-2">
               {emojiOptions.map(emoji => (
@@ -207,9 +246,15 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
                 <input
                   type="file"
                   className="hidden"
-                  onChange={e => setSelectedFile(e.target.files?.[0] || null)}
+                  onChange={e => {
+                    setSelectedFile(e.target.files?.[0] || null);
+                    setSelectedMedia(null);
+                  }}
                 />
               </label>
+              <button onClick={() => setShowMediaSelector(true)} className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg" title="Select from media library">
+                <FolderOpen className="w-5 h-5" />
+              </button>
               <button onClick={() => setShowEmoji(!showEmoji)} className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg">
                 <Smile className="w-5 h-5" />
               </button>
@@ -222,7 +267,7 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
             />
             <button
               onClick={sendMessage}
-              disabled={sending || (!body.trim() && !selectedFile)}
+              disabled={sending || (!body.trim() && !selectedFile && !selectedMedia)}
               className="px-4 py-2 bg-green-600 hover:bg-green-500 disabled:bg-slate-800 disabled:text-slate-500 rounded-xl font-bold text-white flex items-center gap-2 self-end"
             >
               {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
@@ -231,6 +276,16 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
           </div>
         </div>
       </div>
+      {showMediaSelector && (
+        <MediaSelectorModal
+          onSelect={(_, media) => {
+            setSelectedMedia(media);
+            setSelectedFile(null);
+          }}
+          onClose={() => setShowMediaSelector(false)}
+          allowedTypes={[]}
+        />
+      )}
     </div>
   );
 }

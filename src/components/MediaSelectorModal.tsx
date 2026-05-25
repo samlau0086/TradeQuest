@@ -6,7 +6,7 @@ import { cn } from '../lib/utils';
 import { UploadMediaModal } from './UploadMediaModal';
 
 interface MediaSelectorModalProps {
-  onSelect: (url: string) => void;
+  onSelect: (url: string, media: MediaItem) => void;
   onClose: () => void;
   allowedTypes?: string[]; // e.g. ['image']
 }
@@ -91,7 +91,7 @@ export function MediaSelectorModal({ onSelect, onClose, allowedTypes = ['image']
                   key={media.id} 
                   className="group relative bg-slate-800 rounded-xl border border-slate-700 overflow-hidden shadow-sm hover:shadow-indigo-500/10 hover:border-indigo-500/50 transition-all duration-300 cursor-pointer"
                   onClick={() => {
-                    onSelect(media.url);
+                    onSelect(media.url, media);
                     onClose();
                   }}
                 >
