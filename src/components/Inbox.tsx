@@ -11,7 +11,7 @@ import { UploadAttachmentModal } from './UploadAttachmentModal';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle, useDefaultLayout } from 'react-resizable-panels';
 
 export function Inbox() {
-  const { emails, markEmailRead, clients, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail } = useStore();
+  const { emails, markEmailRead, clients, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail, notify } = useStore();
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'inbox-layout' });
   const [filter, setFilter] = useState<'inbox' | 'sent' | 'scheduled' | 'drafts'>('inbox');
   const [search, setSearch] = useState('');
@@ -27,6 +27,9 @@ export function Inbox() {
   const [addingToRag, setAddingToRag] = useState(false);
   const [addedToRagId, setAddedToRagId] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const syncInFlightRef = useRef(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [todoModalEmail, setTodoModalEmail] = useState<string | null>(null);
@@ -106,14 +109,17 @@ export function Inbox() {
     });
   };
 
-  const handleSync = async () => {
+  const handleSync = async (options: { silent?: boolean } = {}) => {
+    if (syncInFlightRef.current) return;
     const configs = useStore.getState().inboxConfigs;
     if (!configs || configs.length === 0) {
-      setAlertDialog("No Inbox configurations found. Please add one in Settings.");
+      if (!options.silent) notify("No Inbox configurations found. Please add one in Settings.", 'warning');
       return;
     }
     
+    syncInFlightRef.current = true;
     setIsSyncing(true);
+    setSyncError(null);
     let totalSynced = 0;
     try {
       const token = localStorage.getItem('token');
@@ -127,19 +133,34 @@ export function Inbox() {
         if (res.ok) {
           const data = await res.json();
           totalSynced += data.count || 0;
+        } else if (!options.silent) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || 'Failed to sync emails.');
         }
       }
       if (totalSynced > 0) {
         useStore.getState().fetchEmails();
+      } else if (!options.silent) {
+        useStore.getState().fetchEmails();
       }
-      setAlertDialog(`Sync complete. Fetched ${totalSynced} new email(s).`);
+      setLastSyncAt(new Date().toISOString());
+      if (!options.silent) notify(`Sync complete. Fetched ${totalSynced} new email(s).`, 'success');
     } catch (e) {
       console.error(e);
-      setAlertDialog("Error syncing emails.");
+      setSyncError(e instanceof Error ? e.message : 'Error syncing emails.');
+      if (!options.silent) notify(e instanceof Error ? e.message : 'Error syncing emails.', 'error');
     } finally {
       setIsSyncing(false);
+      syncInFlightRef.current = false;
     }
   };
+
+  useEffect(() => {
+    const initialSync = window.setTimeout(() => handleSync({ silent: true }), 15000);
+    return () => {
+      window.clearTimeout(initialSync);
+    };
+  }, []);
 
   const selectedEmail = emails.find(e => e.id === selectedEmailId);
 
@@ -244,7 +265,7 @@ export function Inbox() {
             </div>
             <div className="flex gap-2">
               <button 
-                onClick={handleSync}
+                onClick={() => handleSync()}
                 disabled={isSyncing}
                 className={cn("p-1.5 bg-slate-800 text-slate-300 rounded-md hover:bg-slate-700 transition-colors border border-slate-700", isSyncing && "opacity-50")}
                 title="Sync Emails"
@@ -297,6 +318,23 @@ export function Inbox() {
                 ))}
               </datalist>
             </div>
+          </div>
+          <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500">
+            <span className="inline-flex min-w-0 items-center gap-1">
+              <Timer className={cn("w-3 h-3 shrink-0", isSyncing ? "text-cyan-400" : syncError ? "text-rose-400" : "text-slate-500")} />
+              <span className="truncate">
+                {isSyncing
+                  ? 'Auto syncing emails...'
+                  : syncError
+                    ? `Auto sync waiting: ${syncError}`
+                    : 'Background auto sync is enabled'}
+              </span>
+            </span>
+            {lastSyncAt && (
+              <span className="shrink-0">
+                Last {new Date(lastSyncAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
           </div>
         </div>
         

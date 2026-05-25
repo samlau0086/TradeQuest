@@ -322,6 +322,7 @@ export interface InboxConfig {
   username: string;
   password: string; // usually should be stored securely but we will keep here for preview
   secure: boolean;
+  syncIntervalMinutes?: number;
 }
 
 export interface EmailSignature {

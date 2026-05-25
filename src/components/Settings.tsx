@@ -145,7 +145,7 @@ export function Settings() {
     setEditingInboxId('new');
     setInboxFormData({
       name: 'New Inbox',
-      type: 'imap', host: '', port: '993', username: '', password: '', secure: true
+      type: 'imap', host: '', port: '993', username: '', password: '', secure: true, syncIntervalMinutes: 60
     });
   };
 
@@ -688,6 +688,19 @@ export function Settings() {
                           </div>
                         </div>
 
+                        <div className="space-y-1">
+                          <label className="text-xs text-slate-400 font-bold uppercase">Auto Sync Interval (minutes)</label>
+                          <input
+                            type="number"
+                            min="5"
+                            step="5"
+                            value={inboxFormData.syncIntervalMinutes ?? 60}
+                            onChange={e => setInboxFormData({ ...inboxFormData, syncIntervalMinutes: Math.max(5, Number(e.target.value) || 60) })}
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 outline-none"
+                          />
+                          <p className="text-[11px] text-slate-500">Used by background email sync even when Inbox is not open. Default is 60 minutes.</p>
+                        </div>
+
                         <div className="grid grid-cols-4 gap-3">
                           <div className="col-span-3 space-y-1">
                             <label className="text-xs text-slate-400 font-bold uppercase">Host</label>
@@ -748,6 +761,7 @@ export function Settings() {
                     <h3 className="font-bold text-lg text-white mb-2">{acc.name}</h3>
                     <div className="flex items-center gap-6 text-sm text-slate-400">
                       <span className="flex items-center gap-2 px-2 py-1 bg-slate-900 rounded"><Server className="w-3 h-3" /> {acc.type.toUpperCase()} ({acc.username})</span>
+                      <span className="flex items-center gap-2 px-2 py-1 bg-slate-900 rounded">Auto sync {acc.syncIntervalMinutes || 60}m</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">

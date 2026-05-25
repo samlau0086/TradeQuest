@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useStore } from './store';
 import { useAuthStore } from './authStore';
 import { Sidebar } from './components/Sidebar';
@@ -29,10 +29,11 @@ import { GlobalAgent } from './components/GlobalAgent';
 import { WhatsAppHub } from './components/WhatsAppHub';
 
 export default function App() {
-  const { view, selectedClientId, checkScheduledEmails, fetchInitialData, language, globalLoading } = useStore();
+  const { view, selectedClientId, checkScheduledEmails, fetchInitialData, language, globalLoading, inboxConfigs, fetchEmails } = useStore();
   const t = useTranslation(language);
   const { token, isInitializing } = useAuthStore();
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'app-layout' });
+  const emailSyncStateRef = useRef<Record<string, { lastAttempt: number; inFlight: boolean }>>({});
 
   const urlParams = new URLSearchParams(window.location.search);
   const resetToken = urlParams.get('resetToken');
@@ -52,6 +53,54 @@ export default function App() {
     const interval = setInterval(checkScheduledEmails, 10000);
     return () => clearInterval(interval);
   }, [checkScheduledEmails]);
+
+  useEffect(() => {
+    if (!token) return;
+
+    const syncDueInboxConfigs = async () => {
+      const currentConfigs = useStore.getState().inboxConfigs.filter(config => config.type === 'imap' || config.type === 'pop3');
+      if (currentConfigs.length === 0) return;
+      const now = Date.now();
+      let didSync = false;
+
+      await Promise.all(currentConfigs.map(async (config) => {
+        const intervalMinutes = Math.max(5, Number(config.syncIntervalMinutes || 60));
+        const state = emailSyncStateRef.current[config.id] || { lastAttempt: 0, inFlight: false };
+        const isDue = !state.lastAttempt || now - state.lastAttempt >= intervalMinutes * 60 * 1000;
+        if (!isDue || state.inFlight) return;
+
+        emailSyncStateRef.current[config.id] = { ...state, lastAttempt: now, inFlight: true };
+        try {
+          const res = await fetch('/api/sync-emails', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify(config)
+          });
+          if (res.ok) {
+            const data = await res.json().catch(() => ({}));
+            didSync = didSync || (data.count || 0) > 0;
+          } else {
+            console.warn(`Background email sync failed for ${config.name || config.username}: ${res.status}`);
+          }
+        } catch (error) {
+          console.warn(`Background email sync failed for ${config.name || config.username}`, error);
+        } finally {
+          emailSyncStateRef.current[config.id] = {
+            ...(emailSyncStateRef.current[config.id] || state),
+            inFlight: false
+          };
+        }
+      }));
+
+      if (didSync) {
+        fetchEmails();
+      }
+    };
+
+    syncDueInboxConfigs();
+    const interval = window.setInterval(syncDueInboxConfigs, 60 * 1000);
+    return () => window.clearInterval(interval);
+  }, [token, inboxConfigs, fetchEmails]);
 
   useEffect(() => {
     const localizeNode = (node: Node) => {
