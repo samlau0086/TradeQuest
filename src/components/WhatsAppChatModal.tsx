@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FileText, FolderOpen, Loader2, MessageCircle, Paperclip, Send, Smile, X } from 'lucide-react';
+import { CalendarClock, FileText, FolderOpen, Loader2, MessageCircle, Paperclip, Send, Smile, X } from 'lucide-react';
 import { Client, MediaItem, useStore } from '../store';
 import { MediaSelectorModal } from './MediaSelectorModal';
 
@@ -51,6 +51,8 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
   const [selectedMedia, setSelectedMedia] = useState<MediaItem | null>(null);
   const [showMediaSelector, setShowMediaSelector] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [scheduleDateTime, setScheduleDateTime] = useState('');
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const targetPhone = useMemo(() => cleanPhone(phone), [phone]);
@@ -81,6 +83,12 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
   useEffect(() => {
     loadData();
   }, [targetPhone]);
+
+  const defaultScheduleDateTime = () => {
+    const date = new Date(Date.now() + 15 * 60 * 1000);
+    date.setSeconds(0, 0);
+    return date.toISOString().slice(0, 16);
+  };
 
   const sendMessage = async () => {
     if ((!body.trim() && !selectedFile && !selectedMedia) || !targetPhone) return;
@@ -132,17 +140,32 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
           body,
           media,
           clientId: selectedClientId || undefined,
+          scheduledAt: scheduleEnabled && scheduleDateTime ? new Date(scheduleDateTime).toISOString() : undefined,
           metadata: { clientId: client?.id, hasMedia: !!media }
         })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to send WhatsApp message');
       setSelectedClientId(data.selectedClientId || selectedClientId);
-      if (client) addLog(client.id, `WhatsApp Hub message sent: ${body.slice(0, 120)}`, undefined, 'whatsapp', data);
+      if (client) {
+        addLog(
+          client.id,
+          data.scheduled
+            ? `WhatsApp Hub message scheduled for ${new Date(data.scheduledAt).toLocaleString()}: ${body.slice(0, 120)}`
+            : `WhatsApp Hub message sent: ${body.slice(0, 120)}`,
+          undefined,
+          'whatsapp',
+          data
+        );
+      }
       setBody('');
       setSelectedFile(null);
       setSelectedMedia(null);
-      notify('WhatsApp message queued.', 'success');
+      if (data.scheduled) {
+        setScheduleEnabled(false);
+        setScheduleDateTime('');
+      }
+      notify(data.scheduled ? 'WhatsApp message scheduled.' : 'WhatsApp message queued.', 'success');
       await loadData();
     } catch (error: any) {
       notify(error.message || 'Failed to send WhatsApp message.', 'error');
@@ -239,6 +262,20 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
               ))}
             </div>
           )}
+          {scheduleEnabled && (
+            <div className="flex flex-wrap items-center gap-3 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm">
+              <CalendarClock className="w-4 h-4 text-amber-400" />
+              <span className="text-slate-400">Send later</span>
+              <input
+                type="datetime-local"
+                value={scheduleDateTime}
+                min={new Date().toISOString().slice(0, 16)}
+                onChange={e => setScheduleDateTime(e.target.value)}
+                className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-slate-200 outline-none focus:border-amber-500"
+              />
+              <span className="text-xs text-slate-500">If no client is available at that time, it will retry until one can send.</span>
+            </div>
+          )}
           <div className="flex gap-3">
             <div className="flex flex-col gap-2">
               <label className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg cursor-pointer">
@@ -258,6 +295,19 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
               <button onClick={() => setShowEmoji(!showEmoji)} className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg">
                 <Smile className="w-5 h-5" />
               </button>
+              <button
+                onClick={() => {
+                  setScheduleEnabled(prev => {
+                    const next = !prev;
+                    if (next && !scheduleDateTime) setScheduleDateTime(defaultScheduleDateTime());
+                    return next;
+                  });
+                }}
+                className={`p-2 rounded-lg ${scheduleEnabled ? 'bg-amber-600 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}
+                title="Schedule message"
+              >
+                <CalendarClock className="w-5 h-5" />
+              </button>
             </div>
             <textarea
               value={body}
@@ -267,11 +317,11 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
             />
             <button
               onClick={sendMessage}
-              disabled={sending || (!body.trim() && !selectedFile && !selectedMedia)}
+              disabled={sending || (!body.trim() && !selectedFile && !selectedMedia) || (scheduleEnabled && !scheduleDateTime)}
               className="px-4 py-2 bg-green-600 hover:bg-green-500 disabled:bg-slate-800 disabled:text-slate-500 rounded-xl font-bold text-white flex items-center gap-2 self-end"
             >
               {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              Send
+              {scheduleEnabled ? 'Schedule' : 'Send'}
             </button>
           </div>
         </div>

@@ -258,6 +258,27 @@ async function initDB() {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
 
+      CREATE TABLE IF NOT EXISTS scheduled_whatsapp_messages (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        crm_client_id VARCHAR(128) REFERENCES clients(id) ON DELETE SET NULL,
+        hub_client_id VARCHAR(128),
+        to_phone VARCHAR(64) NOT NULL,
+        body TEXT DEFAULT '',
+        media JSONB,
+        metadata JSONB DEFAULT '{}'::jsonb,
+        scheduled_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        status VARCHAR(32) DEFAULT 'pending',
+        attempts INTEGER DEFAULT 0,
+        last_error TEXT,
+        sent_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_scheduled_whatsapp_due
+      ON scheduled_whatsapp_messages (status, scheduled_at);
+
       -- Migrate existing clients to a default deal if none exist for that client
       INSERT INTO deals (id, user_id, client_id, name, status, created_at, updated_at)
       SELECT 
@@ -630,6 +651,12 @@ No markdown wrappers, just valid JSON.`;
 
   const normalizeWhatsAppPhone = (value: string) => String(value || '').replace(/[^0-9]/g, '');
 
+  const isFutureDate = (value?: string) => {
+    if (!value) return false;
+    const time = new Date(value).getTime();
+    return Number.isFinite(time) && time > Date.now();
+  };
+
   const getWhatsAppClientQuota = async (userId: string, clientId: string) => {
     const config = await getWhatsAppHubConfig(userId);
     const data = await callWhatsAppHub(userId, `/api/messages?clientId=${encodeURIComponent(clientId)}&limit=500`);
@@ -650,11 +677,27 @@ No markdown wrappers, just valid JSON.`;
     return { clientId, sentToday, dailyQuota, replyRate, remaining: Math.max(0, dailyQuota - sentToday) };
   };
 
+  const getWhatsAppHubClient = async (userId: string, clientId: string) => {
+    const clientsData = await callWhatsAppHub(userId, '/api/clients');
+    return (clientsData.clients || []).find((client: any) => client.id === clientId);
+  };
+
   const chooseWhatsAppClient = async (userId: string, targetPhone: string, requestedClientId?: string) => {
-    if (requestedClientId) return requestedClientId;
+    if (requestedClientId) {
+      const requestedClient = await getWhatsAppHubClient(userId, requestedClientId);
+      if (!requestedClient) throw new Error(`WhatsApp client ${requestedClientId} was not found`);
+      if (requestedClient.status !== 'online') throw new Error(`WhatsApp client ${requestedClientId} is not online`);
+      return requestedClientId;
+    }
     const history = await callWhatsAppHub(userId, `/api/messages?targetPhone=${encodeURIComponent(targetPhone)}&limit=100`).catch(() => ({ messages: [] }));
     const sticky = (history.messages || []).find((message: any) => message.direction === 'outbound' && message.client_id)?.client_id;
-    if (sticky) return sticky;
+    if (sticky) {
+      const stickyClient = await getWhatsAppHubClient(userId, sticky).catch(() => null);
+      if (stickyClient?.status === 'online') {
+        const stickyQuota = await getWhatsAppClientQuota(userId, sticky).catch(() => null);
+        if (!stickyQuota || stickyQuota.remaining > 0) return sticky;
+      }
+    }
 
     const clientsData = await callWhatsAppHub(userId, '/api/clients');
     const onlineClients = (clientsData.clients || []).filter((client: any) => client.status === 'online');
@@ -665,6 +708,48 @@ No markdown wrappers, just valid JSON.`;
     }
     if (candidates.length === 0) throw new Error('no online WhatsApp clients with available quota');
     return candidates[Math.floor(Math.random() * candidates.length)].id;
+  };
+
+  const sendWhatsAppViaHub = async (userId: string, payload: any) => {
+    const to = normalizeWhatsAppPhone(payload.to);
+    if (!to || (!payload.body && !payload.media)) throw new Error('Missing WhatsApp recipient or message body');
+    const clientId = await chooseWhatsAppClient(userId, to, payload.clientId || undefined);
+    const quota = await getWhatsAppClientQuota(userId, clientId);
+    if (quota.remaining <= 0) throw new Error(`WhatsApp client ${clientId} reached today's dynamic quota`);
+    const data = await callWhatsAppHub(userId, '/api/tasks/send-message', {
+      method: 'POST',
+      body: JSON.stringify({
+        clientId,
+        to,
+        body: payload.body || '',
+        media: payload.media,
+        metadata: { source: 'tradequest-crm', ...(payload.metadata || {}) }
+      })
+    });
+    return { ...data, selectedClientId: clientId, quota };
+  };
+
+  const scheduleWhatsAppMessage = async (userId: string, payload: any) => {
+    const id = `wa_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+    const to = normalizeWhatsAppPhone(payload.to);
+    const scheduledAt = payload.scheduledAt || new Date().toISOString();
+    await pool.query(
+      `INSERT INTO scheduled_whatsapp_messages
+       (id, user_id, crm_client_id, hub_client_id, to_phone, body, media, metadata, scheduled_at, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')`,
+      [
+        id,
+        userId,
+        payload.metadata?.clientId || null,
+        payload.clientId || null,
+        to,
+        payload.body || '',
+        payload.media ? JSON.stringify(payload.media) : null,
+        JSON.stringify({ source: 'tradequest-crm', ...(payload.metadata || {}) }),
+        scheduledAt
+      ]
+    );
+    return { id, scheduledAt, status: 'pending' };
   };
 
   app.get('/api/whatsapp-hub/clients', authenticateToken, async (req: any, res) => {
@@ -699,6 +784,39 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
+  app.get('/api/whatsapp-hub/scheduled', authenticateToken, async (req: any, res) => {
+    try {
+      const result = await pool.query(
+        `SELECT id, crm_client_id, hub_client_id, to_phone, body, media, metadata, scheduled_at, status, attempts, last_error, sent_at, created_at, updated_at
+         FROM scheduled_whatsapp_messages
+         WHERE user_id = $1
+         ORDER BY scheduled_at DESC
+         LIMIT 100`,
+        [req.user.uid]
+      );
+      res.json({
+        messages: result.rows.map(row => ({
+          id: row.id,
+          clientId: row.crm_client_id,
+          hubClientId: row.hub_client_id,
+          to: row.to_phone,
+          body: row.body,
+          media: row.media,
+          metadata: row.metadata,
+          scheduledAt: row.scheduled_at,
+          status: row.status,
+          attempts: row.attempts,
+          lastError: row.last_error,
+          sentAt: row.sent_at,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at
+        }))
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || 'Failed to load scheduled WhatsApp messages' });
+    }
+  });
+
   const whatsappHubUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
   app.post('/api/whatsapp-hub/upload', authenticateToken, whatsappHubUpload.single('file'), async (req: any, res) => {
@@ -728,20 +846,12 @@ No markdown wrappers, just valid JSON.`;
     try {
       const to = normalizeWhatsAppPhone(req.body.to);
       if (!to || (!req.body.body && !req.body.media)) return res.status(400).json({ error: 'Missing WhatsApp recipient or message body' });
-      const clientId = await chooseWhatsAppClient(req.user.uid, to, req.body.clientId || undefined);
-      const quota = await getWhatsAppClientQuota(req.user.uid, clientId);
-      if (quota.remaining <= 0) return res.status(429).json({ error: `WhatsApp client ${clientId} reached today's dynamic quota`, quota });
-      const data = await callWhatsAppHub(req.user.uid, '/api/tasks/send-message', {
-        method: 'POST',
-        body: JSON.stringify({
-          clientId,
-          to,
-          body: req.body.body || '',
-          media: req.body.media,
-          metadata: { source: 'tradequest-crm', ...(req.body.metadata || {}) }
-        })
-      });
-      res.status(202).json({ ...data, selectedClientId: clientId, quota });
+      if (req.body.scheduledAt && isFutureDate(req.body.scheduledAt)) {
+        const scheduled = await scheduleWhatsAppMessage(req.user.uid, { ...req.body, to });
+        return res.status(202).json({ scheduled: true, ...scheduled });
+      }
+      const data = await sendWhatsAppViaHub(req.user.uid, { ...req.body, to });
+      res.status(202).json(data);
     } catch (e: any) {
       res.status(e.status || 500).json({ error: e.message || 'Failed to send WhatsApp message' });
     }
@@ -1010,7 +1120,7 @@ ${JSON.stringify(productsRes.rows)}
           const prompt = `${contextPrompt}
 Based on the above context, you must decide on the next best action to advance this lead. 
 If the instruction is to "Stop on Meaningful Reply" and a meaningful reply has recently been received from the client, you MUST abort further follow ups (return an empty draftEmail and set suggestedNextStep to 'Stopped: received reply').
-If an email should be sent according to a workflow step, take note of its "delayDays" and "sendTime" (HH:mm form). Compute precisely when it should be sent in ISO format. IMPORTANT: you must calculate the ISO schedule time so that it hits the "sendTime" in the **Client's Local Time** (based on their Country/Local Region), rather than Beijing time or your system time. If no specific time is required, just send it immediately (leave scheduledAt empty or set to now).
+If an email or WhatsApp message should be sent according to a workflow step, take note of its "delayDays" and "sendTime" (HH:mm form). Compute precisely when it should be sent in ISO format. IMPORTANT: you must calculate the ISO schedule time so that it hits the "sendTime" in the **Client's Local Time** (based on their Country/Local Region), rather than Beijing time or your system time. If no specific time is required, just send it immediately (leave the corresponding scheduled field empty).
 
 Your output MUST be a JSON object with the following schema:
 {
@@ -1018,7 +1128,8 @@ Your output MUST be a JSON object with the following schema:
   "suggestedNextStep": "A short sentence describing what should be done next to follow up.",
   "draftEmail": "If an email should be sent, provide the body of a drafted email here. Otherwise, leave empty.",
   "draftWhatsApp": "If a WhatsApp step should be sent, provide a short WhatsApp message here. Otherwise, leave empty.",
-  "scheduledAt": "ISO date string for when to schedule the email. Leave empty if sending now."
+  "scheduledAt": "ISO date string for when to schedule the email. Leave empty if sending now.",
+  "whatsappScheduledAt": "ISO date string for when to schedule the WhatsApp message. Leave empty if sending now."
 }
 No markdown wrappers, just valid JSON.`;
 
@@ -1031,6 +1142,7 @@ No markdown wrappers, just valid JSON.`;
           const draftEmail = parsed.draftEmail || '';
           const draftWhatsApp = parsed.draftWhatsApp || '';
           const scheduledAt = parsed.scheduledAt || new Date().toISOString();
+          const whatsappScheduledAt = parsed.whatsappScheduledAt || '';
 
           let nextRun = new Date().toISOString();
 
@@ -1058,21 +1170,26 @@ No markdown wrappers, just valid JSON.`;
               const whatsapp = contactMethods.find((method: any) => ['whatsapp', 'phone'].includes(method.type) && method.value)?.value;
               if (whatsapp) {
                 const to = normalizeWhatsAppPhone(whatsapp);
-                const clientId = await chooseWhatsAppClient(client.user_id, to);
-                const quota = await getWhatsAppClientQuota(client.user_id, clientId);
-                if (quota.remaining > 0) {
-                  await callWhatsAppHub(client.user_id, '/api/tasks/send-message', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                      clientId,
-                      to,
-                      body: draftWhatsApp,
-                      metadata: { source: 'tradequest-follow-up-agent', clientId: client.id }
-                    })
+                if (whatsappScheduledAt && isFutureDate(whatsappScheduledAt)) {
+                  const scheduled = await scheduleWhatsAppMessage(client.user_id, {
+                    to,
+                    body: draftWhatsApp,
+                    scheduledAt: whatsappScheduledAt,
+                    metadata: { source: 'tradequest-follow-up-agent', clientId: client.id }
                   });
                   await pool.query(
                     `INSERT INTO logs (id, client_id, date, content, type, metadata) VALUES ($1, $2, $3, $4, $5, $6)`,
-                    [`l${Date.now()}${Math.floor(Math.random()*1000)}`, client.id, new Date().toISOString(), 'Auto-Agent queued WhatsApp follow up.', 'whatsapp', JSON.stringify({ clientId, quota })]
+                    [`l${Date.now()}${Math.floor(Math.random()*1000)}`, client.id, new Date().toISOString(), `Auto-Agent scheduled WhatsApp follow up for ${new Date(whatsappScheduledAt).toLocaleString()}.`, 'whatsapp', JSON.stringify(scheduled)]
+                  );
+                } else {
+                  const data = await sendWhatsAppViaHub(client.user_id, {
+                    to,
+                    body: draftWhatsApp,
+                    metadata: { source: 'tradequest-follow-up-agent', clientId: client.id }
+                  });
+                  await pool.query(
+                    `INSERT INTO logs (id, client_id, date, content, type, metadata) VALUES ($1, $2, $3, $4, $5, $6)`,
+                    [`l${Date.now()}${Math.floor(Math.random()*1000)}`, client.id, new Date().toISOString(), 'Auto-Agent queued WhatsApp follow up.', 'whatsapp', JSON.stringify(data)]
                   );
                 }
               }
@@ -1160,6 +1277,64 @@ No markdown wrappers, just valid JSON.`;
 
   // Run scheduled emails processor every 1 minute
   setInterval(processScheduledEmails, 60 * 1000);
+
+  const processScheduledWhatsAppMessages = async () => {
+    try {
+      if (!pool) return;
+      const now = new Date().toISOString();
+      const result = await pool.query(
+        `SELECT * FROM scheduled_whatsapp_messages
+         WHERE status = 'pending' AND scheduled_at <= $1
+         ORDER BY scheduled_at ASC
+         LIMIT 50`,
+        [now]
+      );
+
+      for (const message of result.rows) {
+        try {
+          const metadata = typeof message.metadata === 'string' ? JSON.parse(message.metadata || '{}') : (message.metadata || {});
+          const media = typeof message.media === 'string' ? JSON.parse(message.media || 'null') : message.media;
+          const data = await sendWhatsAppViaHub(message.user_id, {
+            to: message.to_phone,
+            body: message.body || '',
+            media,
+            clientId: message.hub_client_id || undefined,
+            metadata: { ...metadata, scheduledWhatsAppId: message.id }
+          });
+          await pool.query(
+            `UPDATE scheduled_whatsapp_messages
+             SET status = 'sent', sent_at = $1, attempts = attempts + 1, last_error = NULL, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $2`,
+            [new Date().toISOString(), message.id]
+          );
+          if (message.crm_client_id) {
+            await pool.query(
+              `INSERT INTO logs (id, client_id, date, content, type, metadata) VALUES ($1, $2, $3, $4, $5, $6)`,
+              [
+                `l${Date.now()}${Math.floor(Math.random() * 1000)}`,
+                message.crm_client_id,
+                new Date().toISOString(),
+                'Scheduled WhatsApp message sent.',
+                'whatsapp',
+                JSON.stringify(data)
+              ]
+            );
+          }
+        } catch (err: any) {
+          await pool.query(
+            `UPDATE scheduled_whatsapp_messages
+             SET attempts = attempts + 1, last_error = $1, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $2`,
+            [err.message || 'WhatsApp send attempt failed', message.id]
+          );
+        }
+      }
+    } catch (e) {
+      console.error('Failed to process scheduled WhatsApp messages:', e);
+    }
+  };
+
+  setInterval(processScheduledWhatsAppMessages, 60 * 1000);
   
   // Deals API Endpoints
   app.get('/api/deals', authenticateToken, async (req: any, res) => {

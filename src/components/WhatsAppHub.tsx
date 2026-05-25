@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Loader2, MessageCircle, RefreshCw, Send } from 'lucide-react';
+import { CalendarClock, Loader2, MessageCircle, RefreshCw, Send } from 'lucide-react';
 import { useStore } from '../store';
 import { WhatsAppChatModal } from './WhatsAppChatModal';
 
@@ -22,6 +22,17 @@ interface HubMessage {
   received_at?: string;
 }
 
+interface ScheduledWhatsAppMessage {
+  id: string;
+  to: string;
+  body: string;
+  hubClientId?: string;
+  scheduledAt: string;
+  status: string;
+  attempts: number;
+  lastError?: string;
+}
+
 const phoneFromMessage = (message: HubMessage) => (
   message.direction === 'inbound' ? message.sender : message.recipient
 ).replace('@c.us', '').replace(/[^0-9]/g, '');
@@ -30,6 +41,7 @@ export function WhatsAppHub() {
   const { clients, notify } = useStore();
   const [hubClients, setHubClients] = useState<HubClient[]>([]);
   const [messages, setMessages] = useState<HubMessage[]>([]);
+  const [scheduledMessages, setScheduledMessages] = useState<ScheduledWhatsAppMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [manualPhone, setManualPhone] = useState('');
   const [chatPhone, setChatPhone] = useState('');
@@ -37,16 +49,20 @@ export function WhatsAppHub() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [clientsRes, messagesRes] = await Promise.all([
+      const [clientsRes, messagesRes, scheduledRes] = await Promise.all([
         fetch('/api/whatsapp-hub/clients', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }),
-        fetch('/api/whatsapp-hub/messages?limit=500', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
+        fetch('/api/whatsapp-hub/messages?limit=500', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }),
+        fetch('/api/whatsapp-hub/scheduled', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
       ]);
       const clientsData = await clientsRes.json();
       const messagesData = await messagesRes.json();
+      const scheduledData = await scheduledRes.json();
       if (!clientsRes.ok) throw new Error(clientsData.error || 'Failed to load WhatsApp clients');
       if (!messagesRes.ok) throw new Error(messagesData.error || 'Failed to load WhatsApp messages');
+      if (!scheduledRes.ok) throw new Error(scheduledData.error || 'Failed to load scheduled WhatsApp messages');
       setHubClients(clientsData.clients || []);
       setMessages(messagesData.messages || []);
+      setScheduledMessages(scheduledData.messages || []);
     } catch (error: any) {
       notify(error.message || 'WhatsApp Actor Hub is not configured.', 'error');
     } finally {
@@ -76,6 +92,8 @@ export function WhatsAppHub() {
   const matchClient = (phone: string) => clients.find(client => client.contactMethods?.some(method => (
     ['whatsapp', 'phone'].includes(method.type) && method.value.replace(/[^0-9]/g, '').endsWith(phone.slice(-8))
   )));
+
+  const pendingScheduled = scheduledMessages.filter(message => message.status === 'pending').slice(0, 5);
 
   return (
     <div className="flex-1 overflow-hidden bg-slate-900 border-t border-slate-800 text-white grid grid-cols-[320px_1fr]">
@@ -123,6 +141,28 @@ export function WhatsAppHub() {
             ))}
           </div>
         </div>
+        {pendingScheduled.length > 0 && (
+          <div className="p-3 border-b border-slate-800">
+            <div className="text-xs font-bold uppercase text-slate-500 mb-2 flex items-center gap-2">
+              <CalendarClock className="w-3 h-3 text-amber-400" />
+              Scheduled
+            </div>
+            <div className="space-y-2">
+              {pendingScheduled.map(message => (
+                <button key={message.id} onClick={() => setChatPhone(message.to)} className="w-full text-left bg-slate-950 border border-slate-800 rounded-lg p-3 hover:border-amber-500/50">
+                  <div className="flex justify-between gap-2 text-xs">
+                    <span className="font-bold text-slate-200 truncate">{matchClient(message.to)?.name || message.to}</span>
+                    <span className="text-amber-400 shrink-0">{new Date(message.scheduledAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500 truncate mt-1">{message.body || 'Media message'}</div>
+                  {message.lastError && (
+                    <div className="text-[10px] text-rose-400 truncate mt-1">Waiting: {message.lastError}</div>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="overflow-y-auto min-h-0">
           {conversations.map(([phone, message]) => {
             const client = matchClient(phone);

@@ -279,7 +279,7 @@ Return JSON only:
 Action payload guidance:
 - process_customer_reply: { "emailId": "optional", "clientId": "optional", "comment": "summary to add" }
 - send_email: { "clientId": "optional", "replyToEmailId": "optional", "recipient": "optional", "subject": "...", "body": "...", "scheduledAt": "optional ISO string" }
-- send_whatsapp: { "clientId": "optional CRM client id", "hubClientId": "optional WhatsApp Actor Hub client id", "to": "optional phone", "body": "message body" }
+- send_whatsapp: { "clientId": "optional CRM client id", "hubClientId": "optional WhatsApp Actor Hub client id", "to": "optional phone", "body": "message body", "scheduledAt": "optional ISO date string" }
 - update_client_stage: { "clientId": "optional", "status": "Leads | Contacted | Sample Sent | Negotiating | Closed Won" }
 - add_client_comment: { "clientId": "optional", "content": "comment text" }
 - enrich_client_data: { "clientId": "optional", "provider": "optional enrichment provider", "fields": ["company", "contactMethods", "address", "tags"] }
@@ -547,6 +547,7 @@ ${objective}`;
             to,
             body: payload.body || payload.content || 'Following up.',
             clientId: payload.hubClientId,
+            scheduledAt: payload.scheduledAt,
             metadata: { clientId: client?.id, source: 'global-agent' }
           })
         });
