@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Loader2, MessageCircle, Send, X } from 'lucide-react';
+import { FileText, Loader2, MessageCircle, Paperclip, Send, Smile, X } from 'lucide-react';
 import { Client, useStore } from '../store';
 
 interface WhatsAppHubClient {
@@ -17,6 +17,8 @@ interface WhatsAppHubMessage {
   sender: string;
   recipient: string;
   body: string;
+  message_type?: string;
+  payload?: any;
   created_at: string;
   received_at?: string;
 }
@@ -36,6 +38,8 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
   const [messages, setMessages] = useState<WhatsAppHubMessage[]>([]);
   const [selectedClientId, setSelectedClientId] = useState('');
   const [body, setBody] = useState(initialMessage);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [showEmoji, setShowEmoji] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const targetPhone = useMemo(() => cleanPhone(phone), [phone]);
@@ -68,9 +72,28 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
   }, [targetPhone]);
 
   const sendMessage = async () => {
-    if (!body.trim() || !targetPhone) return;
+    if ((!body.trim() && !selectedFile) || !targetPhone) return;
     setSending(true);
     try {
+      let media: any;
+      if (selectedFile) {
+        const form = new FormData();
+        form.append('file', selectedFile);
+        const uploadResponse = await fetch('/api/whatsapp-hub/upload', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+          body: form
+        });
+        const uploadData = await uploadResponse.json();
+        if (!uploadResponse.ok) throw new Error(uploadData.error || 'Failed to upload WhatsApp media');
+        const file = uploadData.file;
+        media = {
+          url: file.url,
+          originalName: file.originalName || selectedFile.name,
+          mimeType: file.mimeType || selectedFile.type,
+          sendAsDocument: !(selectedFile.type.startsWith('image/') || selectedFile.type.startsWith('video/'))
+        };
+      }
       const response = await fetch('/api/whatsapp-hub/send', {
         method: 'POST',
         headers: {
@@ -80,8 +103,9 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
         body: JSON.stringify({
           to: targetPhone,
           body,
+          media,
           clientId: selectedClientId || undefined,
-          metadata: { clientId: client?.id }
+          metadata: { clientId: client?.id, hasMedia: !!media }
         })
       });
       const data = await response.json();
@@ -89,6 +113,7 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
       setSelectedClientId(data.selectedClientId || selectedClientId);
       if (client) addLog(client.id, `WhatsApp Hub message sent: ${body.slice(0, 120)}`, undefined, 'whatsapp', data);
       setBody('');
+      setSelectedFile(null);
       notify('WhatsApp message queued.', 'success');
       await loadData();
     } catch (error: any) {
@@ -97,6 +122,8 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
       setSending(false);
     }
   };
+
+  const emojiOptions = ['😀', '😊', '👍', '🙏', '🔥', '🎉', '✅', '📦', '💬', '🤝', '📄', '🚀'];
 
   return (
     <div className="fixed inset-0 bg-black/60 z-[80] flex items-center justify-center p-4">
@@ -137,6 +164,12 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
           {messages.map(message => (
             <div key={message.id} className={`flex ${message.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[78%] rounded-2xl px-4 py-2 text-sm ${message.direction === 'outbound' ? 'bg-green-600 text-white' : 'bg-slate-800 text-slate-100'}`}>
+                {(message.payload?.hasMedia || message.message_type !== 'chat') && (
+                  <div className="flex items-center gap-2 text-xs opacity-80 mb-1">
+                    <FileText className="w-3 h-3" />
+                    {message.payload?.filename || message.payload?.type || message.message_type || 'media'}
+                  </div>
+                )}
                 <div>{message.body}</div>
                 <div className="text-[10px] opacity-70 mt-1">
                   {message.client_id} · {new Date(message.created_at || message.received_at || Date.now()).toLocaleString()}
@@ -146,21 +179,56 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
           ))}
         </div>
 
-        <div className="p-4 border-t border-slate-800 flex gap-3">
-          <textarea
-            value={body}
-            onChange={e => setBody(e.target.value)}
-            placeholder="Type a WhatsApp message..."
-            className="flex-1 min-h-16 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 outline-none resize-none focus:border-green-500"
-          />
-          <button
-            onClick={sendMessage}
-            disabled={sending || !body.trim()}
-            className="px-4 py-2 bg-green-600 hover:bg-green-500 disabled:bg-slate-800 disabled:text-slate-500 rounded-xl font-bold text-white flex items-center gap-2 self-end"
-          >
-            {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-            Send
-          </button>
+        <div className="p-4 border-t border-slate-800 space-y-3">
+          {selectedFile && (
+            <div className="flex items-center justify-between gap-3 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300">
+              <span className="truncate flex items-center gap-2">
+                <FileText className="w-4 h-4 text-green-400" />
+                {selectedFile.name}
+              </span>
+              <button onClick={() => setSelectedFile(null)} className="text-slate-500 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+          {showEmoji && (
+            <div className="flex flex-wrap gap-2 bg-slate-950 border border-slate-700 rounded-lg p-2">
+              {emojiOptions.map(emoji => (
+                <button key={emoji} onClick={() => setBody(prev => `${prev}${emoji}`)} className="text-xl hover:bg-slate-800 rounded p-1">
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-3">
+            <div className="flex flex-col gap-2">
+              <label className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg cursor-pointer">
+                <Paperclip className="w-5 h-5" />
+                <input
+                  type="file"
+                  className="hidden"
+                  onChange={e => setSelectedFile(e.target.files?.[0] || null)}
+                />
+              </label>
+              <button onClick={() => setShowEmoji(!showEmoji)} className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg">
+                <Smile className="w-5 h-5" />
+              </button>
+            </div>
+            <textarea
+              value={body}
+              onChange={e => setBody(e.target.value)}
+              placeholder="Type a WhatsApp message..."
+              className="flex-1 min-h-16 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 outline-none resize-none focus:border-green-500"
+            />
+            <button
+              onClick={sendMessage}
+              disabled={sending || (!body.trim() && !selectedFile)}
+              className="px-4 py-2 bg-green-600 hover:bg-green-500 disabled:bg-slate-800 disabled:text-slate-500 rounded-xl font-bold text-white flex items-center gap-2 self-end"
+            >
+              {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              Send
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -699,10 +699,35 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
+  const whatsappHubUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+
+  app.post('/api/whatsapp-hub/upload', authenticateToken, whatsappHubUpload.single('file'), async (req: any, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+      const config = await getWhatsAppHubConfig(req.user.uid);
+      const form = new FormData();
+      form.append(
+        'file',
+        new Blob([req.file.buffer as any], { type: req.file.mimetype || 'application/octet-stream' }),
+        req.file.originalname || 'upload'
+      );
+      const response = await fetch(`${config.baseUrl}/api/uploads`, {
+        method: 'POST',
+        headers: { 'x-hub-token': config.apiToken },
+        body: form as any
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) return res.status(response.status).json({ error: data.error || 'WhatsApp Hub upload failed' });
+      res.json(data);
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message || 'Failed to upload WhatsApp media' });
+    }
+  });
+
   app.post('/api/whatsapp-hub/send', authenticateToken, async (req: any, res) => {
     try {
       const to = normalizeWhatsAppPhone(req.body.to);
-      if (!to || !req.body.body) return res.status(400).json({ error: 'Missing WhatsApp recipient or message body' });
+      if (!to || (!req.body.body && !req.body.media)) return res.status(400).json({ error: 'Missing WhatsApp recipient or message body' });
       const clientId = await chooseWhatsAppClient(req.user.uid, to, req.body.clientId || undefined);
       const quota = await getWhatsAppClientQuota(req.user.uid, clientId);
       if (quota.remaining <= 0) return res.status(429).json({ error: `WhatsApp client ${clientId} reached today's dynamic quota`, quota });
@@ -711,7 +736,8 @@ No markdown wrappers, just valid JSON.`;
         body: JSON.stringify({
           clientId,
           to,
-          body: req.body.body,
+          body: req.body.body || '',
+          media: req.body.media,
           metadata: { source: 'tradequest-crm', ...(req.body.metadata || {}) }
         })
       });
