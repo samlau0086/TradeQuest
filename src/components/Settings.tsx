@@ -1,10 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { useStore, InboxConfig, OutboxConfig, LLMConfig, PaymentTerm, LeadDataProvider, EmailSignature } from '../store';
+import { useStore, InboxConfig, OutboxConfig, LLMConfig, PaymentTerm, LeadDataProvider, EmailSignature, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType } from '../store';
 import { useAuthStore } from '../authStore';
 import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark, Clock, Book, Target, Trophy, Eye, EyeOff, MessageCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ProfileSettings } from './ProfileSettings';
 import { useTranslation } from '../lib/i18n';
+
+const GLOBAL_AGENT_ACTION_LABELS: Record<GlobalAgentActionType, string> = {
+  create_lead_campaign: 'Create Lead Campaign / 创建获客 Campaign',
+  run_lead_campaign: 'Run Lead Campaign / 执行获客 Campaign',
+  create_followup_workflow: 'Create Follow-up Workflow / 创建跟进流程',
+  process_customer_reply: 'Process Customer Reply / 处理客户回复',
+  send_email: 'Send Email / 发送邮件',
+  send_whatsapp: 'Send WhatsApp / 发送 WhatsApp',
+  update_client_stage: 'Update Client Stage / 更新客户阶段',
+  add_client_comment: 'Add Client Comment / 添加客户备注',
+  enrich_client_data: 'Enrich Client Data / 补全客户资料',
+  create_deal: 'Create Deal / 创建交易',
+  create_quote: 'Create Quote / 创建报价',
+  prioritize_leads: 'Prioritize Leads / 线索优先级排序',
+  review_pipeline: 'Review Pipeline / 管线复盘'
+};
 
 export function Settings() {
   const { 
@@ -13,7 +29,7 @@ export function Settings() {
     signatures, addSignature, updateSignature, deleteSignature, setDefaultSignature,
     llmConfigs, addLLMConfig, updateLLMConfig, deleteLLMConfig, activeLLMId, setActiveLLMId,
     paymentTerms, addPaymentTerm, updatePaymentTerm, deletePaymentTerm,
-    llmMappings, setLLMMapping, language,
+    llmMappings, setLLMMapping, agentExecutionPolicy, updateAgentExecutionPolicy, language,
     timezone, setTimezone,
     outscraperApiKey, setOutscraperApiKey,
     leadDataChannelConfigs, updateLeadDataChannelConfig,
@@ -1344,6 +1360,76 @@ export function Settings() {
                 </div>
               </div>
             )}
+
+            <div className="bg-slate-800/50 border border-cyan-500/30 rounded-xl p-5 mb-4 shadow-sm">
+              <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-4">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-200">Agent Execution Policy / Agent 执行策略</h3>
+                  <p className="text-xs text-slate-500 mt-1 max-w-3xl">
+                    Control which Global Agent actions can run automatically after planning, and which actions must wait for human review.
+                    默认建议：资料补全、内部备注、线索排序可自动执行；邮件、WhatsApp、报价、阶段变更必须人工审核。
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    GLOBAL_AGENT_ACTION_TYPES.forEach(actionType => {
+                      const defaults: Record<GlobalAgentActionType, { mode: 'auto' | 'review'; risk: 'low' | 'medium' | 'high' }> = {
+                        create_lead_campaign: { mode: 'review', risk: 'medium' },
+                        run_lead_campaign: { mode: 'review', risk: 'medium' },
+                        create_followup_workflow: { mode: 'review', risk: 'medium' },
+                        process_customer_reply: { mode: 'review', risk: 'medium' },
+                        send_email: { mode: 'review', risk: 'high' },
+                        send_whatsapp: { mode: 'review', risk: 'high' },
+                        update_client_stage: { mode: 'review', risk: 'high' },
+                        add_client_comment: { mode: 'auto', risk: 'low' },
+                        enrich_client_data: { mode: 'auto', risk: 'low' },
+                        create_deal: { mode: 'review', risk: 'medium' },
+                        create_quote: { mode: 'review', risk: 'high' },
+                        prioritize_leads: { mode: 'auto', risk: 'low' },
+                        review_pipeline: { mode: 'auto', risk: 'low' }
+                      };
+                      updateAgentExecutionPolicy(actionType, defaults[actionType]);
+                    });
+                  }}
+                  className="px-3 py-2 bg-slate-900 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-bold text-slate-300"
+                >
+                  Reset Defaults / 恢复默认
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                {GLOBAL_AGENT_ACTION_TYPES.map(actionType => {
+                  const rule = agentExecutionPolicy[actionType];
+                  return (
+                    <div key={actionType} className="bg-slate-900 border border-slate-700 rounded-lg p-4 flex flex-col md:flex-row md:items-center gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-bold text-slate-200">{GLOBAL_AGENT_ACTION_LABELS[actionType]}</div>
+                        <div className="text-[10px] text-slate-500 font-mono mt-1">{actionType}</div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={rule?.mode || 'review'}
+                          onChange={e => updateAgentExecutionPolicy(actionType, { mode: e.target.value as 'auto' | 'review' })}
+                          className="bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300 focus:border-cyan-500 outline-none"
+                        >
+                          <option value="auto">Auto / 自动</option>
+                          <option value="review">Review / 审核</option>
+                        </select>
+                        <select
+                          value={rule?.risk || 'medium'}
+                          onChange={e => updateAgentExecutionPolicy(actionType, { risk: e.target.value as 'low' | 'medium' | 'high' })}
+                          className="bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300 focus:border-cyan-500 outline-none"
+                        >
+                          <option value="low">Low / 低</option>
+                          <option value="medium">Medium / 中</option>
+                          <option value="high">High / 高</option>
+                        </select>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
 
             {llmConfigs.length === 0 && editingLLMId !== 'new' && (
               <div className="text-center py-12 bg-slate-950/30 rounded-xl border border-slate-800 text-slate-500">

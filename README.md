@@ -107,6 +107,34 @@ Recommended cadence:
 
 All Global Agent plans should require human approval before execution. If approved, the agent can execute according to the reviewed plan; if rejected, regenerate or manually adjust the plan before running.
 
+#### Agent Execution Policy
+**Agent Execution Policy** controls which Global Agent actions can run automatically after planning, and which actions must wait for human review.
+
+Where to configure:
+1. Open **Settings**.
+2. Go to **AI & Integrations**.
+3. Find **Agent Execution Policy / Agent 执行策略**.
+4. For each Global Agent action type, choose:
+   - `Auto`: the step can run automatically after the plan is generated.
+   - `Review`: the step waits for human approval before execution.
+   - Risk level: `Low`, `Medium`, or `High`.
+
+Default policy:
+- Auto by default: `enrich_client_data`, `add_client_comment`, `prioritize_leads`, `review_pipeline`.
+- Review by default: sending email, sending WhatsApp messages, updating client stage, creating quotes, creating deals, creating/running lead campaigns, processing customer replies, and creating follow-up workflows.
+
+How it works:
+- When Global Agent generates a plan, each step is labeled as `Auto` or `Review` according to the current policy.
+- `Auto` steps run automatically after successful planning.
+- `Review` steps remain in the pending review plan and require **Approve & Execute** before running.
+- If automatic execution fails, the plan moves to `failed` and the failed step must be reviewed before continuing.
+- If AI planning fails and the system creates a safe fallback plan, that fallback plan is not auto-executed and must be reviewed manually.
+
+Recommended usage:
+- Keep customer-facing actions as `Review`, especially email, WhatsApp, quotes, and stage changes.
+- Use `Auto` for low-risk internal actions such as enrichment, internal comments, and lead prioritization.
+- Review this policy whenever new channels, AI models, or automation capabilities are added.
+
 ### Technology Stack
 - **Frontend:** React, TypeScript, Tailwind CSS, Zustand, Lucide Icons, jsPDF.
 - **Backend:** Express.js, PostgreSQL, JWT, bcrypt.
@@ -219,6 +247,34 @@ All Global Agent plans should require human approval before execution. If approv
 - 遇到重大变化时立即重新生成，例如 AI provider 调整、WhatsApp client quota 变化、邮件回复量突然增加、lead 来源变化或转化质量明显下降。
 
 所有 Global Agent 计划都应先经过人工审核。审核通过后，Agent 按审核后的计划执行；如果审核拒绝，应重新生成或人工调整计划后再执行。
+
+#### Agent Execution Policy / Agent 执行策略
+**Agent Execution Policy** 用来控制 Global Agent 生成计划后，哪些动作可以自动执行，哪些动作必须等待人工审核。
+
+配置位置：
+1. 打开 **Settings**。
+2. 进入 **AI & Integrations**。
+3. 找到 **Agent Execution Policy / Agent 执行策略**。
+4. 对每一种 Global Agent action type 设置：
+   - `Auto / 自动`：计划生成后，该步骤可以自动执行。
+   - `Review / 审核`：该步骤必须等待人工审核，通过后才执行。
+   - 风险等级：`Low / 低`、`Medium / 中`、`High / 高`。
+
+默认策略：
+- 默认自动执行：`enrich_client_data`、`add_client_comment`、`prioritize_leads`、`review_pipeline`。
+- 默认需要审核：发送邮件、发送 WhatsApp、更新客户阶段、创建报价、创建交易、创建/执行获客 campaign、处理客户回复、创建跟进 workflow。
+
+运行规则：
+- Global Agent 生成计划后，每个 step 会按照当前策略标记为 `Auto` 或 `Review`。
+- `Auto` 步骤会在计划生成成功后自动执行。
+- `Review` 步骤会留在待审核计划中，需要点击 **Approve & Execute** 后才执行。
+- 如果自动执行失败，计划会进入 `failed` 状态，需要先检查失败步骤，再继续执行。
+- 如果 AI 规划失败，系统生成的安全默认计划不会自动执行，必须人工审核。
+
+推荐使用方式：
+- 对客户外发动作保持 `Review`，尤其是邮件、WhatsApp、报价和客户阶段变更。
+- 对低风险内部动作使用 `Auto`，例如资料补全、内部 comments、线索优先级排序。
+- 每次新增渠道、AI 模型或自动化能力后，都应复查一次执行策略。
 
 ### 技术栈
 - **前端：** React、TypeScript、Tailwind CSS、Zustand、Lucide Icons、jsPDF。

@@ -202,6 +202,8 @@ export interface LeadCampaign {
 
 export type GlobalAgentPlanStatus = 'draft' | 'pending_review' | 'approved' | 'rejected' | 'running' | 'completed' | 'failed';
 export type GlobalAgentStepStatus = 'pending' | 'approved' | 'running' | 'completed' | 'failed' | 'skipped';
+export type AgentExecutionMode = 'auto' | 'review';
+export type AgentExecutionRisk = 'low' | 'medium' | 'high';
 export type GlobalAgentActionType =
   | 'create_lead_campaign'
   | 'run_lead_campaign'
@@ -223,10 +225,19 @@ export interface GlobalAgentPlanStep {
   description: string;
   actionType: GlobalAgentActionType;
   status: GlobalAgentStepStatus;
+  executionMode?: AgentExecutionMode;
+  risk?: AgentExecutionRisk;
   payload?: any;
   result?: string;
   error?: string;
 }
+
+export interface AgentExecutionPolicyRule {
+  mode: AgentExecutionMode;
+  risk: AgentExecutionRisk;
+}
+
+export type AgentExecutionPolicy = Record<GlobalAgentActionType, AgentExecutionPolicyRule>;
 
 export interface GlobalAgentPlan {
   id: string;
@@ -427,6 +438,8 @@ export interface StoreState {
   deleteLeadCampaign: (id: string) => void;
 
   globalAgentPlans: GlobalAgentPlan[];
+  agentExecutionPolicy: AgentExecutionPolicy;
+  updateAgentExecutionPolicy: (actionType: GlobalAgentActionType, updates: Partial<AgentExecutionPolicyRule>) => void;
   addGlobalAgentPlan: (plan: Omit<GlobalAgentPlan, 'id' | 'createdAt' | 'updatedAt'>) => string;
   updateGlobalAgentPlan: (id: string, updates: Partial<GlobalAgentPlan>) => void;
   updateGlobalAgentPlanStep: (planId: string, stepId: string, updates: Partial<GlobalAgentPlanStep>) => void;
@@ -620,6 +633,24 @@ const INITIAL_LEAD_DATA_CHANNEL_CONFIGS: Record<LeadDataProvider, LeadDataChanne
   clay: { enabled: false, apiKey: '', enrichEndpoint: '' }
 };
 
+export const INITIAL_AGENT_EXECUTION_POLICY: AgentExecutionPolicy = {
+  create_lead_campaign: { mode: 'review', risk: 'medium' },
+  run_lead_campaign: { mode: 'review', risk: 'medium' },
+  create_followup_workflow: { mode: 'review', risk: 'medium' },
+  process_customer_reply: { mode: 'review', risk: 'medium' },
+  send_email: { mode: 'review', risk: 'high' },
+  send_whatsapp: { mode: 'review', risk: 'high' },
+  update_client_stage: { mode: 'review', risk: 'high' },
+  add_client_comment: { mode: 'auto', risk: 'low' },
+  enrich_client_data: { mode: 'auto', risk: 'low' },
+  create_deal: { mode: 'review', risk: 'medium' },
+  create_quote: { mode: 'review', risk: 'high' },
+  prioritize_leads: { mode: 'auto', risk: 'low' },
+  review_pipeline: { mode: 'auto', risk: 'low' }
+};
+
+export const GLOBAL_AGENT_ACTION_TYPES = Object.keys(INITIAL_AGENT_EXECUTION_POLICY) as GlobalAgentActionType[];
+
 const INITIAL_ACHIEVEMENTS: Achievement[] = [
   { id: 'first_client', title: 'First Contact', description: 'Add your first client to the CRM.', icon: 'UserPlus', expReward: 100, unlockedAt: null },
   { id: 'networking', title: 'Networker', description: 'Grow your list to 10 clients.', icon: 'Users', expReward: 250, unlockedAt: null },
@@ -706,6 +737,16 @@ export const useStore = create<StoreState>((set, get) => ({
   })),
 
   globalAgentPlans: [],
+  agentExecutionPolicy: INITIAL_AGENT_EXECUTION_POLICY,
+  updateAgentExecutionPolicy: (actionType, updates) => set((state) => ({
+    agentExecutionPolicy: {
+      ...state.agentExecutionPolicy,
+      [actionType]: {
+        ...(state.agentExecutionPolicy[actionType] || INITIAL_AGENT_EXECUTION_POLICY[actionType]),
+        ...updates
+      }
+    }
+  })),
   addGlobalAgentPlan: (plan) => {
     const now = new Date().toISOString();
     const id = `global_agent_${Date.now()}`;
@@ -1935,6 +1976,9 @@ export const useStore = create<StoreState>((set, get) => ({
             : state.whatsappHubConfig,
           llmConfigs: settings.llmConfigs ?? state.llmConfigs,
           llmMappings: settings.llmMappings ?? state.llmMappings,
+          agentExecutionPolicy: settings.agentExecutionPolicy
+            ? { ...INITIAL_AGENT_EXECUTION_POLICY, ...settings.agentExecutionPolicy }
+            : state.agentExecutionPolicy,
           agentWorkflows: settings.agentWorkflows ?? state.agentWorkflows,
           leadCampaigns: settings.leadCampaigns ?? state.leadCampaigns,
           globalAgentPlans: settings.globalAgentPlans ?? state.globalAgentPlans,
@@ -2027,6 +2071,7 @@ useStore.subscribe((state, prevState) => {
     state.whatsappHubConfig !== prevState.whatsappHubConfig ||
     state.llmConfigs !== prevState.llmConfigs ||
     state.llmMappings !== prevState.llmMappings ||
+    state.agentExecutionPolicy !== prevState.agentExecutionPolicy ||
     state.agentWorkflows !== prevState.agentWorkflows ||
     state.leadCampaigns !== prevState.leadCampaigns ||
     state.globalAgentPlans !== prevState.globalAgentPlans ||
@@ -2057,6 +2102,7 @@ useStore.subscribe((state, prevState) => {
             whatsappHubConfig: state.whatsappHubConfig,
             llmConfigs: state.llmConfigs,
             llmMappings: state.llmMappings,
+            agentExecutionPolicy: state.agentExecutionPolicy,
             agentWorkflows: state.agentWorkflows,
             leadCampaigns: state.leadCampaigns,
             globalAgentPlans: state.globalAgentPlans,

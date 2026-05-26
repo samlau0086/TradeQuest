@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Bot, CheckCircle2, ClipboardCheck, Loader2, Play, ShieldCheck, Sparkles, Target, XCircle } from 'lucide-react';
 import { useAuthStore } from '../authStore';
-import { ClientStatus, GlobalAgentPlan, GlobalAgentPlanStep, LeadCampaign, LeadDataProvider, useStore } from '../store';
+import { AgentExecutionMode, AgentExecutionRisk, ClientStatus, GlobalAgentPlan, GlobalAgentPlanStep, LeadCampaign, LeadDataProvider, useStore } from '../store';
 
 const DEFAULT_OBJECTIVES = {
   en: 'Acquire high-quality leads and create an execution plan from public-pool claiming through first touch and ongoing conversion.',
@@ -148,6 +148,7 @@ export function GlobalAgent() {
     updateGlobalAgentPlan,
     updateGlobalAgentPlanStep,
     globalAgentPlans,
+    agentExecutionPolicy,
     addLeadCampaign,
     updateLeadCampaign,
     importPublicLeads,
@@ -223,6 +224,18 @@ export function GlobalAgent() {
     existingCampaigns: leadCampaigns.length
   }), [clients, publicClients, deals, quotes, emails, leadDataChannelConfigs, leadCampaigns]);
 
+  const withExecutionPolicy = <T extends Omit<GlobalAgentPlan, 'id' | 'createdAt' | 'updatedAt'>>(plan: T): T => ({
+    ...plan,
+    steps: plan.steps.map(step => {
+      const rule = agentExecutionPolicy[step.actionType] || { mode: 'review' as AgentExecutionMode, risk: 'medium' as AgentExecutionRisk };
+      return {
+        ...step,
+        executionMode: rule.mode,
+        risk: rule.risk
+      };
+    })
+  });
+
   const parsePlan = (text: string) => {
     try {
       const cleaned = text
@@ -238,7 +251,7 @@ export function GlobalAgent() {
       if (!jsonText) throw new Error('Missing JSON object');
       const parsed = JSON.parse(jsonText);
       if (!Array.isArray(parsed.steps)) throw new Error('Missing steps');
-      return {
+      const parsedPlan = {
         objective,
         summary: parsed.summary || (language === 'zh' ? '全局 Agent 已生成待审核计划。' : 'Global agent plan generated for review.'),
         status: 'pending_review' as const,
@@ -251,6 +264,7 @@ export function GlobalAgent() {
           payload: step.payload || {}
         }))
       };
+      return withExecutionPolicy(parsedPlan);
     } catch (error) {
       console.error('Global Agent plan parse failed:', error, text);
       throw error;
@@ -305,11 +319,14 @@ ${objective}`;
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || 'AI planner request failed');
       const text = data?.result || data?.response || '';
-      addGlobalAgentPlan(parsePlan(text));
+      const plan = parsePlan(text);
+      const planId = addGlobalAgentPlan(plan);
+      void executePolicyAutoSteps({ ...plan, id: planId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
       notify('Global Agent plan is ready for human review.', 'info');
     } catch (error) {
       console.error(error);
-      addGlobalAgentPlan(fallbackPlan(objective, language));
+      const plan = withExecutionPolicy(fallbackPlan(objective, language));
+      addGlobalAgentPlan(plan);
       notify('Global Agent AI planning failed. Check the Global Agent provider in AI & Integrations; a safe default plan was created for review.', 'warning');
     } finally {
       setPlanning(false);
@@ -659,6 +676,43 @@ ${objective}`;
     }
   };
 
+  const executePolicyAutoSteps = async (plan: GlobalAgentPlan) => {
+    const autoSteps = plan.steps.filter(step => step.executionMode === 'auto' && step.status === 'pending');
+    if (autoSteps.length === 0) return;
+
+    const reviewStepsRemain = plan.steps.some(step => step.executionMode !== 'auto' && !['completed', 'skipped'].includes(step.status));
+    setExecutingPlanId(plan.id);
+    updateGlobalAgentPlan(plan.id, { status: 'running' });
+
+    let campaignId = plan.steps
+      .filter(step => step.actionType === 'create_lead_campaign' && step.result?.startsWith('Campaign created: '))
+      .map(step => step.result?.replace('Campaign created: ', '').trim())
+      .filter(Boolean)
+      .at(-1);
+
+    try {
+      for (const step of autoSteps) {
+        campaignId = await executeStep(plan, step, campaignId) || campaignId;
+      }
+      updateGlobalAgentPlan(plan.id, {
+        status: reviewStepsRemain ? 'pending_review' : 'completed',
+        ...(reviewStepsRemain ? {} : { completedAt: new Date().toISOString() })
+      });
+      notify(
+        reviewStepsRemain
+          ? 'Low-risk Global Agent steps ran automatically. Remaining steps are waiting for review.'
+          : 'Global Agent plan completed automatically under the execution policy.',
+        'success'
+      );
+    } catch (error) {
+      console.error(error);
+      updateGlobalAgentPlan(plan.id, { status: 'failed' });
+      notify('Automatic Global Agent step failed. Review the failed step before continuing.', 'error');
+    } finally {
+      setExecutingPlanId(null);
+    }
+  };
+
   const approveAndExecute = async (plan: GlobalAgentPlan) => {
     setExecutingPlanId(plan.id);
     const executableSteps = plan.steps.map(step => (
@@ -797,7 +851,7 @@ ${objective}`;
                   {activePlan.status === 'pending_review' && (
                     <span className="text-xs text-amber-300 flex items-center gap-1">
                       <ShieldCheck className="w-3 h-3" />
-                      Human approval required
+                      Review-required steps are waiting for approval
                     </span>
                   )}
                 </div>
@@ -848,6 +902,24 @@ ${objective}`;
                     <div className="flex items-center gap-2">
                       {statusIcon(step.status)}
                       <h3 className="font-bold text-slate-100">{step.title}</h3>
+                      <span className={`text-[10px] px-2 py-0.5 rounded border ${
+                        step.executionMode === 'auto'
+                          ? 'bg-emerald-950/40 border-emerald-900 text-emerald-300'
+                          : 'bg-amber-950/40 border-amber-900 text-amber-300'
+                      }`}>
+                        {step.executionMode === 'auto' ? 'Auto' : 'Review'}
+                      </span>
+                      {step.risk && (
+                        <span className={`text-[10px] px-2 py-0.5 rounded border ${
+                          step.risk === 'high'
+                            ? 'bg-rose-950/40 border-rose-900 text-rose-300'
+                            : step.risk === 'medium'
+                              ? 'bg-amber-950/40 border-amber-900 text-amber-300'
+                              : 'bg-slate-900 border-slate-700 text-slate-300'
+                        }`}>
+                          {step.risk} risk
+                        </span>
+                      )}
                     </div>
                     <p className="text-sm text-slate-400 mt-1">{step.description}</p>
                     <div className="mt-3 text-xs text-slate-500 font-mono bg-slate-900 border border-slate-800 rounded-lg p-3 overflow-x-auto">
