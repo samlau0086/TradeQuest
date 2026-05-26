@@ -39,6 +39,8 @@ export function Kanban() {
     e.currentTarget.classList.remove('border-cyan-500/50', 'bg-cyan-950/10', 'column-drag-over');
     const dealId = e.dataTransfer.getData('dealId');
     if (dealId) {
+      const deal = useStore.getState().deals.find(d => d.id === dealId);
+      if (deal?.status === status) return;
       updateDeal(dealId, { status });
     }
   };

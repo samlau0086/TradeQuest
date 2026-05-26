@@ -1702,10 +1702,30 @@ No markdown wrappers, just valid JSON.`;
       values.push(req.user.uid);
       
       if (updates.length > 1) { // updated_at is always there
-        await pool.query(
-          `UPDATE deals SET ${updates.join(', ')} WHERE id = $${idx} AND user_id = $${idx + 1}`,
-          values
-        );
+        const dbClient = await pool.connect();
+        try {
+          await dbClient.query('BEGIN');
+          const result = await dbClient.query(
+            `UPDATE deals SET ${updates.join(', ')} WHERE id = $${idx} AND user_id = $${idx + 1} RETURNING client_id`,
+            values
+          );
+          if (result.rowCount === 0) {
+            await dbClient.query('ROLLBACK');
+            return res.status(404).json({ error: 'Deal not found' });
+          }
+          if (status !== undefined && result.rows[0].client_id) {
+            await dbClient.query(
+              `UPDATE clients SET status = $1, is_dormant = FALSE, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND user_id = $3`,
+              [status, result.rows[0].client_id, req.user.uid]
+            );
+          }
+          await dbClient.query('COMMIT');
+        } catch (e) {
+          await dbClient.query('ROLLBACK');
+          throw e;
+        } finally {
+          dbClient.release();
+        }
       }
       res.json({ success: true });
     } catch (e) {

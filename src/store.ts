@@ -1203,31 +1203,52 @@ export const useStore = create<StoreState>((set, get) => ({
 
   updateDeal: (id, updates) => {
     const deal = get().deals.find(d => d.id === id);
-    if (deal) {
-      if (updates.status && updates.status !== deal.status) {
-         get().addLog(deal.clientId, `Deal "${deal.name}" status updated to: ${updates.status}`);
-      } else {
-         get().addLog(deal.clientId, `Deal "${deal.name}" updated: ${Object.keys(updates).join(', ')}`);
-      }
-    }
-    
-    set((state) => {
-      if (updates.status === 'Closed Won') {
-        const d = state.deals.find(d => d.id === id);
-        if (d && d.status !== 'Closed Won') {
-          setTimeout(() => get().addExp(get().expConfig['event_win_deal'] ?? 100, 'Won a deal!'), 0);
+    if (!deal) return;
+
+    const statusChanged = updates.status !== undefined && updates.status !== deal.status;
+    const previousClient = deal.clientId ? get().clients.find(c => c.id === deal.clientId) : undefined;
+
+    set((state) => ({
+      deals: state.deals.map(d => d.id === id ? { ...d, ...updates } : d),
+      clients: statusChanged && deal.clientId
+        ? state.clients.map(c => c.id === deal.clientId ? { ...c, status: updates.status!, isDormant: false } : c)
+        : state.clients
+    }));
+
+    const persistUpdate = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (token) {
+          const dealRes = await fetch(`/api/deals/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify(updates)
+          });
+          if (!dealRes.ok) throw new Error('Deal update failed');
+
         }
+
+        if (statusChanged) {
+          get().addLog(deal.clientId, `Deal "${deal.name}" status updated to: ${updates.status}`);
+          if (updates.status === 'Closed Won') {
+            get().addExp(get().expConfig['event_win_deal'] ?? 100, 'Won a deal!');
+          }
+        } else {
+          get().addLog(deal.clientId, `Deal "${deal.name}" updated: ${Object.keys(updates).join(', ')}`);
+        }
+      } catch (err) {
+        console.error(err);
+        set((state) => ({
+          deals: state.deals.map(d => d.id === id ? deal : d),
+          clients: previousClient
+            ? state.clients.map(c => c.id === previousClient.id ? previousClient : c)
+            : state.clients
+        }));
+        get().notify(statusChanged ? 'Deal status update failed. Please try again.' : 'Deal update failed. Please try again.', 'error');
       }
-      const token = localStorage.getItem('token');
-      if (token) {
-        fetch(`/api/deals/${id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify(updates)
-        }).catch(console.error);
-      }
-      return { deals: state.deals.map(d => d.id === id ? { ...d, ...updates } : d) };
-    });
+    };
+
+    void persistUpdate();
   },
 
   deleteDeal: (id) => {
