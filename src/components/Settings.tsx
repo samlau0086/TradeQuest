@@ -1317,6 +1317,7 @@ export function Settings() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   {[
                     { key: 'magic', label: t('magicCommands'), desc: t('descMagic') },
+                    { key: 'agent_harness', label: t('agentHarness'), desc: t('descAgentHarness') },
                     { key: 'global_agent', label: t('globalAgent'), desc: t('descGlobalAgent') },
                     { key: 'drafting', label: t('emailDrafting'), desc: t('descDrafting') },
                     { key: 'analysis', label: t('clientAnalysis'), desc: t('descAnalysis') },

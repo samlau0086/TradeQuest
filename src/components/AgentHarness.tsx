@@ -96,7 +96,7 @@ export function AgentHarness() {
   const [runningId, setRunningId] = useState<string | null>(null);
 
   const activeRun = agentHarnessRuns[0] || null;
-  const plannerConfig = llmConfigs.find(config => config.id === (llmMappings.global_agent || activeLLMId)) || null;
+  const plannerConfig = llmConfigs.find(config => config.id === (llmMappings.agent_harness || activeLLMId)) || null;
 
   const context = useMemo(() => ({
     clients: clients.length,

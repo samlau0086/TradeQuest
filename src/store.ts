@@ -920,6 +920,7 @@ export const useStore = create<StoreState>((set, get) => ({
   }),
   llmMappings: {
     magic: null,
+    agent_harness: null,
     global_agent: null,
     drafting: null,
     analysis: null,
