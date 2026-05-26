@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarClock, FileText, FolderOpen, Loader2, MessageCircle, Paperclip, Send, Smile, X } from 'lucide-react';
-import { Client, MediaItem, useStore } from '../store';
+import { CalendarClock, FileText, FolderOpen, Loader2, MessageCircle, Paperclip, Plus, Send, Smile, Tag, User, X } from 'lucide-react';
+import { Client, Comment, MediaItem, useStore } from '../store';
 import { MediaSelectorModal } from './MediaSelectorModal';
 
 interface WhatsAppHubClient {
@@ -27,8 +27,19 @@ interface WhatsAppHubMessage {
 interface Props {
   client?: Client | null;
   phone: string;
+  conversation?: WhatsAppConversation | null;
   initialMessage?: string;
   onClose: () => void;
+}
+
+interface WhatsAppConversation {
+  id: string;
+  targetPhone: string;
+  clientId?: string;
+  clientName?: string;
+  clientCompany?: string;
+  tags: string[];
+  comments: Comment[];
 }
 
 const cleanPhone = (value: string) => value.replace(/[^0-9]/g, '');
@@ -41,12 +52,15 @@ const dataUrlToFile = async (dataUrl: string, name: string, mimeType: string) =>
   return new File([blob], name, { type: mimeType || blob.type || 'application/octet-stream' });
 };
 
-export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose }: Props) {
-  const { notify, addLog } = useStore();
+export function WhatsAppChatModal({ client, phone, conversation: initialConversation, initialMessage = '', onClose }: Props) {
+  const { notify, addLog, selectClient } = useStore();
   const [hubClients, setHubClients] = useState<WhatsAppHubClient[]>([]);
   const [messages, setMessages] = useState<WhatsAppHubMessage[]>([]);
+  const [conversation, setConversation] = useState<WhatsAppConversation | null>(initialConversation || null);
   const [selectedClientId, setSelectedClientId] = useState('');
   const [body, setBody] = useState(initialMessage);
+  const [tagInput, setTagInput] = useState('');
+  const [commentInput, setCommentInput] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedMedia, setSelectedMedia] = useState<MediaItem | null>(null);
   const [showMediaSelector, setShowMediaSelector] = useState(false);
@@ -73,6 +87,12 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
       setMessages((messagesData.messages || []).slice().reverse());
       const sticky = (messagesData.messages || []).find((message: WhatsAppHubMessage) => message.direction === 'outbound' && message.client_id)?.client_id;
       if (sticky) setSelectedClientId(sticky);
+      const conversationsRes = await fetch(`/api/whatsapp-hub/conversations?search=${encodeURIComponent(targetPhone)}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+      const conversationsData = await conversationsRes.json();
+      if (conversationsRes.ok) {
+        const matched = (conversationsData.conversations || []).find((item: WhatsAppConversation) => item.targetPhone === targetPhone);
+        if (matched) setConversation(matched);
+      }
     } catch (error: any) {
       notify(error.message || 'WhatsApp Actor Hub is not configured.', 'error');
     } finally {
@@ -88,6 +108,62 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
     const date = new Date(Date.now() + 15 * 60 * 1000);
     date.setSeconds(0, 0);
     return date.toISOString().slice(0, 16);
+  };
+
+  const updateConversationTags = async (nextTags: string[]) => {
+    if (!conversation?.id) return;
+    const response = await fetch(`/api/whatsapp-hub/conversations/${conversation.id}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify({ tags: nextTags })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Failed to update WhatsApp tags');
+    setConversation(prev => prev ? { ...prev, tags: nextTags } : prev);
+  };
+
+  const addTag = async () => {
+    const tag = tagInput.trim().replace(/^#/, '');
+    if (!tag || !conversation) return;
+    const nextTags = Array.from(new Set([...(conversation.tags || []), tag]));
+    try {
+      await updateConversationTags(nextTags);
+      setTagInput('');
+    } catch (error: any) {
+      notify(error.message || 'Failed to update WhatsApp tags.', 'error');
+    }
+  };
+
+  const removeTag = async (tag: string) => {
+    if (!conversation) return;
+    try {
+      await updateConversationTags((conversation.tags || []).filter(item => item !== tag));
+    } catch (error: any) {
+      notify(error.message || 'Failed to update WhatsApp tags.', 'error');
+    }
+  };
+
+  const addConversationComment = async () => {
+    if (!conversation?.id || !commentInput.trim()) return;
+    try {
+      const response = await fetch(`/api/whatsapp-hub/conversations/${conversation.id}/comments`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ content: commentInput })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to add WhatsApp comment');
+      setConversation(prev => prev ? { ...prev, comments: data.comments || [...(prev.comments || []), data.comment] } : prev);
+      setCommentInput('');
+    } catch (error: any) {
+      notify(error.message || 'Failed to add WhatsApp comment.', 'error');
+    }
   };
 
   const sendMessage = async () => {
@@ -183,7 +259,17 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
           <div className="flex items-center gap-3">
             <MessageCircle className="w-5 h-5 text-green-400" />
             <div>
-              <div className="font-bold text-white">{client?.name || targetPhone}</div>
+              {client ? (
+                <button
+                  onClick={() => selectClient(client.id)}
+                  className="font-bold text-white hover:text-cyan-300 hover:underline flex items-center gap-1"
+                >
+                  <User className="w-3.5 h-3.5" />
+                  {client.name}
+                </button>
+              ) : (
+                <div className="font-bold text-white">{conversation?.clientName || targetPhone}</div>
+              )}
               <div className="text-xs text-slate-500">{targetPhone}</div>
             </div>
           </div>
@@ -207,6 +293,56 @@ export function WhatsAppChatModal({ client, phone, initialMessage = '', onClose 
           </select>
           {loading && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
         </div>
+
+        {conversation && (
+          <div className="p-3 border-b border-slate-800 grid grid-cols-1 md:grid-cols-[1fr_1fr] gap-3 bg-slate-900">
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-1">
+                {(conversation.tags || []).map(tag => (
+                  <button key={tag} onClick={() => removeTag(tag)} className="inline-flex items-center gap-1 px-2 py-1 rounded bg-slate-800 hover:bg-red-950/40 text-xs text-cyan-300 hover:text-red-300 border border-slate-700">
+                    <Tag className="w-3 h-3" />
+                    {tag}
+                    <X className="w-3 h-3" />
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  value={tagInput}
+                  onChange={e => setTagInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') addTag(); }}
+                  placeholder="Add tag..."
+                  className="min-w-0 flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-200 outline-none"
+                />
+                <button onClick={addTag} className="px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="max-h-20 overflow-y-auto space-y-1">
+                {(conversation.comments || []).slice(-3).map(comment => (
+                  <div key={comment.id} className="text-[11px] bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-400">
+                    <span className="text-slate-300">{comment.content}</span>
+                    <span className="ml-2 text-slate-600">{new Date(comment.createdAt).toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  value={commentInput}
+                  onChange={e => setCommentInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') addConversationComment(); }}
+                  placeholder="Add conversation comment..."
+                  className="min-w-0 flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-200 outline-none"
+                />
+                <button onClick={addConversationComment} className="px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-950">
           {messages.length === 0 && !loading && (

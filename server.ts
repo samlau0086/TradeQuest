@@ -279,6 +279,43 @@ async function initDB() {
       CREATE INDEX IF NOT EXISTS idx_scheduled_whatsapp_due
       ON scheduled_whatsapp_messages (status, scheduled_at);
 
+      CREATE TABLE IF NOT EXISTS whatsapp_conversations (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        target_phone VARCHAR(64) NOT NULL,
+        client_id VARCHAR(128) REFERENCES clients(id) ON DELETE SET NULL,
+        tags JSONB DEFAULT '[]'::jsonb,
+        comments JSONB DEFAULT '[]'::jsonb,
+        last_message_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, target_phone)
+      );
+
+      CREATE TABLE IF NOT EXISTS whatsapp_messages (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        conversation_id VARCHAR(128) REFERENCES whatsapp_conversations(id) ON DELETE CASCADE,
+        client_id VARCHAR(128) REFERENCES clients(id) ON DELETE SET NULL,
+        hub_client_id VARCHAR(128),
+        direction VARCHAR(24) NOT NULL,
+        sender VARCHAR(128),
+        recipient VARCHAR(128),
+        target_phone VARCHAR(64) NOT NULL,
+        body TEXT DEFAULT '',
+        message_type VARCHAR(64),
+        payload JSONB,
+        source_created_at TIMESTAMP WITH TIME ZONE,
+        received_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_user_target
+      ON whatsapp_messages (user_id, target_phone, source_created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_whatsapp_conversations_user_updated
+      ON whatsapp_conversations (user_id, updated_at DESC);
+
       -- Migrate existing clients to a default deal if none exist for that client
       INSERT INTO deals (id, user_id, client_id, name, status, created_at, updated_at)
       SELECT 
@@ -651,6 +688,122 @@ No markdown wrappers, just valid JSON.`;
 
   const normalizeWhatsAppPhone = (value: string) => String(value || '').replace(/[^0-9]/g, '');
 
+  const phoneFromWhatsAppMessage = (message: any) => normalizeWhatsAppPhone(
+    message.direction === 'inbound' ? message.sender : message.recipient
+  );
+
+  const findClientForWhatsAppPhone = async (userId: string, phone: string) => {
+    if (!phone) return null;
+    const result = await pool.query(
+      `SELECT id FROM clients
+       WHERE user_id = $1
+         AND EXISTS (
+           SELECT 1 FROM jsonb_array_elements(contact_methods) elem
+           WHERE elem->>'type' IN ('whatsapp', 'phone')
+             AND regexp_replace(elem->>'value', '[^0-9]', '', 'g') LIKE $2
+         )
+       LIMIT 1`,
+      [userId, `%${phone.slice(-8)}`]
+    );
+    return result.rows[0]?.id || null;
+  };
+
+  const ensureWhatsAppConversation = async (userId: string, phone: string, clientId?: string | null, lastMessageAt?: string) => {
+    const conversationId = `wa_conv_${userId}_${phone}`;
+    const resolvedClientId = clientId || await findClientForWhatsAppPhone(userId, phone);
+    await pool.query(
+      `INSERT INTO whatsapp_conversations (id, user_id, target_phone, client_id, last_message_at)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (user_id, target_phone)
+       DO UPDATE SET
+         client_id = COALESCE(whatsapp_conversations.client_id, EXCLUDED.client_id),
+         last_message_at = GREATEST(COALESCE(whatsapp_conversations.last_message_at, EXCLUDED.last_message_at), COALESCE(EXCLUDED.last_message_at, whatsapp_conversations.last_message_at)),
+         updated_at = CURRENT_TIMESTAMP`,
+      [conversationId, userId, phone, resolvedClientId, lastMessageAt || null]
+    );
+    return { id: conversationId, clientId: resolvedClientId };
+  };
+
+  const upsertWhatsAppMessage = async (userId: string, message: any) => {
+    const targetPhone = phoneFromWhatsAppMessage(message);
+    if (!targetPhone) return;
+    const messageTime = message.created_at || message.received_at || new Date().toISOString();
+    const conversation = await ensureWhatsAppConversation(userId, targetPhone, null, messageTime);
+    const messageId = String(message.id || `wa_msg_${message.client_id || 'hub'}_${message.direction}_${targetPhone}_${new Date(messageTime).getTime()}`).slice(0, 128);
+    await pool.query(
+      `INSERT INTO whatsapp_messages
+       (id, user_id, conversation_id, client_id, hub_client_id, direction, sender, recipient, target_phone, body, message_type, payload, source_created_at, received_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+       ON CONFLICT (id)
+       DO UPDATE SET
+         client_id = COALESCE(whatsapp_messages.client_id, EXCLUDED.client_id),
+         body = EXCLUDED.body,
+         message_type = EXCLUDED.message_type,
+         payload = EXCLUDED.payload,
+         source_created_at = EXCLUDED.source_created_at,
+         received_at = EXCLUDED.received_at`,
+      [
+        messageId,
+        userId,
+        conversation.id,
+        conversation.clientId,
+        message.client_id || message.hubClientId || null,
+        message.direction || 'inbound',
+        message.sender || '',
+        message.recipient || '',
+        targetPhone,
+        message.body || '',
+        message.message_type || message.type || 'chat',
+        JSON.stringify(message.payload || {}),
+        message.created_at || messageTime,
+        message.received_at || null
+      ]
+    );
+  };
+
+  const syncWhatsAppHubMessages = async (userId: string, options: { targetPhone?: string; limit?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (options.targetPhone) params.set('targetPhone', options.targetPhone);
+    params.set('limit', String(Math.min(Math.max(options.limit || 100, 1), 200)));
+    const data = await callWhatsAppHub(userId, `/api/messages?${params.toString()}`);
+    const messages = Array.isArray(data.messages) ? data.messages : [];
+    for (const message of messages) {
+      await upsertWhatsAppMessage(userId, message);
+    }
+    return messages.length;
+  };
+
+  const mapWhatsAppMessageRow = (row: any) => ({
+    id: row.id,
+    client_id: row.hub_client_id,
+    clientId: row.client_id,
+    conversationId: row.conversation_id,
+    direction: row.direction,
+    sender: row.sender,
+    recipient: row.recipient,
+    targetPhone: row.target_phone,
+    body: row.body,
+    message_type: row.message_type,
+    payload: row.payload,
+    created_at: row.source_created_at || row.created_at,
+    received_at: row.received_at
+  });
+
+  const mapWhatsAppConversationRow = (row: any) => ({
+    id: row.id,
+    targetPhone: row.target_phone,
+    clientId: row.client_id,
+    clientName: row.client_name,
+    clientCompany: row.client_company,
+    tags: row.tags || [],
+    comments: row.comments || [],
+    lastMessageAt: row.last_message_at,
+    lastBody: row.last_body,
+    lastDirection: row.last_direction,
+    lastHubClientId: row.last_hub_client_id,
+    updatedAt: row.updated_at
+  });
+
   const isFutureDate = (value?: string) => {
     if (!value) return false;
     const time = new Date(value).getTime();
@@ -726,6 +879,17 @@ No markdown wrappers, just valid JSON.`;
         metadata: { source: 'tradequest-crm', ...(payload.metadata || {}) }
       })
     });
+    await upsertWhatsAppMessage(userId, {
+      id: String(data.task?.id || data.id || `wa_local_${Date.now()}_${Math.floor(Math.random() * 1000)}`),
+      client_id: clientId,
+      direction: 'outbound',
+      sender: clientId,
+      recipient: to,
+      body: payload.body || '',
+      message_type: payload.media ? 'media' : 'chat',
+      payload: { ...(payload.media ? { media: payload.media, hasMedia: true } : {}), ...(payload.metadata || {}) },
+      created_at: new Date().toISOString()
+    });
     return { ...data, selectedClientId: clientId, quota };
   };
 
@@ -764,14 +928,134 @@ No markdown wrappers, just valid JSON.`;
 
   app.get('/api/whatsapp-hub/messages', authenticateToken, async (req: any, res) => {
     try {
-      const params = new URLSearchParams();
-      for (const key of ['clientId', 'targetPhone', 'sender', 'chatId', 'limit']) {
-        if (req.query[key]) params.set(key, String(req.query[key]));
+      const targetPhone = req.query.targetPhone ? normalizeWhatsAppPhone(String(req.query.targetPhone)) : '';
+      const limit = Math.min(Math.max(Number(req.query.limit || 200), 1), 500);
+      await syncWhatsAppHubMessages(req.user.uid, { targetPhone, limit: Math.min(limit, 200) }).catch((err) => {
+        console.warn('WhatsApp Hub sync failed, returning local cache', err.message);
+      });
+
+      const values: any[] = [req.user.uid];
+      let where = 'm.user_id = $1';
+      if (targetPhone) {
+        values.push(targetPhone);
+        where += ` AND m.target_phone = $${values.length}`;
       }
-      const data = await callWhatsAppHub(req.user.uid, `/api/messages?${params.toString()}`);
-      res.json(data);
+      values.push(limit);
+      const result = await pool.query(
+        `SELECT m.*
+         FROM whatsapp_messages m
+         WHERE ${where}
+         ORDER BY COALESCE(m.source_created_at, m.created_at) DESC
+         LIMIT $${values.length}`,
+        values
+      );
+      res.json({ messages: result.rows.map(mapWhatsAppMessageRow) });
     } catch (e: any) {
       res.status(e.status || 500).json({ error: e.message || 'Failed to fetch WhatsApp messages' });
+    }
+  });
+
+  app.post('/api/whatsapp-hub/sync', authenticateToken, async (req: any, res) => {
+    try {
+      const targetPhone = req.body?.targetPhone ? normalizeWhatsAppPhone(req.body.targetPhone) : '';
+      const count = await syncWhatsAppHubMessages(req.user.uid, { targetPhone, limit: Number(req.body?.limit || 100) });
+      res.json({ success: true, count });
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message || 'Failed to sync WhatsApp messages' });
+    }
+  });
+
+  app.get('/api/whatsapp-hub/conversations', authenticateToken, async (req: any, res) => {
+    try {
+      await syncWhatsAppHubMessages(req.user.uid, { limit: 100 }).catch((err) => {
+        console.warn('WhatsApp Hub conversation sync failed, returning local cache', err.message);
+      });
+      const search = String(req.query.search || '').trim().toLowerCase();
+      const values: any[] = [req.user.uid];
+      let searchSql = '';
+      if (search) {
+        values.push(`%${search}%`);
+        searchSql = `AND (
+          lower(c.target_phone) LIKE $${values.length}
+          OR lower(COALESCE(cl.name, '')) LIKE $${values.length}
+          OR lower(COALESCE(cl.company, '')) LIKE $${values.length}
+          OR lower(COALESCE(last_msg.body, '')) LIKE $${values.length}
+          OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(c.tags) tag WHERE lower(tag) LIKE $${values.length})
+        )`;
+      }
+      const result = await pool.query(
+        `SELECT c.*, cl.name AS client_name, cl.company AS client_company,
+                last_msg.body AS last_body,
+                last_msg.direction AS last_direction,
+                last_msg.hub_client_id AS last_hub_client_id
+         FROM whatsapp_conversations c
+         LEFT JOIN clients cl ON cl.id = c.client_id
+         LEFT JOIN LATERAL (
+           SELECT body, direction, hub_client_id
+           FROM whatsapp_messages m
+           WHERE m.conversation_id = c.id
+           ORDER BY COALESCE(m.source_created_at, m.created_at) DESC
+           LIMIT 1
+         ) last_msg ON true
+         WHERE c.user_id = $1 ${searchSql}
+         ORDER BY COALESCE(c.last_message_at, c.updated_at) DESC
+         LIMIT 200`,
+        values
+      );
+      res.json({ conversations: result.rows.map(mapWhatsAppConversationRow) });
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message || 'Failed to load WhatsApp conversations' });
+    }
+  });
+
+  app.patch('/api/whatsapp-hub/conversations/:id', authenticateToken, async (req: any, res) => {
+    try {
+      const updates = [];
+      const values: any[] = [];
+      if (req.body.tags !== undefined) {
+        values.push(JSON.stringify(req.body.tags || []));
+        updates.push(`tags = $${values.length}`);
+      }
+      if (req.body.clientId !== undefined) {
+        values.push(req.body.clientId || null);
+        updates.push(`client_id = $${values.length}`);
+      }
+      if (updates.length === 0) return res.status(400).json({ error: 'No updates provided' });
+      values.push(req.params.id, req.user.uid);
+      const result = await pool.query(
+        `UPDATE whatsapp_conversations
+         SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $${values.length - 1} AND user_id = $${values.length}
+         RETURNING *`,
+        values
+      );
+      res.json({ conversation: result.rows[0] });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || 'Failed to update WhatsApp conversation' });
+    }
+  });
+
+  app.post('/api/whatsapp-hub/conversations/:id/comments', authenticateToken, async (req: any, res) => {
+    try {
+      const comment = {
+        id: `wac_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        author: req.user.email || 'User',
+        content: String(req.body.content || '').trim(),
+        createdAt: new Date().toISOString(),
+        replies: []
+      };
+      if (!comment.content) return res.status(400).json({ error: 'Comment is required' });
+      const result = await pool.query(
+        `UPDATE whatsapp_conversations
+         SET comments = COALESCE(comments, '[]'::jsonb) || $1::jsonb,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2 AND user_id = $3
+         RETURNING comments`,
+        [JSON.stringify([comment]), req.params.id, req.user.uid]
+      );
+      res.json({ comment, comments: result.rows[0]?.comments || [] });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || 'Failed to add WhatsApp conversation comment' });
     }
   });
 

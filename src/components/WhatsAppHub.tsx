@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarClock, Loader2, MessageCircle, RefreshCw, Send } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { CalendarClock, Loader2, MessageCircle, RefreshCw, Search, Send, Tag } from 'lucide-react';
 import { useStore } from '../store';
 import { WhatsAppChatModal } from './WhatsAppChatModal';
 
@@ -11,15 +11,18 @@ interface HubClient {
   quota?: { sentToday: number; dailyQuota: number; remaining: number; replyRate: number };
 }
 
-interface HubMessage {
+interface HubConversation {
   id: string;
-  client_id: string;
-  direction: 'inbound' | 'outbound';
-  sender: string;
-  recipient: string;
-  body: string;
-  created_at: string;
-  received_at?: string;
+  targetPhone: string;
+  clientId?: string;
+  clientName?: string;
+  clientCompany?: string;
+  tags: string[];
+  comments: any[];
+  lastMessageAt?: string;
+  lastBody?: string;
+  lastDirection?: 'inbound' | 'outbound';
+  lastHubClientId?: string;
 }
 
 interface ScheduledWhatsAppMessage {
@@ -33,35 +36,32 @@ interface ScheduledWhatsAppMessage {
   lastError?: string;
 }
 
-const phoneFromMessage = (message: HubMessage) => (
-  message.direction === 'inbound' ? message.sender : message.recipient
-).replace('@c.us', '').replace(/[^0-9]/g, '');
-
 export function WhatsAppHub() {
   const { clients, notify } = useStore();
   const [hubClients, setHubClients] = useState<HubClient[]>([]);
-  const [messages, setMessages] = useState<HubMessage[]>([]);
+  const [conversations, setConversations] = useState<HubConversation[]>([]);
   const [scheduledMessages, setScheduledMessages] = useState<ScheduledWhatsAppMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [manualPhone, setManualPhone] = useState('');
   const [chatPhone, setChatPhone] = useState('');
+  const [search, setSearch] = useState('');
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [clientsRes, messagesRes, scheduledRes] = await Promise.all([
+      const [clientsRes, conversationsRes, scheduledRes] = await Promise.all([
         fetch('/api/whatsapp-hub/clients', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }),
-        fetch('/api/whatsapp-hub/messages?limit=500', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }),
+        fetch(`/api/whatsapp-hub/conversations?search=${encodeURIComponent(search)}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }),
         fetch('/api/whatsapp-hub/scheduled', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
       ]);
       const clientsData = await clientsRes.json();
-      const messagesData = await messagesRes.json();
+      const conversationsData = await conversationsRes.json();
       const scheduledData = await scheduledRes.json();
       if (!clientsRes.ok) throw new Error(clientsData.error || 'Failed to load WhatsApp clients');
-      if (!messagesRes.ok) throw new Error(messagesData.error || 'Failed to load WhatsApp messages');
+      if (!conversationsRes.ok) throw new Error(conversationsData.error || 'Failed to load WhatsApp conversations');
       if (!scheduledRes.ok) throw new Error(scheduledData.error || 'Failed to load scheduled WhatsApp messages');
       setHubClients(clientsData.clients || []);
-      setMessages(messagesData.messages || []);
+      setConversations(conversationsData.conversations || []);
       setScheduledMessages(scheduledData.messages || []);
     } catch (error: any) {
       notify(error.message || 'WhatsApp Actor Hub is not configured.', 'error');
@@ -74,24 +74,16 @@ export function WhatsAppHub() {
     loadData();
   }, []);
 
-  const conversations = useMemo(() => {
-    const map = new Map<string, HubMessage>();
-    for (const message of messages) {
-      const phone = phoneFromMessage(message);
-      if (!phone) continue;
-      const existing = map.get(phone);
-      if (!existing || new Date(message.created_at || message.received_at).getTime() > new Date(existing.created_at || existing.received_at).getTime()) {
-        map.set(phone, message);
-      }
-    }
-    return Array.from(map.entries()).sort((a, b) => (
-      new Date(b[1].created_at || b[1].received_at).getTime() - new Date(a[1].created_at || a[1].received_at).getTime()
-    ));
-  }, [messages]);
+  useEffect(() => {
+    const timeout = window.setTimeout(loadData, 350);
+    return () => window.clearTimeout(timeout);
+  }, [search]);
 
   const matchClient = (phone: string) => clients.find(client => client.contactMethods?.some(method => (
     ['whatsapp', 'phone'].includes(method.type) && method.value.replace(/[^0-9]/g, '').endsWith(phone.slice(-8))
   )));
+
+  const activeConversation = conversations.find(conversation => conversation.targetPhone === chatPhone);
 
   const pendingScheduled = scheduledMessages.filter(message => message.status === 'pending').slice(0, 5);
 
@@ -121,6 +113,15 @@ export function WhatsAppHub() {
             >
               <Send className="w-4 h-4" />
             </button>
+          </div>
+          <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2">
+            <Search className="w-4 h-4 text-slate-500" />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search conversations, tags, clients..."
+              className="min-w-0 flex-1 bg-transparent text-sm outline-none text-slate-200 placeholder:text-slate-600"
+            />
           </div>
         </div>
         <div className="p-3 border-b border-slate-800">
@@ -164,13 +165,22 @@ export function WhatsAppHub() {
           </div>
         )}
         <div className="overflow-y-auto min-h-0">
-          {conversations.map(([phone, message]) => {
-            const client = matchClient(phone);
+          {conversations.map((conversation) => {
+            const phone = conversation.targetPhone;
+            const client = conversation.clientId ? clients.find(c => c.id === conversation.clientId) : matchClient(phone);
             return (
-              <button key={phone} onClick={() => setChatPhone(phone)} className="w-full text-left p-4 border-b border-slate-800 hover:bg-slate-800/60">
-                <div className="font-bold text-sm truncate">{client?.name || phone}</div>
-                <div className="text-xs text-slate-500 truncate mt-1">{message.body}</div>
-                <div className="text-[10px] text-slate-600 mt-1">{message.client_id}</div>
+              <button key={conversation.id} onClick={() => setChatPhone(phone)} className="w-full text-left p-4 border-b border-slate-800 hover:bg-slate-800/60">
+                <div className="font-bold text-sm truncate">{client?.name || conversation.clientName || phone}</div>
+                <div className="text-xs text-slate-500 truncate mt-1">{conversation.lastBody || 'Media message'}</div>
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {(conversation.tags || []).slice(0, 3).map(tag => (
+                    <span key={tag} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-800 text-[10px] text-cyan-300">
+                      <Tag className="w-2.5 h-2.5" />
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+                <div className="text-[10px] text-slate-600 mt-1">{conversation.lastHubClientId || 'local'} {conversation.lastMessageAt ? new Date(conversation.lastMessageAt).toLocaleString() : ''}</div>
               </button>
             );
           })}
@@ -185,7 +195,8 @@ export function WhatsAppHub() {
       {chatPhone && (
         <WhatsAppChatModal
           phone={chatPhone}
-          client={matchClient(chatPhone) || null}
+          client={(activeConversation?.clientId ? clients.find(c => c.id === activeConversation.clientId) : matchClient(chatPhone)) || null}
+          conversation={activeConversation || null}
           onClose={() => {
             setChatPhone('');
             loadData();
