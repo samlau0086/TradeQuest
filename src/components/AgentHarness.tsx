@@ -90,7 +90,8 @@ export function AgentHarness() {
     updateAgentHarnessStep,
     addGlobalAgentPlan,
     setView,
-    notify
+    notify,
+    sendExternalNotification
   } = useStore();
   const { token } = useAuthStore();
   const t = useTranslation(language);
@@ -171,12 +172,26 @@ ${objective}`;
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Agent Harness planning failed');
-      addAgentHarnessRun(parseRun(data.result || ''));
+      const run = parseRun(data.result || '');
+      const runId = addAgentHarnessRun(run);
       notify('Agent Harness run is ready for human review.', 'info');
+      void sendExternalNotification({
+        event: 'review_required',
+        title: 'Agent Harness run needs review',
+        body: run.summary,
+        metadata: { runId, source: 'agent-harness' }
+      });
     } catch (error) {
       console.error(error);
-      addAgentHarnessRun(fallbackRun(objective));
+      const run = fallbackRun(objective);
+      const runId = addAgentHarnessRun(run);
       notify('Agent Harness AI planning failed. A safe default run was created for review.', 'warning');
+      void sendExternalNotification({
+        event: 'review_required',
+        title: 'Agent Harness fallback run needs review',
+        body: run.summary,
+        metadata: { runId, source: 'agent-harness', fallback: true }
+      });
     } finally {
       setPlanning(false);
     }
@@ -227,6 +242,12 @@ ${objective}`;
     } catch (error: any) {
       updateAgentHarnessRun(run.id, { status: 'failed' });
       notify(error?.message || 'Agent Harness run failed.', 'error');
+      void sendExternalNotification({
+        event: 'execution_failed',
+        title: 'Agent Harness run failed',
+        body: error?.message || 'Review the failed Agent Harness step.',
+        metadata: { runId: run.id, source: 'agent-harness' }
+      });
     } finally {
       setRunningId(null);
     }

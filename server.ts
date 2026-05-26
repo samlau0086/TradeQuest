@@ -663,6 +663,73 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
+  const sendExternalNotification = async (
+    userId: string,
+    payload: { event: string; title: string; body: string; url?: string; metadata?: any }
+  ) => {
+    const result = await pool.query('SELECT settings FROM users WHERE id = $1', [userId]);
+    const settings = result.rows[0]?.settings || {};
+    const config = settings.externalNotificationConfig || {};
+    const events = config.events || {};
+    if (!config.enabled || events[payload.event] === false) return;
+
+    const jobs: Promise<any>[] = [];
+    if (config.barkEnabled && config.barkDeviceKey) {
+      const serverUrl = String(config.barkServerUrl || 'https://api.day.app').replace(/\/+$/, '');
+      const deviceKey = String(config.barkDeviceKey).trim().replace(/^\/+|\/+$/g, '');
+      const barkUrl = /^https?:\/\//i.test(deviceKey) ? deviceKey : `${serverUrl}/${encodeURIComponent(deviceKey)}`;
+      jobs.push(fetch(barkUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: payload.title,
+          body: payload.body,
+          url: payload.url,
+          group: 'TradeQuest',
+          level: payload.event === 'execution_failed' ? 'timeSensitive' : 'active'
+        })
+      }));
+    }
+
+    if (config.webhookEnabled && config.webhookUrl) {
+      jobs.push(fetch(String(config.webhookUrl), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          app: 'TradeQuest',
+          event: payload.event,
+          title: payload.title,
+          body: payload.body,
+          url: payload.url,
+          metadata: payload.metadata || {},
+          createdAt: new Date().toISOString()
+        })
+      }));
+    }
+
+    await Promise.allSettled(jobs);
+  };
+
+  app.post('/api/notifications/external', authenticateToken, async (req: any, res) => {
+    try {
+      const { event, title, body, url, metadata } = req.body || {};
+      if (!event || !title || !body) {
+        return res.status(400).json({ error: 'Missing notification event, title, or body' });
+      }
+      await sendExternalNotification(req.user.uid, {
+        event: String(event),
+        title: String(title).slice(0, 160),
+        body: String(body).slice(0, 1000),
+        url: url ? String(url) : undefined,
+        metadata
+      });
+      res.json({ success: true });
+    } catch (e) {
+      console.error('External notification failed', e);
+      res.status(500).json({ error: 'Failed to send external notification' });
+    }
+  });
+
   const getWhatsAppHubConfig = async (userId: string) => {
     const result = await pool.query('SELECT settings FROM users WHERE id = $1', [userId]);
     const settings = result.rows[0]?.settings || {};
@@ -3142,6 +3209,14 @@ No markdown wrappers, just valid JSON.`;
         } finally {
           await client.QUIT();
         }
+        if (syncedEmails.length > 0) {
+          await sendExternalNotification(req.user.uid, {
+            event: 'email_received',
+            title: 'New email received',
+            body: `${syncedEmails.length} new email(s) synced from ${username}.`,
+            metadata: { count: syncedEmails.length, mailbox: username, type }
+          }).catch(err => console.warn('Email external notification failed', err));
+        }
         return res.json({ success: true, count: syncedEmails.length });
       }
 
@@ -3252,6 +3327,14 @@ No markdown wrappers, just valid JSON.`;
         await client.logout();
       }
 
+      if (syncedEmails.length > 0) {
+        await sendExternalNotification(req.user.uid, {
+          event: 'email_received',
+          title: 'New email received',
+          body: `${syncedEmails.length} new email(s) synced from ${username}.`,
+          metadata: { count: syncedEmails.length, mailbox: username, type }
+        }).catch(err => console.warn('Email external notification failed', err));
+      }
       res.json({ success: true, count: syncedEmails.length });
     } catch (e: any) {
       console.error('Email Sync Failed:', e);

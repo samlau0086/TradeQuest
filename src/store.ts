@@ -124,6 +124,18 @@ export interface AppNotification {
   tone: NotificationTone;
 }
 
+export type ExternalNotificationEvent = 'email_received' | 'review_required' | 'execution_failed';
+
+export interface ExternalNotificationConfig {
+  enabled: boolean;
+  barkEnabled: boolean;
+  barkServerUrl: string;
+  barkDeviceKey: string;
+  webhookEnabled: boolean;
+  webhookUrl: string;
+  events: Record<ExternalNotificationEvent, boolean>;
+}
+
 export interface Client {
   id: string;
   name: string;
@@ -493,6 +505,9 @@ export interface StoreState {
 
   whatsappHubConfig: WhatsAppHubConfig;
   updateWhatsAppHubConfig: (updates: Partial<WhatsAppHubConfig>) => void;
+  externalNotificationConfig: ExternalNotificationConfig;
+  updateExternalNotificationConfig: (updates: Partial<ExternalNotificationConfig>) => void;
+  sendExternalNotification: (payload: { event: ExternalNotificationEvent; title: string; body: string; url?: string; metadata?: any }) => Promise<void>;
   
   view: ViewMode;
   setView: (view: ViewMode) => void;
@@ -621,6 +636,20 @@ const INITIAL_WHATSAPP_HUB_CONFIG: WhatsAppHubConfig = {
   apiToken: '',
   dailyBaseQuota: 40,
   minReplyRate: 0.25
+};
+
+const INITIAL_EXTERNAL_NOTIFICATION_CONFIG: ExternalNotificationConfig = {
+  enabled: false,
+  barkEnabled: false,
+  barkServerUrl: 'https://api.day.app',
+  barkDeviceKey: '',
+  webhookEnabled: false,
+  webhookUrl: '',
+  events: {
+    email_received: true,
+    review_required: true,
+    execution_failed: true
+  }
 };
 
 const INITIAL_LEAD_DATA_CHANNEL_CONFIGS: Record<LeadDataProvider, LeadDataChannelConfig> = {
@@ -1004,6 +1033,30 @@ export const useStore = create<StoreState>((set, get) => ({
   updateWhatsAppHubConfig: (updates) => set((state) => ({
     whatsappHubConfig: { ...state.whatsappHubConfig, ...updates }
   })),
+  externalNotificationConfig: INITIAL_EXTERNAL_NOTIFICATION_CONFIG,
+  updateExternalNotificationConfig: (updates) => set((state) => ({
+    externalNotificationConfig: {
+      ...state.externalNotificationConfig,
+      ...updates,
+      events: updates.events
+        ? { ...state.externalNotificationConfig.events, ...updates.events }
+        : state.externalNotificationConfig.events
+    }
+  })),
+  sendExternalNotification: async (payload) => {
+    const token = localStorage.getItem('token');
+    const config = get().externalNotificationConfig;
+    if (!token || !config.enabled || !config.events[payload.event]) return;
+    try {
+      await fetch('/api/notifications/external', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(payload)
+      });
+    } catch (error) {
+      console.warn('External notification failed', error);
+    }
+  },
 
   view: 'kanban',
   setView: (view) => set({ view }),
@@ -1974,6 +2027,13 @@ export const useStore = create<StoreState>((set, get) => ({
           whatsappHubConfig: settings.whatsappHubConfig
             ? { ...INITIAL_WHATSAPP_HUB_CONFIG, ...settings.whatsappHubConfig }
             : state.whatsappHubConfig,
+          externalNotificationConfig: settings.externalNotificationConfig
+            ? {
+                ...INITIAL_EXTERNAL_NOTIFICATION_CONFIG,
+                ...settings.externalNotificationConfig,
+                events: { ...INITIAL_EXTERNAL_NOTIFICATION_CONFIG.events, ...(settings.externalNotificationConfig.events || {}) }
+              }
+            : state.externalNotificationConfig,
           llmConfigs: settings.llmConfigs ?? state.llmConfigs,
           llmMappings: settings.llmMappings ?? state.llmMappings,
           agentExecutionPolicy: settings.agentExecutionPolicy
@@ -2069,6 +2129,7 @@ useStore.subscribe((state, prevState) => {
     state.inboxConfigs !== prevState.inboxConfigs ||
     state.outboxConfigs !== prevState.outboxConfigs ||
     state.whatsappHubConfig !== prevState.whatsappHubConfig ||
+    state.externalNotificationConfig !== prevState.externalNotificationConfig ||
     state.llmConfigs !== prevState.llmConfigs ||
     state.llmMappings !== prevState.llmMappings ||
     state.agentExecutionPolicy !== prevState.agentExecutionPolicy ||
@@ -2100,6 +2161,7 @@ useStore.subscribe((state, prevState) => {
             inboxConfigs: state.inboxConfigs,
             outboxConfigs: state.outboxConfigs,
             whatsappHubConfig: state.whatsappHubConfig,
+            externalNotificationConfig: state.externalNotificationConfig,
             llmConfigs: state.llmConfigs,
             llmMappings: state.llmMappings,
             agentExecutionPolicy: state.agentExecutionPolicy,

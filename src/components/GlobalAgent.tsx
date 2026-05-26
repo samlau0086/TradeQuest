@@ -162,7 +162,8 @@ export function GlobalAgent() {
     addDeal,
     addQuote,
     setView,
-    notify
+    notify,
+    sendExternalNotification
   } = useStore();
   const { token } = useAuthStore();
   const defaultObjective = DEFAULT_OBJECTIVES[language];
@@ -323,11 +324,23 @@ ${objective}`;
       const planId = addGlobalAgentPlan(plan);
       void executePolicyAutoSteps({ ...plan, id: planId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
       notify('Global Agent plan is ready for human review.', 'info');
+      void sendExternalNotification({
+        event: 'review_required',
+        title: 'Global Agent plan needs review',
+        body: plan.summary,
+        metadata: { planId, source: 'global-agent' }
+      });
     } catch (error) {
       console.error(error);
       const plan = withExecutionPolicy(fallbackPlan(objective, language));
-      addGlobalAgentPlan(plan);
+      const planId = addGlobalAgentPlan(plan);
       notify('Global Agent AI planning failed. Check the Global Agent provider in AI & Integrations; a safe default plan was created for review.', 'warning');
+      void sendExternalNotification({
+        event: 'review_required',
+        title: 'Global Agent fallback plan needs review',
+        body: plan.summary,
+        metadata: { planId, source: 'global-agent', fallback: true }
+      });
     } finally {
       setPlanning(false);
     }
@@ -708,6 +721,12 @@ ${objective}`;
       console.error(error);
       updateGlobalAgentPlan(plan.id, { status: 'failed' });
       notify('Automatic Global Agent step failed. Review the failed step before continuing.', 'error');
+      void sendExternalNotification({
+        event: 'execution_failed',
+        title: 'Global Agent automatic step failed',
+        body: error instanceof Error ? error.message : 'Review the failed Global Agent step before continuing.',
+        metadata: { planId: plan.id, source: 'global-agent-auto' }
+      });
     } finally {
       setExecutingPlanId(null);
     }
@@ -741,6 +760,12 @@ ${objective}`;
       console.error(error);
       updateGlobalAgentPlan(plan.id, { status: 'failed' });
       notify('Global Agent execution stopped. Review the failed step.', 'error');
+      void sendExternalNotification({
+        event: 'execution_failed',
+        title: 'Global Agent execution stopped',
+        body: error instanceof Error ? error.message : 'Review the failed Global Agent step.',
+        metadata: { planId: plan.id, source: 'global-agent' }
+      });
     } finally {
       setExecutingPlanId(null);
     }

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useStore, InboxConfig, OutboxConfig, LLMConfig, PaymentTerm, LeadDataProvider, EmailSignature, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType } from '../store';
 import { useAuthStore } from '../authStore';
-import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark, Clock, Book, Target, Trophy, Eye, EyeOff, MessageCircle } from 'lucide-react';
+import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark, Clock, Book, Target, Trophy, Eye, EyeOff, MessageCircle, Bell } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ProfileSettings } from './ProfileSettings';
 import { useTranslation } from '../lib/i18n';
@@ -34,6 +34,7 @@ export function Settings() {
     outscraperApiKey, setOutscraperApiKey,
     leadDataChannelConfigs, updateLeadDataChannelConfig,
     whatsappHubConfig, updateWhatsAppHubConfig,
+    externalNotificationConfig, updateExternalNotificationConfig, sendExternalNotification,
     dailyQuests, achievements
   } = useStore();
   const t = useTranslation(language);
@@ -1175,6 +1176,106 @@ export function Settings() {
                   />
                 </div>
               </div>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-300 px-1 flex items-center gap-2">
+                    <Bell className="w-4 h-4 text-amber-400" />
+                    Bark / Webhook Notifications
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1 px-1">Send external notifications when emails arrive or agent plans need review.</p>
+                </div>
+                <label className="flex items-center gap-2 text-xs text-slate-400">
+                  <input
+                    type="checkbox"
+                    checked={externalNotificationConfig.enabled}
+                    onChange={e => updateExternalNotificationConfig({ enabled: e.target.checked })}
+                    className="accent-amber-500"
+                  />
+                  Enabled
+                </label>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-950/60 p-4">
+                  <label className="flex items-center gap-2 text-xs text-slate-300 font-bold">
+                    <input
+                      type="checkbox"
+                      checked={externalNotificationConfig.barkEnabled}
+                      onChange={e => updateExternalNotificationConfig({ barkEnabled: e.target.checked })}
+                      className="accent-amber-500"
+                    />
+                    Bark
+                  </label>
+                  <input
+                    value={externalNotificationConfig.barkServerUrl}
+                    onChange={e => updateExternalNotificationConfig({ barkServerUrl: e.target.value })}
+                    placeholder="https://api.day.app"
+                    className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-amber-500"
+                  />
+                  <input
+                    type="password"
+                    value={externalNotificationConfig.barkDeviceKey}
+                    onChange={e => updateExternalNotificationConfig({ barkDeviceKey: e.target.value })}
+                    placeholder="Bark device key or full Bark URL"
+                    className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-950/60 p-4">
+                  <label className="flex items-center gap-2 text-xs text-slate-300 font-bold">
+                    <input
+                      type="checkbox"
+                      checked={externalNotificationConfig.webhookEnabled}
+                      onChange={e => updateExternalNotificationConfig({ webhookEnabled: e.target.checked })}
+                      className="accent-cyan-500"
+                    />
+                    Webhook
+                  </label>
+                  <input
+                    value={externalNotificationConfig.webhookUrl}
+                    onChange={e => updateExternalNotificationConfig({ webhookUrl: e.target.value })}
+                    placeholder="https://example.com/tradequest-webhook"
+                    className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                  />
+                  <p className="text-[11px] text-slate-500">Webhook receives JSON: app, event, title, body, url, metadata, createdAt.</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {[
+                  ['email_received', 'New email received / 收到新邮件'],
+                  ['review_required', 'Review required / 需要审核'],
+                  ['execution_failed', 'Execution failed / 执行失败']
+                ].map(([event, label]) => (
+                  <label key={event} className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={externalNotificationConfig.events[event as keyof typeof externalNotificationConfig.events]}
+                      onChange={e => updateExternalNotificationConfig({
+                        events: { ...externalNotificationConfig.events, [event]: e.target.checked }
+                      })}
+                      className="accent-amber-500"
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => sendExternalNotification({
+                  event: 'review_required',
+                  title: 'TradeQuest notification test',
+                  body: 'Bark / Webhook notifications are configured.',
+                  metadata: { source: 'settings-test' }
+                })}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-sm font-bold"
+              >
+                Send Test Notification
+              </button>
             </div>
 
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
