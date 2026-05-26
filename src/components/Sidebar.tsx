@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useStore } from '../store';
+import { Quest, useStore, ViewMode } from '../store';
 import { cn } from '../lib/utils';
 import { Swords, Trophy, KanbanSquare, Tags, Flame, Plus, Mail, Settings as SettingsIcon, Sun, Moon, Shield, Globe, Users, Package, FileText, Book, Image as ImageIcon, Bot, MessageCircle, Cpu } from 'lucide-react';
 import { ClientFormModal } from './ClientFormModal';
@@ -17,6 +17,19 @@ export function Sidebar() {
 
   const allTags = Array.from(new Set(clients.flatMap(c => c.tags)));
   const hasUnread = emails.some(e => !e.read && (e.type === 'inbox' || e.type === 'inbound'));
+  const getQuestTarget = (quest: Quest): ViewMode => {
+    if (quest.id === 'q1') return 'dormant';
+    if (quest.id === 'q2') return 'leads';
+    if (quest.id === 'q3') return 'followups';
+    if (quest.description.includes('Agent drafted instructions')) return 'followups';
+    if (quest.description.toLowerCase().includes('email')) return 'inbox';
+    return 'dashboard';
+  };
+
+  const handleQuestClick = (quest: Quest) => {
+    setKanbanSearch('');
+    setView(getQuestTarget(quest));
+  };
 
   return (
     <aside className="w-full h-full bg-slate-900 border-r border-slate-800 text-slate-300 flex flex-col pt-6 pb-4">
@@ -248,14 +261,20 @@ export function Sidebar() {
         </h3>
         <div className="space-y-2">
           {dailyQuests.map(quest => (
-            <div key={quest.id} className={cn("p-3 rounded-lg border text-sm transition-all relative overflow-hidden", 
-              quest.completed ? "bg-green-950/30 border-green-900/50 text-slate-500" : "bg-slate-800/50 border-slate-700/50 hover:border-cyan-500/50")}>
+            <button
+              key={quest.id}
+              type="button"
+              onClick={() => handleQuestClick(quest)}
+              className={cn("w-full text-left p-3 rounded-lg border text-sm transition-all relative overflow-hidden focus:outline-none focus:ring-2 focus:ring-cyan-500/50", 
+              quest.completed ? "bg-green-950/30 border-green-900/50 text-slate-500 hover:border-green-700/70" : "bg-slate-800/50 border-slate-700/50 hover:border-cyan-500/50 hover:bg-slate-800")}
+              title={`${t(quest.title)} - ${t(quest.description)}`}
+            >
               <div className="font-medium text-slate-200 mb-1">{t(quest.title)}</div>
               <div className="text-xs text-slate-400 truncate">{t(quest.description)}</div>
               {!quest.completed && (
                 <div className="text-cyan-400 text-xs font-bold mt-2">+{quest.expReward} EXP</div>
               )}
-            </div>
+            </button>
           ))}
         </div>
       </div>
