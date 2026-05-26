@@ -12,6 +12,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Create deployment env file
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: |
+          printf 'DATABASE_URL=%s\n' "$DATABASE_URL" > .env
+          printf 'GEMINI_API_KEY=%s\n' "$GEMINI_API_KEY" >> .env
+          printf 'JWT_SECRET=%s\n' "$JWT_SECRET" >> .env
+
       - name: Copy repository contents via scp
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -24,21 +34,20 @@ jobs:
           exclude: ".git,node_modules,dist"
 
       - name: Execute deployment on VPS
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USERNAME }}
-          key: ${{ secrets.VPS_PRIVATE_KEY }}
-          port: ${{ secrets.VPS_PORT || 22 }}
-          script: |
-            mkdir -p /opt/1panel/www/sites/ai-crm
-            cd /opt/1panel/www/sites/ai-crm
-            
-            # Optional: Write secrets to .env file if uncommented
-            echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" > .env
-            echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
-            echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
-            
-            # Rebuild and start the container
-            docker compose down || true
-            docker compose up -d --build
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USERNAME: ${{ secrets.VPS_USERNAME }}
+          VPS_PRIVATE_KEY: ${{ secrets.VPS_PRIVATE_KEY }}
+          VPS_PORT: ${{ secrets.VPS_PORT || 22 }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$VPS_PORT" "$VPS_HOST" >> ~/.ssh/known_hosts
+
+          ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USERNAME@$VPS_HOST" \
+            "set -e; \
+             mkdir -p /opt/1panel/www/sites/ai-crm; \
+             cd /opt/1panel/www/sites/ai-crm; \
+             docker compose down || true; \
+             docker compose up -d --build"
