@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { useAuthStore } from './authStore';
 
-export type ViewMode = 'kanban' | 'map' | 'inbox' | 'whatsapp-hub' | 'dashboard' | 'global-agent' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests' | 'list' | 'products' | 'quotes' | 'knowledge-base' | 'media-library';
+export type ViewMode = 'kanban' | 'map' | 'inbox' | 'whatsapp-hub' | 'dashboard' | 'agent-harness' | 'global-agent' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests' | 'list' | 'products' | 'quotes' | 'knowledge-base' | 'media-library';
 
 export type ClientStatus = 'Leads' | 'Contacted' | 'Sample Sent' | 'Negotiating' | 'Closed Won'; // Kept for legacy compatibility if needed, better to rename to DealStage but will keep for now.
 
@@ -242,6 +242,37 @@ export interface GlobalAgentPlan {
   completedAt?: string;
 }
 
+export type AgentHarnessRunStatus = 'draft' | 'pending_review' | 'approved' | 'rejected' | 'running' | 'completed' | 'failed';
+export type AgentHarnessStepStatus = 'pending' | 'approved' | 'running' | 'completed' | 'failed' | 'skipped';
+export type AgentHarnessRisk = 'low' | 'medium' | 'high';
+
+export interface AgentHarnessStep {
+  id: string;
+  agentId: string;
+  title: string;
+  description: string;
+  tool: string;
+  risk: AgentHarnessRisk;
+  status: AgentHarnessStepStatus;
+  payload?: any;
+  result?: string;
+  error?: string;
+}
+
+export interface AgentHarnessRun {
+  id: string;
+  objective: string;
+  summary: string;
+  status: AgentHarnessRunStatus;
+  steps: AgentHarnessStep[];
+  createdAt: string;
+  updatedAt: string;
+  approvedAt?: string;
+  rejectedAt?: string;
+  rejectedReason?: string;
+  completedAt?: string;
+}
+
 export interface ClientEditRequest {
   id: number;
   client_id: string;
@@ -399,6 +430,11 @@ export interface StoreState {
   addGlobalAgentPlan: (plan: Omit<GlobalAgentPlan, 'id' | 'createdAt' | 'updatedAt'>) => string;
   updateGlobalAgentPlan: (id: string, updates: Partial<GlobalAgentPlan>) => void;
   updateGlobalAgentPlanStep: (planId: string, stepId: string, updates: Partial<GlobalAgentPlanStep>) => void;
+
+  agentHarnessRuns: AgentHarnessRun[];
+  addAgentHarnessRun: (run: Omit<AgentHarnessRun, 'id' | 'createdAt' | 'updatedAt'>) => string;
+  updateAgentHarnessRun: (id: string, updates: Partial<AgentHarnessRun>) => void;
+  updateAgentHarnessStep: (runId: string, stepId: string, updates: Partial<AgentHarnessStep>) => void;
 
   knowledgeBase: KnowledgeItem[];
   fetchKnowledgeBase: () => void;
@@ -697,6 +733,37 @@ export const useStore = create<StoreState>((set, get) => ({
             steps: plan.steps.map(step => step.id === stepId ? { ...step, ...updates } : step)
           }
         : plan
+    ))
+  })),
+
+  agentHarnessRuns: [],
+  addAgentHarnessRun: (run) => {
+    const now = new Date().toISOString();
+    const id = `agent_harness_${Date.now()}`;
+    set((state) => ({
+      agentHarnessRuns: [{
+        ...run,
+        id,
+        createdAt: now,
+        updatedAt: now
+      }, ...state.agentHarnessRuns]
+    }));
+    return id;
+  },
+  updateAgentHarnessRun: (id, updates) => set((state) => ({
+    agentHarnessRuns: state.agentHarnessRuns.map(run => (
+      run.id === id ? { ...run, ...updates, updatedAt: new Date().toISOString() } : run
+    ))
+  })),
+  updateAgentHarnessStep: (runId, stepId, updates) => set((state) => ({
+    agentHarnessRuns: state.agentHarnessRuns.map(run => (
+      run.id === runId
+        ? {
+            ...run,
+            updatedAt: new Date().toISOString(),
+            steps: run.steps.map(step => step.id === stepId ? { ...step, ...updates } : step)
+          }
+        : run
     ))
   })),
 
@@ -1849,6 +1916,7 @@ export const useStore = create<StoreState>((set, get) => ({
           agentWorkflows: settings.agentWorkflows ?? state.agentWorkflows,
           leadCampaigns: settings.leadCampaigns ?? state.leadCampaigns,
           globalAgentPlans: settings.globalAgentPlans ?? state.globalAgentPlans,
+          agentHarnessRuns: settings.agentHarnessRuns ?? state.agentHarnessRuns,
           leadDataChannelConfigs: settings.leadDataChannelConfigs
             ? { ...INITIAL_LEAD_DATA_CHANNEL_CONFIGS, ...settings.leadDataChannelConfigs }
             : state.leadDataChannelConfigs,
@@ -1940,6 +2008,7 @@ useStore.subscribe((state, prevState) => {
     state.agentWorkflows !== prevState.agentWorkflows ||
     state.leadCampaigns !== prevState.leadCampaigns ||
     state.globalAgentPlans !== prevState.globalAgentPlans ||
+    state.agentHarnessRuns !== prevState.agentHarnessRuns ||
     state.leadDataChannelConfigs !== prevState.leadDataChannelConfigs ||
     state.outscraperApiKey !== prevState.outscraperApiKey ||
     state.activeLLMId !== prevState.activeLLMId ||
@@ -1969,6 +2038,7 @@ useStore.subscribe((state, prevState) => {
             agentWorkflows: state.agentWorkflows,
             leadCampaigns: state.leadCampaigns,
             globalAgentPlans: state.globalAgentPlans,
+            agentHarnessRuns: state.agentHarnessRuns,
             leadDataChannelConfigs: state.leadDataChannelConfigs,
             outscraperApiKey: state.outscraperApiKey,
             activeLLMId: state.activeLLMId,

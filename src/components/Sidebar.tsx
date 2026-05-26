@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useStore } from '../store';
 import { cn } from '../lib/utils';
-import { Swords, Trophy, KanbanSquare, Tags, Flame, Plus, Mail, Settings as SettingsIcon, Sun, Moon, Shield, Globe, Users, Package, FileText, Book, Image as ImageIcon, Bot, MessageCircle } from 'lucide-react';
+import { Swords, Trophy, KanbanSquare, Tags, Flame, Plus, Mail, Settings as SettingsIcon, Sun, Moon, Shield, Globe, Users, Package, FileText, Book, Image as ImageIcon, Bot, MessageCircle, Cpu } from 'lucide-react';
 import { ClientFormModal } from './ClientFormModal';
 import { ExpHistoryModal } from './ExpHistoryModal';
 import { useAuthStore } from '../authStore';
@@ -95,6 +95,14 @@ export function Sidebar() {
             )}
           </div>
           {t('inbox')}
+        </button>
+        <button 
+          onClick={() => setView('agent-harness')}
+          className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors", 
+            view === 'agent-harness' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
+        >
+          <Cpu className="w-5 h-5 text-fuchsia-400" />
+          Agent Harness
         </button>
         <button 
           onClick={() => setView('global-agent')}

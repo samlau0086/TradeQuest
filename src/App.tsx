@@ -26,6 +26,7 @@ import { QuotesList } from './components/QuotesList';
 import { MediaLibrary } from './components/MediaLibrary';
 import { NotificationCenter } from './components/NotificationCenter';
 import { GlobalAgent } from './components/GlobalAgent';
+import { AgentHarness } from './components/AgentHarness';
 import { WhatsAppHub } from './components/WhatsAppHub';
 
 export default function App() {
@@ -165,6 +166,7 @@ export default function App() {
            view === 'list' ? <PipelineList /> :
            view === 'products' ? <ProductsList /> :
            view === 'quotes' ? <QuotesList /> :
+           view === 'agent-harness' ? <AgentHarness /> :
            view === 'global-agent' ? <GlobalAgent /> :
            view === 'whatsapp-hub' ? <WhatsAppHub /> :
            view === 'clients' ? <ClientsList /> :
