@@ -29,24 +29,38 @@ jobs:
           VPS_PRIVATE_KEY: ${{ secrets.VPS_PRIVATE_KEY }}
           VPS_PORT: ${{ secrets.VPS_PORT || 22 }}
         run: |
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$VPS_PRIVATE_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p "$VPS_PORT" "$VPS_HOST" >> ~/.ssh/known_hosts
+          set -Eeuo pipefail
+          trap 'echo "::error::Deployment failed at line $LINENO while running: $BASH_COMMAND"' ERR
 
-          ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USERNAME@$VPS_HOST" \
-            "mkdir -p /opt/1panel/www/sites/ai-crm"
+          if [ -z "${VPS_HOST:-}" ] || [ -z "${VPS_USERNAME:-}" ] || [ -z "${VPS_PRIVATE_KEY:-}" ]; then
+            echo "::error::Missing one of VPS_HOST, VPS_USERNAME, or VPS_PRIVATE_KEY secrets."
+            exit 1
+          fi
+
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          SSH_OPTS="-i ~/.ssh/deploy_key -p $VPS_PORT -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30"
+          DEPLOY_TARGET="/opt/1panel/www/sites/ai-crm"
+
+          echo "Testing SSH connection..."
+          ssh $SSH_OPTS "$VPS_USERNAME@$VPS_HOST" "whoami && mkdir -p '$DEPLOY_TARGET' && test -w '$DEPLOY_TARGET'"
+
+          echo "Syncing files to VPS..."
+          rsync --version | head -n 1
 
           rsync -az --delete \
             --exclude '.git' \
             --exclude 'node_modules' \
             --exclude 'dist' \
-            -e "ssh -i ~/.ssh/deploy_key -p $VPS_PORT" \
-            ./ "$VPS_USERNAME@$VPS_HOST:/opt/1panel/www/sites/ai-crm/"
+            -e "ssh $SSH_OPTS" \
+            ./ "$VPS_USERNAME@$VPS_HOST:$DEPLOY_TARGET/"
 
-          ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USERNAME@$VPS_HOST" \
+          echo "Rebuilding containers..."
+          ssh $SSH_OPTS "$VPS_USERNAME@$VPS_HOST" \
             "set -e; \
-             mkdir -p /opt/1panel/www/sites/ai-crm; \
-             cd /opt/1panel/www/sites/ai-crm; \
+             cd '$DEPLOY_TARGET'; \
+             docker compose version; \
              docker compose down || true; \
              docker compose up -d --build"
