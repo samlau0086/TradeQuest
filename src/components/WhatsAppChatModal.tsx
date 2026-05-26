@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { CalendarClock, FileText, FolderOpen, Loader2, MessageCircle, Paperclip, Plus, Send, Smile, Tag, User, X } from 'lucide-react';
 import { Client, Comment, MediaItem, useStore } from '../store';
 import { MediaSelectorModal } from './MediaSelectorModal';
+import { useTranslation } from '../lib/i18n';
 
 interface WhatsAppHubClient {
   id: string;
@@ -53,7 +54,8 @@ const dataUrlToFile = async (dataUrl: string, name: string, mimeType: string) =>
 };
 
 export function WhatsAppChatModal({ client, phone, conversation: initialConversation, initialMessage = '', onClose }: Props) {
-  const { notify, addLog, selectClient } = useStore();
+  const { notify, addLog, selectClient, language } = useStore();
+  const t = useTranslation(language);
   const [hubClients, setHubClients] = useState<WhatsAppHubClient[]>([]);
   const [messages, setMessages] = useState<WhatsAppHubMessage[]>([]);
   const [conversation, setConversation] = useState<WhatsAppConversation | null>(initialConversation || null);
@@ -284,7 +286,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
             onChange={e => setSelectedClientId(e.target.value)}
             className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none"
           >
-            <option value="">Random / Sticky client</option>
+            <option value="">{t('randomStickyClient')}</option>
             {hubClients.map(client => (
               <option key={client.id} value={client.id}>
                 {client.name || client.id} ({client.status}) {client.quota ? `quota ${client.quota.remaining}/${client.quota.dailyQuota}` : ''}
@@ -311,7 +313,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
                   value={tagInput}
                   onChange={e => setTagInput(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') addTag(); }}
-                  placeholder="Add tag..."
+                  placeholder={t('addTag')}
                   className="min-w-0 flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-200 outline-none"
                 />
                 <button onClick={addTag} className="px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">
@@ -333,7 +335,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
                   value={commentInput}
                   onChange={e => setCommentInput(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') addConversationComment(); }}
-                  placeholder="Add conversation comment..."
+                  placeholder={t('addConversationComment')}
                   className="min-w-0 flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-200 outline-none"
                 />
                 <button onClick={addConversationComment} className="px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">
@@ -346,7 +348,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-950">
           {messages.length === 0 && !loading && (
-            <div className="text-center text-slate-500 text-sm py-10">No WhatsApp messages yet.</div>
+            <div className="text-center text-slate-500 text-sm py-10">{t('noWhatsAppMessages')}</div>
           )}
           {messages.map(message => (
             <div key={message.id} className={`flex ${message.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
@@ -354,7 +356,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
                 {(message.payload?.hasMedia || message.message_type !== 'chat') && (
                   <div className="flex items-center gap-2 text-xs opacity-80 mb-1">
                     <FileText className="w-3 h-3" />
-                    {message.payload?.filename || message.payload?.type || message.message_type || 'media'}
+                    {message.payload?.filename || message.payload?.type || message.message_type || t('mediaMessage')}
                   </div>
                 )}
                 <div>{message.body}</div>
@@ -401,7 +403,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
           {scheduleEnabled && (
             <div className="flex flex-wrap items-center gap-3 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm">
               <CalendarClock className="w-4 h-4 text-amber-400" />
-              <span className="text-slate-400">Send later</span>
+              <span className="text-slate-400">{t('sendLater')}</span>
               <input
                 type="datetime-local"
                 value={scheduleDateTime}
@@ -409,7 +411,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
                 onChange={e => setScheduleDateTime(e.target.value)}
                 className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-slate-200 outline-none focus:border-amber-500"
               />
-              <span className="text-xs text-slate-500">If no client is available at that time, it will retry until one can send.</span>
+              <span className="text-xs text-slate-500">{t('whatsappRetryHint')}</span>
             </div>
           )}
           <div className="flex gap-3">
@@ -425,7 +427,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
                   }}
                 />
               </label>
-              <button onClick={() => setShowMediaSelector(true)} className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg" title="Select from media library">
+              <button onClick={() => setShowMediaSelector(true)} className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg" title={t('selectFromMediaLibrary')}>
                 <FolderOpen className="w-5 h-5" />
               </button>
               <button onClick={() => setShowEmoji(!showEmoji)} className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg">
@@ -440,7 +442,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
                   });
                 }}
                 className={`p-2 rounded-lg ${scheduleEnabled ? 'bg-amber-600 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}
-                title="Schedule message"
+                title={t('scheduleMessage')}
               >
                 <CalendarClock className="w-5 h-5" />
               </button>
@@ -448,7 +450,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
             <textarea
               value={body}
               onChange={e => setBody(e.target.value)}
-              placeholder="Type a WhatsApp message..."
+              placeholder={t('typeWhatsAppMessage')}
               className="flex-1 min-h-16 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 outline-none resize-none focus:border-green-500"
             />
             <button
@@ -457,7 +459,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
               className="px-4 py-2 bg-green-600 hover:bg-green-500 disabled:bg-slate-800 disabled:text-slate-500 rounded-xl font-bold text-white flex items-center gap-2 self-end"
             >
               {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              {scheduleEnabled ? 'Schedule' : 'Send'}
+              {scheduleEnabled ? t('schedule') : t('send')}
             </button>
           </div>
         </div>

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { CalendarClock, Loader2, MessageCircle, RefreshCw, Search, Send, Tag } from 'lucide-react';
 import { useStore } from '../store';
 import { WhatsAppChatModal } from './WhatsAppChatModal';
+import { useTranslation } from '../lib/i18n';
 
 interface HubClient {
   id: string;
@@ -37,7 +38,8 @@ interface ScheduledWhatsAppMessage {
 }
 
 export function WhatsAppHub() {
-  const { clients, notify } = useStore();
+  const { clients, notify, language } = useStore();
+  const t = useTranslation(language);
   const [hubClients, setHubClients] = useState<HubClient[]>([]);
   const [conversations, setConversations] = useState<HubConversation[]>([]);
   const [scheduledMessages, setScheduledMessages] = useState<ScheduledWhatsAppMessage[]>([]);
@@ -94,7 +96,7 @@ export function WhatsAppHub() {
           <div className="flex items-center justify-between">
             <h1 className="text-lg font-black flex items-center gap-2">
               <MessageCircle className="w-5 h-5 text-green-400" />
-              WhatsApp Hub
+              {t('whatsappHub')}
             </h1>
             <button onClick={loadData} className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700">
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
@@ -104,7 +106,7 @@ export function WhatsAppHub() {
             <input
               value={manualPhone}
               onChange={e => setManualPhone(e.target.value)}
-              placeholder="Add phone..."
+              placeholder={t('addPhone')}
               className="min-w-0 flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none"
             />
             <button
@@ -119,13 +121,13 @@ export function WhatsAppHub() {
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Search conversations, tags, clients..."
+              placeholder={t('searchWhatsApp')}
               className="min-w-0 flex-1 bg-transparent text-sm outline-none text-slate-200 placeholder:text-slate-600"
             />
           </div>
         </div>
         <div className="p-3 border-b border-slate-800">
-          <div className="text-xs font-bold uppercase text-slate-500 mb-2">Actor Clients</div>
+          <div className="text-xs font-bold uppercase text-slate-500 mb-2">{t('actorClients')}</div>
           <div className="space-y-2">
             {hubClients.map(client => (
               <div key={client.id} className="bg-slate-950 border border-slate-800 rounded-lg p-3">
@@ -146,7 +148,7 @@ export function WhatsAppHub() {
           <div className="p-3 border-b border-slate-800">
             <div className="text-xs font-bold uppercase text-slate-500 mb-2 flex items-center gap-2">
               <CalendarClock className="w-3 h-3 text-amber-400" />
-              Scheduled
+              {t('scheduled')}
             </div>
             <div className="space-y-2">
               {pendingScheduled.map(message => (
@@ -155,9 +157,9 @@ export function WhatsAppHub() {
                     <span className="font-bold text-slate-200 truncate">{matchClient(message.to)?.name || message.to}</span>
                     <span className="text-amber-400 shrink-0">{new Date(message.scheduledAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                   </div>
-                  <div className="text-[11px] text-slate-500 truncate mt-1">{message.body || 'Media message'}</div>
+                  <div className="text-[11px] text-slate-500 truncate mt-1">{message.body || t('mediaMessage')}</div>
                   {message.lastError && (
-                    <div className="text-[10px] text-rose-400 truncate mt-1">Waiting: {message.lastError}</div>
+                    <div className="text-[10px] text-rose-400 truncate mt-1">{t('waiting')}: {message.lastError}</div>
                   )}
                 </button>
               ))}
@@ -171,7 +173,7 @@ export function WhatsAppHub() {
             return (
               <button key={conversation.id} onClick={() => setChatPhone(phone)} className="w-full text-left p-4 border-b border-slate-800 hover:bg-slate-800/60">
                 <div className="font-bold text-sm truncate">{client?.name || conversation.clientName || phone}</div>
-                <div className="text-xs text-slate-500 truncate mt-1">{conversation.lastBody || 'Media message'}</div>
+                <div className="text-xs text-slate-500 truncate mt-1">{conversation.lastBody || t('mediaMessage')}</div>
                 <div className="flex flex-wrap gap-1 mt-2">
                   {(conversation.tags || []).slice(0, 3).map(tag => (
                     <span key={tag} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-800 text-[10px] text-cyan-300">
@@ -180,7 +182,7 @@ export function WhatsAppHub() {
                     </span>
                   ))}
                 </div>
-                <div className="text-[10px] text-slate-600 mt-1">{conversation.lastHubClientId || 'local'} {conversation.lastMessageAt ? new Date(conversation.lastMessageAt).toLocaleString() : ''}</div>
+                <div className="text-[10px] text-slate-600 mt-1">{conversation.lastHubClientId || t('local')} {conversation.lastMessageAt ? new Date(conversation.lastMessageAt).toLocaleString() : ''}</div>
               </button>
             );
           })}
@@ -189,7 +191,7 @@ export function WhatsAppHub() {
       <main className="min-h-0 flex items-center justify-center text-slate-500">
         <div className="text-center">
           <MessageCircle className="w-12 h-12 mx-auto mb-3 text-slate-700" />
-          Select a conversation or add a phone number to start.
+          {t('selectConversation')}
         </div>
       </main>
       {chatPhone && (

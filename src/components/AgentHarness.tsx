@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Bot, CheckCircle2, ClipboardCheck, Cpu, Loader2, Play, ShieldCheck, Sparkles, XCircle } from 'lucide-react';
 import { useAuthStore } from '../authStore';
 import { AgentHarnessRun, AgentHarnessStep, useStore } from '../store';
+import { useTranslation } from '../lib/i18n';
 
 const AGENTS = [
   {
@@ -82,6 +83,7 @@ export function AgentHarness() {
     llmConfigs,
     llmMappings,
     activeLLMId,
+    language,
     agentHarnessRuns,
     addAgentHarnessRun,
     updateAgentHarnessRun,
@@ -91,6 +93,7 @@ export function AgentHarness() {
     notify
   } = useStore();
   const { token } = useAuthStore();
+  const t = useTranslation(language);
   const [objective, setObjective] = useState(DEFAULT_OBJECTIVE);
   const [planning, setPlanning] = useState(false);
   const [runningId, setRunningId] = useState<string | null>(null);
@@ -253,14 +256,14 @@ ${objective}`;
           <div>
             <h1 className="text-3xl font-bold flex items-center gap-3">
               <Cpu className="w-8 h-8 text-fuchsia-400" />
-              Agent Harness
+              {t('agentHarness')}
             </h1>
             <p className="text-slate-400 mt-2 max-w-3xl">
-              Unified harness for agent registry, tool permissions, risk review, execution handoffs, and audit trails.
+              {t('agentHarnessSubtitle')}
             </p>
           </div>
           <button onClick={() => setView('global-agent')} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm font-bold">
-            Global Agent
+            {t('globalAgent')}
           </button>
         </div>
 
@@ -269,9 +272,9 @@ ${objective}`;
             <div key={agent.id} className="bg-slate-950 border border-slate-800 rounded-xl p-4">
               <div className="flex items-center gap-2 font-bold text-slate-100">
                 <Bot className="w-4 h-4 text-cyan-400" />
-                {agent.name}
+                {t(agent.id === 'global_agent' ? 'globalConversionAgent' : agent.id === 'follow_up_agent' ? 'aiFollowUpAgent' : agent.id === 'whatsapp_agent' ? 'whatsappInboxAgent' : 'leadDataAgent')}
               </div>
-              <p className="text-xs text-slate-500 mt-2 leading-relaxed">{agent.goal}</p>
+              <p className="text-xs text-slate-500 mt-2 leading-relaxed">{t(agent.id === 'global_agent' ? 'globalConversionAgentGoal' : agent.id === 'follow_up_agent' ? 'aiFollowUpAgentGoal' : agent.id === 'whatsapp_agent' ? 'whatsappInboxAgentGoal' : 'leadDataAgentGoal')}</p>
               <div className="flex flex-wrap gap-1 mt-3">
                 {agent.tools.slice(0, 4).map(tool => (
                   <span key={tool} className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px] text-slate-400">{tool}</span>
@@ -282,7 +285,7 @@ ${objective}`;
         </section>
 
         <section className="bg-slate-950 border border-slate-800 rounded-xl p-5 space-y-4">
-          <div className="text-sm font-bold uppercase tracking-wider text-slate-300">Harness Objective</div>
+          <div className="text-sm font-bold uppercase tracking-wider text-slate-300">{t('harnessObjective')}</div>
           <textarea
             value={objective}
             onChange={e => setObjective(e.target.value)}
@@ -290,11 +293,11 @@ ${objective}`;
           />
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             {[
-              ['Clients', context.clients],
-              ['Unread Emails', context.unreadEmails],
-              ['Campaigns', context.campaigns],
+              [t('Clients'), context.clients],
+              [t('Unread Emails'), context.unreadEmails],
+              [t('campaigns'), context.campaigns],
               ['WhatsApp', context.whatsappEnabled ? 'On' : 'Off'],
-              ['Lead Channels', context.enabledLeadChannels.length]
+              [t('leadChannels'), context.enabledLeadChannels.length]
             ].map(([label, value]) => (
               <div key={label} className="bg-slate-900 border border-slate-800 rounded-lg p-3">
                 <div className="text-xs text-slate-500">{label}</div>
@@ -308,9 +311,9 @@ ${objective}`;
             className="px-4 py-2 bg-fuchsia-600 hover:bg-fuchsia-500 disabled:bg-slate-800 disabled:text-slate-500 rounded-lg font-bold flex items-center gap-2"
           >
             {planning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            Generate Harness Run
+            {t('generateHarnessRun')}
           </button>
-          <div className="text-xs text-slate-500">Planner: {plannerConfig?.name || 'Default internal AI'}</div>
+          <div className="text-xs text-slate-500">{t('planner')}: {plannerConfig?.name || t('defaultInternalAI')}</div>
         </section>
 
         {activeRun && (
@@ -322,7 +325,7 @@ ${objective}`;
                   {activeRun.status === 'pending_review' && (
                     <span className="text-xs text-amber-300 flex items-center gap-1">
                       <ShieldCheck className="w-3 h-3" />
-                      Human approval required
+                      {t('humanApprovalRequired')}
                     </span>
                   )}
                 </div>
@@ -337,7 +340,7 @@ ${objective}`;
                     className="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:bg-slate-800 disabled:text-slate-500 border border-slate-700 rounded-lg font-bold flex items-center gap-2"
                   >
                     <XCircle className="w-4 h-4" />
-                    Reject
+                    {t('Reject')}
                   </button>
                   <button
                     onClick={() => approveAndRun(activeRun)}
@@ -345,7 +348,7 @@ ${objective}`;
                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 rounded-lg font-bold flex items-center gap-2"
                   >
                     {runningId === activeRun.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                    Approve & Run
+                    {t('approveRun')}
                   </button>
                 </div>
               )}
@@ -360,7 +363,7 @@ ${objective}`;
                       <h3 className="font-bold text-slate-100">{step.title}</h3>
                       <span className="text-[10px] px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-cyan-300">{step.agentId}</span>
                       <span className="text-[10px] px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-400">{step.tool}</span>
-                      <span className={`text-[10px] px-2 py-0.5 rounded border ${step.risk === 'high' ? 'bg-rose-950/40 border-rose-900 text-rose-300' : step.risk === 'medium' ? 'bg-amber-950/40 border-amber-900 text-amber-300' : 'bg-emerald-950/40 border-emerald-900 text-emerald-300'}`}>{step.risk} risk</span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded border ${step.risk === 'high' ? 'bg-rose-950/40 border-rose-900 text-rose-300' : step.risk === 'medium' ? 'bg-amber-950/40 border-amber-900 text-amber-300' : 'bg-emerald-950/40 border-emerald-900 text-emerald-300'}`}>{t(step.risk === 'high' ? 'highRisk' : step.risk === 'medium' ? 'mediumRisk' : 'lowRisk')}</span>
                     </div>
                     <p className="text-sm text-slate-400 mt-1">{step.description}</p>
                     <pre className="mt-3 text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-lg p-3 overflow-x-auto">{JSON.stringify(step.payload || {}, null, 2)}</pre>
