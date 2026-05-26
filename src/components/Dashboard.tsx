@@ -1,11 +1,134 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useStore } from '../store';
-import { Trophy, Star, History, Flame, ArrowUpCircle, Award, Target, CheckCircle2, ChevronDown, Clock, Mail } from 'lucide-react';
+import { Trophy, Star, History, Flame, ArrowUpCircle, Award, Target, CheckCircle2, ChevronDown, Clock, Mail, Users, DollarSign, BarChart3, Activity, Send, Globe2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useTranslation } from '../lib/i18n';
 
+const PIPELINE_STAGES = ['Leads', 'Contacted', 'Sample Sent', 'Negotiating', 'Closed Won'];
+
+function MetricCard({ icon, label, value, subtext, tone = 'cyan' }: { icon: React.ReactNode; label: string; value: string | number; subtext?: string; tone?: 'cyan' | 'emerald' | 'amber' | 'rose' }) {
+  const toneClass = {
+    cyan: 'text-cyan-400 bg-cyan-950/30 border-cyan-900/40',
+    emerald: 'text-emerald-400 bg-emerald-950/30 border-emerald-900/40',
+    amber: 'text-amber-400 bg-amber-950/30 border-amber-900/40',
+    rose: 'text-rose-400 bg-rose-950/30 border-rose-900/40'
+  }[tone];
+
+  return (
+    <div className="bg-slate-950/50 rounded-xl p-4 border border-slate-800 shadow-sm min-h-[112px]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs text-slate-500 uppercase font-bold">{label}</div>
+          <div className="text-2xl font-black text-white mt-2">{value}</div>
+        </div>
+        <div className={cn('w-10 h-10 rounded-lg border flex items-center justify-center shrink-0', toneClass)}>
+          {icon}
+        </div>
+      </div>
+      {subtext && <div className="text-xs text-slate-500 mt-3 truncate">{subtext}</div>}
+    </div>
+  );
+}
+
+function BarListChart({ rows, emptyLabel }: { rows: { label: string; value: number; color: string }[]; emptyLabel: string }) {
+  const maxValue = Math.max(1, ...rows.map(row => row.value));
+  const hasData = rows.some(row => row.value > 0);
+
+  if (!hasData) {
+    return <div className="h-48 flex items-center justify-center text-sm text-slate-500">{emptyLabel}</div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      {rows.map(row => (
+        <div key={row.label}>
+          <div className="flex items-center justify-between text-xs mb-1.5">
+            <span className="text-slate-400">{row.label}</span>
+            <span className="font-bold text-slate-200">{row.value}</span>
+          </div>
+          <div className="h-2.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+            <div className={cn('h-full rounded-full transition-all duration-700', row.color)} style={{ width: `${Math.max(4, (row.value / maxValue) * 100)}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SparklineChart({ points, color = 'stroke-cyan-400' }: { points: number[]; color?: string }) {
+  const width = 320;
+  const height = 120;
+  const max = Math.max(1, ...points);
+  const step = points.length > 1 ? width / (points.length - 1) : width;
+  const path = points.map((value, index) => {
+    const x = index * step;
+    const y = height - (value / max) * (height - 14) - 7;
+    return `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
+  }).join(' ');
+
+  return (
+    <div className="h-40">
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-32 overflow-visible">
+        <path d={path} fill="none" className={cn(color, 'stroke-[3]')} strokeLinecap="round" strokeLinejoin="round" />
+        {points.map((value, index) => {
+          const x = index * step;
+          const y = height - (value / max) * (height - 14) - 7;
+          return <circle key={index} cx={x} cy={y} r="3.5" className="fill-slate-950 stroke-cyan-400 stroke-2" />;
+        })}
+      </svg>
+      <div className="grid grid-cols-7 text-[10px] text-slate-500">
+        {points.map((_, index) => <span key={index} className="text-center">{index === points.length - 1 ? 'Today' : `-${points.length - 1 - index}d`}</span>)}
+      </div>
+    </div>
+  );
+}
+
+function DonutChart({ rows, emptyLabel }: { rows: { label: string; value: number; color: string }[]; emptyLabel: string }) {
+  const total = rows.reduce((sum, row) => sum + row.value, 0);
+  if (total === 0) {
+    return <div className="h-48 flex items-center justify-center text-sm text-slate-500">{emptyLabel}</div>;
+  }
+
+  let offset = 0;
+  return (
+    <div className="flex items-center gap-6">
+      <svg viewBox="0 0 120 120" className="w-32 h-32 shrink-0 -rotate-90">
+        <circle cx="60" cy="60" r="42" className="fill-none stroke-slate-900" strokeWidth="16" />
+        {rows.map(row => {
+          const dash = (row.value / total) * 263.89;
+          const circle = (
+            <circle
+              key={row.label}
+              cx="60"
+              cy="60"
+              r="42"
+              className={cn('fill-none', row.color)}
+              strokeWidth="16"
+              strokeDasharray={`${dash} 263.89`}
+              strokeDashoffset={-offset}
+            />
+          );
+          offset += dash;
+          return circle;
+        })}
+      </svg>
+      <div className="space-y-3 min-w-0 flex-1">
+        {rows.map(row => (
+          <div key={row.label} className="flex items-center justify-between gap-3 text-xs">
+            <span className="text-slate-400 flex items-center gap-2 min-w-0">
+              <span className={cn('w-2.5 h-2.5 rounded-full shrink-0', row.color.replace('stroke-', 'bg-'))} />
+              <span className="truncate">{row.label}</span>
+            </span>
+            <span className="font-bold text-slate-200">{row.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function Dashboard() {
-  const { userExp, userLevel, userTitle, currentStreak, dailyQuests, expLogs, setView, skipQuest, language, emails } = useStore();
+  const { userExp, userLevel, userTitle, currentStreak, dailyQuests, expLogs, setView, skipQuest, language, emails, clients, deals, quotes, logs, leadCampaigns, publicClients } = useStore();
   const t = useTranslation(language);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -38,6 +161,65 @@ export function Dashboard() {
     return todoTime - now < 24 * 60 * 60 * 1000 && !e.pendingDelete;
   }).sort((a, b) => new Date(a.todoAt!).getTime() - new Date(b.todoAt!).getTime());
 
+  const operations = useMemo(() => {
+    const today = new Date();
+    const dayKeys = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(today);
+      date.setDate(today.getDate() - (6 - index));
+      return date.toISOString().slice(0, 10);
+    });
+
+    const clientStageRows = PIPELINE_STAGES.map((stage, index) => ({
+      label: t(stage),
+      value: clients.filter(client => client.status === stage).length,
+      color: ['bg-sky-500', 'bg-cyan-500', 'bg-amber-500', 'bg-fuchsia-500', 'bg-emerald-500'][index]
+    }));
+
+    const dealStageRows = PIPELINE_STAGES.map((stage, index) => ({
+      label: t(stage),
+      value: deals.filter(deal => deal.status === stage).length,
+      color: ['bg-sky-500', 'bg-cyan-500', 'bg-amber-500', 'bg-fuchsia-500', 'bg-emerald-500'][index]
+    }));
+
+    const activityTrend = dayKeys.map(key => (
+      logs.filter(log => log.date.slice(0, 10) === key).length +
+      emails.filter(email => email.date.slice(0, 10) === key).length
+    ));
+
+    const emailRows = [
+      { label: t('Unread'), value: emails.filter(email => !email.read && (email.type === 'inbox' || email.type === 'inbound')).length, color: 'stroke-rose-400' },
+      { label: t('Inbound'), value: emails.filter(email => email.type === 'inbox' || email.type === 'inbound').length, color: 'stroke-cyan-400' },
+      { label: t('Sent'), value: emails.filter(email => email.type === 'sent' || email.type === 'outbound').length, color: 'stroke-emerald-400' },
+      { label: t('Scheduled'), value: emails.filter(email => email.type === 'scheduled').length, color: 'stroke-amber-400' }
+    ];
+
+    const campaignRows = [
+      { label: t('Imported Leads'), value: leadCampaigns.reduce((sum, campaign) => sum + (campaign.importedCount || 0), 0), color: 'bg-emerald-500' },
+      { label: t('Active Campaigns'), value: leadCampaigns.filter(campaign => campaign.status === 'running').length, color: 'bg-cyan-500' },
+      { label: t('Saved Campaigns'), value: leadCampaigns.length, color: 'bg-violet-500' },
+      { label: t('Public Pool'), value: publicClients.length, color: 'bg-amber-500' }
+    ];
+
+    const dealValue = deals.reduce((sum, deal) => sum + (Number(deal.value) || 0), 0);
+    const wonValue = deals.filter(deal => deal.status === 'Closed Won').reduce((sum, deal) => sum + (Number(deal.value) || 0), 0);
+    const openTodos = emails.filter(email => email.todoAt && !email.pendingDelete).length;
+    const quoteDrafts = quotes.filter(quote => String(quote.status).toLowerCase() === 'draft').length;
+    const conversionRate = clients.length > 0 ? Math.round((clients.filter(client => client.status === 'Closed Won').length / clients.length) * 100) : 0;
+
+    return {
+      clientStageRows,
+      dealStageRows,
+      activityTrend,
+      emailRows,
+      campaignRows,
+      dealValue,
+      wonValue,
+      openTodos,
+      quoteDrafts,
+      conversionRate
+    };
+  }, [clients, deals, emails, leadCampaigns, logs, publicClients, quotes, t]);
+
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin bg-slate-900 border-t border-slate-800 p-6">
       <div className="w-full space-y-8 flex flex-col min-h-full">
@@ -58,6 +240,72 @@ export function Dashboard() {
             </div>
           </div>
         </div>
+
+        <section className="space-y-5">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <BarChart3 className="w-5 h-5 text-cyan-400" /> {t('Operations Monitor')}
+              </h2>
+              <p className="text-sm text-slate-500 mt-1">{t('Lead acquisition, pipeline health, communication load, and conversion signals.')}</p>
+            </div>
+            <button
+              onClick={() => setView('global-agent')}
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm font-bold text-slate-200"
+            >
+              {t('Open Global Agent')}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            <MetricCard icon={<Users className="w-5 h-5" />} label={t('Total Clients')} value={clients.length} subtext={t('{count}% closed-won conversion').replace('{count}', String(operations.conversionRate))} tone="cyan" />
+            <MetricCard icon={<DollarSign className="w-5 h-5" />} label={t('Pipeline Value')} value={`$${operations.dealValue.toLocaleString()}`} subtext={t('Won: {value}').replace('{value}', `$${operations.wonValue.toLocaleString()}`)} tone="emerald" />
+            <MetricCard icon={<Mail className="w-5 h-5" />} label={t('Unread Emails')} value={operations.emailRows[0].value} subtext={t('{count} open follow-up todos').replace('{count}', String(operations.openTodos))} tone={operations.emailRows[0].value > 0 ? 'amber' : 'cyan'} />
+            <MetricCard icon={<Globe2 className="w-5 h-5" />} label={t('Public Pool')} value={publicClients.length} subtext={t('{count} saved campaigns').replace('{count}', String(leadCampaigns.length))} tone="rose" />
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <div className="bg-slate-950/50 rounded-2xl p-6 border border-slate-800 shadow-sm">
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
+                  <Target className="w-4 h-4 text-cyan-400" /> {t('Client Pipeline')}
+                </h3>
+                <button onClick={() => setView('kanban')} className="text-xs text-cyan-400 hover:text-cyan-300 font-bold">{t('View Kanban')}</button>
+              </div>
+              <BarListChart rows={operations.clientStageRows} emptyLabel={t('No client pipeline data yet.')} />
+            </div>
+
+            <div className="bg-slate-950/50 rounded-2xl p-6 border border-slate-800 shadow-sm">
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-emerald-400" /> {t('Activity Trend')}
+                </h3>
+                <span className="text-xs text-slate-500">{t('Last 7 days')}</span>
+              </div>
+              <SparklineChart points={operations.activityTrend} />
+            </div>
+
+            <div className="bg-slate-950/50 rounded-2xl p-6 border border-slate-800 shadow-sm">
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
+                  <Send className="w-4 h-4 text-amber-400" /> {t('Email Load')}
+                </h3>
+                <button onClick={() => setView('inbox')} className="text-xs text-cyan-400 hover:text-cyan-300 font-bold">{t('Open Inbox')}</button>
+              </div>
+              <DonutChart rows={operations.emailRows} emptyLabel={t('No email activity yet.')} />
+            </div>
+
+            <div className="bg-slate-950/50 rounded-2xl p-6 border border-slate-800 shadow-sm">
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
+                  <Globe2 className="w-4 h-4 text-violet-400" /> {t('Acquisition Funnel')}
+                </h3>
+                <button onClick={() => setView('public-pool')} className="text-xs text-cyan-400 hover:text-cyan-300 font-bold">{t('Public Pool')}</button>
+              </div>
+              <BarListChart rows={operations.campaignRows} emptyLabel={t('No lead acquisition data yet.')} />
+            </div>
+          </div>
+        </section>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 flex-1 pb-8">
           
