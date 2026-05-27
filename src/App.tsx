@@ -56,6 +56,60 @@ export default function App() {
   useEffect(() => {
     if (!token) return;
 
+    const runDueAgents = () => {
+      const state = useStore.getState();
+      const now = Date.now();
+      state.agentHubAgents
+        .filter(agent => agent.status === 'active' && agent.scheduleEnabled)
+        .forEach(agent => {
+          const intervalMs = Math.max(15, Number(agent.scheduleIntervalMinutes || 1440)) * 60 * 1000;
+          const lastRun = agent.lastRunAt ? new Date(agent.lastRunAt).getTime() : 0;
+          if (lastRun && now - lastRun < intervalMs) return;
+
+          const reviewStatus = agent.guardrail === 'auto' ? 'approved' : 'pending_review';
+          const objective = `Scheduled run for ${agent.name}: ${agent.instructions}`;
+          if (agent.id === 'global_agent') {
+            state.addGlobalAgentPlan({
+              objective,
+              summary: `Scheduled Global Agent run: ${agent.name}`,
+              status: reviewStatus,
+              steps: [{
+                id: `step_${Date.now()}_${agent.id}`,
+                title: 'Scheduled Global Agent review',
+                description: agent.instructions,
+                actionType: 'review_pipeline',
+                status: 'pending',
+                payload: { source: 'agent-hub-schedule', agentId: agent.id, tools: agent.tools }
+              }]
+            });
+          } else {
+            state.addAgentHarnessRun({
+              objective,
+              summary: `Scheduled Agent Hub run: ${agent.name}`,
+              status: reviewStatus,
+              steps: [{
+                id: `hstep_${Date.now()}_${agent.id}`,
+                agentId: agent.id,
+                title: `Run ${agent.name}`,
+                description: agent.instructions,
+                tool: agent.tools[0] || 'agent.run',
+                risk: agent.guardrail === 'auto' ? 'low' : 'medium',
+                status: 'pending',
+                payload: { source: 'agent-hub-schedule', agentId: agent.id, tools: agent.tools }
+              }]
+            });
+          }
+          state.updateAgentHubAgent(agent.id, {
+            lastRunAt: new Date(now).toISOString(),
+            tasksCompleted: agent.tasksCompleted + (agent.guardrail === 'auto' ? 1 : 0)
+          });
+          state.notify(`${agent.name} scheduled run created.`, 'info');
+        });
+    };
+
+    runDueAgents();
+    const agentInterval = window.setInterval(runDueAgents, 60 * 1000);
+
     const syncDueInboxConfigs = async () => {
       const currentConfigs = useStore.getState().inboxConfigs.filter(config => config.type === 'imap' || config.type === 'pop3');
       if (currentConfigs.length === 0) return;
@@ -98,7 +152,10 @@ export default function App() {
 
     syncDueInboxConfigs();
     const interval = window.setInterval(syncDueInboxConfigs, 60 * 1000);
-    return () => window.clearInterval(interval);
+    return () => {
+      window.clearInterval(interval);
+      window.clearInterval(agentInterval);
+    };
   }, [token, inboxConfigs, fetchEmails]);
 
   useEffect(() => {

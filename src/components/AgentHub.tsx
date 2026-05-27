@@ -29,6 +29,8 @@ const emptyAgent = (): Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 't
   guardrail: 'review',
   status: 'idle',
   tools: [],
+  scheduleEnabled: false,
+  scheduleIntervalMinutes: 1440,
   builtIn: false
 });
 
@@ -106,6 +108,36 @@ function AgentModal({
               className="mt-2 w-full bg-black border border-neutral-700 rounded-md px-4 py-2.5 text-sm text-slate-100 outline-none focus:border-blue-500"
             />
           </label>
+          <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-4 space-y-3">
+            <label className="flex items-center justify-between gap-4">
+              <span>
+                <span className="block text-sm text-slate-200">Scheduled Run</span>
+                <span className="block text-xs text-slate-500 mt-1">Create a run automatically on a recurring interval.</span>
+              </span>
+              <input
+                type="checkbox"
+                checked={!!form.scheduleEnabled}
+                onChange={e => setForm({ ...form, scheduleEnabled: e.target.checked })}
+                className="w-4 h-4 accent-blue-600"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs text-slate-400 font-bold uppercase">Run every</span>
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  type="number"
+                  min={15}
+                  value={form.scheduleIntervalMinutes || 1440}
+                  onChange={e => setForm({ ...form, scheduleIntervalMinutes: Math.max(15, Number(e.target.value) || 1440) })}
+                  className="w-28 bg-black border border-neutral-700 rounded-md px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500"
+                />
+                <span className="text-sm text-slate-400">minutes</span>
+              </div>
+            </label>
+            {'lastRunAt' in form && form.lastRunAt && (
+              <div className="text-xs text-slate-500">Last run: {new Date(form.lastRunAt).toLocaleString()}</div>
+            )}
+          </div>
           {isEdit && (
             <div className="bg-neutral-800 border border-neutral-700 rounded-lg p-4 flex items-center justify-between">
               <div>
@@ -231,6 +263,10 @@ export function AgentHub() {
                       {guardrailLabel(agent.guardrail)}
                     </span>
                     <span className="px-3 py-1 rounded-md border border-neutral-800 bg-black text-[10px] text-slate-300">Tasks completed: {agent.tasksCompleted}</span>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-4 text-[10px] text-slate-500">
+                    <span>{agent.scheduleEnabled ? `Scheduled every ${agent.scheduleIntervalMinutes || 1440} min` : 'Schedule off'}</span>
+                    {agent.lastRunAt && <span>Last run: {new Date(agent.lastRunAt).toLocaleString()}</span>}
                   </div>
                 </div>
               ))}

@@ -307,6 +307,9 @@ export interface AgentHubAgent {
   status: AgentHubStatus;
   tools: string[];
   tasksCompleted: number;
+  scheduleEnabled?: boolean;
+  scheduleIntervalMinutes?: number;
+  lastRunAt?: string;
   builtIn?: boolean;
   createdAt: string;
   updatedAt: string;
@@ -659,6 +662,8 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     status: 'active',
     tools: ['global_agent.plan', 'lead.acquire', 'lead.enrich', 'email.send', 'whatsapp.send', 'quote.create', 'client.update'],
     tasksCompleted: 0,
+    scheduleEnabled: false,
+    scheduleIntervalMinutes: 1440,
     builtIn: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -671,6 +676,8 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     status: 'active',
     tools: ['email.send', 'whatsapp.send', 'client.comment', 'client.stage'],
     tasksCompleted: 0,
+    scheduleEnabled: false,
+    scheduleIntervalMinutes: 240,
     builtIn: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -683,6 +690,8 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     status: 'idle',
     tools: ['whatsapp.read', 'whatsapp.send', 'conversation.tag', 'conversation.comment'],
     tasksCompleted: 0,
+    scheduleEnabled: false,
+    scheduleIntervalMinutes: 60,
     builtIn: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -695,6 +704,8 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     status: 'active',
     tools: ['lead.acquire', 'lead.enrich', 'public_pool.import', 'client.score'],
     tasksCompleted: 0,
+    scheduleEnabled: false,
+    scheduleIntervalMinutes: 720,
     builtIn: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
