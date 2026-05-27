@@ -859,9 +859,10 @@ No markdown wrappers, just valid JSON.`;
     );
   };
 
-  const syncWhatsAppHubMessages = async (userId: string, options: { targetPhone?: string; limit?: number } = {}) => {
+  const syncWhatsAppHubMessages = async (userId: string, options: { targetPhone?: string; limit?: number; since?: string } = {}) => {
     const params = new URLSearchParams();
     if (options.targetPhone) params.set('targetPhone', options.targetPhone);
+    if (options.since) params.set('since', options.since);
     params.set('limit', String(Math.min(Math.max(options.limit || 100, 1), 200)));
     const data = await callWhatsAppHub(userId, `/api/messages?${params.toString()}`);
     const messages = Array.isArray(data.messages) ? data.messages : [];
@@ -1028,9 +1029,6 @@ No markdown wrappers, just valid JSON.`;
     try {
       const targetPhone = req.query.targetPhone ? normalizeWhatsAppPhone(String(req.query.targetPhone)) : '';
       const limit = Math.min(Math.max(Number(req.query.limit || 200), 1), 500);
-      await syncWhatsAppHubMessages(req.user.uid, { targetPhone, limit: Math.min(limit, 200) }).catch((err) => {
-        console.warn('WhatsApp Hub sync failed, returning local cache', err.message);
-      });
 
       const values: any[] = [req.user.uid];
       let where = 'm.user_id = $1';
@@ -1056,7 +1054,21 @@ No markdown wrappers, just valid JSON.`;
   app.post('/api/whatsapp-hub/sync', authenticateToken, async (req: any, res) => {
     try {
       const targetPhone = req.body?.targetPhone ? normalizeWhatsAppPhone(req.body.targetPhone) : '';
-      const count = await syncWhatsAppHubMessages(req.user.uid, { targetPhone, limit: Number(req.body?.limit || 100) });
+      let since = req.body?.since ? String(req.body.since) : '';
+      if (!since) {
+        const values: any[] = [req.user.uid];
+        let where = 'user_id = $1';
+        if (targetPhone) {
+          values.push(targetPhone);
+          where += ` AND target_phone = $${values.length}`;
+        }
+        const latest = await pool.query(
+          `SELECT MAX(COALESCE(source_created_at, created_at)) AS latest_at FROM whatsapp_messages WHERE ${where}`,
+          values
+        );
+        since = latest.rows[0]?.latest_at ? new Date(latest.rows[0].latest_at).toISOString() : '';
+      }
+      const count = await syncWhatsAppHubMessages(req.user.uid, { targetPhone, limit: Number(req.body?.limit || 100), since });
       res.json({ success: true, count });
     } catch (e: any) {
       res.status(e.status || 500).json({ error: e.message || 'Failed to sync WhatsApp messages' });
@@ -1065,9 +1077,6 @@ No markdown wrappers, just valid JSON.`;
 
   app.get('/api/whatsapp-hub/conversations', authenticateToken, async (req: any, res) => {
     try {
-      await syncWhatsAppHubMessages(req.user.uid, { limit: 100 }).catch((err) => {
-        console.warn('WhatsApp Hub conversation sync failed, returning local cache', err.message);
-      });
       const search = String(req.query.search || '').trim().toLowerCase();
       const values: any[] = [req.user.uid];
       let searchSql = '';

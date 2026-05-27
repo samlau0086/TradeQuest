@@ -56,6 +56,7 @@ export function Inbox() {
   const [selectedWhatsAppPhone, setSelectedWhatsAppPhone] = useState<string | null>(null);
   const [isStartingWhatsApp, setIsStartingWhatsApp] = useState(false);
   const [newWhatsAppPhone, setNewWhatsAppPhone] = useState('');
+  const whatsappSyncInFlightRef = useRef(false);
 
   const [confirmDialog, setConfirmDialog] = useState<{message: string, onConfirm: () => void} | null>(null);
   const [alertDialog, setAlertDialog] = useState<string | null>(null);
@@ -66,9 +67,9 @@ export function Inbox() {
     return () => document.removeEventListener('click', closeMenu);
   }, []);
 
-  const loadWhatsAppConversations = async () => {
+  const fetchCachedWhatsAppConversations = async (activeSearch = search) => {
     try {
-      const res = await fetch(`/api/whatsapp-hub/conversations?search=${encodeURIComponent(search)}`, {
+      const res = await fetch(`/api/whatsapp-hub/conversations?search=${encodeURIComponent(activeSearch)}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       const data = await res.json().catch(() => ({}));
@@ -78,6 +79,34 @@ export function Inbox() {
     } catch (error) {
       console.warn('WhatsApp conversations unavailable in unified inbox', error);
     }
+  };
+
+  const syncWhatsAppConversations = async (activeSearch = search) => {
+    if (whatsappSyncInFlightRef.current) return;
+    whatsappSyncInFlightRef.current = true;
+    try {
+      const res = await fetch('/api/whatsapp-hub/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ limit: 100 })
+      });
+      if (res.ok) {
+        await fetchCachedWhatsAppConversations(activeSearch);
+      }
+    } catch (error) {
+      console.warn('WhatsApp background sync unavailable in unified inbox', error);
+    } finally {
+      whatsappSyncInFlightRef.current = false;
+    }
+  };
+
+  const loadWhatsAppConversations = async () => {
+    const activeSearch = search;
+    await fetchCachedWhatsAppConversations(activeSearch);
+    void syncWhatsAppConversations(activeSearch);
   };
 
   useEffect(() => {

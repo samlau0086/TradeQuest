@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarClock, FileText, FolderOpen, Loader2, MessageCircle, Paperclip, Plus, Send, Smile, Sparkles, Tag, User, X } from 'lucide-react';
 import { Client, Comment, MediaItem, useStore } from '../store';
 import { MediaSelectorModal } from './MediaSelectorModal';
@@ -73,6 +73,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const syncInFlightRef = useRef(false);
   const targetPhone = useMemo(() => cleanPhone(phone), [phone]);
 
   const getLLMConfig = (module: string) => {
@@ -80,9 +81,8 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     return llmConfigs.find(llm => llm.id === id) || null;
   };
 
-  const loadData = async () => {
+  const loadCachedMessages = async (options: { notifyErrors?: boolean } = {}) => {
     if (!targetPhone) return;
-    setLoading(true);
     try {
       const [clientsRes, messagesRes] = await Promise.all([
         fetch('/api/whatsapp-hub/clients', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }),
@@ -103,7 +103,45 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
         if (matched) setConversation(matched);
       }
     } catch (error: any) {
-      notify(error.message || 'WhatsApp Actor Hub is not configured.', 'error');
+      if (options.notifyErrors !== false) {
+        notify(error.message || 'WhatsApp Actor Hub is not configured.', 'error');
+      }
+      throw error;
+    }
+  };
+
+  const syncLatestMessages = async () => {
+    if (!targetPhone || syncInFlightRef.current) return;
+    syncInFlightRef.current = true;
+    try {
+      const syncRes = await fetch('/api/whatsapp-hub/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ targetPhone, limit: 100 })
+      });
+      if (syncRes.ok) {
+        await loadCachedMessages({ notifyErrors: false });
+      }
+    } catch (error) {
+      console.warn('WhatsApp background sync unavailable in chat modal', error);
+    } finally {
+      syncInFlightRef.current = false;
+    }
+  };
+
+  const loadData = async (options: { sync?: boolean } = {}) => {
+    if (!targetPhone) return;
+    setLoading(true);
+    try {
+      await loadCachedMessages({ notifyErrors: true });
+      if (options.sync !== false) {
+        void syncLatestMessages();
+      }
+    } catch {
+      // loadCachedMessages already surfaced a user-facing notification.
     } finally {
       setLoading(false);
     }
@@ -332,7 +370,7 @@ Write in a WhatsApp style: concise, natural, conversational, easy to reply to, a
         setScheduleDateTime('');
       }
       notify(data.scheduled ? 'WhatsApp message scheduled.' : 'WhatsApp message queued.', 'success');
-      await loadData();
+      await loadData({ sync: false });
     } catch (error: any) {
       notify(error.message || 'Failed to send WhatsApp message.', 'error');
     } finally {
