@@ -110,6 +110,14 @@ export function Sidebar() {
           {t('inbox')}
         </button>
         <button 
+          onClick={() => setView('agent-hub')}
+          className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors", 
+            view === 'agent-hub' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
+        >
+          <Bot className="w-5 h-5 text-blue-400" />
+          Agent Hub
+        </button>
+        <button 
           onClick={() => setView('agent-harness')}
           className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors", 
             view === 'agent-harness' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}

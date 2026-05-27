@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { useAuthStore } from './authStore';
 
-export type ViewMode = 'kanban' | 'map' | 'inbox' | 'whatsapp-hub' | 'dashboard' | 'agent-harness' | 'global-agent' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests' | 'list' | 'products' | 'quotes' | 'knowledge-base' | 'media-library';
+export type ViewMode = 'kanban' | 'map' | 'inbox' | 'whatsapp-hub' | 'dashboard' | 'agent-hub' | 'agent-harness' | 'global-agent' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests' | 'list' | 'products' | 'quotes' | 'knowledge-base' | 'media-library';
 
 export type ClientStatus = 'Leads' | 'Contacted' | 'Sample Sent' | 'Negotiating' | 'Closed Won'; // Kept for legacy compatibility if needed, better to rename to DealStage but will keep for now.
 
@@ -296,6 +296,22 @@ export interface AgentHarnessRun {
   completedAt?: string;
 }
 
+export type AgentHubStatus = 'active' | 'idle' | 'paused';
+export type AgentHubGuardrail = 'auto' | 'review' | 'human_loop';
+
+export interface AgentHubAgent {
+  id: string;
+  name: string;
+  instructions: string;
+  guardrail: AgentHubGuardrail;
+  status: AgentHubStatus;
+  tools: string[];
+  tasksCompleted: number;
+  builtIn?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ClientEditRequest {
   id: number;
   client_id: string;
@@ -460,6 +476,10 @@ export interface StoreState {
   addAgentHarnessRun: (run: Omit<AgentHarnessRun, 'id' | 'createdAt' | 'updatedAt'>) => string;
   updateAgentHarnessRun: (id: string, updates: Partial<AgentHarnessRun>) => void;
   updateAgentHarnessStep: (runId: string, stepId: string, updates: Partial<AgentHarnessStep>) => void;
+
+  agentHubAgents: AgentHubAgent[];
+  addAgentHubAgent: (agent: Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'> & Partial<Pick<AgentHubAgent, 'tasksCompleted'>>) => string;
+  updateAgentHubAgent: (id: string, updates: Partial<AgentHubAgent>) => void;
 
   knowledgeBase: KnowledgeItem[];
   fetchKnowledgeBase: () => void;
@@ -629,6 +649,57 @@ const INITIAL_CLIENTS: Client[] = [];
 const INITIAL_LOGS: Log[] = [];
 
 const INITIAL_EMAILS: EmailMessage[] = [];
+
+const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
+  {
+    id: 'global_agent',
+    name: 'Global Conversion Agent',
+    instructions: 'Plan and coordinate CRM-wide lead acquisition, enrichment, follow-up, quotes, and conversion.',
+    guardrail: 'review',
+    status: 'active',
+    tools: ['global_agent.plan', 'lead.acquire', 'lead.enrich', 'email.send', 'whatsapp.send', 'quote.create', 'client.update'],
+    tasksCompleted: 0,
+    builtIn: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'follow_up_agent',
+    name: 'AI Follow-Up Agent',
+    instructions: 'Run account-level email and WhatsApp follow-up decisions using client history and workflow rules.',
+    guardrail: 'human_loop',
+    status: 'active',
+    tools: ['email.send', 'whatsapp.send', 'client.comment', 'client.stage'],
+    tasksCompleted: 0,
+    builtIn: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'whatsapp_agent',
+    name: 'WhatsApp Inbox Agent',
+    instructions: 'Read WhatsApp conversation context, classify replies, add notes, and suggest next actions.',
+    guardrail: 'human_loop',
+    status: 'idle',
+    tools: ['whatsapp.read', 'whatsapp.send', 'conversation.tag', 'conversation.comment'],
+    tasksCompleted: 0,
+    builtIn: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'lead_data_agent',
+    name: 'Lead Data Agent',
+    instructions: 'Search, import, enrich, and score leads across configured data channels.',
+    guardrail: 'auto',
+    status: 'active',
+    tools: ['lead.acquire', 'lead.enrich', 'public_pool.import', 'client.score'],
+    tasksCompleted: 0,
+    builtIn: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  }
+];
 
 const INITIAL_WHATSAPP_HUB_CONFIG: WhatsAppHubConfig = {
   enabled: false,
@@ -834,6 +905,30 @@ export const useStore = create<StoreState>((set, get) => ({
             steps: run.steps.map(step => step.id === stepId ? { ...step, ...updates } : step)
           }
         : run
+    ))
+  })),
+
+  agentHubAgents: INITIAL_AGENT_HUB_AGENTS,
+  addAgentHubAgent: (agent) => {
+    const id = `agent_${Date.now()}`;
+    const now = new Date().toISOString();
+    set((state) => ({
+      agentHubAgents: [
+        {
+          ...agent,
+          id,
+          tasksCompleted: agent.tasksCompleted || 0,
+          createdAt: now,
+          updatedAt: now
+        },
+        ...state.agentHubAgents
+      ]
+    }));
+    return id;
+  },
+  updateAgentHubAgent: (id, updates) => set((state) => ({
+    agentHubAgents: state.agentHubAgents.map(agent => (
+      agent.id === id ? { ...agent, ...updates, updatedAt: new Date().toISOString() } : agent
     ))
   })),
 
@@ -2041,6 +2136,7 @@ export const useStore = create<StoreState>((set, get) => ({
             ? { ...INITIAL_AGENT_EXECUTION_POLICY, ...settings.agentExecutionPolicy }
             : state.agentExecutionPolicy,
           agentWorkflows: settings.agentWorkflows ?? state.agentWorkflows,
+          agentHubAgents: settings.agentHubAgents ?? state.agentHubAgents,
           leadCampaigns: settings.leadCampaigns ?? state.leadCampaigns,
           globalAgentPlans: settings.globalAgentPlans ?? state.globalAgentPlans,
           agentHarnessRuns: settings.agentHarnessRuns ?? state.agentHarnessRuns,
@@ -2135,6 +2231,7 @@ useStore.subscribe((state, prevState) => {
     state.llmMappings !== prevState.llmMappings ||
     state.agentExecutionPolicy !== prevState.agentExecutionPolicy ||
     state.agentWorkflows !== prevState.agentWorkflows ||
+    state.agentHubAgents !== prevState.agentHubAgents ||
     state.leadCampaigns !== prevState.leadCampaigns ||
     state.globalAgentPlans !== prevState.globalAgentPlans ||
     state.agentHarnessRuns !== prevState.agentHarnessRuns ||
@@ -2167,6 +2264,7 @@ useStore.subscribe((state, prevState) => {
             llmMappings: state.llmMappings,
             agentExecutionPolicy: state.agentExecutionPolicy,
             agentWorkflows: state.agentWorkflows,
+            agentHubAgents: state.agentHubAgents,
             leadCampaigns: state.leadCampaigns,
             globalAgentPlans: state.globalAgentPlans,
             agentHarnessRuns: state.agentHarnessRuns,
