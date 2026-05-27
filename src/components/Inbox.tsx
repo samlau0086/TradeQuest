@@ -310,7 +310,7 @@ export function Inbox() {
   return (
     <PanelGroup id="inbox-layout" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged} orientation="horizontal" className="flex-1 overflow-hidden bg-slate-900 border-t border-slate-800">
       {/* Sidebar List */}
-      <Panel id="inbox-list" defaultSize={320} minSize={250} maxSize={500} className={cn("flex flex-col transition-transform relative z-10", selectedEmailId && "hidden md:flex")}>
+      <Panel id="inbox-list" defaultSize={320} minSize={250} maxSize={500} className={cn("flex flex-col transition-transform relative z-10", (selectedEmailId || selectedWhatsAppPhone) && "hidden md:flex")}>
         <div className="p-4 border-b border-slate-800 flex flex-col gap-3 bg-slate-900">
           <div className="flex justify-between items-center bg-slate-900">
             <div className="flex bg-slate-800/50 rounded-lg p-1 border border-slate-700/50">
@@ -620,9 +620,20 @@ export function Inbox() {
       <PanelResizeHandle className="w-1 bg-slate-800 hover:bg-cyan-500 cursor-col-resize transition-colors hidden md:block" />
 
       {/* Reading Pane / Compose Pane */}
-      <Panel id="inbox-content" className={cn("flex flex-col bg-slate-950/50 relative", !selectedEmailId && !isComposing && "hidden md:flex")}>
+      <Panel id="inbox-content" className={cn("flex flex-col bg-slate-950/50 relative", !selectedEmailId && !selectedWhatsAppPhone && !isComposing && "hidden md:flex")}>
         {isComposing ? (
           <ComposeEmail onClose={() => setIsComposing(false)} initialRecipient={composeDefaults?.recipient} initialSubject={composeDefaults?.subject} initialBody={composeDefaults?.initialBody} originalEmailBody={composeDefaults?.originalEmailBody} draftId={composeDefaults?.draftId} />
+        ) : selectedWhatsAppPhone ? (
+          <WhatsAppChatModal
+            embedded
+            phone={selectedWhatsAppPhone}
+            client={activeWhatsAppClient}
+            conversation={activeWhatsAppConversation}
+            onClose={() => {
+              setSelectedWhatsAppPhone(null);
+              loadWhatsAppConversations();
+            }}
+          />
         ) : selectedEmail ? (
           <>
             <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/80 sticky top-0 md:static backdrop-blur-sm z-10">
@@ -991,17 +1002,6 @@ export function Inbox() {
         </div>
       )}
 
-      {selectedWhatsAppPhone && (
-        <WhatsAppChatModal
-          phone={selectedWhatsAppPhone}
-          client={activeWhatsAppClient}
-          conversation={activeWhatsAppConversation}
-          onClose={() => {
-            setSelectedWhatsAppPhone(null);
-            loadWhatsAppConversations();
-          }}
-        />
-      )}
     </PanelGroup>
   );
 }

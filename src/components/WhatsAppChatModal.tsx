@@ -30,6 +30,7 @@ interface Props {
   phone: string;
   conversation?: WhatsAppConversation | null;
   initialMessage?: string;
+  embedded?: boolean;
   onClose: () => void;
 }
 
@@ -53,7 +54,7 @@ const dataUrlToFile = async (dataUrl: string, name: string, mimeType: string) =>
   return new File([blob], name, { type: mimeType || blob.type || 'application/octet-stream' });
 };
 
-export function WhatsAppChatModal({ client, phone, conversation: initialConversation, initialMessage = '', onClose }: Props) {
+export function WhatsAppChatModal({ client, phone, conversation: initialConversation, initialMessage = '', embedded = false, onClose }: Props) {
   const { notify, addLog, selectClient, language } = useStore();
   const t = useTranslation(language);
   const [hubClients, setHubClients] = useState<WhatsAppHubClient[]>([]);
@@ -255,8 +256,8 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const emojiOptions = ['😀', '😊', '👍', '🙏', '🔥', '🎉', '✅', '📦', '💬', '🤝', '📄', '🚀'];
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-[80] flex items-center justify-center p-4">
-      <div className="w-full max-w-3xl h-[80vh] bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+    <div className={embedded ? "flex-1 min-h-0 flex flex-col bg-slate-950/50" : "fixed inset-0 bg-black/60 z-[80] flex items-center justify-center p-4"}>
+      <div className={embedded ? "flex-1 min-h-0 bg-slate-950/50 flex flex-col overflow-hidden" : "w-full max-w-3xl h-[80vh] bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl flex flex-col overflow-hidden"}>
         <div className="p-4 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <MessageCircle className="w-5 h-5 text-green-400" />
