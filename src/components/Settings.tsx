@@ -1437,6 +1437,7 @@ export function Settings() {
                     { key: 'agent_harness', label: t('agentHarness'), desc: t('descAgentHarness') },
                     { key: 'global_agent', label: t('globalAgent'), desc: t('descGlobalAgent') },
                     { key: 'drafting', label: t('emailDrafting'), desc: t('descDrafting') },
+                    { key: 'whatsapp_drafting', label: t('whatsappMessageDrafting'), desc: t('descWhatsAppDrafting') },
                     { key: 'analysis', label: t('clientAnalysis'), desc: t('descAnalysis') },
                     { key: 'embedding', label: t('vectorization'), desc: t('descEmbedding') },
                     { key: 'outscraperTranslate', label: t('outscraperTranslate'), desc: t('descOutscraper') }

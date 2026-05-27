@@ -993,6 +993,7 @@ export const useStore = create<StoreState>((set, get) => ({
     agent_harness: null,
     global_agent: null,
     drafting: null,
+    whatsapp_drafting: null,
     analysis: null,
     embedding: null,
     outscraperTranslate: null

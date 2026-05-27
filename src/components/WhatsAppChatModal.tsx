@@ -178,7 +178,13 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const generateWhatsAppMessage = async () => {
     const prompt = body.trim();
     if (!prompt) {
-      notify('Type a prompt in the WhatsApp message box first.', 'warning');
+      notify(t('typePromptFirst'), 'warning');
+      return;
+    }
+
+    const llmConfig = getLLMConfig('whatsapp_drafting') || getLLMConfig('drafting');
+    if (!llmConfig) {
+      notify(t('configureWhatsAppDraftingModel'), 'warning');
       return;
     }
 
@@ -204,7 +210,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
             targetPhone,
             userLanguagePreference: language === 'zh' ? 'Chinese' : 'English'
           },
-          llmConfig: getLLMConfig('drafting'),
+          llmConfig,
           embeddingLlmConfig: getLLMConfig('embedding'),
           skipKnowledgeBase: true
         })

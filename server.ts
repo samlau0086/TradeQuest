@@ -391,6 +391,9 @@ async function callAI(prompt: string, llmConfig: any, isJson: boolean = false) {
   }
   
   // Fallback
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error("No AI provider configured. Configure a model in AI & Integrations or set GEMINI_API_KEY.");
+  }
   const response = await defaultAi.models.generateContent({
     model: "gemini-2.5-flash",
     contents: prompt,
@@ -427,7 +430,7 @@ Respond only with the draft or the direct output of the action requested. Do not
       res.json({ result: text });
     } catch (e) {
       console.error(e);
-      res.status(500).json({ error: "Failed to process magic command" });
+      res.status(500).json({ error: e instanceof Error ? e.message : "Failed to process magic command" });
     }
   });
 
