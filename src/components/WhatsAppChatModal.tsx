@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarClock, FileText, FolderOpen, Loader2, MessageCircle, Paperclip, Plus, Send, Smile, Tag, User, X } from 'lucide-react';
+import { CalendarClock, FileText, FolderOpen, Loader2, MessageCircle, Paperclip, Plus, Send, Smile, Sparkles, Tag, User, X } from 'lucide-react';
 import { Client, Comment, MediaItem, useStore } from '../store';
 import { MediaSelectorModal } from './MediaSelectorModal';
 import { useTranslation } from '../lib/i18n';
@@ -55,7 +55,7 @@ const dataUrlToFile = async (dataUrl: string, name: string, mimeType: string) =>
 };
 
 export function WhatsAppChatModal({ client, phone, conversation: initialConversation, initialMessage = '', embedded = false, onClose }: Props) {
-  const { notify, addLog, selectClient, language } = useStore();
+  const { notify, addLog, selectClient, language, llmConfigs, activeLLMId, llmMappings } = useStore();
   const t = useTranslation(language);
   const [hubClients, setHubClients] = useState<WhatsAppHubClient[]>([]);
   const [messages, setMessages] = useState<WhatsAppHubMessage[]>([]);
@@ -72,7 +72,13 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [scheduleDateTime, setScheduleDateTime] = useState('');
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const targetPhone = useMemo(() => cleanPhone(phone), [phone]);
+
+  const getLLMConfig = (module: string) => {
+    const id = llmMappings[module] || activeLLMId;
+    return llmConfigs.find(llm => llm.id === id) || null;
+  };
 
   const loadData = async () => {
     if (!targetPhone) return;
@@ -166,6 +172,49 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
       setCommentInput('');
     } catch (error: any) {
       notify(error.message || 'Failed to add WhatsApp comment.', 'error');
+    }
+  };
+
+  const generateWhatsAppMessage = async () => {
+    const prompt = body.trim();
+    if (!prompt) {
+      notify('Type a prompt in the WhatsApp message box first.', 'warning');
+      return;
+    }
+
+    setGenerating(true);
+    try {
+      const recentMessages = messages.slice(-12).map(message => ({
+        direction: message.direction,
+        body: message.body,
+        at: message.created_at || message.received_at
+      }));
+      const response = await fetch('/api/chat/magic', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          command: `Draft a concise WhatsApp message using this instruction as the prompt: ${prompt}`,
+          context: {
+            client,
+            conversation,
+            recentWhatsAppMessages: recentMessages,
+            targetPhone,
+            userLanguagePreference: language === 'zh' ? 'Chinese' : 'English'
+          },
+          llmConfig: getLLMConfig('drafting')
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to generate WhatsApp message');
+      setBody((data.result || '').trim());
+      notify('WhatsApp message drafted with AI.', 'success');
+    } catch (error: any) {
+      notify(error.message || 'Failed to generate WhatsApp message.', 'error');
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -446,6 +495,14 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
                 title={t('scheduleMessage')}
               >
                 <CalendarClock className="w-5 h-5" />
+              </button>
+              <button
+                onClick={generateWhatsAppMessage}
+                disabled={generating || !body.trim()}
+                className="p-2 bg-cyan-900/50 hover:bg-cyan-800 disabled:bg-slate-800 disabled:text-slate-600 text-cyan-300 rounded-lg"
+                title={t('generateWhatsAppWithAI')}
+              >
+                {generating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
               </button>
             </div>
             <textarea
