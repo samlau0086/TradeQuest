@@ -54,6 +54,8 @@ export function Inbox() {
   const [tagInput, setTagInput] = useState('');
   const [whatsappConversations, setWhatsappConversations] = useState<InboxWhatsAppConversation[]>([]);
   const [selectedWhatsAppPhone, setSelectedWhatsAppPhone] = useState<string | null>(null);
+  const [isStartingWhatsApp, setIsStartingWhatsApp] = useState(false);
+  const [newWhatsAppPhone, setNewWhatsAppPhone] = useState('');
 
   const [confirmDialog, setConfirmDialog] = useState<{message: string, onConfirm: () => void} | null>(null);
   const [alertDialog, setAlertDialog] = useState<string | null>(null);
@@ -235,6 +237,7 @@ export function Inbox() {
 
   const handleSelect = (id: string) => {
     setIsComposing(false);
+    setIsStartingWhatsApp(false);
     setSelectedWhatsAppPhone(null);
     selectEmail(id);
     markEmailRead(id);
@@ -242,8 +245,17 @@ export function Inbox() {
 
   const handleSelectWhatsApp = (conversation: InboxWhatsAppConversation) => {
     setIsComposing(false);
+    setIsStartingWhatsApp(false);
     selectEmail(null);
     setSelectedWhatsAppPhone(conversation.targetPhone);
+  };
+
+  const startNewWhatsApp = () => {
+    const phone = newWhatsAppPhone.replace(/[^0-9]/g, '');
+    if (!phone) return;
+    setSelectedWhatsAppPhone(phone);
+    setIsStartingWhatsApp(false);
+    setNewWhatsAppPhone('');
   };
 
   const handleCreateLead = () => {
@@ -310,7 +322,7 @@ export function Inbox() {
   return (
     <PanelGroup id="inbox-layout" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged} orientation="horizontal" className="flex-1 overflow-hidden bg-slate-900 border-t border-slate-800">
       {/* Sidebar List */}
-      <Panel id="inbox-list" defaultSize={320} minSize={250} maxSize={500} className={cn("flex flex-col transition-transform relative z-10", (selectedEmailId || selectedWhatsAppPhone) && "hidden md:flex")}>
+      <Panel id="inbox-list" defaultSize={320} minSize={250} maxSize={500} className={cn("flex flex-col transition-transform relative z-10", (selectedEmailId || selectedWhatsAppPhone || isStartingWhatsApp) && "hidden md:flex")}>
         <div className="p-4 border-b border-slate-800 flex flex-col gap-3 bg-slate-900">
           <div className="flex justify-between items-center bg-slate-900">
             <div className="flex bg-slate-800/50 rounded-lg p-1 border border-slate-700/50">
@@ -349,11 +361,18 @@ export function Inbox() {
                 <RefreshCw className={cn("w-4 h-4", isSyncing && "animate-spin")} />
               </button>
               <button 
-                onClick={() => { setComposeDefaults(null); setIsComposing(true); selectEmail(null); }}
+                onClick={() => { setComposeDefaults(null); setIsComposing(true); setIsStartingWhatsApp(false); setSelectedWhatsAppPhone(null); selectEmail(null); }}
                 className="p-1.5 bg-cyan-600 text-white rounded-md hover:bg-cyan-500 transition-colors shadow-lg shadow-cyan-600/20"
-                title="Compose"
+                title="Compose Email"
               >
                 <Edit3 className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => { setIsStartingWhatsApp(true); setIsComposing(false); setSelectedWhatsAppPhone(null); selectEmail(null); }}
+                className="p-1.5 bg-green-600 text-white rounded-md hover:bg-green-500 transition-colors shadow-lg shadow-green-600/20"
+                title="New WhatsApp Message"
+              >
+                <MessageCircle className="w-4 h-4" />
               </button>
             </div>
           </div>
@@ -468,8 +487,7 @@ export function Inbox() {
                       {conversation.lastMessageAt ? new Date(conversation.lastMessageAt).toLocaleDateString() : 'WhatsApp'}
                     </span>
                   </div>
-                  <div className="flex items-center gap-1 text-[10px] text-green-400 font-bold uppercase mb-1">
-                    <MessageCircle className="w-3 h-3" />
+                  <div className="text-[10px] text-green-400 font-bold uppercase mb-1">
                     WhatsApp {conversation.lastDirection === 'outbound' ? 'sent' : 'inbox'}
                   </div>
                   <div className="text-xs font-medium mb-1 truncate text-slate-400">
@@ -620,9 +638,52 @@ export function Inbox() {
       <PanelResizeHandle className="w-1 bg-slate-800 hover:bg-cyan-500 cursor-col-resize transition-colors hidden md:block" />
 
       {/* Reading Pane / Compose Pane */}
-      <Panel id="inbox-content" className={cn("flex flex-col bg-slate-950/50 relative", !selectedEmailId && !selectedWhatsAppPhone && !isComposing && "hidden md:flex")}>
+      <Panel id="inbox-content" className={cn("flex flex-col bg-slate-950/50 relative", !selectedEmailId && !selectedWhatsAppPhone && !isComposing && !isStartingWhatsApp && "hidden md:flex")}>
         {isComposing ? (
           <ComposeEmail onClose={() => setIsComposing(false)} initialRecipient={composeDefaults?.recipient} initialSubject={composeDefaults?.subject} initialBody={composeDefaults?.initialBody} originalEmailBody={composeDefaults?.originalEmailBody} draftId={composeDefaults?.draftId} />
+        ) : isStartingWhatsApp ? (
+          <div className="flex-1 flex flex-col bg-slate-950/50">
+            <div className="p-4 border-b border-slate-800 flex items-center gap-3 bg-slate-900/80">
+              <button onClick={() => setIsStartingWhatsApp(false)} className="md:hidden p-2 -ml-2 text-slate-400 hover:text-white">
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <div className="w-10 h-10 rounded-full bg-green-950/50 border border-green-900/60 flex items-center justify-center">
+                <MessageCircle className="w-5 h-5 text-green-400" />
+              </div>
+              <div>
+                <div className="font-bold text-white text-sm">New WhatsApp Message</div>
+                <div className="text-[10px] text-slate-500">Start a WhatsApp conversation from Inbox</div>
+              </div>
+            </div>
+            <div className="flex-1 flex items-center justify-center p-6">
+              <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase">Phone Number</label>
+                  <input
+                    value={newWhatsAppPhone}
+                    onChange={e => setNewWhatsAppPhone(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') startNewWhatsApp(); }}
+                    placeholder="+1 555 000 0000"
+                    className="mt-2 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 outline-none focus:border-green-500"
+                    autoFocus
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setIsStartingWhatsApp(false)} className="px-4 py-2 text-sm text-slate-400 hover:text-white">
+                    Cancel
+                  </button>
+                  <button
+                    onClick={startNewWhatsApp}
+                    disabled={!newWhatsAppPhone.replace(/[^0-9]/g, '')}
+                    className="px-4 py-2 bg-green-600 hover:bg-green-500 disabled:bg-slate-800 disabled:text-slate-500 rounded-lg text-sm font-bold text-white flex items-center gap-2"
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    Start Chat
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         ) : selectedWhatsAppPhone ? (
           <WhatsAppChatModal
             embedded
