@@ -423,6 +423,7 @@ User executed magic command: "${command}".
 Client Context: ${JSON.stringify(context)}.
 Knowledge Base (RAG):
 ${kbRes.rows.map(kb => `[${kb.title}]\n${kb.content}`).join('\n\n')}
+If the command asks to draft a WhatsApp message, write a concise, natural, conversational WhatsApp message that respects the customer preferences, prior records, recent conversation, and RAG context. Do not format it like an email.
 If the command asks to follow up or draft an email, write a short, professional, yet engaging drafted email.
 Respond only with the draft or the direct output of the action requested. Do not include markdown formatting like \`\`\`.`;
       

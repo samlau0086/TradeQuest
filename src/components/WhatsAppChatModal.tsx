@@ -55,7 +55,7 @@ const dataUrlToFile = async (dataUrl: string, name: string, mimeType: string) =>
 };
 
 export function WhatsAppChatModal({ client, phone, conversation: initialConversation, initialMessage = '', embedded = false, onClose }: Props) {
-  const { notify, addLog, selectClient, language, llmConfigs, activeLLMId, llmMappings } = useStore();
+  const { notify, addLog, selectClient, language, llmConfigs, activeLLMId, llmMappings, logs, emails } = useStore();
   const t = useTranslation(language);
   const [hubClients, setHubClients] = useState<WhatsAppHubClient[]>([]);
   const [messages, setMessages] = useState<WhatsAppHubMessage[]>([]);
@@ -195,6 +195,23 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
         body: message.body,
         at: message.created_at || message.received_at
       }));
+      const clientLogs = client
+        ? logs
+            .filter(log => log.clientId === client.id)
+            .slice(0, 20)
+            .map(log => ({ date: log.date, type: log.type, content: log.content }))
+        : [];
+      const clientEmails = client
+        ? emails
+            .filter(email => email.clientId === client.id)
+            .slice(0, 8)
+            .map(email => ({
+              date: email.date,
+              type: email.type,
+              subject: email.subject,
+              bodyPreview: email.body?.slice(0, 600)
+            }))
+        : [];
       const response = await fetch('/api/chat/magic', {
         method: 'POST',
         headers: {
@@ -202,9 +219,22 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
           Authorization: `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify({
-          command: `Draft a concise WhatsApp message using this instruction as the prompt: ${prompt}`,
+          command: `Draft a WhatsApp message using this user instruction as the prompt: ${prompt}
+
+Write in a WhatsApp style: concise, natural, conversational, easy to reply to, and not formatted like an email. Adapt tone, language, timing, offer details, and next step to the customer profile, preferences, prior communication, CRM records, recent WhatsApp chat, and relevant knowledge base context. Return only the message text.`,
           context: {
+            channel: 'whatsapp',
+            userInstruction: prompt,
             client,
+            clientPreferences: {
+              preferredLanguage: client?.preferredLanguage,
+              preferredTimeRange: client?.preferredTimeRange,
+              country: client?.country,
+              tags: client?.tags || []
+            },
+            clientComments: client?.comments || [],
+            clientLogs,
+            relatedEmails: clientEmails,
             conversation,
             recentWhatsAppMessages: recentMessages,
             targetPhone,
@@ -212,7 +242,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
           },
           llmConfig,
           embeddingLlmConfig: getLLMConfig('embedding'),
-          skipKnowledgeBase: true
+          skipKnowledgeBase: false
         })
       });
       const data = await response.json();
