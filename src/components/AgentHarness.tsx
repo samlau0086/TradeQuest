@@ -146,6 +146,7 @@ export function AgentHarness() {
       const prompt = `You are an AI Agent Harness planner for a foreign trade CRM.
 Your job is to coordinate specialized agents, choose tools, assess risk, and produce a human-reviewable run plan.
 The harness must not execute anything before approval.
+Write all internal agent planning content in ${language === 'zh' ? 'Chinese' : 'English'}.
 
 Return JSON only:
 {

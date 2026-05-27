@@ -1234,6 +1234,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
   const matchedClient = clients.find(c => 
     c.contactMethods?.some(m => m.type === 'email' && m.value.toLowerCase() === firstRecipient.toLowerCase())
   );
+  const outboundLanguage = matchedClient?.preferredLanguage?.trim() || 'English';
 
   const { llmConfigs, activeLLMId, llmMappings, language } = useStore();
   
@@ -1256,7 +1257,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
           'Authorization': `Bearer ${useAuthStore.getState().token}`
         },
         body: JSON.stringify({ 
-          command: "Suggest a single, short sentence purpose for follow-up with this lead based on communication history.", 
+          command: `Suggest a single, short sentence internal purpose for follow-up with this lead based on communication history. Output language: ${language === 'zh' ? 'Chinese' : 'English'}.`, 
           context: { 
              clientLogs: clientLogs.join('\n'), 
              recentEmails: clientEmails.join('\n\n'),
@@ -1419,9 +1420,10 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
           'Authorization': `Bearer ${useAuthStore.getState().token}`
         },
         body: JSON.stringify({ 
-          command: `Please politely optimize the following email draft for clarity, professional tone, and grammatical correctness. Output ONLY the resulting optimized text, nothing else:\n\n${body}`,
+          command: `Please politely optimize the following outbound email draft for clarity, professional tone, and grammatical correctness. Output ONLY the resulting optimized text, nothing else. Output language: ${outboundLanguage}.\n\n${body}`,
           context: { 
-             userLanguagePreference: language === 'zh' ? 'Chinese' : 'English'
+             outboundLanguage,
+             clientPreferredLanguage: matchedClient?.preferredLanguage || null
           },
           llmConfig: getLLMConfig('drafting')
         })
@@ -1456,10 +1458,11 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
           'Authorization': `Bearer ${useAuthStore.getState().token}`
         },
         body: JSON.stringify({ 
-          command: `Write an email snippet or sentence based on this instruction: ${prompt}`,
+          command: `Write an outbound email snippet or sentence based on this instruction: ${prompt}. Output language: ${outboundLanguage}.`,
           context: { 
              currentEmailBodyPreview: body.replace(matchText, '[Generate Here]'),
-             userLanguagePreference: language === 'zh' ? 'Chinese' : 'English'
+             outboundLanguage,
+             clientPreferredLanguage: matchedClient?.preferredLanguage || null
           },
           llmConfig: getLLMConfig('drafting')
         })
@@ -1498,9 +1501,11 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
           'Authorization': `Bearer ${useAuthStore.getState().token}`
         },
         body: JSON.stringify({ 
-          command: `Draft an email. Subject: ${subject || "Follow up"}. Purpose for this email: ${purpose || 'General follow up'}`,
+          command: `Draft an outbound email. Subject: ${subject || "Follow up"}. Purpose for this email: ${purpose || 'General follow up'}. Output language: ${outboundLanguage}. If the customer has no preferred language configured, use English.`,
           context: { 
             client: matchedClient,
+            outboundLanguage,
+            clientPreferredLanguage: matchedClient.preferredLanguage || null,
             historicalFollowUpLogs: clientLogs,
             lastReceivedEmailBody: lastEmailReceived?.body || 'No previous received emails'
           },

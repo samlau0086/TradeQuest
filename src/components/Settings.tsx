@@ -29,7 +29,7 @@ export function Settings() {
     signatures, addSignature, updateSignature, deleteSignature, setDefaultSignature,
     llmConfigs, addLLMConfig, updateLLMConfig, deleteLLMConfig, activeLLMId, setActiveLLMId,
     paymentTerms, addPaymentTerm, updatePaymentTerm, deletePaymentTerm,
-    llmMappings, setLLMMapping, agentExecutionPolicy, updateAgentExecutionPolicy, language,
+    llmMappings, setLLMMapping, agentExecutionPolicy, updateAgentExecutionPolicy, language, setLanguage,
     timezone, setTimezone,
     outscraperApiKey, setOutscraperApiKey,
     leadDataChannelConfigs, updateLeadDataChannelConfig,
@@ -368,11 +368,23 @@ export function Settings() {
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2 tracking-tight">{t('Preferences') || 'Preferences'}</h2>
-                  <p className="text-sm text-slate-400 capitalize">Manage system timezone</p>
+                  <p className="text-sm text-slate-400 capitalize">{t('Manage system language and timezone')}</p>
                 </div>
               </div>
 
               <div className="space-y-6 max-w-2xl relative z-10">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">{t('System Language')}</label>
+                  <select
+                    value={language}
+                    onChange={(e) => setLanguage(e.target.value as 'en' | 'zh')}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-slate-300 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/50 transition-all shadow-inner appearance-none"
+                  >
+                    <option value="en">English</option>
+                    <option value="zh">中文</option>
+                  </select>
+                  <p className="mt-2 text-xs text-slate-500">{t('Internal AI agent outputs use the system language.')}</p>
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">System Timezone</label>
                   <select

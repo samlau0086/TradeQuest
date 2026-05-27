@@ -78,6 +78,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [generating, setGenerating] = useState(false);
   const syncInFlightRef = useRef(false);
   const targetPhone = useMemo(() => cleanPhone(phone), [phone]);
+  const outboundLanguage = client?.preferredLanguage?.trim() || 'English';
 
   const getLLMConfig = (module: string) => {
     const id = llmMappings[module] || activeLLMId;
@@ -260,9 +261,9 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
           Authorization: `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify({
-          command: `Draft a WhatsApp message using this user instruction as the prompt: ${prompt}
+          command: `Draft an outbound WhatsApp message using this user instruction as the prompt: ${prompt}
 
-Write in a WhatsApp style: concise, natural, conversational, easy to reply to, and not formatted like an email. Adapt tone, language, timing, offer details, and next step to the customer profile, preferences, prior communication, CRM records, recent WhatsApp chat, and relevant knowledge base context. Return only the message text.`,
+Write in a WhatsApp style: concise, natural, conversational, easy to reply to, and not formatted like an email. Output language: ${outboundLanguage}. If the customer has no preferred language configured, use English. Adapt tone, timing, offer details, and next step to the customer profile, preferences, prior communication, CRM records, recent WhatsApp chat, and relevant knowledge base context. Return only the message text.`,
           context: {
             channel: 'whatsapp',
             userInstruction: prompt,
@@ -279,7 +280,9 @@ Write in a WhatsApp style: concise, natural, conversational, easy to reply to, a
             conversation,
             recentWhatsAppMessages: recentMessages,
             targetPhone,
-            userLanguagePreference: language === 'zh' ? 'Chinese' : 'English'
+            outboundLanguage,
+            clientPreferredLanguage: client?.preferredLanguage || null,
+            systemLanguage: language === 'zh' ? 'Chinese' : 'English'
           },
           llmConfig,
           embeddingLlmConfig: getLLMConfig('embedding'),

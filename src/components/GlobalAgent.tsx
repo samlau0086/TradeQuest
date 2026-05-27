@@ -277,7 +277,9 @@ export function GlobalAgent() {
     try {
       const prompt = `You are the Global Agent for a CRM. Your core goal is acquiring leads and converting leads.
 You may plan across all system functions, but execution must wait for human approval.
-Return content in ${language === 'zh' ? 'Chinese' : 'English'}.
+Language rules:
+- Internal planning fields such as summary, step title, description, comments, and CRM notes must use ${language === 'zh' ? 'Chinese' : 'English'}.
+- Outbound customer-facing payload fields such as email body, WhatsApp body, and email subject must use the target client's preferredLanguage. If preferredLanguage is missing, use English.
 Return JSON only:
 {
   "summary": "short summary",

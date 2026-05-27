@@ -37,6 +37,7 @@ function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { met
     const id = llmMappings[module] || activeLLMId;
     return llmConfigs.find(l => l.id === id) || null;
   };
+  const outboundLanguage = client.preferredLanguage?.trim() || 'English';
 
   const generatePurpose = async () => {
     setLoadingPurpose(true);
@@ -51,7 +52,7 @@ function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { met
           'Authorization': `Bearer ${useAuthStore.getState().token}`
         },
         body: JSON.stringify({ 
-          command: "Suggest a single, short sentence purpose for follow-up with this lead based on communication history.", 
+          command: `Suggest a single, short sentence internal purpose for follow-up with this lead based on communication history. Output language: ${language === 'zh' ? 'Chinese' : 'English'}.`, 
           context: { 
              clientLogs: clientLogs.join('\n'), 
              recentEmails: clientEmails.join('\n\n'),
@@ -80,8 +81,8 @@ function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { met
           'Authorization': `Bearer ${useAuthStore.getState().token}`
         },
         body: JSON.stringify({ 
-          command: `Draft a very short professional message to the client on ${method.type}. Purpose: ${purpose}`, 
-          context: { client },
+          command: `Draft a very short professional outbound message to the client on ${method.type}. Purpose: ${purpose}. Output language: ${outboundLanguage}. If the customer has no preferred language configured, use English.`, 
+          context: { client, outboundLanguage, clientPreferredLanguage: client.preferredLanguage || null },
           llmConfig: getLLMConfig('drafting')
         })
       });
@@ -311,7 +312,7 @@ function AgentSettingsModal({ client, onClose }: { client: Client, onClose: () =
     // Auto-schedule non-email steps if enabled and auto email mode
     if (enabled && mode === 'auto_email' && selectedWf && hasNonEmailSteps) {
         selectedWf.steps.filter(s => s.type !== 'email').forEach((step, idx) => {
-         const languageInstruction = `Language: Write the message matching the language of our past communication. If there is no communication history, use the official language of the client's country (${client.country || 'their location'}).`;
+         const languageInstruction = `Language: Write outbound content in ${client.preferredLanguage?.trim() || 'English'}. If the customer has no preferred language configured, use English.`;
          
          addQuest({
             title: `[Agent] Follow up via ${step.type} (${client.name})`,
@@ -467,7 +468,11 @@ export function ClientDetails() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${useAuthStore.getState().token}`
         },
-        body: JSON.stringify({ llmConfig: getLLMConfig('analysis') })
+        body: JSON.stringify({
+          llmConfig: getLLMConfig('analysis'),
+          systemLanguage: useStore.getState().language === 'zh' ? 'Chinese' : 'English',
+          outboundLanguage: client.preferredLanguage?.trim() || 'English'
+        })
       });
       const data = await res.json();
       if (data.success) {
@@ -507,7 +512,9 @@ export function ClientDetails() {
           logs: clientLogs,
           emails: clientEmails,
           llmConfig: getLLMConfig('analysis'),
-          embeddingLlmConfig: getLLMConfig('embedding')
+          embeddingLlmConfig: getLLMConfig('embedding'),
+          systemLanguage: useStore.getState().language === 'zh' ? 'Chinese' : 'English',
+          outboundLanguage: client.preferredLanguage?.trim() || 'English'
         })
       });
       const data = await res.json();
