@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore, EmailMessage } from '../store';
 import { useAuthStore } from '../authStore';
-import { Mail, Send, Reply, Trash2, ArrowLeft, RefreshCw, PenLine, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2, MoreHorizontal, Star, Clock, Activity, Eye, MousePointerClick, Radar, Timer } from 'lucide-react';
+import { Mail, Send, Reply, Trash2, ArrowLeft, RefreshCw, PenLine, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, MessageCircle, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2, MoreHorizontal, Star, Clock, Activity, Eye, MousePointerClick, Radar, Timer } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { CommentItem } from './CommentItem';
 import { AddressInput } from './AddressInput';
@@ -9,6 +9,21 @@ import { getCaretCoordinates } from '../utils/caret';
 import { ClientFormModal } from './ClientFormModal';
 import { UploadAttachmentModal } from './UploadAttachmentModal';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle, useDefaultLayout } from 'react-resizable-panels';
+import { WhatsAppChatModal } from './WhatsAppChatModal';
+
+interface InboxWhatsAppConversation {
+  id: string;
+  targetPhone: string;
+  clientId?: string;
+  clientName?: string;
+  clientCompany?: string;
+  tags: string[];
+  comments: any[];
+  lastMessageAt?: string;
+  lastBody?: string;
+  lastDirection?: 'inbound' | 'outbound';
+  lastHubClientId?: string;
+}
 
 export function Inbox() {
   const { emails, markEmailRead, clients, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail, notify } = useStore();
@@ -37,6 +52,8 @@ export function Inbox() {
   const [todoNote, setTodoNote] = useState('');
   const [tagModalEmail, setTagModalEmail] = useState<string | null>(null);
   const [tagInput, setTagInput] = useState('');
+  const [whatsappConversations, setWhatsappConversations] = useState<InboxWhatsAppConversation[]>([]);
+  const [selectedWhatsAppPhone, setSelectedWhatsAppPhone] = useState<string | null>(null);
 
   const [confirmDialog, setConfirmDialog] = useState<{message: string, onConfirm: () => void} | null>(null);
   const [alertDialog, setAlertDialog] = useState<string | null>(null);
@@ -46,6 +63,25 @@ export function Inbox() {
     document.addEventListener('click', closeMenu);
     return () => document.removeEventListener('click', closeMenu);
   }, []);
+
+  const loadWhatsAppConversations = async () => {
+    try {
+      const res = await fetch(`/api/whatsapp-hub/conversations?search=${encodeURIComponent(search)}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setWhatsappConversations(data.conversations || []);
+      }
+    } catch (error) {
+      console.warn('WhatsApp conversations unavailable in unified inbox', error);
+    }
+  };
+
+  useEffect(() => {
+    const timeout = window.setTimeout(loadWhatsAppConversations, 350);
+    return () => window.clearTimeout(timeout);
+  }, [search]);
 
   const filteredEmails = emails.filter(e => {
     // Support both new ('inbox'/'sent') and legacy ('inbound'/'outbound') types
@@ -79,6 +115,29 @@ export function Inbox() {
     }
     return true;
   });
+
+  const filteredWhatsAppConversations = filter === 'inbox'
+    ? whatsappConversations.filter(conversation => {
+        const termsToMatch = [...searchTags];
+        if (search.trim()) {
+          termsToMatch.push(...search.trim().toLowerCase().split(/\s+/));
+        }
+        if (termsToMatch.length === 0) return true;
+        const haystack = [
+          conversation.targetPhone,
+          conversation.clientName || '',
+          conversation.clientCompany || '',
+          conversation.lastBody || '',
+          ...(conversation.tags || [])
+        ].join(' ').toLowerCase();
+        return termsToMatch.every(term => {
+          const normalized = term.toLowerCase();
+          return normalized.startsWith('#')
+            ? (conversation.tags || []).some(tag => tag.toLowerCase() === normalized)
+            : haystack.includes(normalized);
+        });
+      })
+    : [];
 
   const toggleSelection = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -143,6 +202,7 @@ export function Inbox() {
       } else if (!options.silent) {
         useStore.getState().fetchEmails();
       }
+      loadWhatsAppConversations();
       setLastSyncAt(new Date().toISOString());
       if (!options.silent) notify(`Sync complete. Fetched ${totalSynced} new email(s).`, 'success');
     } catch (e) {
@@ -163,11 +223,27 @@ export function Inbox() {
   }, []);
 
   const selectedEmail = emails.find(e => e.id === selectedEmailId);
+  const matchWhatsAppClient = (phone: string) => clients.find(client => client.contactMethods?.some(method => (
+    ['whatsapp', 'phone'].includes(method.type) && method.value.replace(/[^0-9]/g, '').endsWith(phone.slice(-8))
+  )));
+  const activeWhatsAppConversation = selectedWhatsAppPhone
+    ? whatsappConversations.find(conversation => conversation.targetPhone === selectedWhatsAppPhone)
+    : null;
+  const activeWhatsAppClient = activeWhatsAppConversation
+    ? clients.find(client => client.id === activeWhatsAppConversation.clientId) || matchWhatsAppClient(activeWhatsAppConversation.targetPhone) || null
+    : null;
 
   const handleSelect = (id: string) => {
     setIsComposing(false);
+    setSelectedWhatsAppPhone(null);
     selectEmail(id);
     markEmailRead(id);
+  };
+
+  const handleSelectWhatsApp = (conversation: InboxWhatsAppConversation) => {
+    setIsComposing(false);
+    selectEmail(null);
+    setSelectedWhatsAppPhone(conversation.targetPhone);
   };
 
   const handleCreateLead = () => {
@@ -365,9 +441,53 @@ export function Inbox() {
               )}
             </div>
           )}
-          {filteredEmails.length === 0 && (
-            <div className="p-8 text-center text-sm text-slate-500 italic">No emails found.</div>
+          {filteredEmails.length === 0 && filteredWhatsAppConversations.length === 0 && (
+            <div className="p-8 text-center text-sm text-slate-500 italic">No conversations found.</div>
           )}
+          {filteredWhatsAppConversations.map(conversation => {
+            const client = conversation.clientId ? clients.find(c => c.id === conversation.clientId) : matchWhatsAppClient(conversation.targetPhone);
+            return (
+              <div
+                key={`wa_${conversation.id}`}
+                onClick={() => handleSelectWhatsApp(conversation)}
+                className={cn("cursor-pointer border-b border-slate-800/50 p-4 transition-colors flex gap-3 group relative",
+                  selectedWhatsAppPhone === conversation.targetPhone ? "bg-green-950/20" : "hover:bg-slate-800/30"
+                )}
+              >
+                <div className="pt-0.5 flex-shrink-0">
+                  <div className="w-7 h-7 rounded-full bg-green-950/50 border border-green-900/60 flex items-center justify-center">
+                    <MessageCircle className="w-4 h-4 text-green-400" />
+                  </div>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-1 gap-2">
+                    <span className="text-sm font-bold truncate text-slate-200">
+                      {client?.name || conversation.clientName || conversation.targetPhone}
+                    </span>
+                    <span className="text-[10px] text-slate-500 shrink-0">
+                      {conversation.lastMessageAt ? new Date(conversation.lastMessageAt).toLocaleDateString() : 'WhatsApp'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 text-[10px] text-green-400 font-bold uppercase mb-1">
+                    <MessageCircle className="w-3 h-3" />
+                    WhatsApp {conversation.lastDirection === 'outbound' ? 'sent' : 'inbox'}
+                  </div>
+                  <div className="text-xs font-medium mb-1 truncate text-slate-400">
+                    {conversation.lastBody || 'Media message'}
+                  </div>
+                  {conversation.tags && conversation.tags.length > 0 && (
+                    <div className="flex gap-1 mb-1 overflow-x-auto scrollbar-hide">
+                      {conversation.tags.slice(0, 4).map(t => (
+                        <span key={t} className="text-[9px] bg-slate-800 text-green-300 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
           {filteredEmails.map(email => (
             <div 
               key={email.id}
@@ -387,6 +507,9 @@ export function Inbox() {
                   onChange={() => {}}
                   className="rounded border-slate-700 bg-slate-800 text-cyan-500 focus:ring-cyan-500"
                 />
+              </div>
+              <div className="pt-0.5 flex-shrink-0" title="Email">
+                <Mail className="w-4 h-4 text-cyan-400" />
               </div>
               <div 
                 className={cn("pt-0.5 cursor-pointer transition-opacity flex-shrink-0", email.isImportant ? "opacity-100" : "opacity-0 group-hover:opacity-100")}
@@ -866,6 +989,18 @@ export function Inbox() {
             </div>
           </div>
         </div>
+      )}
+
+      {selectedWhatsAppPhone && (
+        <WhatsAppChatModal
+          phone={selectedWhatsAppPhone}
+          client={activeWhatsAppClient}
+          conversation={activeWhatsAppConversation}
+          onClose={() => {
+            setSelectedWhatsAppPhone(null);
+            loadWhatsAppConversations();
+          }}
+        />
       )}
     </PanelGroup>
   );
