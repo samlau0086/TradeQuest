@@ -1158,6 +1158,7 @@ export const useStore = create<StoreState>((set, get) => ({
     magic: null,
     agent_harness: null,
     global_agent: null,
+    agent_context_suggestions: null,
     drafting: null,
     whatsapp_drafting: null,
     analysis: null,

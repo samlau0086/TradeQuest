@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { Bot, CornerDownRight, MessageSquare, ShieldCheck, Sparkles, UserPlus, Zap } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Bot, CornerDownRight, Loader2, MessageSquare, ShieldCheck, Sparkles, UserPlus, Zap } from 'lucide-react';
 import { useStore } from '../store';
 import { useTranslation } from '../lib/i18n';
 import { cn } from '../lib/utils';
@@ -34,6 +34,16 @@ const inferIntent = (text: string) => {
   return 'Follow-up';
 };
 
+const parseSuggestionJson = (raw: string) => {
+  const cleaned = raw.replace(/```json|```/g, '').trim();
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  return JSON.parse(match ? match[0] : cleaned) as {
+    intent?: string;
+    customerContext?: string;
+    knowledgeContext?: string;
+  };
+};
+
 export function AgentContextSuggestions({
   channel,
   subject = '',
@@ -46,8 +56,10 @@ export function AgentContextSuggestions({
   onCreateLead,
   onAddToKnowledge
 }: AgentContextSuggestionsProps) {
-  const { language, agentHubAgents, addAgentRunRecord } = useStore();
+  const { language, agentHubAgents, addAgentRunRecord, llmConfigs, llmMappings, activeLLMId } = useStore();
   const t = useTranslation(language);
+  const [aiInsight, setAiInsight] = useState<{ intent: string; customerContext: string; knowledgeContext: string } | null>(null);
+  const [loadingInsight, setLoadingInsight] = useState(false);
   const agent = useMemo(() => {
     const preferredId = channel === 'whatsapp' ? 'whatsapp_agent' : 'follow_up_agent';
     return agentHubAgents.find(item => item.id === preferredId)
@@ -55,10 +67,56 @@ export function AgentContextSuggestions({
   }, [agentHubAgents, channel]);
 
   const text = `${subject} ${body}`.trim();
-  const intent = inferIntent(text);
+  const fallbackIntent = inferIntent(text);
+  const intent = aiInsight?.intent || fallbackIntent;
   const automationReady = agent?.contextSuggestionMode === 'auto';
   const canAutoExecute = automationReady && agent.guardrail === 'auto';
   const executionLabel = canAutoExecute ? t('Auto-ready') : automationReady ? t('Review-gated automation') : t('Manual options');
+  const llmConfig = llmConfigs.find(llm => llm.id === (llmMappings.agent_context_suggestions || activeLLMId)) || null;
+
+  useEffect(() => {
+    if (!llmConfig || !text) {
+      setAiInsight(null);
+      return;
+    }
+    const controller = new AbortController();
+    setLoadingInsight(true);
+    fetch('/api/chat/magic', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${localStorage.getItem('token')}`
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        command: `Analyze this ${channel} conversation for a CRM agent context panel. Return only JSON with keys: intent, customerContext, knowledgeContext. Keep each value short and actionable. Use ${language === 'zh' ? 'Chinese' : 'English'}.
+
+Subject/contact: ${subject || clientName || 'N/A'}
+Message:
+${body || 'N/A'}`,
+        context: { channel, subject, body, clientName, hasClient, hasKnowledge },
+        llmConfig,
+        skipKnowledgeBase: false
+      })
+    })
+      .then(async response => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to analyze context suggestions');
+        const parsed = parseSuggestionJson(data.result || '');
+        setAiInsight({
+          intent: parsed.intent || fallbackIntent,
+          customerContext: parsed.customerContext || '',
+          knowledgeContext: parsed.knowledgeContext || ''
+        });
+      })
+      .catch(error => {
+        if (error?.name !== 'AbortError') setAiInsight(null);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingInsight(false);
+      });
+    return () => controller.abort();
+  }, [llmConfig?.id, text, channel, subject, body, clientName, hasClient, hasKnowledge, language, fallbackIntent]);
 
   const recordOption = (label: string, run: () => void) => {
     if (agent) {
@@ -135,15 +193,15 @@ export function AgentContextSuggestions({
       <div className="mt-4 space-y-2 text-sm text-slate-300">
         <div className="flex items-start gap-2">
           <CornerDownRight className="mt-0.5 w-4 h-4 text-blue-400" />
-          <span>{t('Intent analyzed as')} <span className="font-bold text-blue-200">{t(intent)}</span>.</span>
+          <span>{t('Intent analyzed as')} <span className="font-bold text-blue-200">{t(intent)}</span>. {loadingInsight && <Loader2 className="ml-1 inline w-3 h-3 animate-spin text-blue-300" />}</span>
         </div>
         <div className="flex items-start gap-2">
           <CornerDownRight className="mt-0.5 w-4 h-4 text-blue-400" />
-          <span>{clientName ? `${t('Related customer')}: ${clientName}` : t('No linked customer yet.')}</span>
+          <span>{aiInsight?.customerContext || (clientName ? `${t('Related customer')}: ${clientName}` : t('No linked customer yet.'))}</span>
         </div>
         <div className="flex items-start gap-2">
           <CornerDownRight className="mt-0.5 w-4 h-4 text-blue-400" />
-          <span>{hasKnowledge ? t('Relevant CRM/RAG context is available.') : t('No RAG snippet found yet; consider saving this context.')}</span>
+          <span>{aiInsight?.knowledgeContext || (hasKnowledge ? t('Relevant CRM/RAG context is available.') : t('No RAG snippet found yet; consider saving this context.'))}</span>
         </div>
       </div>
 
