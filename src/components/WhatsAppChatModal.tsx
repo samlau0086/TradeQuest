@@ -204,7 +204,9 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
             targetPhone,
             userLanguagePreference: language === 'zh' ? 'Chinese' : 'English'
           },
-          llmConfig: getLLMConfig('drafting')
+          llmConfig: getLLMConfig('drafting'),
+          embeddingLlmConfig: getLLMConfig('embedding'),
+          skipKnowledgeBase: true
         })
       });
       const data = await response.json();

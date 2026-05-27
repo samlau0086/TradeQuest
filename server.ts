@@ -409,9 +409,11 @@ async function startServer() {
   // Magic command completion
   app.post("/api/chat/magic", authenticateToken, async (req: any, res) => {
     try {
-      const { command, context, llmConfig, embeddingLlmConfig } = req.body;
+      const { command, context, llmConfig, embeddingLlmConfig, skipKnowledgeBase } = req.body;
       
-      const kbRes = await searchKnowledgeBase(req.user.uid, context?.clientId || null, command, embeddingLlmConfig || llmConfig);
+      const kbRes = skipKnowledgeBase
+        ? { rows: [] }
+        : await searchKnowledgeBase(req.user.uid, context?.clientId || null, command, embeddingLlmConfig || llmConfig);
       
       const prompt = `You are an AI assistant in a Foreign Trade CRM. 
 User executed magic command: "${command}". 
