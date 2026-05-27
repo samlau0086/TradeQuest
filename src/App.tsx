@@ -77,8 +77,10 @@ export default function App() {
           const objective = agent.id === 'follow_up_agent'
             ? `Scheduled run for ${agent.name}: ${agent.instructions}. Use Lead Scoring Agent outputs when available and do not repeat lead scoring or lead summaries.`
             : `Scheduled run for ${agent.name}: ${agent.instructions}`;
+          let relatedRunId = '';
+          let relatedRunType: 'harness' | 'global' = 'harness';
           if (agent.id === 'global_agent') {
-            state.addGlobalAgentPlan({
+            relatedRunId = state.addGlobalAgentPlan({
               objective,
               summary: `Scheduled Global Agent run: ${agent.name}`,
               status: reviewStatus,
@@ -91,8 +93,9 @@ export default function App() {
                 payload: { source: 'agent-hub-schedule', agentId: agent.id, tools: agent.tools }
               }]
             });
+            relatedRunType = 'global';
           } else {
-            state.addAgentHarnessRun({
+            relatedRunId = state.addAgentHarnessRun({
               objective,
               summary: `Scheduled Agent Hub run: ${agent.name}`,
               status: reviewStatus,
@@ -108,6 +111,21 @@ export default function App() {
               }]
             });
           }
+          state.addAgentRunRecord({
+            agentId: agent.id,
+            agentName: agent.name,
+            trigger: 'scheduled',
+            status: reviewStatus,
+            plan: objective,
+            expectedResult: agent.id === 'global_agent'
+              ? 'Create or update a Global Agent plan for conversion coordination.'
+              : 'Create an Agent Harness run with the configured agent tools and guardrails.',
+            actualResult: reviewStatus === 'approved'
+              ? 'Scheduled run was auto-approved according to guardrail policy.'
+              : 'Scheduled run created and waiting for human approval.',
+            relatedRunId,
+            relatedRunType
+          });
           state.updateAgentHubAgent(agent.id, {
             lastRunAt: new Date(now).toISOString(),
             tasksCompleted: agent.tasksCompleted + (agent.guardrail === 'auto' ? 1 : 0)

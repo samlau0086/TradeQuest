@@ -318,6 +318,25 @@ export interface AgentHubAgent {
   updatedAt: string;
 }
 
+export type AgentHubRunStatus = 'planned' | 'pending_review' | 'approved' | 'running' | 'completed' | 'failed' | 'rejected';
+export type AgentHubRunTrigger = 'scheduled' | 'manual' | 'approval' | 'system';
+
+export interface AgentHubRunRecord {
+  id: string;
+  agentId: string;
+  agentName: string;
+  trigger: AgentHubRunTrigger;
+  status: AgentHubRunStatus;
+  plan: string;
+  expectedResult: string;
+  actualResult?: string;
+  relatedRunId?: string;
+  relatedRunType?: 'harness' | 'global';
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+}
+
 export interface ClientEditRequest {
   id: number;
   client_id: string;
@@ -486,6 +505,9 @@ export interface StoreState {
   agentHubAgents: AgentHubAgent[];
   addAgentHubAgent: (agent: Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'> & Partial<Pick<AgentHubAgent, 'tasksCompleted'>>) => string;
   updateAgentHubAgent: (id: string, updates: Partial<AgentHubAgent>) => void;
+  agentRunRecords: AgentHubRunRecord[];
+  addAgentRunRecord: (record: Omit<AgentHubRunRecord, 'id' | 'createdAt' | 'updatedAt'>) => string;
+  updateAgentRunRecord: (id: string, updates: Partial<AgentHubRunRecord>) => void;
 
   knowledgeBase: KnowledgeItem[];
   fetchKnowledgeBase: () => void;
@@ -957,6 +979,20 @@ export const useStore = create<StoreState>((set, get) => ({
   updateAgentHubAgent: (id, updates) => set((state) => ({
     agentHubAgents: state.agentHubAgents.map(agent => (
       agent.id === id ? { ...agent, ...updates, updatedAt: new Date().toISOString() } : agent
+    ))
+  })),
+  agentRunRecords: [],
+  addAgentRunRecord: (record) => {
+    const id = `agent_run_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const now = new Date().toISOString();
+    set((state) => ({
+      agentRunRecords: [{ ...record, id, createdAt: now, updatedAt: now }, ...state.agentRunRecords].slice(0, 200)
+    }));
+    return id;
+  },
+  updateAgentRunRecord: (id, updates) => set((state) => ({
+    agentRunRecords: state.agentRunRecords.map(record => (
+      record.id === id ? { ...record, ...updates, updatedAt: new Date().toISOString() } : record
     ))
   })),
 
@@ -2177,6 +2213,7 @@ export const useStore = create<StoreState>((set, get) => ({
                 )
               ]
             : state.agentHubAgents,
+          agentRunRecords: settings.agentRunRecords ?? state.agentRunRecords,
           leadCampaigns: settings.leadCampaigns ?? state.leadCampaigns,
           globalAgentPlans: settings.globalAgentPlans ?? state.globalAgentPlans,
           agentHarnessRuns: settings.agentHarnessRuns ?? state.agentHarnessRuns,
@@ -2272,6 +2309,7 @@ useStore.subscribe((state, prevState) => {
     state.agentExecutionPolicy !== prevState.agentExecutionPolicy ||
     state.agentWorkflows !== prevState.agentWorkflows ||
     state.agentHubAgents !== prevState.agentHubAgents ||
+    state.agentRunRecords !== prevState.agentRunRecords ||
     state.leadCampaigns !== prevState.leadCampaigns ||
     state.globalAgentPlans !== prevState.globalAgentPlans ||
     state.agentHarnessRuns !== prevState.agentHarnessRuns ||
@@ -2305,6 +2343,7 @@ useStore.subscribe((state, prevState) => {
             agentExecutionPolicy: state.agentExecutionPolicy,
             agentWorkflows: state.agentWorkflows,
             agentHubAgents: state.agentHubAgents,
+            agentRunRecords: state.agentRunRecords,
             leadCampaigns: state.leadCampaigns,
             globalAgentPlans: state.globalAgentPlans,
             agentHarnessRuns: state.agentHarnessRuns,

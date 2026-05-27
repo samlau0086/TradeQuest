@@ -181,8 +181,10 @@ export function AgentHub() {
     updateAgentHubAgent,
     agentHarnessRuns,
     globalAgentPlans,
+    agentRunRecords,
     updateAgentHarnessRun,
     updateGlobalAgentPlan,
+    updateAgentRunRecord,
     agentExecutionPolicy,
     updateAgentExecutionPolicy
   } = useStore();
@@ -208,11 +210,26 @@ export function AgentHub() {
   const approveItem = (item: typeof pendingItems[number]) => {
     if (item.kind === 'harness') updateAgentHarnessRun(item.id, { status: 'approved', approvedAt: new Date().toISOString() });
     if (item.kind === 'global') updateGlobalAgentPlan(item.id, { status: 'approved', approvedAt: new Date().toISOString() });
+    const linkedRecord = agentRunRecords.find(record => record.relatedRunId === item.id && record.relatedRunType === item.kind);
+    if (linkedRecord) {
+      updateAgentRunRecord(linkedRecord.id, {
+        status: 'approved',
+        actualResult: 'Human approved the planned agent run.'
+      });
+    }
   };
 
   const rejectItem = (item: typeof pendingItems[number]) => {
     if (item.kind === 'harness') updateAgentHarnessRun(item.id, { status: 'rejected', rejectedAt: new Date().toISOString(), rejectedReason: 'Rejected from Agent Hub' });
     if (item.kind === 'global') updateGlobalAgentPlan(item.id, { status: 'rejected', rejectedAt: new Date().toISOString(), rejectedReason: 'Rejected from Agent Hub' });
+    const linkedRecord = agentRunRecords.find(record => record.relatedRunId === item.id && record.relatedRunType === item.kind);
+    if (linkedRecord) {
+      updateAgentRunRecord(linkedRecord.id, {
+        status: 'rejected',
+        actualResult: 'Human rejected the planned agent run.',
+        completedAt: new Date().toISOString()
+      });
+    }
   };
 
   const tabButton = (id: AgentHubTab, label: string, icon: React.ReactNode) => (
@@ -368,6 +385,55 @@ export function AgentHub() {
                     );
                   })}
                 </div>
+              </div>
+            </section>
+            <section className="xl:col-span-2 bg-neutral-900/80 border border-neutral-700 rounded-lg p-6">
+              <div className="flex items-center justify-between gap-3 mb-6">
+                <div>
+                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400">
+                    <ListChecks className="w-4 h-4" /> {t('Agent Run History')}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-2">{t('Monitor each agent run plan, expected result, and actual result.')}</p>
+                </div>
+              </div>
+              <div className="space-y-3">
+                {agentRunRecords.length === 0 && (
+                  <div className="text-sm text-slate-500 py-8 text-center">{t('No agent run records yet.')}</div>
+                )}
+                {agentRunRecords.slice(0, 30).map(record => (
+                  <div key={record.id} className="bg-black border border-neutral-800 rounded-lg p-4">
+                    <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-bold text-slate-100">{record.agentName}</span>
+                          <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-[10px] text-slate-400 uppercase">{t(`trigger_${record.trigger}`)}</span>
+                          <span className={cn('px-2 py-0.5 rounded border text-[10px] uppercase font-bold', record.status === 'failed' || record.status === 'rejected' ? 'bg-red-500/10 border-red-500/30 text-red-300' : record.status === 'completed' || record.status === 'approved' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-blue-500/10 border-blue-500/30 text-blue-300')}>
+                            {t(record.status)}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-slate-600 mt-2">
+                          {new Date(record.createdAt).toLocaleString()}
+                          {record.relatedRunId && ` · ${record.relatedRunType}:${record.relatedRunId}`}
+                        </div>
+                      </div>
+                      {record.completedAt && <div className="text-[10px] text-slate-500">{t('Completed at')}: {new Date(record.completedAt).toLocaleString()}</div>}
+                    </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-4">
+                      <div className="bg-neutral-950 border border-neutral-800 rounded-md p-3">
+                        <div className="text-[10px] uppercase font-bold text-blue-300 mb-2">{t('Plan')}</div>
+                        <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{record.plan}</p>
+                      </div>
+                      <div className="bg-neutral-950 border border-neutral-800 rounded-md p-3">
+                        <div className="text-[10px] uppercase font-bold text-amber-300 mb-2">{t('Expected Result')}</div>
+                        <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{record.expectedResult}</p>
+                      </div>
+                      <div className="bg-neutral-950 border border-neutral-800 rounded-md p-3">
+                        <div className="text-[10px] uppercase font-bold text-emerald-300 mb-2">{t('Actual Result')}</div>
+                        <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{record.actualResult || t('Waiting for execution result.')}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </section>
           </div>
