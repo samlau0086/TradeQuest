@@ -65,9 +65,18 @@ export default function App() {
           const intervalMs = Math.max(15, Number(agent.scheduleIntervalMinutes || 1440)) * 60 * 1000;
           const lastRun = agent.lastRunAt ? new Date(agent.lastRunAt).getTime() : 0;
           if (lastRun && now - lastRun < intervalMs) return;
+          if (agent.id === 'follow_up_agent') {
+            const scoringAgent = state.agentHubAgents.find(item => item.id === 'lead_scoring_agent');
+            const scoringIntervalMs = Math.max(15, Number(scoringAgent?.scheduleIntervalMinutes || 240)) * 60 * 1000;
+            const scoringLastRun = scoringAgent?.lastRunAt ? new Date(scoringAgent.lastRunAt).getTime() : 0;
+            const scoringIsDue = scoringAgent?.status === 'active' && scoringAgent.scheduleEnabled && (!scoringLastRun || now - scoringLastRun >= scoringIntervalMs);
+            if (scoringIsDue) return;
+          }
 
           const reviewStatus = agent.guardrail === 'auto' ? 'approved' : 'pending_review';
-          const objective = `Scheduled run for ${agent.name}: ${agent.instructions}`;
+          const objective = agent.id === 'follow_up_agent'
+            ? `Scheduled run for ${agent.name}: ${agent.instructions}. Use Lead Scoring Agent outputs when available and do not repeat lead scoring or lead summaries.`
+            : `Scheduled run for ${agent.name}: ${agent.instructions}`;
           if (agent.id === 'global_agent') {
             state.addGlobalAgentPlan({
               objective,

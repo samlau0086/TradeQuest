@@ -32,8 +32,8 @@ const AGENTS = [
   {
     id: 'lead_data_agent',
     name: 'Lead Data Agent',
-    goal: 'Search, import, enrich, and score leads across configured data channels.',
-    tools: ['lead.acquire', 'lead.enrich', 'public_pool.import', 'client.score']
+    goal: 'Acquire, import, enrich, deduplicate, and normalize lead data across configured data channels.',
+    tools: ['lead.acquire', 'lead.enrich', 'public_pool.import', 'client.dedupe', 'data.normalize']
   }
 ];
 

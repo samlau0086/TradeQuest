@@ -716,10 +716,10 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
   {
     id: 'lead_data_agent',
     name: 'Lead Data Agent',
-    instructions: 'Search, import, enrich, and score leads across configured data channels.',
+    instructions: 'Acquire, import, enrich, deduplicate, and normalize lead data across configured data channels.',
     guardrail: 'auto',
     status: 'active',
-    tools: ['lead.acquire', 'lead.enrich', 'public_pool.import', 'client.score'],
+    tools: ['lead.acquire', 'lead.enrich', 'public_pool.import', 'client.dedupe', 'data.normalize'],
     tasksCompleted: 0,
     scheduleEnabled: false,
     scheduleIntervalMinutes: 720,
@@ -2167,7 +2167,14 @@ export const useStore = create<StoreState>((set, get) => ({
           agentHubAgents: settings.agentHubAgents
             ? [
                 ...INITIAL_AGENT_HUB_AGENTS.filter(defaultAgent => !settings.agentHubAgents.some((agent: AgentHubAgent) => agent.id === defaultAgent.id)),
-                ...settings.agentHubAgents
+                ...settings.agentHubAgents.map((agent: AgentHubAgent) => agent.id === 'lead_data_agent'
+                  ? {
+                      ...agent,
+                      instructions: 'Acquire, import, enrich, deduplicate, and normalize lead data across configured data channels.',
+                      tools: ['lead.acquire', 'lead.enrich', 'public_pool.import', 'client.dedupe', 'data.normalize']
+                    }
+                  : agent
+                )
               ]
             : state.agentHubAgents,
           leadCampaigns: settings.leadCampaigns ?? state.leadCampaigns,

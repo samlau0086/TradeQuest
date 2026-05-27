@@ -503,7 +503,7 @@ No markdown wrappers, just valid JSON.`;
   // Emotional Thermometer & Icebreaker
   app.post("/api/chat/icebreaker", authenticateToken, async (req: any, res) => {
     try {
-      const { client, logs, llmConfig, embeddingLlmConfig } = req.body;
+      const { client, logs, emails, llmConfig, embeddingLlmConfig } = req.body;
       
       const kbRes = await searchKnowledgeBase(req.user.uid, client?.id || null, `Icebreaker and follow up strategy for client in ${client?.company || 'foreign trade'}`, embeddingLlmConfig || llmConfig, 5);
       
@@ -511,6 +511,7 @@ No markdown wrappers, just valid JSON.`;
 Analyze this client and their recent logs.
 Client: ${JSON.stringify(client)}
 Logs: ${JSON.stringify(logs)}
+Emails: ${JSON.stringify(emails || [])}
 Knowledge Base (RAG):
 ${kbRes.rows.map(kb => `[${kb.title}]\n${kb.content}`).join('\n\n')}
 
@@ -528,6 +529,12 @@ No markdown wrappers, just valid JSON.`;
       
       const text = await callAI(prompt, llmConfig, true);
       const parsed = JSON.parse(text || '{}');
+      const fallbackSummary = [client?.company || client?.name, client?.country, client?.status, Array.isArray(client?.tags) && client.tags.length ? `Tags: ${client.tags.join(', ')}` : '']
+        .filter(Boolean)
+        .join(' / ');
+      parsed.leadScore = Number(parsed.leadScore ?? parsed.temperature ?? 0);
+      parsed.leadSummary = parsed.leadSummary || parsed.summary || fallbackSummary || 'Lead profile requires more interaction data.';
+      parsed.leadNextStep = parsed.leadNextStep || parsed.nextStep || 'Review the lead profile and choose the next follow-up action.';
       res.json(parsed);
     } catch (e) {
       console.error(e);
@@ -1476,6 +1483,11 @@ Preferred Language: ${client.preferred_language || 'Auto-detect or English'}
 Preferred Comm Time: ${client.preferred_time_range || 'Any'} (This is in the Client's Local Time)
 Agent Context / Instructions: ${client.agent_context || 'None'}
 Long-term Summary: ${client.agent_summary || 'None'}
+Lead Scoring Agent:
+- Lead Score: ${client.lead_score ?? 'Not scored yet'}
+- Lead Summary: ${client.lead_summary || 'None'}
+- Best Next Step: ${client.lead_next_step || 'None'}
+- Coordination Rule: Do not repeat lead scoring or rewrite the lead summary unless new evidence materially changes it. Use the score, summary, and next step above to choose follow-up timing and content.
 
 ${workflowInstructions}
 
@@ -2577,6 +2589,11 @@ Preferred Language: ${client.preferred_language || 'Auto-detect or English'}
 Preferred Comm Time: ${client.preferred_time_range || 'Any'}
 Agent Context / Instructions: ${client.agent_context || 'None'}
 Long-term Summary: ${client.agent_summary || 'None'}
+Lead Scoring Agent:
+- Lead Score: ${client.lead_score ?? 'Not scored yet'}
+- Lead Summary: ${client.lead_summary || 'None'}
+- Best Next Step: ${client.lead_next_step || 'None'}
+- Coordination Rule: Do not repeat lead scoring or rewrite the lead summary unless new evidence materially changes it. Use the score, summary, and next step above to choose follow-up timing and content.
 
 Knowledge Base context:
 ${kbRes.rows.map((kb: any) => `[${kb.title}]\n${kb.content}`).join('\n\n')}

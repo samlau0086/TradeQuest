@@ -420,7 +420,7 @@ function AgentSettingsModal({ client, onClose }: { client: Client, onClose: () =
 }
 
 export function ClientDetails() {
-  const { clients, selectedClientId, selectClient, updateClientStatus, deleteClient, addComment, addReply, llmConfigs, activeLLMId, llmMappings, setView, selectEmail } = useStore();
+  const { clients, selectedClientId, selectClient, updateClientStatus, deleteClient, addComment, addReply, llmConfigs, activeLLMId, llmMappings, setView, selectEmail, logs, emails } = useStore();
   
   const getLLMConfig = (module: string) => {
     const id = llmMappings[module] || activeLLMId;
@@ -487,6 +487,14 @@ export function ClientDetails() {
 
   const handleAnalyze = async () => {
     setLoading(true);
+    const clientLogs = logs
+      .filter(log => log.clientId === client.id)
+      .slice(0, 20)
+      .map(log => ({ date: log.date, type: log.type, content: log.content }));
+    const clientEmails = emails
+      .filter(email => email.clientId === client.id)
+      .slice(0, 10)
+      .map(email => ({ date: email.date, type: email.type, subject: email.subject, body: email.body?.slice(0, 800) }));
     try {
       const res = await fetch('/api/chat/icebreaker', {
         method: 'POST',
@@ -496,26 +504,37 @@ export function ClientDetails() {
         },
         body: JSON.stringify({ 
           client, 
-          logs: [{ date: client.lastContact, content: "Discussed pricing. Client seemed hesitant but asked for samples. No reply since." }],
+          logs: clientLogs,
+          emails: clientEmails,
           llmConfig: getLLMConfig('analysis'),
           embeddingLlmConfig: getLLMConfig('embedding')
         })
       });
       const data = await res.json();
-      setAiData(data);
+      const score = Number(data.leadScore ?? data.temperature ?? 0);
+      const fallbackSummary = [
+        client.company || client.name,
+        client.country,
+        client.status,
+        client.tags?.length ? `Tags: ${client.tags.join(', ')}` : ''
+      ].filter(Boolean).join(' / ');
+      const leadSummary = data.leadSummary || data.summary || fallbackSummary || 'Lead profile requires more interaction data.';
+      const leadNextStep = data.leadNextStep || data.nextStep || client.agentNextStep || 'Review the lead profile and choose the next follow-up action.';
+      const normalizedData = { ...data, leadScore: score, leadSummary, leadNextStep };
+      setAiData(normalizedData);
       useStore.getState().editClient(client.id, {
-        leadScore: Number(data.leadScore ?? data.temperature ?? 0),
-        leadSummary: data.leadSummary || data.summary,
-        leadNextStep: data.leadNextStep || data.nextStep || data.icebreaker,
-        agentSummary: data.leadSummary || data.summary || client.agentSummary,
-        agentNextStep: data.leadNextStep || client.agentNextStep
+        leadScore: score,
+        leadSummary,
+        leadNextStep,
+        agentSummary: leadSummary || client.agentSummary,
+        agentNextStep: leadNextStep || client.agentNextStep
       });
       useStore.getState().addLog(
         client.id,
-        `Lead Scoring Agent analyzed lead: score ${Number(data.leadScore ?? data.temperature ?? 0)}/100. Next step: ${data.leadNextStep || data.nextStep || 'Review recommended action.'}`,
+        `Lead Scoring Agent analyzed lead: score ${score}/100. Next step: ${leadNextStep}`,
         undefined,
         'general',
-        { source: 'lead_scoring_agent', score: Number(data.leadScore ?? data.temperature ?? 0), summary: data.leadSummary || data.summary }
+        { source: 'lead_scoring_agent', score, summary: leadSummary }
       );
     } catch(err) {
       console.error(err);
