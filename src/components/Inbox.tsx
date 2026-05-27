@@ -11,6 +11,7 @@ import { UploadAttachmentModal } from './UploadAttachmentModal';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle, useDefaultLayout } from 'react-resizable-panels';
 import { WhatsAppChatModal } from './WhatsAppChatModal';
 import { AgentContextSuggestions } from './AgentContextSuggestions';
+import { getOutboundLanguage } from '../lib/language';
 
 interface InboxWhatsAppConversation {
   id: string;
@@ -1234,7 +1235,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
   const matchedClient = clients.find(c => 
     c.contactMethods?.some(m => m.type === 'email' && m.value.toLowerCase() === firstRecipient.toLowerCase())
   );
-  const outboundLanguage = matchedClient?.preferredLanguage?.trim() || 'English';
+  const outboundLanguage = getOutboundLanguage(matchedClient?.preferredLanguage, matchedClient?.country);
 
   const { llmConfigs, activeLLMId, llmMappings, language } = useStore();
   
@@ -1501,7 +1502,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
           'Authorization': `Bearer ${useAuthStore.getState().token}`
         },
         body: JSON.stringify({ 
-          command: `Draft an outbound email. Subject: ${subject || "Follow up"}. Purpose for this email: ${purpose || 'General follow up'}. Output language: ${outboundLanguage}. If the customer has no preferred language configured, use English.`,
+          command: `Draft an outbound email. Subject: ${subject || "Follow up"}. Purpose for this email: ${purpose || 'General follow up'}. Output language: ${outboundLanguage}. If the customer has no preferred language configured, use the official language of the customer's country; if country is missing, use English.`,
           context: { 
             client: matchedClient,
             outboundLanguage,

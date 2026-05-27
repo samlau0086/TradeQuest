@@ -16,6 +16,66 @@ import jwt from "jsonwebtoken";
 
 const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret_key";
 
+const COUNTRY_LANGUAGE_OVERRIDES: Record<string, string> = {
+  china: 'Chinese',
+  'hong kong': 'Chinese',
+  taiwan: 'Chinese',
+  japan: 'Japanese',
+  'south korea': 'Korean',
+  korea: 'Korean',
+  france: 'French',
+  germany: 'German',
+  austria: 'German',
+  switzerland: 'German',
+  spain: 'Spanish',
+  mexico: 'Spanish',
+  colombia: 'Spanish',
+  argentina: 'Spanish',
+  chile: 'Spanish',
+  peru: 'Spanish',
+  portugal: 'Portuguese',
+  brazil: 'Portuguese',
+  italy: 'Italian',
+  russia: 'Russian',
+  ukraine: 'Ukrainian',
+  turkey: 'Turkish',
+  vietnam: 'Vietnamese',
+  thailand: 'Thai',
+  indonesia: 'Indonesian',
+  malaysia: 'Malay',
+  india: 'Hindi or English',
+  pakistan: 'Urdu or English',
+  bangladesh: 'Bengali',
+  'saudi arabia': 'Arabic',
+  'united arab emirates': 'Arabic',
+  egypt: 'Arabic',
+  morocco: 'Arabic',
+  netherlands: 'Dutch',
+  belgium: 'Dutch or French',
+  poland: 'Polish',
+  'czechia (czech republic)': 'Czech',
+  czechia: 'Czech',
+  romania: 'Romanian',
+  greece: 'Greek',
+  israel: 'Hebrew',
+  iran: 'Persian',
+  'united states': 'English',
+  usa: 'English',
+  canada: 'English',
+  'united kingdom': 'English',
+  australia: 'English',
+  'new zealand': 'English',
+  singapore: 'English'
+};
+
+const getOutboundLanguage = (preferredLanguage?: string, country?: string) => {
+  const preferred = preferredLanguage?.trim();
+  if (preferred) return preferred;
+  const normalizedCountry = country?.trim().toLowerCase();
+  if (!normalizedCountry) return 'English';
+  return COUNTRY_LANGUAGE_OVERRIDES[normalizedCountry] || 'English';
+};
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   connectionTimeoutMillis: 10000,
@@ -509,6 +569,7 @@ No markdown wrappers, just valid JSON.`;
   app.post("/api/chat/icebreaker", authenticateToken, async (req: any, res) => {
     try {
       const { client, logs, emails, llmConfig, embeddingLlmConfig, systemLanguage = 'English', outboundLanguage } = req.body;
+      const resolvedOutboundLanguage = outboundLanguage || getOutboundLanguage(client?.preferredLanguage, client?.country);
       
       const kbRes = await searchKnowledgeBase(req.user.uid, client?.id || null, `Icebreaker and follow up strategy for client in ${client?.company || 'foreign trade'}`, embeddingLlmConfig || llmConfig, 5);
       
@@ -516,7 +577,7 @@ No markdown wrappers, just valid JSON.`;
 Analyze this client and their recent logs.
 Language rules:
 - sentiment, leadSummary, leadNextStep, and summary are internal CRM outputs and MUST use ${systemLanguage}.
-- icebreaker is customer-facing outbound content and MUST use ${outboundLanguage || client?.preferredLanguage || 'English'}. If no preferred language is configured, use English.
+- icebreaker is customer-facing outbound content and MUST use ${resolvedOutboundLanguage}. If no preferred language is configured, use the official language of the customer's country; if country is missing, use English.
 Client: ${JSON.stringify(client)}
 Logs: ${JSON.stringify(logs)}
 Emails: ${JSON.stringify(emails || [])}
@@ -2594,6 +2655,7 @@ Query: "${query}"`;
       const clientRes = await pool.query('SELECT * FROM clients WHERE id = $1 AND user_id = $2', [id, req.user.uid]);
       if (clientRes.rows.length === 0) return res.status(404).json({ error: 'Client not found' });
       const client = clientRes.rows[0];
+      const resolvedOutboundLanguage = outboundLanguage || getOutboundLanguage(client.preferred_language, client.country);
       
       if (!client.agent_enabled) {
         return res.status(400).json({ error: 'Agent is not enabled for this client' });
@@ -2614,7 +2676,7 @@ Company: ${client.company}
 Country: ${client.country}
 Preferred Language: ${client.preferred_language || 'Auto-detect or English'}
 System Language for internal agent outputs: ${systemLanguage}
-Outbound Content Language: ${outboundLanguage || client.preferred_language || 'English'}
+Outbound Content Language: ${resolvedOutboundLanguage}
 Preferred Comm Time: ${client.preferred_time_range || 'Any'}
 Agent Context / Instructions: ${client.agent_context || 'None'}
 Long-term Summary: ${client.agent_summary || 'None'}
@@ -2641,7 +2703,7 @@ ${JSON.stringify(productsRes.rows)}
 Based on the above context, you must decide on the next best action to advance this lead. 
 Language rules:
 - newSummary and suggestedNextStep are internal CRM agent outputs and MUST be written in ${systemLanguage}.
-- draftEmail is outbound customer-facing content and MUST be written in ${outboundLanguage || client.preferred_language || 'English'}. If the client has no preferred language, use English.
+- draftEmail is outbound customer-facing content and MUST be written in ${resolvedOutboundLanguage}. If the client has no preferred language, use the official language of the customer's country; if country is missing, use English.
 Your output MUST be a JSON object with the following schema:
 {
   "newSummary": "An updated long-term summary incorporating the new history. Max 3 sentences.",

@@ -4,6 +4,7 @@ import { Client, Comment, MediaItem, useStore } from '../store';
 import { MediaSelectorModal } from './MediaSelectorModal';
 import { useTranslation } from '../lib/i18n';
 import { AgentContextSuggestions } from './AgentContextSuggestions';
+import { getOutboundLanguage } from '../lib/language';
 
 interface WhatsAppHubClient {
   id: string;
@@ -78,7 +79,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [generating, setGenerating] = useState(false);
   const syncInFlightRef = useRef(false);
   const targetPhone = useMemo(() => cleanPhone(phone), [phone]);
-  const outboundLanguage = client?.preferredLanguage?.trim() || 'English';
+  const outboundLanguage = getOutboundLanguage(client?.preferredLanguage, client?.country);
 
   const getLLMConfig = (module: string) => {
     const id = llmMappings[module] || activeLLMId;
@@ -263,7 +264,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
         body: JSON.stringify({
           command: `Draft an outbound WhatsApp message using this user instruction as the prompt: ${prompt}
 
-Write in a WhatsApp style: concise, natural, conversational, easy to reply to, and not formatted like an email. Output language: ${outboundLanguage}. If the customer has no preferred language configured, use English. Adapt tone, timing, offer details, and next step to the customer profile, preferences, prior communication, CRM records, recent WhatsApp chat, and relevant knowledge base context. Return only the message text.`,
+Write in a WhatsApp style: concise, natural, conversational, easy to reply to, and not formatted like an email. Output language: ${outboundLanguage}. If the customer has no preferred language configured, use the official language of the customer's country; if country is missing, use English. Adapt tone, timing, offer details, and next step to the customer profile, preferences, prior communication, CRM records, recent WhatsApp chat, and relevant knowledge base context. Return only the message text.`,
           context: {
             channel: 'whatsapp',
             userInstruction: prompt,
