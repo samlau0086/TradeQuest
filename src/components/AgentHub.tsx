@@ -32,6 +32,7 @@ const emptyAgent = (): Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 't
   tools: [],
   scheduleEnabled: false,
   scheduleIntervalMinutes: 1440,
+  contextSuggestionMode: 'manual',
   builtIn: false
 });
 
@@ -110,6 +111,18 @@ function AgentModal({
               placeholder="email.send, whatsapp.send, lead.enrich"
               className="mt-2 w-full bg-black border border-neutral-700 rounded-md px-4 py-2.5 text-sm text-slate-100 outline-none focus:border-blue-500"
             />
+          </label>
+          <label className="block">
+            <span className="text-sm text-slate-200">{t('Context Suggestions')}</span>
+            <select
+              value={form.contextSuggestionMode || 'manual'}
+              onChange={e => setForm({ ...form, contextSuggestionMode: e.target.value as any })}
+              className="mt-2 w-full bg-black border border-neutral-700 rounded-md px-4 py-2.5 text-sm text-slate-100 outline-none focus:border-blue-500"
+            >
+              <option value="manual">{t('Manual options only')}</option>
+              <option value="auto">{t('Allow automated option execution')}</option>
+            </select>
+            <p className="mt-2 text-xs text-slate-500">{t('Controls whether inbox context suggestions are shown as manual actions or automation-ready options.')}</p>
           </label>
           <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-4 space-y-3">
             <label className="flex items-center justify-between gap-4">

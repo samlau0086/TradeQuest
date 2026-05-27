@@ -301,6 +301,7 @@ export interface AgentHarnessRun {
 
 export type AgentHubStatus = 'active' | 'idle' | 'paused';
 export type AgentHubGuardrail = 'auto' | 'review' | 'human_loop';
+export type AgentHubContextSuggestionMode = 'manual' | 'auto';
 
 export interface AgentHubAgent {
   id: string;
@@ -312,6 +313,7 @@ export interface AgentHubAgent {
   tasksCompleted: number;
   scheduleEnabled?: boolean;
   scheduleIntervalMinutes?: number;
+  contextSuggestionMode?: AgentHubContextSuggestionMode;
   lastRunAt?: string;
   builtIn?: boolean;
   createdAt: string;
@@ -689,6 +691,7 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     tasksCompleted: 0,
     scheduleEnabled: false,
     scheduleIntervalMinutes: 1440,
+    contextSuggestionMode: 'manual',
     builtIn: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -703,6 +706,7 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     tasksCompleted: 0,
     scheduleEnabled: false,
     scheduleIntervalMinutes: 240,
+    contextSuggestionMode: 'manual',
     builtIn: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -717,6 +721,7 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     tasksCompleted: 0,
     scheduleEnabled: false,
     scheduleIntervalMinutes: 60,
+    contextSuggestionMode: 'manual',
     builtIn: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -731,6 +736,7 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     tasksCompleted: 0,
     scheduleEnabled: false,
     scheduleIntervalMinutes: 240,
+    contextSuggestionMode: 'auto',
     builtIn: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -745,6 +751,7 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     tasksCompleted: 0,
     scheduleEnabled: false,
     scheduleIntervalMinutes: 720,
+    contextSuggestionMode: 'auto',
     builtIn: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -2206,10 +2213,11 @@ export const useStore = create<StoreState>((set, get) => ({
                 ...settings.agentHubAgents.map((agent: AgentHubAgent) => agent.id === 'lead_data_agent'
                   ? {
                       ...agent,
+                      contextSuggestionMode: agent.contextSuggestionMode || 'manual',
                       instructions: 'Acquire, import, enrich, deduplicate, and normalize lead data across configured data channels.',
                       tools: ['lead.acquire', 'lead.enrich', 'public_pool.import', 'client.dedupe', 'data.normalize']
                     }
-                  : agent
+                  : { ...agent, contextSuggestionMode: agent.contextSuggestionMode || 'manual' }
                 )
               ]
             : state.agentHubAgents,

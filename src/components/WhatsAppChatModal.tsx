@@ -3,6 +3,7 @@ import { CalendarClock, FileText, FolderOpen, Loader2, MessageCircle, Paperclip,
 import { Client, Comment, MediaItem, useStore } from '../store';
 import { MediaSelectorModal } from './MediaSelectorModal';
 import { useTranslation } from '../lib/i18n';
+import { AgentContextSuggestions } from './AgentContextSuggestions';
 
 interface WhatsAppHubClient {
   id: string;
@@ -193,8 +194,8 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     }
   };
 
-  const addConversationComment = async () => {
-    if (!conversation?.id || !commentInput.trim()) return;
+  const addConversationComment = async (content = commentInput) => {
+    if (!conversation?.id || !content.trim()) return;
     try {
       const response = await fetch(`/api/whatsapp-hub/conversations/${conversation.id}/comments`, {
         method: 'POST',
@@ -202,19 +203,19 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
           'Content-Type': 'application/json',
           Authorization: `Bearer ${localStorage.getItem('token')}`
         },
-        body: JSON.stringify({ content: commentInput })
+        body: JSON.stringify({ content })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to add WhatsApp comment');
       setConversation(prev => prev ? { ...prev, comments: data.comments || [...(prev.comments || []), data.comment] } : prev);
-      setCommentInput('');
+      if (content === commentInput) setCommentInput('');
     } catch (error: any) {
       notify(error.message || 'Failed to add WhatsApp comment.', 'error');
     }
   };
 
-  const generateWhatsAppMessage = async () => {
-    const prompt = body.trim();
+  const generateWhatsAppMessage = async (seedPrompt = body.trim()) => {
+    const prompt = seedPrompt.trim();
     if (!prompt) {
       notify(t('typePromptFirst'), 'warning');
       return;
@@ -464,7 +465,7 @@ Write in a WhatsApp style: concise, natural, conversational, easy to reply to, a
                   placeholder={t('addConversationComment')}
                   className="min-w-0 flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-200 outline-none"
                 />
-                <button onClick={addConversationComment} className="px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">
+                <button onClick={() => addConversationComment()} className="px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">
                   <Plus className="w-4 h-4" />
                 </button>
               </div>
@@ -492,6 +493,18 @@ Write in a WhatsApp style: concise, natural, conversational, easy to reply to, a
               </div>
             </div>
           ))}
+          <AgentContextSuggestions
+            channel="whatsapp"
+            subject={conversation?.clientName || client?.name || targetPhone}
+            body={messages.slice(-6).map(message => `${message.direction}: ${message.body}`).join('\n')}
+            clientName={conversation?.clientName || client?.name}
+            hasClient={!!(conversation?.clientId || client?.id)}
+            hasKnowledge={!!client}
+            onDraftReply={() => generateWhatsAppMessage(
+              body.trim() || `Reply to the latest WhatsApp conversation with ${conversation?.clientName || client?.name || targetPhone}.`
+            )}
+            onAddComment={() => addConversationComment(`Agent suggestion: review WhatsApp conversation with ${conversation?.clientName || client?.name || targetPhone} and prepare the next best reply.`)}
+          />
         </div>
 
         <div className="p-4 border-t border-slate-800 space-y-3">
@@ -573,7 +586,7 @@ Write in a WhatsApp style: concise, natural, conversational, easy to reply to, a
                 <CalendarClock className="w-5 h-5" />
               </button>
               <button
-                onClick={generateWhatsAppMessage}
+                onClick={() => generateWhatsAppMessage()}
                 disabled={generating || !body.trim()}
                 className="p-2 bg-cyan-900/50 hover:bg-cyan-800 disabled:bg-slate-800 disabled:text-slate-600 text-cyan-300 rounded-lg"
                 title={t('generateWhatsAppWithAI')}

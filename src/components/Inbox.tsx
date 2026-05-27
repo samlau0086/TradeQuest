@@ -10,6 +10,7 @@ import { ClientFormModal } from './ClientFormModal';
 import { UploadAttachmentModal } from './UploadAttachmentModal';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle, useDefaultLayout } from 'react-resizable-panels';
 import { WhatsAppChatModal } from './WhatsAppChatModal';
+import { AgentContextSuggestions } from './AgentContextSuggestions';
 
 interface InboxWhatsAppConversation {
   id: string;
@@ -877,6 +878,30 @@ export function Inbox() {
                <div 
                  className="text-sm bg-white text-black p-6 rounded-lg leading-relaxed overflow-x-auto"
                  dangerouslySetInnerHTML={{ __html: (selectedEmail.body || '').replace(/<img[^>]*\/api\/track\/open\/[^>]*>/g, '') }}
+               />
+
+               <AgentContextSuggestions
+                 channel="email"
+                 subject={selectedEmail.subject}
+                 body={selectedEmail.body}
+                 clientName={selectedEmail.clientId ? clients.find(c => c.id === selectedEmail.clientId)?.name : undefined}
+                 hasClient={!!selectedEmail.clientId}
+                 hasKnowledge={addedToRagId === selectedEmail.id}
+                 onDraftReply={() => {
+                   setComposeDefaults({
+                     recipient: selectedEmail.type === 'inbox' ? selectedEmail.sender : selectedEmail.recipient,
+                     subject: `Re: ${selectedEmail.subject.replace(/^Re:\s*/i, '')}`,
+                     originalEmailBody: `On ${new Date(selectedEmail.date).toLocaleString()}, ${selectedEmail.senderName || selectedEmail.sender} wrote:<br>${selectedEmail.body || ''}`,
+                     initialBody: ''
+                   });
+                   setIsComposing(true);
+                 }}
+                 onAddComment={() => addEmailComment(
+                   selectedEmail.id,
+                   `Agent suggestion: ${selectedEmail.subject || 'Follow up this conversation'}`
+                 )}
+                 onCreateLead={!selectedEmail.clientId ? handleCreateLead : undefined}
+                 onAddToKnowledge={selectedEmail.clientId ? handleAddToRag : undefined}
                />
 
                {selectedEmail.attachments && selectedEmail.attachments.length > 0 && (
