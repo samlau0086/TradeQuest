@@ -22,7 +22,7 @@ const ACTION_LABELS: Record<GlobalAgentActionType, string> = {
   review_pipeline: 'Review Pipeline'
 };
 
-type AgentHubTab = 'fleet' | 'approvals' | 'harness' | 'global';
+type AgentHubTab = 'fleet' | 'approvals' | 'runs' | 'harness' | 'global';
 
 const emptyAgent = (): Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'> => ({
   name: '',
@@ -249,6 +249,7 @@ export function AgentHub() {
           <div className="flex flex-wrap items-center gap-3">
             <div className="bg-neutral-900 border border-neutral-700 rounded-md p-1 flex flex-wrap">
               {tabButton('approvals', 'Harness & Approvals', <ShieldCheck className="w-4 h-4" />)}
+              {tabButton('runs', 'Agent Run History', <ListChecks className="w-4 h-4" />)}
               {tabButton('harness', 'Agent Harness', <Cpu className="w-4 h-4" />)}
               {tabButton('global', 'Global Agent', <Bot className="w-4 h-4" />)}
               {tabButton('fleet', 'Agent Fleet', <Server className="w-4 h-4" />)}
@@ -331,14 +332,45 @@ export function AgentHub() {
             </section>
 
             <section className="bg-neutral-900/80 border border-neutral-700 rounded-lg p-6">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">
+                <ShieldCheck className="w-4 h-4" /> {t('Harness Strategy')}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {GLOBAL_AGENT_ACTION_TYPES.map(actionType => {
+                  const rule = agentExecutionPolicy[actionType];
+                  return (
+                    <div key={actionType} className="bg-black border border-neutral-800 rounded-md p-3">
+                      <div className="text-xs font-bold text-slate-200 mb-2">{t(ACTION_LABELS[actionType])}</div>
+                      <div className="flex gap-2">
+                        <select value={rule.mode} onChange={e => updateAgentExecutionPolicy(actionType, { mode: e.target.value as any })} className="min-w-0 flex-1 bg-neutral-950 border border-neutral-700 rounded px-2 py-1.5 text-xs text-slate-200">
+                          <option value="auto">{t('Auto')}</option>
+                          <option value="review">{t('Review')}</option>
+                        </select>
+                        <select value={rule.risk} onChange={e => updateAgentExecutionPolicy(actionType, { risk: e.target.value as any })} className="min-w-0 flex-1 bg-neutral-950 border border-neutral-700 rounded px-2 py-1.5 text-xs text-slate-200">
+                          <option value="low">{t('Low')}</option>
+                          <option value="medium">{t('Medium')}</option>
+                          <option value="high">{t('High')}</option>
+                        </select>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          </div>
+        )}
+
+        {tab === 'runs' && (
+          <div className="space-y-8">
+            <section className="bg-neutral-900/80 border border-neutral-700 rounded-lg p-6">
               <div className="flex items-center justify-between gap-3 mb-6">
                 <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400">
                   <ListChecks className="w-4 h-4" /> {t('Agent Runs & Trace Log')}
                 </div>
                 <button onClick={() => setTab('harness')} className="text-xs text-blue-300 hover:text-blue-200">{t('Open Harness')}</button>
               </div>
-              <div className="space-y-4">
-                {runLogs.length === 0 && <div className="text-sm text-slate-500 py-8 text-center">{t('No agent runs yet.')}</div>}
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                {runLogs.length === 0 && <div className="xl:col-span-2 text-sm text-slate-500 py-8 text-center">{t('No agent runs yet.')}</div>}
                 {runLogs.map(run => (
                   <div key={run.id} className="bg-black border border-neutral-800 rounded-lg p-4">
                     <div className="flex items-start justify-between gap-3">
@@ -359,35 +391,9 @@ export function AgentHub() {
                   </div>
                 ))}
               </div>
-
-              <div className="mt-6 border-t border-neutral-800 pt-6">
-                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">
-                  <ShieldCheck className="w-4 h-4" /> {t('Harness Strategy')}
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {GLOBAL_AGENT_ACTION_TYPES.map(actionType => {
-                    const rule = agentExecutionPolicy[actionType];
-                    return (
-                      <div key={actionType} className="bg-black border border-neutral-800 rounded-md p-3">
-                        <div className="text-xs font-bold text-slate-200 mb-2">{t(ACTION_LABELS[actionType])}</div>
-                        <div className="flex gap-2">
-                          <select value={rule.mode} onChange={e => updateAgentExecutionPolicy(actionType, { mode: e.target.value as any })} className="min-w-0 flex-1 bg-neutral-950 border border-neutral-700 rounded px-2 py-1.5 text-xs text-slate-200">
-                            <option value="auto">{t('Auto')}</option>
-                            <option value="review">{t('Review')}</option>
-                          </select>
-                          <select value={rule.risk} onChange={e => updateAgentExecutionPolicy(actionType, { risk: e.target.value as any })} className="min-w-0 flex-1 bg-neutral-950 border border-neutral-700 rounded px-2 py-1.5 text-xs text-slate-200">
-                            <option value="low">{t('Low')}</option>
-                            <option value="medium">{t('Medium')}</option>
-                            <option value="high">{t('High')}</option>
-                          </select>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
             </section>
-            <section className="xl:col-span-2 bg-neutral-900/80 border border-neutral-700 rounded-lg p-6">
+
+            <section className="bg-neutral-900/80 border border-neutral-700 rounded-lg p-6">
               <div className="flex items-center justify-between gap-3 mb-6">
                 <div>
                   <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400">
