@@ -172,6 +172,8 @@ async function initDB() {
       ALTER TABLE emails ADD COLUMN IF NOT EXISTS is_important BOOLEAN DEFAULT FALSE;
       ALTER TABLE emails ADD COLUMN IF NOT EXISTS todo_at TIMESTAMP WITH TIME ZONE;
       ALTER TABLE emails ADD COLUMN IF NOT EXISTS todo_note TEXT;
+      ALTER TABLE emails ADD COLUMN IF NOT EXISTS agent_context_analysis JSONB;
+      ALTER TABLE emails ADD COLUMN IF NOT EXISTS agent_context_analysis_key TEXT;
 
       CREATE TABLE IF NOT EXISTS deleted_emails (
         id VARCHAR(128) PRIMARY KEY,
@@ -294,6 +296,9 @@ async function initDB() {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(user_id, target_phone)
       );
+
+      ALTER TABLE whatsapp_conversations ADD COLUMN IF NOT EXISTS agent_context_analysis JSONB;
+      ALTER TABLE whatsapp_conversations ADD COLUMN IF NOT EXISTS agent_context_analysis_key TEXT;
 
       CREATE TABLE IF NOT EXISTS whatsapp_messages (
         id VARCHAR(128) PRIMARY KEY,
@@ -900,6 +905,8 @@ No markdown wrappers, just valid JSON.`;
     lastBody: row.last_body,
     lastDirection: row.last_direction,
     lastHubClientId: row.last_hub_client_id,
+    agentContextAnalysis: row.agent_context_analysis,
+    agentContextAnalysisKey: row.agent_context_analysis_key,
     updatedAt: row.updated_at
   });
 
@@ -1126,6 +1133,14 @@ No markdown wrappers, just valid JSON.`;
       if (req.body.clientId !== undefined) {
         values.push(req.body.clientId || null);
         updates.push(`client_id = $${values.length}`);
+      }
+      if (req.body.agentContextAnalysis !== undefined) {
+        values.push(JSON.stringify(req.body.agentContextAnalysis || null));
+        updates.push(`agent_context_analysis = $${values.length}`);
+      }
+      if (req.body.agentContextAnalysisKey !== undefined) {
+        values.push(req.body.agentContextAnalysisKey || null);
+        updates.push(`agent_context_analysis_key = $${values.length}`);
       }
       if (updates.length === 0) return res.status(400).json({ error: 'No updates provided' });
       values.push(req.params.id, req.user.uid);
@@ -3418,6 +3433,8 @@ No markdown wrappers, just valid JSON.`;
         isImportant: row.is_important,
         todoAt: row.todo_at,
         todoNote: row.todo_note,
+        agentContextAnalysis: row.agent_context_analysis,
+        agentContextAnalysisKey: row.agent_context_analysis_key,
         trackingEvents: row.tracking_events
       })));
     } catch (e) {
@@ -3587,13 +3604,14 @@ No markdown wrappers, just valid JSON.`;
         read: 'read', type: 'type', tags: 'tags', comments: 'comments', date: 'date',
         isImportant: 'is_important', todoAt: 'todo_at', todoNote: 'todo_note',
         recipient: 'recipient', cc: 'cc', bcc: 'bcc', subject: 'subject', body: 'body',
-        attachments: 'attachments'
+        attachments: 'attachments', agentContextAnalysis: 'agent_context_analysis',
+        agentContextAnalysisKey: 'agent_context_analysis_key'
       };
       
       for (const [key, val] of Object.entries(updates)) {
         if (mapping[key]) {
           setClauses.push(`${mapping[key]} = $${valIdx}`);
-          values.push((key === 'tags' || key === 'comments' || key === 'attachments') ? JSON.stringify(val) : val);
+          values.push((key === 'tags' || key === 'comments' || key === 'attachments' || key === 'agentContextAnalysis') ? JSON.stringify(val) : val);
           valIdx++;
         }
       }

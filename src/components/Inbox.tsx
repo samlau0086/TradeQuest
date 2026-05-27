@@ -882,6 +882,11 @@ export function Inbox() {
 
                <AgentContextSuggestions
                  channel="email"
+                 cacheKey={`email:${selectedEmail.id}`}
+                 clientId={selectedEmail.clientId}
+                 emailAddress={selectedEmail.type === 'inbox' ? selectedEmail.sender : selectedEmail.recipient}
+                 persistedInsight={selectedEmail.agentContextAnalysisKey === `email:${selectedEmail.id}` ? selectedEmail.agentContextAnalysis : undefined}
+                 persistedInsightKey={selectedEmail.agentContextAnalysisKey}
                  subject={selectedEmail.subject}
                  body={selectedEmail.body}
                  clientName={selectedEmail.clientId ? clients.find(c => c.id === selectedEmail.clientId)?.name : undefined}
@@ -902,6 +907,10 @@ export function Inbox() {
                  )}
                  onCreateLead={!selectedEmail.clientId ? handleCreateLead : undefined}
                  onAddToKnowledge={selectedEmail.clientId ? handleAddToRag : undefined}
+                 onSaveAnalysis={(key, insight) => editEmail(selectedEmail.id, {
+                   agentContextAnalysis: insight,
+                   agentContextAnalysisKey: key
+                 })}
                />
 
                {selectedEmail.attachments && selectedEmail.attachments.length > 0 && (

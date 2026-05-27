@@ -136,6 +136,23 @@ export interface ExternalNotificationConfig {
   events: Record<ExternalNotificationEvent, boolean>;
 }
 
+export type AgentContextAnalysisMode = 'manual' | 'auto';
+
+export interface AgentContextAnalysisConfig {
+  globalMode: AgentContextAnalysisMode;
+  clientModes: Record<string, AgentContextAnalysisMode>;
+  emailModes: Record<string, AgentContextAnalysisMode>;
+  whatsappModes: Record<string, AgentContextAnalysisMode>;
+}
+
+export interface AgentContextSuggestionInsight {
+  intent: string;
+  customerContext: string;
+  knowledgeContext: string;
+  analyzedAt: string;
+  modelId?: string | null;
+}
+
 export interface Client {
   id: string;
   name: string;
@@ -163,6 +180,7 @@ export interface Client {
   agentWorkflowId?: string;
   preferredLanguage?: string;
   preferredTimeRange?: string;
+  agentContextAnalysisMode?: AgentContextAnalysisMode;
 }
 
 export interface WorkflowStep {
@@ -384,6 +402,9 @@ export interface EmailMessage {
   todoNote?: string;
   trackingEvents?: any[];
   enableTracking?: boolean;
+  agentContextAnalysisMode?: AgentContextAnalysisMode;
+  agentContextAnalysis?: AgentContextSuggestionInsight;
+  agentContextAnalysisKey?: string;
 }
 
 export interface Quest {
@@ -558,6 +579,8 @@ export interface StoreState {
   externalNotificationConfig: ExternalNotificationConfig;
   updateExternalNotificationConfig: (updates: Partial<ExternalNotificationConfig>) => void;
   sendExternalNotification: (payload: { event: ExternalNotificationEvent; title: string; body: string; url?: string; metadata?: any }) => Promise<void>;
+  agentContextAnalysisConfig: AgentContextAnalysisConfig;
+  updateAgentContextAnalysisConfig: (updates: Partial<AgentContextAnalysisConfig>) => void;
   
   view: ViewMode;
   setView: (view: ViewMode) => void;
@@ -778,6 +801,13 @@ const INITIAL_EXTERNAL_NOTIFICATION_CONFIG: ExternalNotificationConfig = {
     review_required: true,
     execution_failed: true
   }
+};
+
+const INITIAL_AGENT_CONTEXT_ANALYSIS_CONFIG: AgentContextAnalysisConfig = {
+  globalMode: 'auto',
+  clientModes: {},
+  emailModes: {},
+  whatsappModes: {}
 };
 
 const INITIAL_LEAD_DATA_CHANNEL_CONFIGS: Record<LeadDataProvider, LeadDataChannelConfig> = {
@@ -1209,6 +1239,16 @@ export const useStore = create<StoreState>((set, get) => ({
       events: updates.events
         ? { ...state.externalNotificationConfig.events, ...updates.events }
         : state.externalNotificationConfig.events
+    }
+  })),
+  agentContextAnalysisConfig: INITIAL_AGENT_CONTEXT_ANALYSIS_CONFIG,
+  updateAgentContextAnalysisConfig: (updates) => set((state) => ({
+    agentContextAnalysisConfig: {
+      ...state.agentContextAnalysisConfig,
+      ...updates,
+      clientModes: updates.clientModes ?? state.agentContextAnalysisConfig.clientModes,
+      emailModes: updates.emailModes ?? state.agentContextAnalysisConfig.emailModes,
+      whatsappModes: updates.whatsappModes ?? state.agentContextAnalysisConfig.whatsappModes
     }
   })),
   sendExternalNotification: async (payload) => {
@@ -2202,6 +2242,15 @@ export const useStore = create<StoreState>((set, get) => ({
                 events: { ...INITIAL_EXTERNAL_NOTIFICATION_CONFIG.events, ...(settings.externalNotificationConfig.events || {}) }
               }
             : state.externalNotificationConfig,
+          agentContextAnalysisConfig: settings.agentContextAnalysisConfig
+            ? {
+                ...INITIAL_AGENT_CONTEXT_ANALYSIS_CONFIG,
+                ...settings.agentContextAnalysisConfig,
+                clientModes: settings.agentContextAnalysisConfig.clientModes || {},
+                emailModes: settings.agentContextAnalysisConfig.emailModes || {},
+                whatsappModes: settings.agentContextAnalysisConfig.whatsappModes || {}
+              }
+            : state.agentContextAnalysisConfig,
           llmConfigs: settings.llmConfigs ?? state.llmConfigs,
           llmMappings: settings.llmMappings ?? state.llmMappings,
           agentExecutionPolicy: settings.agentExecutionPolicy
@@ -2313,6 +2362,7 @@ useStore.subscribe((state, prevState) => {
     state.outboxConfigs !== prevState.outboxConfigs ||
     state.whatsappHubConfig !== prevState.whatsappHubConfig ||
     state.externalNotificationConfig !== prevState.externalNotificationConfig ||
+    state.agentContextAnalysisConfig !== prevState.agentContextAnalysisConfig ||
     state.llmConfigs !== prevState.llmConfigs ||
     state.llmMappings !== prevState.llmMappings ||
     state.agentExecutionPolicy !== prevState.agentExecutionPolicy ||
@@ -2347,6 +2397,7 @@ useStore.subscribe((state, prevState) => {
             outboxConfigs: state.outboxConfigs,
             whatsappHubConfig: state.whatsappHubConfig,
             externalNotificationConfig: state.externalNotificationConfig,
+            agentContextAnalysisConfig: state.agentContextAnalysisConfig,
             llmConfigs: state.llmConfigs,
             llmMappings: state.llmMappings,
             agentExecutionPolicy: state.agentExecutionPolicy,

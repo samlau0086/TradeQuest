@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Bot, CornerDownRight, Loader2, MessageSquare, ShieldCheck, Sparkles, UserPlus, Zap } from 'lucide-react';
-import { useStore } from '../store';
+import { AgentContextAnalysisMode, AgentContextSuggestionInsight, useStore } from '../store';
 import { useTranslation } from '../lib/i18n';
 import { cn } from '../lib/utils';
 
@@ -17,6 +17,12 @@ interface AgentContextSuggestionsProps {
   channel: 'email' | 'whatsapp';
   subject?: string;
   body?: string;
+  cacheKey: string;
+  clientId?: string;
+  emailAddress?: string;
+  whatsappNumber?: string;
+  persistedInsight?: AgentContextSuggestionInsight;
+  persistedInsightKey?: string;
   clientName?: string;
   hasClient?: boolean;
   hasKnowledge?: boolean;
@@ -24,6 +30,7 @@ interface AgentContextSuggestionsProps {
   onAddComment?: () => void;
   onCreateLead?: () => void;
   onAddToKnowledge?: () => void;
+  onSaveAnalysis?: (key: string, insight: AgentContextSuggestionInsight) => void | Promise<void>;
 }
 
 const inferIntent = (text: string) => {
@@ -48,15 +55,31 @@ export function AgentContextSuggestions({
   channel,
   subject = '',
   body = '',
+  cacheKey,
+  clientId,
+  emailAddress,
+  whatsappNumber,
+  persistedInsight,
+  persistedInsightKey,
   clientName,
   hasClient,
   hasKnowledge,
   onDraftReply,
   onAddComment,
   onCreateLead,
-  onAddToKnowledge
+  onAddToKnowledge,
+  onSaveAnalysis
 }: AgentContextSuggestionsProps) {
-  const { language, agentHubAgents, addAgentRunRecord, llmConfigs, llmMappings, activeLLMId } = useStore();
+  const {
+    language,
+    agentHubAgents,
+    addAgentRunRecord,
+    llmConfigs,
+    llmMappings,
+    activeLLMId,
+    agentContextAnalysisConfig,
+    updateAgentContextAnalysisConfig
+  } = useStore();
   const t = useTranslation(language);
   const [aiInsight, setAiInsight] = useState<{ intent: string; customerContext: string; knowledgeContext: string } | null>(null);
   const [loadingInsight, setLoadingInsight] = useState(false);
@@ -73,21 +96,47 @@ export function AgentContextSuggestions({
   const canAutoExecute = automationReady && agent.guardrail === 'auto';
   const executionLabel = canAutoExecute ? t('Auto-ready') : automationReady ? t('Review-gated automation') : t('Manual options');
   const llmConfig = llmConfigs.find(llm => llm.id === (llmMappings.agent_context_suggestions || activeLLMId)) || null;
+  const cachedInsight = persistedInsightKey === cacheKey ? persistedInsight : undefined;
+  const resolvedAnalysisMode: AgentContextAnalysisMode =
+    (clientId && agentContextAnalysisConfig.clientModes[clientId])
+    || (emailAddress && agentContextAnalysisConfig.emailModes[emailAddress.toLowerCase()])
+    || (whatsappNumber && agentContextAnalysisConfig.whatsappModes[whatsappNumber])
+    || agentContextAnalysisConfig.globalMode
+    || 'manual';
 
-  useEffect(() => {
-    if (!llmConfig || !text) {
-      setAiInsight(null);
+  const setCurrentAnalysisMode = (mode: AgentContextAnalysisMode) => {
+    if (clientId) {
+      updateAgentContextAnalysisConfig({
+        clientModes: { ...agentContextAnalysisConfig.clientModes, [clientId]: mode }
+      });
       return;
     }
-    const controller = new AbortController();
+    if (emailAddress) {
+      updateAgentContextAnalysisConfig({
+        emailModes: { ...agentContextAnalysisConfig.emailModes, [emailAddress.toLowerCase()]: mode }
+      });
+      return;
+    }
+    if (whatsappNumber) {
+      updateAgentContextAnalysisConfig({
+        whatsappModes: { ...agentContextAnalysisConfig.whatsappModes, [whatsappNumber]: mode }
+      });
+    }
+  };
+
+  const runAnalysis = (signal?: AbortSignal) => {
+    if (!llmConfig || !text || !cacheKey) {
+      setAiInsight(null);
+      return Promise.resolve();
+    }
     setLoadingInsight(true);
-    fetch('/api/chat/magic', {
+    return fetch('/api/chat/magic', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${localStorage.getItem('token')}`
       },
-      signal: controller.signal,
+      signal,
       body: JSON.stringify({
         command: `Analyze this ${channel} conversation for a CRM agent context panel. Return only JSON with keys: intent, customerContext, knowledgeContext. Keep each value short and actionable. Use ${language === 'zh' ? 'Chinese' : 'English'}.
 
@@ -103,20 +152,39 @@ ${body || 'N/A'}`,
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Failed to analyze context suggestions');
         const parsed = parseSuggestionJson(data.result || '');
-        setAiInsight({
+        const insight = {
           intent: parsed.intent || fallbackIntent,
           customerContext: parsed.customerContext || '',
-          knowledgeContext: parsed.knowledgeContext || ''
-        });
+          knowledgeContext: parsed.knowledgeContext || '',
+          analyzedAt: new Date().toISOString(),
+          modelId: llmConfig.id
+        };
+        await onSaveAnalysis?.(cacheKey, insight);
+        setAiInsight(insight);
       })
       .catch(error => {
         if (error?.name !== 'AbortError') setAiInsight(null);
       })
       .finally(() => {
-        if (!controller.signal.aborted) setLoadingInsight(false);
+        if (!signal?.aborted) setLoadingInsight(false);
       });
+  };
+
+  useEffect(() => {
+    if (cachedInsight) {
+      setAiInsight(cachedInsight);
+      setLoadingInsight(false);
+      return;
+    }
+    if (resolvedAnalysisMode !== 'auto' || !llmConfig || !text) {
+      setAiInsight(null);
+      setLoadingInsight(false);
+      return;
+    }
+    const controller = new AbortController();
+    void runAnalysis(controller.signal);
     return () => controller.abort();
-  }, [llmConfig?.id, text, channel, subject, body, clientName, hasClient, hasKnowledge, language, fallbackIntent]);
+  }, [cacheKey, cachedInsight, resolvedAnalysisMode, llmConfig?.id, text, channel, subject, body, clientName, hasClient, hasKnowledge, language, fallbackIntent]);
 
   const recordOption = (label: string, run: () => void) => {
     if (agent) {
@@ -188,6 +256,31 @@ ${body || 'N/A'}`,
           {canAutoExecute ? <Zap className="w-3 h-3" /> : <ShieldCheck className="w-3 h-3" />}
           {executionLabel}
         </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <select
+          value={resolvedAnalysisMode}
+          onChange={e => setCurrentAnalysisMode(e.target.value as AgentContextAnalysisMode)}
+          className="bg-slate-950 border border-blue-500/30 rounded-md px-2 py-1.5 text-xs text-slate-300 outline-none"
+          title={t('Analysis Mode')}
+        >
+          <option value="manual">{t('Manual analysis')}</option>
+          <option value="auto">{t('Auto analysis')}</option>
+        </select>
+        {resolvedAnalysisMode === 'manual' && (
+          <button
+            onClick={() => void runAnalysis()}
+            disabled={loadingInsight || !llmConfig}
+            className="inline-flex items-center gap-2 rounded-md border border-blue-500/40 bg-blue-600/10 px-2.5 py-1.5 text-xs font-bold text-blue-200 hover:bg-blue-600/20 disabled:border-slate-700 disabled:bg-slate-900 disabled:text-slate-500"
+          >
+            {loadingInsight ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+            {cachedInsight ? t('Analyze again') : t('Analyze')}
+          </button>
+        )}
+        {cachedInsight && (
+          <span className="text-[10px] text-slate-500">{t('Cached analysis')}: {new Date(cachedInsight.analyzedAt).toLocaleString()}</span>
+        )}
       </div>
 
       <div className="mt-4 space-y-2 text-sm text-slate-300">

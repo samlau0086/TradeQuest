@@ -43,6 +43,8 @@ interface WhatsAppConversation {
   clientCompany?: string;
   tags: string[];
   comments: Comment[];
+  agentContextAnalysis?: any;
+  agentContextAnalysisKey?: string;
 }
 
 const cleanPhone = (value: string) => value.replace(/[^0-9]/g, '');
@@ -495,6 +497,11 @@ Write in a WhatsApp style: concise, natural, conversational, easy to reply to, a
           ))}
           <AgentContextSuggestions
             channel="whatsapp"
+            cacheKey={`whatsapp:${targetPhone}:${messages[messages.length - 1]?.id || 'empty'}`}
+            clientId={conversation?.clientId || client?.id}
+            whatsappNumber={targetPhone}
+            persistedInsight={conversation?.agentContextAnalysisKey === `whatsapp:${targetPhone}:${messages[messages.length - 1]?.id || 'empty'}` ? conversation?.agentContextAnalysis : undefined}
+            persistedInsightKey={conversation?.agentContextAnalysisKey}
             subject={conversation?.clientName || client?.name || targetPhone}
             body={messages.slice(-6).map(message => `${message.direction}: ${message.body}`).join('\n')}
             clientName={conversation?.clientName || client?.name}
@@ -504,6 +511,20 @@ Write in a WhatsApp style: concise, natural, conversational, easy to reply to, a
               body.trim() || `Reply to the latest WhatsApp conversation with ${conversation?.clientName || client?.name || targetPhone}.`
             )}
             onAddComment={() => addConversationComment(`Agent suggestion: review WhatsApp conversation with ${conversation?.clientName || client?.name || targetPhone} and prepare the next best reply.`)}
+            onSaveAnalysis={async (key, insight) => {
+              if (!conversation?.id) return;
+              const response = await fetch(`/api/whatsapp-hub/conversations/${conversation.id}`, {
+                method: 'PATCH',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({ agentContextAnalysis: insight, agentContextAnalysisKey: key })
+              });
+              const data = await response.json().catch(() => ({}));
+              if (!response.ok) throw new Error(data.error || 'Failed to save WhatsApp analysis');
+              setConversation(prev => prev ? { ...prev, agentContextAnalysis: insight, agentContextAnalysisKey: key } : prev);
+            }}
           />
         </div>
 

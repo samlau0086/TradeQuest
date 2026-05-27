@@ -35,6 +35,7 @@ export function Settings() {
     leadDataChannelConfigs, updateLeadDataChannelConfig,
     whatsappHubConfig, updateWhatsAppHubConfig,
     externalNotificationConfig, updateExternalNotificationConfig, sendExternalNotification,
+    agentContextAnalysisConfig, updateAgentContextAnalysisConfig,
     dailyQuests, achievements
   } = useStore();
   const t = useTranslation(language);
@@ -1428,6 +1429,20 @@ export function Settings() {
           </div>
 
           <div className="grid grid-cols-1 gap-4">
+            <div className="bg-slate-800/50 border border-indigo-500/30 rounded-xl p-5 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <div>
+                <div className="text-sm font-bold text-slate-200">{t('Agent Context Analysis Mode')}</div>
+                <div className="text-[10px] text-slate-500 mt-0.5">{t('Controls whether inbox agent context is analyzed automatically or only after manual request.')}</div>
+              </div>
+              <select
+                value={agentContextAnalysisConfig.globalMode}
+                onChange={e => updateAgentContextAnalysisConfig({ globalMode: e.target.value as any })}
+                className="bg-slate-950 border border-slate-700 rounded px-3 py-2 text-xs text-slate-300 focus:border-indigo-500 outline-none"
+              >
+                <option value="manual">{t('Manual analysis')}</option>
+                <option value="auto">{t('Auto analysis')}</option>
+              </select>
+            </div>
             {llmConfigs.length > 0 && (
               <div className="bg-slate-800/50 border border-indigo-500/30 rounded-xl p-5 mb-4 shadow-sm">
                 <h3 className="text-sm font-bold text-slate-300 mb-4 px-1">{t('functionalAssignments')}</h3>
