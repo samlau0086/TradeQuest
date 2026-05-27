@@ -250,7 +250,7 @@ export function Dashboard() {
               <p className="text-sm text-slate-500 mt-1">{t('Lead acquisition, pipeline health, communication load, and conversion signals.')}</p>
             </div>
             <button
-              onClick={() => setView('global-agent')}
+              onClick={() => setView('agent-hub')}
               className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm font-bold text-slate-200"
             >
               {t('Open Global Agent')}

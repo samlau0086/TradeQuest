@@ -283,8 +283,8 @@ ${objective}`;
               {t('agentHarnessSubtitle')}
             </p>
           </div>
-          <button onClick={() => setView('global-agent')} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm font-bold">
-            {t('globalAgent')}
+          <button onClick={() => setView('agent-hub')} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm font-bold">
+            Agent Hub
           </button>
         </div>
 

@@ -25,10 +25,7 @@ import { ProductsList } from './components/ProductsList';
 import { QuotesList } from './components/QuotesList';
 import { MediaLibrary } from './components/MediaLibrary';
 import { NotificationCenter } from './components/NotificationCenter';
-import { GlobalAgent } from './components/GlobalAgent';
-import { AgentHarness } from './components/AgentHarness';
 import { AgentHub } from './components/AgentHub';
-import { WhatsAppHub } from './components/WhatsAppHub';
 
 export default function App() {
   const { view, selectedClientId, checkScheduledEmails, fetchInitialData, language, globalLoading, inboxConfigs, fetchEmails } = useStore();
@@ -168,9 +165,6 @@ export default function App() {
            view === 'products' ? <ProductsList /> :
            view === 'quotes' ? <QuotesList /> :
            view === 'agent-hub' ? <AgentHub /> :
-           view === 'agent-harness' ? <AgentHarness /> :
-           view === 'global-agent' ? <GlobalAgent /> :
-           view === 'whatsapp-hub' ? <WhatsAppHub /> :
            view === 'clients' ? <ClientsList /> :
            view === 'public-pool' ? <PublicPool /> :
            view === 'edit-requests' ? <EditRequests /> :

@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { Bot, CheckCircle2, ClipboardCheck, Cpu, ListChecks, Plus, Power, Save, Server, ShieldCheck, SlidersHorizontal, X, XCircle, Zap } from 'lucide-react';
 import { AgentHubAgent, AgentHubGuardrail, AgentHubStatus, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType, useStore } from '../store';
 import { cn } from '../lib/utils';
+import { AgentHarness } from './AgentHarness';
+import { GlobalAgent } from './GlobalAgent';
 
 const ACTION_LABELS: Record<GlobalAgentActionType, string> = {
   create_lead_campaign: 'Create Lead Campaign',
@@ -18,6 +20,8 @@ const ACTION_LABELS: Record<GlobalAgentActionType, string> = {
   prioritize_leads: 'Prioritize Leads',
   review_pipeline: 'Review Pipeline'
 };
+
+type AgentHubTab = 'fleet' | 'approvals' | 'harness' | 'global';
 
 const emptyAgent = (): Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'> => ({
   name: '',
@@ -47,7 +51,7 @@ function AgentModal({
 }: {
   agent: Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'> | AgentHubAgent;
   onClose: () => void;
-  onSave: (agent: any) => void;
+  onSave: (agent: Omit<AgentHubAgent, 'createdAt' | 'updatedAt' | 'tasksCompleted'> | Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'>) => void;
 }) {
   const [form, setForm] = useState(agent);
   const isEdit = 'id' in agent;
@@ -144,10 +148,9 @@ export function AgentHub() {
     updateAgentHarnessRun,
     updateGlobalAgentPlan,
     agentExecutionPolicy,
-    updateAgentExecutionPolicy,
-    setView
+    updateAgentExecutionPolicy
   } = useStore();
-  const [tab, setTab] = useState<'fleet' | 'harness'>('fleet');
+  const [tab, setTab] = useState<AgentHubTab>('fleet');
   const [modalAgent, setModalAgent] = useState<AgentHubAgent | ReturnType<typeof emptyAgent> | null>(null);
 
   const pendingItems = useMemo(() => [
@@ -175,22 +178,26 @@ export function AgentHub() {
     if (item.kind === 'global') updateGlobalAgentPlan(item.id, { status: 'rejected', rejectedAt: new Date().toISOString(), rejectedReason: 'Rejected from Agent Hub' });
   };
 
+  const tabButton = (id: AgentHubTab, label: string, icon: React.ReactNode) => (
+    <button onClick={() => setTab(id)} className={cn('px-4 py-2 rounded text-sm flex items-center gap-2', tab === id ? 'bg-blue-600/30 text-blue-300' : 'text-slate-400 hover:text-white')}>
+      {icon} {label}
+    </button>
+  );
+
   return (
     <div className="flex-1 bg-black text-slate-100 overflow-y-auto">
       <div className="p-8 space-y-8">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-normal">智能体中心</h1>
+            <h1 className="text-3xl font-bold tracking-normal">Agent Hub</h1>
             <p className="text-slate-400 text-sm mt-1">Monitor workloads and manage the intelligence layer.</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <div className="bg-neutral-900 border border-neutral-700 rounded-md p-1 flex">
-              <button onClick={() => setTab('harness')} className={cn('px-4 py-2 rounded text-sm flex items-center gap-2', tab === 'harness' ? 'bg-blue-600/30 text-blue-300' : 'text-slate-400 hover:text-white')}>
-                <ShieldCheck className="w-4 h-4" /> Harness & Approvals
-              </button>
-              <button onClick={() => setTab('fleet')} className={cn('px-4 py-2 rounded text-sm flex items-center gap-2', tab === 'fleet' ? 'bg-blue-600/30 text-blue-300' : 'text-slate-400 hover:text-white')}>
-                <Server className="w-4 h-4" /> Agent Fleet
-              </button>
+            <div className="bg-neutral-900 border border-neutral-700 rounded-md p-1 flex flex-wrap">
+              {tabButton('approvals', 'Harness & Approvals', <ShieldCheck className="w-4 h-4" />)}
+              {tabButton('harness', 'Agent Harness', <Cpu className="w-4 h-4" />)}
+              {tabButton('global', 'Global Agent', <Bot className="w-4 h-4" />)}
+              {tabButton('fleet', 'Agent Fleet', <Server className="w-4 h-4" />)}
             </div>
             <button onClick={() => setModalAgent(emptyAgent())} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-md text-sm font-bold text-white flex items-center gap-2">
               <Plus className="w-4 h-4" /> Create Agent
@@ -198,10 +205,10 @@ export function AgentHub() {
           </div>
         </div>
 
-        {tab === 'fleet' ? (
+        {tab === 'fleet' && (
           <div className="max-w-5xl bg-neutral-900/80 border border-neutral-700 rounded-lg p-6">
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400 mb-6">
-              <Server className="w-4 h-4" /> 智能体运行状态
+              <Server className="w-4 h-4" /> Agent Runtime Status
             </div>
             <div className="space-y-4">
               {computedAgents.map(agent => (
@@ -212,9 +219,7 @@ export function AgentHub() {
                       <p className="text-sm text-slate-400 mt-3 max-w-2xl">{agent.instructions}</p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className={cn('px-3 py-1 rounded border text-[10px] font-bold uppercase', statusClass(agent.status))}>
-                        {agent.status}
-                      </span>
+                      <span className={cn('px-3 py-1 rounded border text-[10px] font-bold uppercase', statusClass(agent.status))}>{agent.status}</span>
                       <button onClick={() => setModalAgent(agent)} className="p-2 text-slate-400 hover:text-white hover:bg-neutral-800 rounded-md">
                         <SlidersHorizontal className="w-4 h-4" />
                       </button>
@@ -225,13 +230,15 @@ export function AgentHub() {
                       {agent.guardrail === 'auto' ? <Zap className="w-3 h-3 text-amber-400" /> : <ShieldCheck className="w-3 h-3 text-blue-400" />}
                       {guardrailLabel(agent.guardrail)}
                     </span>
-                    <span className="px-3 py-1 rounded-md border border-neutral-800 bg-black text-[10px] text-slate-300">已处理任务: {agent.tasksCompleted}</span>
+                    <span className="px-3 py-1 rounded-md border border-neutral-800 bg-black text-[10px] text-slate-300">Tasks completed: {agent.tasksCompleted}</span>
                   </div>
                 </div>
               ))}
             </div>
           </div>
-        ) : (
+        )}
+
+        {tab === 'approvals' && (
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
             <section className="bg-neutral-900/80 border border-neutral-700 rounded-lg p-6">
               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400 mb-6">
@@ -270,7 +277,7 @@ export function AgentHub() {
                 <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400">
                   <ListChecks className="w-4 h-4" /> Agent Runs & Trace Log
                 </div>
-                <button onClick={() => setView('agent-harness')} className="text-xs text-blue-300 hover:text-blue-200">Open Harness</button>
+                <button onClick={() => setTab('harness')} className="text-xs text-blue-300 hover:text-blue-200">Open Harness</button>
               </div>
               <div className="space-y-4">
                 {runLogs.length === 0 && <div className="text-sm text-slate-500 py-8 text-center">No agent runs yet.</div>}
@@ -306,19 +313,11 @@ export function AgentHub() {
                       <div key={actionType} className="bg-black border border-neutral-800 rounded-md p-3">
                         <div className="text-xs font-bold text-slate-200 mb-2">{ACTION_LABELS[actionType]}</div>
                         <div className="flex gap-2">
-                          <select
-                            value={rule.mode}
-                            onChange={e => updateAgentExecutionPolicy(actionType, { mode: e.target.value as any })}
-                            className="min-w-0 flex-1 bg-neutral-950 border border-neutral-700 rounded px-2 py-1.5 text-xs text-slate-200"
-                          >
+                          <select value={rule.mode} onChange={e => updateAgentExecutionPolicy(actionType, { mode: e.target.value as any })} className="min-w-0 flex-1 bg-neutral-950 border border-neutral-700 rounded px-2 py-1.5 text-xs text-slate-200">
                             <option value="auto">Auto</option>
                             <option value="review">Review</option>
                           </select>
-                          <select
-                            value={rule.risk}
-                            onChange={e => updateAgentExecutionPolicy(actionType, { risk: e.target.value as any })}
-                            className="min-w-0 flex-1 bg-neutral-950 border border-neutral-700 rounded px-2 py-1.5 text-xs text-slate-200"
-                          >
+                          <select value={rule.risk} onChange={e => updateAgentExecutionPolicy(actionType, { risk: e.target.value as any })} className="min-w-0 flex-1 bg-neutral-950 border border-neutral-700 rounded px-2 py-1.5 text-xs text-slate-200">
                             <option value="low">Low</option>
                             <option value="medium">Medium</option>
                             <option value="high">High</option>
@@ -332,6 +331,18 @@ export function AgentHub() {
             </section>
           </div>
         )}
+
+        {tab === 'harness' && (
+          <div className="rounded-lg border border-neutral-800 overflow-hidden bg-slate-950">
+            <AgentHarness />
+          </div>
+        )}
+
+        {tab === 'global' && (
+          <div className="rounded-lg border border-neutral-800 overflow-hidden bg-slate-950">
+            <GlobalAgent />
+          </div>
+        )}
       </div>
 
       {modalAgent && (
@@ -339,7 +350,7 @@ export function AgentHub() {
           agent={modalAgent}
           onClose={() => setModalAgent(null)}
           onSave={(agent) => {
-            if ('id' in agent) updateAgentHubAgent(agent.id, agent);
+            if ('id' in agent) updateAgentHubAgent(agent.id, agent as AgentHubAgent);
             else addAgentHubAgent(agent);
             setModalAgent(null);
           }}
