@@ -157,6 +157,9 @@ export interface Client {
   agentContext?: string;
   agentSummary?: string;
   agentNextStep?: string;
+  leadScore?: number;
+  leadSummary?: string;
+  leadNextStep?: string;
   agentWorkflowId?: string;
   preferredLanguage?: string;
   preferredTimeRange?: string;
@@ -692,6 +695,20 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     tasksCompleted: 0,
     scheduleEnabled: false,
     scheduleIntervalMinutes: 60,
+    builtIn: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'lead_scoring_agent',
+    name: 'Lead Scoring Agent',
+    instructions: 'Analyze lead quality, score conversion potential, summarize the account, and recommend the best next step.',
+    guardrail: 'auto',
+    status: 'active',
+    tools: ['lead.analyze', 'lead.score', 'client.summarize', 'next_step.recommend'],
+    tasksCompleted: 0,
+    scheduleEnabled: false,
+    scheduleIntervalMinutes: 240,
     builtIn: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -2147,7 +2164,12 @@ export const useStore = create<StoreState>((set, get) => ({
             ? { ...INITIAL_AGENT_EXECUTION_POLICY, ...settings.agentExecutionPolicy }
             : state.agentExecutionPolicy,
           agentWorkflows: settings.agentWorkflows ?? state.agentWorkflows,
-          agentHubAgents: settings.agentHubAgents ?? state.agentHubAgents,
+          agentHubAgents: settings.agentHubAgents
+            ? [
+                ...INITIAL_AGENT_HUB_AGENTS.filter(defaultAgent => !settings.agentHubAgents.some((agent: AgentHubAgent) => agent.id === defaultAgent.id)),
+                ...settings.agentHubAgents
+              ]
+            : state.agentHubAgents,
           leadCampaigns: settings.leadCampaigns ?? state.leadCampaigns,
           globalAgentPlans: settings.globalAgentPlans ?? state.globalAgentPlans,
           agentHarnessRuns: settings.agentHarnessRuns ?? state.agentHarnessRuns,

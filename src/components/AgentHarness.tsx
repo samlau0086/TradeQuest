@@ -24,6 +24,12 @@ const AGENTS = [
     tools: ['whatsapp.read', 'whatsapp.send', 'conversation.tag', 'conversation.comment']
   },
   {
+    id: 'lead_scoring_agent',
+    name: 'Lead Scoring Agent',
+    goal: 'Analyze lead quality, score conversion potential, summarize the account, and recommend the best next step.',
+    tools: ['lead.analyze', 'lead.score', 'client.summarize', 'next_step.recommend']
+  },
+  {
     id: 'lead_data_agent',
     name: 'Lead Data Agent',
     goal: 'Search, import, enrich, and score leads across configured data channels.',
@@ -146,7 +152,7 @@ Return JSON only:
   "summary": "short run summary",
   "steps": [
     {
-      "agentId": "global_agent | follow_up_agent | whatsapp_agent | lead_data_agent",
+      "agentId": "global_agent | follow_up_agent | whatsapp_agent | lead_scoring_agent | lead_data_agent",
       "title": "step title",
       "description": "operator-readable description",
       "tool": "one tool from the selected agent",

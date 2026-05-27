@@ -85,6 +85,9 @@ async function initDB() {
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS agent_context TEXT;
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS agent_summary TEXT;
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS agent_next_step TEXT;
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS lead_score INT;
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS lead_summary TEXT;
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS lead_next_step TEXT;
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS agent_last_run TIMESTAMP WITH TIME ZONE;
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS agent_workflow_id VARCHAR(128);
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS preferred_language VARCHAR(100);
@@ -515,6 +518,9 @@ Return a JSON object:
 {
   "sentiment": "HOT" | "WARM" | "COLD",
   "temperature": number (0-100, 100 being hot),
+  "leadScore": number (0-100, based on fit, intent, completeness, urgency, and conversion probability),
+  "leadSummary": "A concise lead/account summary for CRM operators.",
+  "leadNextStep": "The best next action to improve conversion.",
   "icebreaker": "A short, localized, personal opening sentence (e.g., 'Happy holidays!', 'Hope your team won the match!', 'Seeing the weather in [country] is nice!')",
   "summary": "A 1-sentence zero-input log summary of the interaction style."
 }
@@ -2314,6 +2320,9 @@ Query: "${query}"`;
         agentContext: row.agent_context,
         agentSummary: row.agent_summary,
         agentNextStep: row.agent_next_step,
+        leadScore: row.lead_score,
+        leadSummary: row.lead_summary,
+        leadNextStep: row.lead_next_step,
         agentWorkflowId: row.agent_workflow_id,
         preferredLanguage: row.preferred_language,
         preferredTimeRange: row.preferred_time_range
@@ -2346,6 +2355,9 @@ Query: "${query}"`;
         agentContext: row.agent_context,
         agentSummary: row.agent_summary,
         agentNextStep: row.agent_next_step,
+        leadScore: row.lead_score,
+        leadSummary: row.lead_summary,
+        leadNextStep: row.lead_next_step,
         agentWorkflowId: row.agent_workflow_id,
         preferredLanguage: row.preferred_language,
         preferredTimeRange: row.preferred_time_range
@@ -2486,6 +2498,7 @@ Query: "${query}"`;
         agentEnabled: 'agent_enabled', agentMode: 'agent_mode',
         agentContext: 'agent_context', agentSummary: 'agent_summary',
         agentNextStep: 'agent_next_step',
+        leadScore: 'lead_score', leadSummary: 'lead_summary', leadNextStep: 'lead_next_step',
         agentWorkflowId: 'agent_workflow_id', preferredLanguage: 'preferred_language',
         preferredTimeRange: 'preferred_time_range'
       };

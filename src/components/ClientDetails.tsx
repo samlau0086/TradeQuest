@@ -428,7 +428,16 @@ export function ClientDetails() {
   };
 
   const [loading, setLoading] = useState(false);
-  const [aiData, setAiData] = useState<{ sentiment: string, temperature: number, icebreaker: string, summary: string } | null>(null);
+  const [aiData, setAiData] = useState<{
+    sentiment: string;
+    temperature: number;
+    icebreaker: string;
+    summary: string;
+    leadScore?: number;
+    leadSummary?: string;
+    leadNextStep?: string;
+    nextStep?: string;
+  } | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
 
   const [expandedContactIdx, setExpandedContactIdx] = useState<number | null>(null);
@@ -494,6 +503,20 @@ export function ClientDetails() {
       });
       const data = await res.json();
       setAiData(data);
+      useStore.getState().editClient(client.id, {
+        leadScore: Number(data.leadScore ?? data.temperature ?? 0),
+        leadSummary: data.leadSummary || data.summary,
+        leadNextStep: data.leadNextStep || data.nextStep || data.icebreaker,
+        agentSummary: data.leadSummary || data.summary || client.agentSummary,
+        agentNextStep: data.leadNextStep || client.agentNextStep
+      });
+      useStore.getState().addLog(
+        client.id,
+        `Lead Scoring Agent analyzed lead: score ${Number(data.leadScore ?? data.temperature ?? 0)}/100. Next step: ${data.leadNextStep || data.nextStep || 'Review recommended action.'}`,
+        undefined,
+        'general',
+        { source: 'lead_scoring_agent', score: Number(data.leadScore ?? data.temperature ?? 0), summary: data.leadSummary || data.summary }
+      );
     } catch(err) {
       console.error(err);
     } finally {
@@ -699,6 +722,26 @@ export function ClientDetails() {
 
           {aiData ? (
             <div className="space-y-4 animate-in fade-in zoom-in duration-300">
+              <div className="grid grid-cols-1 gap-3">
+                <div className="bg-slate-900 rounded-lg p-3 border border-cyan-500/20">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[10px] text-cyan-400 font-bold uppercase">Lead Score</span>
+                    <span className="text-lg font-bold text-white">{Number(aiData.leadScore ?? aiData.temperature ?? 0)}/100</span>
+                  </div>
+                </div>
+                {(aiData.leadSummary || client.leadSummary) && (
+                  <div className="bg-slate-900 rounded-lg p-3 border border-slate-700">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase">Lead Summary</span>
+                    <p className="text-xs text-slate-300 mt-1 leading-relaxed">{aiData.leadSummary || client.leadSummary}</p>
+                  </div>
+                )}
+                {(aiData.leadNextStep || client.leadNextStep) && (
+                  <div className="bg-cyan-950/30 rounded-lg p-3 border border-cyan-500/20">
+                    <span className="text-[10px] text-cyan-400 font-bold uppercase">Best Next Step</span>
+                    <p className="text-sm text-white mt-1 font-medium">{aiData.leadNextStep || client.leadNextStep}</p>
+                  </div>
+                )}
+              </div>
               {/* Thermometer */}
               <div className="space-y-1">
                 <div className="flex justify-between text-xs font-medium">
@@ -740,7 +783,16 @@ export function ClientDetails() {
             </div>
           ) : (
             <div className="text-center py-6 text-slate-500 text-sm">
-              AI analysis requires target scan.
+              {client.leadScore !== undefined ? (
+                <div className="space-y-3 text-left">
+                  <div className="flex items-center justify-between bg-slate-900 rounded-lg p-3 border border-cyan-500/20">
+                    <span className="text-[10px] text-cyan-400 font-bold uppercase">Lead Score</span>
+                    <span className="text-lg font-bold text-white">{client.leadScore}/100</span>
+                  </div>
+                  {client.leadSummary && <p className="text-xs text-slate-300 leading-relaxed">{client.leadSummary}</p>}
+                  {client.leadNextStep && <p className="text-sm text-white font-medium">Next: {client.leadNextStep}</p>}
+                </div>
+              ) : 'AI analysis requires target scan.'}
             </div>
           )}
         </div>
