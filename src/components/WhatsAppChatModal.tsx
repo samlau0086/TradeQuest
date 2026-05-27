@@ -218,6 +218,21 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     }
   };
 
+  const deleteConversationComment = async (commentId: string) => {
+    if (!conversation?.id) return;
+    try {
+      const response = await fetch(`/api/whatsapp-hub/conversations/${conversation.id}/comments/${commentId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to delete WhatsApp comment');
+      setConversation(prev => prev ? { ...prev, comments: data.comments || (prev.comments || []).filter(comment => comment.id !== commentId) } : prev);
+    } catch (error: any) {
+      notify(error.message || 'Failed to delete WhatsApp comment.', 'error');
+    }
+  };
+
   const generateWhatsAppMessage = async (seedPrompt = body.trim()) => {
     const prompt = seedPrompt.trim();
     if (!prompt) {
@@ -457,9 +472,18 @@ Write in a WhatsApp style: concise, natural, conversational, easy to reply to, a
             <div className="space-y-2">
               <div className="max-h-20 overflow-y-auto space-y-1">
                 {(conversation.comments || []).slice(-3).map(comment => (
-                  <div key={comment.id} className="text-[11px] bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-400">
-                    <span className="text-slate-300">{comment.content}</span>
-                    <span className="ml-2 text-slate-600">{new Date(comment.createdAt).toLocaleString()}</span>
+                  <div key={comment.id} className="group flex items-start gap-2 text-[11px] bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-400">
+                    <div className="min-w-0 flex-1">
+                      <span className="text-slate-300 break-words">{comment.content}</span>
+                      <span className="ml-2 text-slate-600">{new Date(comment.createdAt).toLocaleString()}</span>
+                    </div>
+                    <button
+                      onClick={() => deleteConversationComment(comment.id)}
+                      className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-300 transition-opacity"
+                      title={t('deleteComment')}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
                   </div>
                 ))}
               </div>

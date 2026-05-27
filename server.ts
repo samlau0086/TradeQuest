@@ -1245,6 +1245,27 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
+  app.delete('/api/whatsapp-hub/conversations/:id/comments/:commentId', authenticateToken, async (req: any, res) => {
+    try {
+      const result = await pool.query(
+        `UPDATE whatsapp_conversations
+         SET comments = COALESCE((
+             SELECT jsonb_agg(comment)
+             FROM jsonb_array_elements(COALESCE(comments, '[]'::jsonb)) comment
+             WHERE comment->>'id' <> $1
+           ), '[]'::jsonb),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2 AND user_id = $3
+         RETURNING comments`,
+        [req.params.commentId, req.params.id, req.user.uid]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Conversation not found' });
+      res.json({ success: true, comments: result.rows[0]?.comments || [] });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || 'Failed to delete WhatsApp conversation comment' });
+    }
+  });
+
   app.get('/api/whatsapp-hub/tasks', authenticateToken, async (req: any, res) => {
     try {
       const data = await callWhatsAppHub(req.user.uid, '/api/tasks?limit=100');
