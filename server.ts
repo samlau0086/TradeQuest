@@ -794,12 +794,43 @@ No markdown wrappers, just valid JSON.`;
     return Array.from(merged.values()).sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
   };
 
+  const mergeAgentHubAgents = (existingItems: any[] = [], incomingItems: any[] = []) => {
+    const byId = new Map<string, any>();
+    existingItems.forEach(agent => {
+      if (agent?.id) byId.set(agent.id, agent);
+    });
+    incomingItems.forEach(agent => {
+      if (!agent?.id) return;
+      const existing = byId.get(agent.id) || {};
+      const existingTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+      const incomingTime = agent.updatedAt ? new Date(agent.updatedAt).getTime() : 0;
+      const backendRuntimeIsNewer = existingTime > incomingTime;
+      byId.set(agent.id, {
+        ...existing,
+        ...agent,
+        // Scheduler-owned runtime fields should not be erased by a stale browser autosave.
+        lastRunAt: backendRuntimeIsNewer ? existing.lastRunAt : agent.lastRunAt,
+        scheduleRunCount: backendRuntimeIsNewer ? existing.scheduleRunCount : agent.scheduleRunCount,
+        tasksCompleted: backendRuntimeIsNewer ? existing.tasksCompleted : agent.tasksCompleted,
+        // User-owned schedule configuration must always follow the latest browser payload.
+        scheduleEnabled: agent.scheduleEnabled,
+        scheduleIntervalMinutes: agent.scheduleIntervalMinutes,
+        scheduleIntervalValue: agent.scheduleIntervalValue,
+        scheduleIntervalUnit: agent.scheduleIntervalUnit,
+        scheduleDayOfMonth: agent.scheduleDayOfMonth,
+        scheduleMaxRuns: agent.scheduleMaxRuns,
+        updatedAt: new Date(Math.max(existingTime, incomingTime, Date.now())).toISOString()
+      });
+    });
+    return Array.from(byId.values()).sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
+  };
+
   const mergeUserSettings = (existing: any = {}, incoming: any = {}) => {
     const merged = { ...existing, ...incoming };
     merged.agentRunRecords = mergeSettingsArrayById(existing.agentRunRecords || [], incoming.agentRunRecords || []).slice(0, 200);
     merged.agentHarnessRuns = mergeSettingsArrayById(existing.agentHarnessRuns || [], incoming.agentHarnessRuns || []);
     merged.globalAgentPlans = mergeSettingsArrayById(existing.globalAgentPlans || [], incoming.globalAgentPlans || []);
-    merged.agentHubAgents = mergeSettingsArrayById(existing.agentHubAgents || [], incoming.agentHubAgents || []);
+    merged.agentHubAgents = mergeAgentHubAgents(existing.agentHubAgents || [], incoming.agentHubAgents || []);
     return merged;
   };
 
