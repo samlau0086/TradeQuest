@@ -232,70 +232,87 @@ export default function App() {
           const objective = agent.id === 'follow_up_agent'
             ? `Scheduled run for ${agent.name}: ${agent.instructions}. Use Lead Scoring Agent outputs when available and do not repeat lead scoring or lead summaries.`
             : `Scheduled run for ${agent.name}: ${agent.instructions}`;
-          let relatedRunId = '';
-          let relatedRunType: 'harness' | 'global' = 'harness';
-          if (agent.id === 'global_agent') {
-            relatedRunId = state.addGlobalAgentPlan({
-              objective,
-              summary: `Scheduled Global Agent run: ${agent.name}`,
-              status: reviewStatus,
-              steps: [{
-                id: `step_${Date.now()}_${agent.id}`,
-                title: 'Scheduled Global Agent review',
-                description: agent.instructions,
-                actionType: 'review_pipeline',
-                status: 'pending',
-                payload: { source: 'agent-hub-schedule', agentId: agent.id, tools: agent.tools }
-              }]
-            });
-            relatedRunType = 'global';
-          } else {
-            relatedRunId = state.addAgentHarnessRun({
-              objective,
-              summary: `Scheduled Agent Hub run: ${agent.name}`,
-              status: reviewStatus,
-              steps: [{
-                id: `hstep_${Date.now()}_${agent.id}`,
-                agentId: agent.id,
-                title: `Run ${agent.name}`,
-                description: agent.instructions,
-                tool: agent.tools[0] || 'agent.run',
-                risk: agent.guardrail === 'auto' ? 'low' : 'medium',
-                status: 'pending',
-                payload: { source: 'agent-hub-schedule', agentId: agent.id, tools: agent.tools }
-              }]
-            });
-          }
-          let actualResult = reviewStatus === 'approved'
-            ? 'Scheduled run was auto-approved according to guardrail policy.'
-            : 'Scheduled run created and waiting for human approval.';
-
-          if (agent.id === 'lead_scoring_agent' && reviewStatus === 'approved') {
-            const result = await executeLeadScoringAgentRun(agent);
-            actualResult = `Lead scoring scanned ${result.scanned} lead(s), scored ${result.scored}, skipped ${result.skipped}, failed ${result.failed}.`;
-          }
-
-          state.addAgentRunRecord({
+          const expectedResult = agent.id === 'global_agent'
+            ? 'Create or update a Global Agent plan for conversion coordination.'
+            : agent.id === 'lead_scoring_agent'
+              ? 'Scan eligible leads, skip unchanged leads, and update score/summary/next step when needed.'
+              : 'Create an Agent Harness run with the configured agent tools and guardrails.';
+          const runRecordId = state.addAgentRunRecord({
             agentId: agent.id,
             agentName: agent.name,
             trigger: 'scheduled',
-            status: reviewStatus,
+            status: 'running',
             plan: objective,
-            expectedResult: agent.id === 'global_agent'
-              ? 'Create or update a Global Agent plan for conversion coordination.'
-              : 'Create an Agent Harness run with the configured agent tools and guardrails.',
-            actualResult,
-            relatedRunId,
-            relatedRunType
+            expectedResult,
+            actualResult: 'Scheduled agent run started.'
           });
-          const nextRunCount = (agent.scheduleRunCount || 0) + 1;
-          state.updateAgentHubAgent(agent.id, {
-            lastRunAt: new Date(now).toISOString(),
-            scheduleRunCount: nextRunCount,
-            scheduleEnabled: agent.scheduleMaxRuns != null && nextRunCount >= agent.scheduleMaxRuns ? false : agent.scheduleEnabled,
-            tasksCompleted: agent.tasksCompleted + (agent.guardrail === 'auto' ? 1 : 0)
-          });
-          state.notify(`${agent.name} scheduled run created.`, 'info');
+          let relatedRunId = '';
+          let relatedRunType: 'harness' | 'global' = 'harness';
+          try {
+            if (agent.id === 'global_agent') {
+              relatedRunId = state.addGlobalAgentPlan({
+                objective,
+                summary: `Scheduled Global Agent run: ${agent.name}`,
+                status: reviewStatus,
+                steps: [{
+                  id: `step_${Date.now()}_${agent.id}`,
+                  title: 'Scheduled Global Agent review',
+                  description: agent.instructions,
+                  actionType: 'review_pipeline',
+                  status: 'pending',
+                  payload: { source: 'agent-hub-schedule', agentId: agent.id, tools: agent.tools }
+                }]
+              });
+              relatedRunType = 'global';
+            } else {
+              relatedRunId = state.addAgentHarnessRun({
+                objective,
+                summary: `Scheduled Agent Hub run: ${agent.name}`,
+                status: reviewStatus,
+                steps: [{
+                  id: `hstep_${Date.now()}_${agent.id}`,
+                  agentId: agent.id,
+                  title: `Run ${agent.name}`,
+                  description: agent.instructions,
+                  tool: agent.tools[0] || 'agent.run',
+                  risk: agent.guardrail === 'auto' ? 'low' : 'medium',
+                  status: 'pending',
+                  payload: { source: 'agent-hub-schedule', agentId: agent.id, tools: agent.tools }
+                }]
+              });
+            }
+            let actualResult = reviewStatus === 'approved'
+              ? 'Scheduled run was auto-approved according to guardrail policy.'
+              : 'Scheduled run created and waiting for human approval.';
+
+            if (agent.id === 'lead_scoring_agent' && reviewStatus === 'approved') {
+              const result = await executeLeadScoringAgentRun(agent);
+              actualResult = `Lead scoring scanned ${result.scanned} lead(s), scored ${result.scored}, skipped ${result.skipped}, failed ${result.failed}.`;
+            }
+
+            state.updateAgentRunRecord(runRecordId, {
+              status: agent.id === 'lead_scoring_agent' && reviewStatus === 'approved' ? 'completed' : reviewStatus,
+              actualResult,
+              relatedRunId,
+              relatedRunType,
+              completedAt: new Date().toISOString()
+            });
+            const nextRunCount = (agent.scheduleRunCount || 0) + 1;
+            state.updateAgentHubAgent(agent.id, {
+              lastRunAt: new Date(now).toISOString(),
+              scheduleRunCount: nextRunCount,
+              scheduleEnabled: agent.scheduleMaxRuns != null && nextRunCount >= agent.scheduleMaxRuns ? false : agent.scheduleEnabled,
+              tasksCompleted: agent.tasksCompleted + (agent.guardrail === 'auto' ? 1 : 0)
+            });
+            state.notify(`${agent.name} scheduled run created.`, 'info');
+          } catch (error) {
+            state.updateAgentRunRecord(runRecordId, {
+              status: 'failed',
+              actualResult: error instanceof Error ? error.message : 'Scheduled agent run failed.',
+              completedAt: new Date().toISOString()
+            });
+            state.notify(`${agent.name} scheduled run failed.`, 'error');
+          }
         }
       } finally {
         agentRunInFlightRef.current = false;
