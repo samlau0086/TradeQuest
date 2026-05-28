@@ -188,13 +188,13 @@ function ContributionHeatmap({
       </div>
 
       <div className="overflow-x-auto pb-2">
-        <div className="min-w-[760px]">
+        <div className="min-w-[760px] w-full">
           <div className="relative h-5 ml-10 mb-1">
             {monthLabels.map(month => (
               <span
                 key={`${month.label}-${month.index}`}
                 className="absolute text-xs text-slate-400"
-                style={{ left: `${month.index * 14}px` }}
+                style={{ left: `${(month.index / Math.max(weeks.length - 1, 1)) * 100}%` }}
               >
                 {month.label}
               </span>
@@ -210,14 +210,17 @@ function ContributionHeatmap({
               <span>{t('Fri')}</span>
               <span />
             </div>
-            <div className="flex gap-[3px]">
+            <div
+              className="grid flex-1 gap-[3px]"
+              style={{ gridTemplateColumns: `repeat(${weeks.length}, minmax(0, 1fr))` }}
+            >
               {weeks.map((week, weekIndex) => (
                 <div key={weekIndex} className="grid grid-rows-7 gap-[3px]">
                   {week.map(day => (
                     <div
                       key={day.key}
                       title={`${day.count} ${t('events')} · ${day.date.toLocaleDateString()}`}
-                      className={cn('w-3 h-3 rounded-[3px] border transition-transform hover:scale-125', levelClass(day.count, day.inRange))}
+                      className={cn('aspect-square w-full rounded-[3px] border transition-transform hover:scale-125', levelClass(day.count, day.inRange))}
                     />
                   ))}
                 </div>
