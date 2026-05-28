@@ -340,6 +340,187 @@ function AgentModal({
   );
 }
 
+function AgentConfigPanel({
+  agent,
+  onSave
+}: {
+  agent: Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'> | AgentHubAgent;
+  onSave: (agent: Omit<AgentHubAgent, 'createdAt' | 'updatedAt' | 'tasksCompleted'> | Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'>) => void;
+}) {
+  const { language } = useStore();
+  const t = useTranslation(language);
+  const [form, setForm] = useState(agent);
+  const isEdit = 'id' in agent;
+
+  React.useEffect(() => {
+    setForm(agent);
+  }, [agent]);
+
+  return (
+    <section className="bg-neutral-900/80 border border-neutral-700 rounded-lg overflow-hidden">
+      <div className="px-6 py-5 border-b border-neutral-800 flex items-center justify-between gap-4">
+        <div>
+          <h3 className="text-lg font-bold text-neutral-100">{isEdit ? t('Configure Agent') : t('Create Agent')}</h3>
+          <p className="text-xs text-slate-500 mt-1">{t('Edit the selected agent role, tools, guardrails, and schedule.')}</p>
+        </div>
+        <button
+          onClick={() => form.name.trim() && onSave(form)}
+          disabled={!form.name.trim()}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-500 rounded-md text-sm font-bold text-white flex items-center gap-2"
+        >
+          <Save className="w-4 h-4" />
+          {isEdit ? t('Save Changes') : t('Create Agent')}
+        </button>
+      </div>
+
+      <div className="p-6 space-y-5 max-h-[calc(100vh-230px)] overflow-y-auto">
+        <label className="block">
+          <span className="text-sm text-slate-200">{t('Agent Name')}</span>
+          <input
+            value={form.name}
+            onChange={e => setForm({ ...form, name: e.target.value })}
+            placeholder={t('e.g. Objections Handler Agent')}
+            className="mt-2 w-full bg-black border border-neutral-700 rounded-md px-4 py-2.5 text-sm text-slate-100 outline-none focus:border-blue-500"
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm text-slate-200">{t('Prompt / Instructions')}</span>
+          <textarea
+            value={form.instructions}
+            onChange={e => setForm({ ...form, instructions: e.target.value })}
+            placeholder={t('Describe what this agent does...')}
+            className="mt-2 w-full min-h-28 bg-black border border-neutral-700 rounded-md px-4 py-3 text-sm text-slate-100 outline-none resize-none focus:border-blue-500"
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm text-slate-200">{t('Harness / Guardrails')}</span>
+          <select
+            value={form.guardrail}
+            onChange={e => setForm({ ...form, guardrail: e.target.value as AgentHubGuardrail })}
+            className="mt-2 w-full bg-black border border-neutral-700 rounded-md px-4 py-2.5 text-sm text-slate-100 outline-none focus:border-blue-500"
+          >
+            <option value="auto">{t('Auto-execute (No approval needed)')}</option>
+            <option value="review">{t('Requires approval before execution')}</option>
+            <option value="human_loop">{t('Human-in-the-loop for outbound actions')}</option>
+          </select>
+          <p className="mt-2 text-xs text-slate-500">{t('Determines whether this agent can immediately act or must wait for approval.')}</p>
+        </label>
+        <label className="block">
+          <span className="text-sm text-slate-200">{t('Tools')}</span>
+          <ToolSelector selected={form.tools || []} onChange={tools => setForm({ ...form, tools })} t={t} />
+        </label>
+        <label className="block">
+          <span className="text-sm text-slate-200">{t('Context Suggestions')}</span>
+          <select
+            value={form.contextSuggestionMode || 'manual'}
+            onChange={e => setForm({ ...form, contextSuggestionMode: e.target.value as any })}
+            className="mt-2 w-full bg-black border border-neutral-700 rounded-md px-4 py-2.5 text-sm text-slate-100 outline-none focus:border-blue-500"
+          >
+            <option value="manual">{t('Manual options only')}</option>
+            <option value="auto">{t('Allow automated option execution')}</option>
+          </select>
+          <p className="mt-2 text-xs text-slate-500">{t('Controls whether inbox context suggestions are shown as manual actions or automation-ready options.')}</p>
+        </label>
+        <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-4 space-y-3">
+          <label className="flex items-center justify-between gap-4">
+            <span>
+              <span className="block text-sm text-slate-200">{t('Scheduled Run')}</span>
+              <span className="block text-xs text-slate-500 mt-1">{t('Create a run automatically on a recurring interval.')}</span>
+            </span>
+            <input
+              type="checkbox"
+              checked={!!form.scheduleEnabled}
+              onChange={e => setForm({ ...form, scheduleEnabled: e.target.checked })}
+              className="w-4 h-4 accent-blue-600"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs text-slate-400 font-bold uppercase">{t('Schedule Frequency')}</span>
+            <div className="mt-2 grid grid-cols-1 sm:grid-cols-[1fr_1.2fr] gap-2">
+              <input
+                type="number"
+                min={1}
+                value={form.scheduleIntervalValue || form.scheduleIntervalMinutes || 1}
+                onChange={e => {
+                  const value = Math.max(1, Number(e.target.value) || 1);
+                  const unit = form.scheduleIntervalUnit || 'day';
+                  const minutes = unit === 'second' ? Math.max(1, Math.ceil(value / 60)) : unit === 'minute' ? value : unit === 'hour' ? value * 60 : value * 1440;
+                  setForm({ ...form, scheduleIntervalValue: value, scheduleIntervalMinutes: minutes });
+                }}
+                disabled={form.scheduleIntervalUnit === 'month_day'}
+                className="w-full bg-black border border-neutral-700 rounded-md px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500 disabled:opacity-50"
+              />
+              <select
+                value={form.scheduleIntervalUnit || 'day'}
+                onChange={e => {
+                  const unit = e.target.value as AgentHubScheduleUnit;
+                  const value = form.scheduleIntervalValue || 1;
+                  const minutes = unit === 'second' ? Math.max(1, Math.ceil(value / 60)) : unit === 'minute' ? value : unit === 'hour' ? value * 60 : value * 1440;
+                  setForm({ ...form, scheduleIntervalUnit: unit, scheduleIntervalMinutes: minutes, scheduleDayOfMonth: form.scheduleDayOfMonth || 1 });
+                }}
+                className="w-full bg-black border border-neutral-700 rounded-md px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500"
+              >
+                <option value="second">{t('seconds')}</option>
+                <option value="minute">{t('minutes')}</option>
+                <option value="hour">{t('hours')}</option>
+                <option value="day">{t('days')}</option>
+                <option value="month_day">{t('monthlyDay')}</option>
+              </select>
+            </div>
+          </label>
+          {(form.scheduleIntervalUnit || 'day') === 'month_day' && (
+            <label className="block">
+              <span className="text-xs text-slate-400 font-bold uppercase">{t('Day of month')}</span>
+              <input
+                type="number"
+                min={1}
+                max={31}
+                value={form.scheduleDayOfMonth || 1}
+                onChange={e => setForm({ ...form, scheduleDayOfMonth: Math.min(31, Math.max(1, Number(e.target.value) || 1)) })}
+                className="mt-2 w-full bg-black border border-neutral-700 rounded-md px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500"
+              />
+            </label>
+          )}
+          <label className="block">
+            <span className="text-xs text-slate-400 font-bold uppercase">{t('Execution count')}</span>
+            <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <input
+                type="number"
+                min={1}
+                value={form.scheduleMaxRuns ?? ''}
+                placeholder={t('Unlimited')}
+                onChange={e => setForm({ ...form, scheduleMaxRuns: e.target.value === '' ? null : Math.max(1, Number(e.target.value) || 1) })}
+                className="w-full bg-black border border-neutral-700 rounded-md px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500"
+              />
+              <div className="bg-black border border-neutral-800 rounded-md px-3 py-2 text-sm text-slate-400">
+                {t('Executed')}: {form.scheduleRunCount || 0}
+              </div>
+            </div>
+          </label>
+          {'lastRunAt' in form && form.lastRunAt && (
+            <div className="text-xs text-slate-500">{t('Last run')}: {new Date(form.lastRunAt).toLocaleString()}</div>
+          )}
+        </div>
+        {isEdit && (
+          <div className="bg-neutral-800 border border-neutral-700 rounded-lg p-4 flex items-center justify-between">
+            <div>
+              <div className="text-sm text-slate-100">{t('Agent Status')}</div>
+              <div className="text-xs text-slate-500">{t('Currently')}: {t(form.status)}</div>
+            </div>
+            <button
+              onClick={() => setForm({ ...form, status: form.status === 'active' ? 'idle' : 'active' })}
+              className="px-4 py-2 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-sm font-bold flex items-center gap-2"
+            >
+              <Power className="w-4 h-4" />
+              {form.status === 'active' ? t('Set Idle') : t('Activate Agent')}
+            </button>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function AgentHub() {
   const {
     language,
@@ -361,6 +542,8 @@ export function AgentHub() {
   const t = useTranslation(language);
   const [tab, setTab] = useState<AgentHubTab>('fleet');
   const [modalAgent, setModalAgent] = useState<AgentHubAgent | ReturnType<typeof emptyAgent> | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(agentHubAgents[0]?.id || null);
+  const [draftAgent, setDraftAgent] = useState<ReturnType<typeof emptyAgent> | null>(null);
 
   const pendingItems = useMemo(() => [
     ...agentHarnessRuns.filter(run => run.status === 'pending_review').map(run => ({ kind: 'harness' as const, id: run.id, title: run.summary, agent: 'Agent Harness', body: run.objective, createdAt: run.createdAt })),
@@ -376,6 +559,17 @@ export function AgentHub() {
     ...agent,
     tasksCompleted: agent.tasksCompleted + runLogs.filter(run => run.agent.toLowerCase().includes(agent.name.split(' ')[0].toLowerCase()) && run.status === 'completed').length
   }));
+  const selectedAgent = draftAgent || agentHubAgents.find(agent => agent.id === selectedAgentId) || agentHubAgents[0] || emptyAgent();
+  const saveAgent = (agent: Omit<AgentHubAgent, 'createdAt' | 'updatedAt' | 'tasksCompleted'> | Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'>) => {
+    if ('id' in agent) {
+      updateAgentHubAgent(agent.id, agent as AgentHubAgent);
+      setSelectedAgentId(agent.id);
+    } else {
+      const id = addAgentHubAgent(agent);
+      setSelectedAgentId(id);
+    }
+    setDraftAgent(null);
+  };
 
   const approveItem = (item: typeof pendingItems[number]) => {
     if (item.kind === 'harness') updateAgentHarnessRun(item.id, { status: 'approved', approvedAt: new Date().toISOString() });
@@ -429,20 +623,29 @@ export function AgentHub() {
               {tabButton('global', 'Global Agent', <Bot className="w-4 h-4" />)}
               {tabButton('fleet', 'Agent Fleet', <Server className="w-4 h-4" />)}
             </div>
-            <button onClick={() => setModalAgent(emptyAgent())} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-md text-sm font-bold text-white flex items-center gap-2">
+            <button onClick={() => { setDraftAgent(emptyAgent()); setSelectedAgentId(null); setTab('fleet'); }} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-md text-sm font-bold text-white flex items-center gap-2">
               <Plus className="w-4 h-4" /> {t('Create Agent')}
             </button>
           </div>
         </div>
 
         {tab === 'fleet' && (
-          <div className="max-w-5xl bg-neutral-900/80 border border-neutral-700 rounded-lg p-6">
-            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400 mb-6">
-              <Server className="w-4 h-4" /> {t('Agent Runtime Status')}
-            </div>
-            <div className="space-y-4">
-              {computedAgents.map(agent => (
-                <div key={agent.id} className="border border-neutral-800 hover:border-blue-500/60 rounded-lg p-5 bg-neutral-900 transition-colors">
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(360px,0.85fr)_minmax(0,1.15fr)] gap-8">
+            <section className="bg-neutral-900/80 border border-neutral-700 rounded-lg p-6">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400 mb-6">
+                <Server className="w-4 h-4" /> {t('Agent Runtime Status')}
+              </div>
+              <div className="space-y-4">
+                {computedAgents.map(agent => (
+                  <button
+                    key={agent.id}
+                    type="button"
+                    onClick={() => { setSelectedAgentId(agent.id); setDraftAgent(null); }}
+                    className={cn(
+                      'w-full text-left border rounded-lg p-5 bg-neutral-900 transition-colors',
+                      selectedAgentId === agent.id && !draftAgent ? 'border-blue-500/70 bg-blue-950/20' : 'border-neutral-800 hover:border-blue-500/60'
+                    )}
+                  >
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0">
                       <h3 className="font-bold text-slate-100">{agent.name}</h3>
@@ -450,9 +653,7 @@ export function AgentHub() {
                     </div>
                     <div className="flex items-center gap-2">
                       <span className={cn('px-3 py-1 rounded border text-[10px] font-bold uppercase', statusClass(agent.status))}>{t(agent.status)}</span>
-                      <button onClick={() => setModalAgent(agent)} className="p-2 text-slate-400 hover:text-white hover:bg-neutral-800 rounded-md">
-                        <SlidersHorizontal className="w-4 h-4" />
-                      </button>
+                      <SlidersHorizontal className="w-4 h-4 text-slate-500" />
                     </div>
                   </div>
                   <div className="mt-8 flex items-center justify-between gap-4">
@@ -466,9 +667,11 @@ export function AgentHub() {
                     <span>{scheduleLabel(agent, t)}</span>
                     {agent.lastRunAt && <span>{t('Last run')}: {new Date(agent.lastRunAt).toLocaleString()}</span>}
                   </div>
-                </div>
-              ))}
-            </div>
+                  </button>
+                ))}
+              </div>
+            </section>
+            <AgentConfigPanel agent={selectedAgent} onSave={saveAgent} />
           </div>
         )}
 
@@ -653,7 +856,7 @@ export function AgentHub() {
         )}
       </div>
 
-      {modalAgent && (
+      {false && modalAgent && (
         <AgentModal
           agent={modalAgent}
           onClose={() => setModalAgent(null)}
