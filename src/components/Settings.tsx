@@ -187,6 +187,19 @@ export function Settings() {
     });
   };
 
+  const applyLLMPreset = (preset: 'openrouter') => {
+    if (preset === 'openrouter') {
+      setLLMFormData({
+        ...llmFormData,
+        name: llmFormData.name && llmFormData.name !== 'New AI Provider' ? llmFormData.name : 'OpenRouter.ai',
+        provider: 'openrouter',
+        model: llmFormData.model || 'openai/gpt-4o-mini',
+        embeddingModel: llmFormData.embeddingModel || '',
+        baseURL: 'https://openrouter.ai/api/v1'
+      });
+    }
+  };
+
   const handleSaveInbox = () => {
     if (editingInboxId === 'new') {
       addInboxConfig(inboxFormData as any);
@@ -1595,12 +1608,30 @@ export function Settings() {
                       <div className="space-y-4">
                         <div className="space-y-1">
                           <label className="text-xs text-slate-400 font-bold uppercase">Provider Type</label>
+                          <div className="mb-2 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => applyLLMPreset('openrouter')}
+                              className="px-3 py-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/10 text-xs font-bold text-indigo-200 hover:bg-indigo-500/20"
+                            >
+                              {t('Use OpenRouter.ai preset')}
+                            </button>
+                          </div>
                           <select 
                             value={llmFormData.provider}
-                            onChange={(e: any) => setLLMFormData({ ...llmFormData, provider: e.target.value })}
+                            onChange={(e: any) => {
+                              const provider = e.target.value as LLMConfig['provider'];
+                              setLLMFormData({
+                                ...llmFormData,
+                                provider,
+                                model: provider === 'openrouter' && !llmFormData.model ? 'openai/gpt-4o-mini' : llmFormData.model,
+                                baseURL: provider === 'openrouter' ? 'https://openrouter.ai/api/v1' : llmFormData.baseURL
+                              });
+                            }}
                             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 outline-none"
                           >
                             <option value="openai">OpenAI</option>
+                            <option value="openrouter">OpenRouter.ai</option>
                             <option value="gemini">Gemini</option>
                             <option value="custom_openai">Custom (OpenAI Compatible)</option>
                           </select>
@@ -1609,7 +1640,7 @@ export function Settings() {
                           <label className="text-xs text-slate-400 font-bold uppercase">{t('modelName')}</label>
                           <input 
                             type="text" 
-                            placeholder={llmFormData.provider === 'openai' ? 'gpt-4o' : llmFormData.provider === 'gemini' ? 'gemini-2.5-flash' : 'llama-3...'}
+                            placeholder={llmFormData.provider === 'openai' ? 'gpt-4o' : llmFormData.provider === 'openrouter' ? 'openai/gpt-4o-mini' : llmFormData.provider === 'gemini' ? 'gemini-2.5-flash' : 'llama-3...'}
                             value={llmFormData.model || ''}
                             onChange={e => setLLMFormData({ ...llmFormData, model: e.target.value })}
                             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 outline-none"
@@ -1619,7 +1650,7 @@ export function Settings() {
                           <label className="text-xs text-slate-400 font-bold uppercase">{t('embeddingModel')}</label>
                           <input 
                             type="text" 
-                            placeholder={llmFormData.provider === 'openai' ? 'text-embedding-3-small' : llmFormData.provider === 'gemini' ? 'text-embedding-004' : 'nomic-embed-text...'}
+                            placeholder={llmFormData.provider === 'openai' ? 'text-embedding-3-small' : llmFormData.provider === 'openrouter' ? 'Optional if your OpenRouter model supports embeddings' : llmFormData.provider === 'gemini' ? 'text-embedding-004' : 'nomic-embed-text...'}
                             value={llmFormData.embeddingModel || ''}
                             onChange={e => setLLMFormData({ ...llmFormData, embeddingModel: e.target.value })}
                             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 outline-none"
@@ -1641,16 +1672,19 @@ export function Settings() {
                             <button type="button" onClick={() => setShowLLMApiKey(!showLLMApiKey)} className="absolute right-3 top-2.5 text-slate-500 hover:text-slate-300 transition-colors" tabIndex={-1}>{showLLMApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
                           </div>
                         </div>
-                        {llmFormData.provider === 'custom_openai' && (
+                        {(llmFormData.provider === 'custom_openai' || llmFormData.provider === 'openrouter') && (
                           <div className="space-y-1">
                             <label className="text-xs text-slate-400 font-bold uppercase">Base URL</label>
                             <input 
                               type="text" 
-                              placeholder="https://api.yourprovider.com/v1"
+                              placeholder={llmFormData.provider === 'openrouter' ? 'https://openrouter.ai/api/v1' : 'https://api.yourprovider.com/v1'}
                               value={llmFormData.baseURL || ''}
                               onChange={e => setLLMFormData({ ...llmFormData, baseURL: e.target.value })}
                               className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 outline-none"
                             />
+                            {llmFormData.provider === 'openrouter' && (
+                              <p className="text-xs text-slate-500">{t('OpenRouter uses an OpenAI-compatible API endpoint.')}</p>
+                            )}
                           </div>
                         )}
                       </div>

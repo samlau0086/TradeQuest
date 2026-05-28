@@ -475,7 +475,7 @@ export interface WhatsAppHubConfig {
 export interface LLMConfig {
   id: string;
   name: string;
-  provider: 'gemini' | 'openai' | 'custom_openai';
+  provider: 'gemini' | 'openai' | 'openrouter' | 'custom_openai';
   apiKey: string;
   model: string;
   embeddingModel?: string;

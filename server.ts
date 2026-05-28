@@ -436,10 +436,10 @@ const defaultAi = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 async function callAI(prompt: string, llmConfig: any, isJson: boolean = false) {
   if (llmConfig) {
-    if (llmConfig.provider === 'openai' || llmConfig.provider === 'custom_openai') {
+    if (llmConfig.provider === 'openai' || llmConfig.provider === 'openrouter' || llmConfig.provider === 'custom_openai') {
       const openai = new OpenAI({
         apiKey: llmConfig.apiKey,
-        baseURL: llmConfig.baseURL || undefined,
+        baseURL: llmConfig.provider === 'openrouter' ? (llmConfig.baseURL || 'https://openrouter.ai/api/v1') : llmConfig.baseURL || undefined,
       });
       const response = await openai.chat.completions.create({
         model: llmConfig.model || 'gpt-4o-mini',
@@ -2994,10 +2994,14 @@ No markdown wrappers, just valid JSON.`;
 
   async function generateEmbedding(text: string, llmConfig?: any): Promise<number[] | null> {
     try {
-      if (llmConfig && (llmConfig.provider === 'openai' || llmConfig.provider === 'custom_openai')) {
+      if (llmConfig && (llmConfig.provider === 'openai' || llmConfig.provider === 'openrouter' || llmConfig.provider === 'custom_openai')) {
          const openai = new OpenAI({
            apiKey: llmConfig.apiKey,
-           baseURL: llmConfig.provider === 'custom_openai' ? llmConfig.baseURL || llmConfig.endpoint : undefined,
+           baseURL: llmConfig.provider === 'openrouter'
+             ? (llmConfig.baseURL || 'https://openrouter.ai/api/v1')
+             : llmConfig.provider === 'custom_openai'
+               ? llmConfig.baseURL || llmConfig.endpoint
+               : undefined,
          });
          
          const modelName = llmConfig.embeddingModel || 'text-embedding-3-small';
