@@ -9,7 +9,7 @@ const AGENTS = [
     id: 'global_agent',
     name: 'Global Conversion Agent',
     goal: 'Plan and coordinate CRM-wide lead acquisition, enrichment, follow-up, quotes, and conversion.',
-    tools: ['global_agent.plan', 'lead.acquire', 'lead.enrich', 'email.send', 'whatsapp.send', 'quote.create', 'client.update']
+    tools: ['global_agent.plan', 'lead.acquire', 'lead.create', 'lead.enrich', 'email.send', 'whatsapp.send', 'quote.create', 'client.update']
   },
   {
     id: 'follow_up_agent',
@@ -33,7 +33,7 @@ const AGENTS = [
     id: 'lead_data_agent',
     name: 'Lead Data Agent',
     goal: 'Acquire, import, enrich, deduplicate, and normalize lead data across configured data channels.',
-    tools: ['lead.acquire', 'lead.enrich', 'public_pool.import', 'client.dedupe', 'data.normalize']
+    tools: ['lead.acquire', 'lead.create', 'lead.enrich', 'public_pool.import', 'client.dedupe', 'data.normalize']
   }
 ];
 

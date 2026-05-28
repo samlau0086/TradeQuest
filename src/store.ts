@@ -728,7 +728,7 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     instructions: 'Plan and coordinate CRM-wide lead acquisition, enrichment, follow-up, quotes, and conversion.',
     guardrail: 'review',
     status: 'active',
-    tools: ['global_agent.plan', 'lead.acquire', 'lead.enrich', 'email.send', 'whatsapp.send', 'quote.create', 'client.update'],
+    tools: ['global_agent.plan', 'lead.acquire', 'lead.create', 'lead.enrich', 'email.send', 'whatsapp.send', 'quote.create', 'client.update'],
     tasksCompleted: 0,
     scheduleEnabled: false,
     scheduleIntervalMinutes: 1440,
@@ -797,10 +797,10 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
   {
     id: 'lead_data_agent',
     name: 'Lead Data Agent',
-    instructions: 'Acquire, import, enrich, deduplicate, and normalize lead data across configured data channels.',
+    instructions: 'Acquire, create, import, enrich, deduplicate, and normalize lead data across configured data channels.',
     guardrail: 'auto',
     status: 'active',
-    tools: ['lead.acquire', 'lead.enrich', 'public_pool.import', 'client.dedupe', 'data.normalize'],
+    tools: ['lead.acquire', 'lead.create', 'lead.enrich', 'public_pool.import', 'client.dedupe', 'data.normalize'],
     tasksCompleted: 0,
     scheduleEnabled: false,
     scheduleIntervalMinutes: 720,
@@ -2336,8 +2336,8 @@ export const useStore = create<StoreState>((set, get) => ({
                       scheduleIntervalValue: agent.scheduleIntervalValue || agent.scheduleIntervalMinutes || 1440,
                       scheduleIntervalUnit: agent.scheduleIntervalUnit || 'minute',
                       scheduleRunCount: agent.scheduleRunCount || 0,
-                      instructions: 'Acquire, import, enrich, deduplicate, and normalize lead data across configured data channels.',
-                      tools: ['lead.acquire', 'lead.enrich', 'public_pool.import', 'client.dedupe', 'data.normalize']
+                      instructions: 'Acquire, create, import, enrich, deduplicate, and normalize lead data across configured data channels.',
+                      tools: ['lead.acquire', 'lead.create', 'lead.enrich', 'public_pool.import', 'client.dedupe', 'data.normalize']
                     }
                   : {
                       ...agent,

@@ -11,7 +11,8 @@ export interface AgentToolDefinition {
 
 export const AGENT_TOOL_REGISTRY: AgentToolDefinition[] = [
   { id: 'global_agent.plan', label: 'Global planning', description: 'Generate a cross-system acquisition and conversion plan for human review.', category: 'Planning', risk: 'medium', reviewRequired: true },
-  { id: 'lead.acquire', label: 'Acquire leads', description: 'Acquire new leads from configured lead data channels and campaign criteria.', category: 'Lead Data', risk: 'medium', reviewRequired: false },
+  { id: 'lead.acquire', label: 'Acquire leads', description: 'Search and retrieve external lead data from configured lead channels; does not create CRM records by itself.', category: 'Lead Data', risk: 'medium', reviewRequired: false },
+  { id: 'lead.create', label: 'Create lead', description: 'Create a single CRM lead or client record from validated lead data.', category: 'Lead Data', risk: 'medium', reviewRequired: false },
   { id: 'lead.enrich', label: 'Enrich lead data', description: 'Enrich lead or client data through configured enrichment providers.', category: 'Lead Data', risk: 'low', reviewRequired: false },
   { id: 'public_pool.import', label: 'Import to public pool', description: 'Import acquired leads into the public lead pool.', category: 'Lead Data', risk: 'medium', reviewRequired: false },
   { id: 'client.dedupe', label: 'Deduplicate clients', description: 'Detect and avoid duplicate client or lead records.', category: 'Data Quality', risk: 'low', reviewRequired: false },
@@ -40,6 +41,7 @@ export function getAgentToolDefinition(id: string) {
 const TOOL_INFERENCE_KEYWORDS: Record<string, string[]> = {
   'global_agent.plan': ['global', 'manager', 'orchestrate', 'plan', 'strategy', 'approval', '统筹', '全局', '规划', '计划', '审核', '管理'],
   'lead.acquire': ['acquire', 'prospect', 'campaign', 'keyword', 'industry', 'country', 'lead generation', '获客', '线索获取', '开发客户', 'campaign', '关键词', '行业', '国家'],
+  'lead.create': ['create lead', 'create client', 'new lead', 'new client', 'crm record', '创建线索', '创建客户', '新增线索', '新增客户', '客户记录'],
   'lead.enrich': ['enrich', 'data enrichment', 'company data', 'contact data', 'append', '补全', '丰富', '客户数据', '线索数据', '资料完善'],
   'public_pool.import': ['public pool', 'pool', 'import leads', '公海', '导入公海', '公海池'],
   'client.dedupe': ['dedupe', 'duplicate', 'merge', '去重', '重复', '合并'],

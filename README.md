@@ -141,7 +141,8 @@ Use these tool identifiers when configuring agents in **Agent Hub**. Keep custom
 | Tool | Description |
 | --- | --- |
 | `global_agent.plan` | Generate a cross-system acquisition and conversion plan for human review. |
-| `lead.acquire` | Acquire new leads from configured lead data channels and campaign criteria. |
+| `lead.acquire` | Search and retrieve external lead data from configured lead channels; does not create CRM records by itself. |
+| `lead.create` | Create a single CRM lead or client record from validated lead data. |
 | `lead.enrich` | Enrich lead or client data through configured enrichment providers. |
 | `public_pool.import` | Import acquired leads into the public lead pool. |
 | `client.dedupe` | Detect and avoid duplicate client or lead records. |
@@ -310,7 +311,8 @@ Global Agent action types used by **Agent Execution Policy**:
 | Tool | 说明 |
 | --- | --- |
 | `global_agent.plan` | 生成跨系统获客与转化计划，供人工审核。 |
-| `lead.acquire` | 按 campaign 条件和数据渠道获取新 lead。 |
+| `lead.acquire` | 按 campaign 条件和数据渠道搜索并获取外部 lead 数据；此工具本身不会创建 CRM 记录。 |
+| `lead.create` | 根据已验证的 lead 数据创建单个 CRM 线索或客户记录。 |
 | `lead.enrich` | 通过已配置的数据补全渠道补全 lead 或客户资料。 |
 | `public_pool.import` | 将获取到的 lead 导入公海。 |
 | `client.dedupe` | 检测并避免重复客户或重复 lead。 |
