@@ -26,9 +26,10 @@ import { QuotesList } from './components/QuotesList';
 import { MediaLibrary } from './components/MediaLibrary';
 import { NotificationCenter } from './components/NotificationCenter';
 import { AgentHub } from './components/AgentHub';
+import { getViewForPath, syncViewToUrl } from './lib/viewRoutes';
 
 export default function App() {
-  const { view, selectedClientId, checkScheduledEmails, fetchInitialData, language, globalLoading, inboxConfigs, fetchEmails } = useStore();
+  const { view, setView, selectedClientId, checkScheduledEmails, fetchInitialData, language, globalLoading, inboxConfigs, fetchEmails } = useStore();
   const t = useTranslation(language);
   const { token, isInitializing } = useAuthStore();
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'app-layout' });
@@ -40,6 +41,23 @@ export default function App() {
   if (resetToken) {
     return <ResetPasswordPage resetToken={resetToken} />;
   }
+
+  useEffect(() => {
+    const viewFromUrl = getViewForPath(window.location.pathname);
+    if (viewFromUrl) {
+      setView(viewFromUrl, { replace: true, skipUrl: true });
+    } else {
+      syncViewToUrl(view, { replace: true });
+    }
+
+    const handlePopState = () => {
+      const nextView = getViewForPath(window.location.pathname);
+      if (nextView) setView(nextView, { skipUrl: true });
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   useEffect(() => {
     if (token) {

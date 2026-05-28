@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { useAuthStore } from './authStore';
+import { syncViewToUrl } from './lib/viewRoutes';
 
 export type ViewMode = 'kanban' | 'map' | 'inbox' | 'dashboard' | 'agent-hub' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests' | 'list' | 'products' | 'quotes' | 'knowledge-base' | 'media-library';
 
@@ -586,7 +587,7 @@ export interface StoreState {
   updateAgentContextAnalysisConfig: (updates: Partial<AgentContextAnalysisConfig>) => void;
   
   view: ViewMode;
-  setView: (view: ViewMode) => void;
+  setView: (view: ViewMode, options?: { replace?: boolean; skipUrl?: boolean }) => void;
   
   kanbanSearch: string;
   setKanbanSearch: (search: string) => void;
@@ -1281,7 +1282,10 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   view: 'kanban',
-  setView: (view) => set({ view }),
+  setView: (view, options) => {
+    if (!options?.skipUrl) syncViewToUrl(view, { replace: options?.replace });
+    set({ view });
+  },
 
   kanbanSearch: '',
   setKanbanSearch: (search) => set({ kanbanSearch: search }),
