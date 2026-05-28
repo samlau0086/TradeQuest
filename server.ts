@@ -3701,6 +3701,25 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
+  app.delete('/api/logs/:id', authenticateToken, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const result = await pool.query(`
+        DELETE FROM logs l
+        USING clients c
+        WHERE l.id = $1
+          AND l.client_id = c.id
+          AND c.user_id = $2
+        RETURNING l.id
+      `, [id, req.user.uid]);
+      if (result.rowCount === 0) return res.status(404).json({ error: 'Log not found' });
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to delete log' });
+    }
+  });
+
   // Test Inbox Connection
   app.post('/api/test-inbox', authenticateToken, async (req: any, res) => {
     try {

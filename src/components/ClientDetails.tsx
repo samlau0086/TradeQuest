@@ -423,7 +423,7 @@ function AgentSettingsModal({ client, onClose }: { client: Client, onClose: () =
 }
 
 export function ClientDetails() {
-  const { clients, deals, selectedClientId, selectedDealId, selectClient, selectDeal, updateClientStatus, updateDeal, deleteClient, addComment, addReply, llmConfigs, activeLLMId, llmMappings, setView, selectEmail, logs, emails } = useStore();
+  const { clients, deals, selectedClientId, selectedDealId, selectClient, selectDeal, updateClientStatus, updateDeal, deleteClient, addComment, addReply, deleteLog, llmConfigs, activeLLMId, llmMappings, setView, selectEmail, logs, emails } = useStore();
   
   const getLLMConfig = (module: string) => {
     const id = llmMappings[module] || activeLLMId;
@@ -922,10 +922,20 @@ export function ClientDetails() {
                 <div className="flex items-center justify-center w-5 h-5 rounded-full border border-slate-700 bg-slate-900 text-slate-500 shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2">
                   <div className="w-1.5 h-1.5 bg-slate-500 rounded-full"></div>
                 </div>
-                <div className="w-[calc(100%-2.5rem)] md:w-[calc(50%-1.5rem)] p-3 rounded-lg bg-slate-800/50 border border-slate-800 shadow-sm">
-                  <time className="text-[10px] text-slate-500 font-medium mb-1 block">
-                    {new Date(log.date).toLocaleDateString()} {new Date(log.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </time>
+                <div className="w-[calc(100%-2.5rem)] md:w-[calc(50%-1.5rem)] p-3 rounded-lg bg-slate-800/50 border border-slate-800 shadow-sm relative">
+                  <div className="flex items-start justify-between gap-3 mb-1">
+                    <time className="text-[10px] text-slate-500 font-medium block">
+                      {new Date(log.date).toLocaleDateString()} {new Date(log.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </time>
+                    <button
+                      type="button"
+                      onClick={() => deleteLog(log.id)}
+                      title="Delete"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-slate-500 hover:text-red-300 hover:bg-red-500/10"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                   <div className="text-xs text-slate-300">
                     {log.relatedEmailId ? (
                       <button 

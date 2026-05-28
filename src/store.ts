@@ -669,6 +669,7 @@ export interface StoreState {
 
   logs: Log[];
   addLog: (clientId: string, content: string, relatedEmailId?: string, type?: 'general' | 'whatsapp' | 'email', metadata?: any) => void;
+  deleteLog: (id: string) => Promise<void>;
 
   emails: EmailMessage[];
   addEmail: (email: Omit<EmailMessage, 'id' | 'date'>) => string;
@@ -1971,6 +1972,23 @@ export const useStore = create<StoreState>((set, get) => ({
         logs: [newLog, ...state.logs]
       };
     });
+  },
+  deleteLog: async (id) => {
+    const previousLogs = get().logs;
+    set((state) => ({ logs: state.logs.filter(log => log.id !== id) }));
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const res = await fetch(`/api/logs/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Failed to delete log');
+    } catch (err) {
+      console.error(err);
+      set({ logs: previousLogs });
+      get().notify('Failed to delete log.', 'error');
+    }
   },
 
   emails: INITIAL_EMAILS,
