@@ -127,6 +127,129 @@ function DonutChart({ rows, emptyLabel }: { rows: { label: string; value: number
   );
 }
 
+function formatDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function startOfDay(date: Date) {
+  const copy = new Date(date);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
+
+function addDays(date: Date, days: number) {
+  const copy = new Date(date);
+  copy.setDate(copy.getDate() + days);
+  return copy;
+}
+
+function ContributionHeatmap({
+  days,
+  total,
+  t
+}: {
+  days: { date: Date; key: string; count: number; inRange: boolean }[];
+  total: number;
+  t: (key: string) => string;
+}) {
+  const weeks = Array.from({ length: Math.ceil(days.length / 7) }, (_, weekIndex) => days.slice(weekIndex * 7, weekIndex * 7 + 7));
+  const maxCount = Math.max(1, ...days.map(day => day.count));
+  const monthLabels = weeks.map((week, index) => {
+    const firstVisibleDay = week.find(day => day.inRange);
+    if (!firstVisibleDay || firstVisibleDay.date.getDate() > 7) return null;
+    return { index, label: firstVisibleDay.date.toLocaleString(undefined, { month: 'short' }) };
+  }).filter(Boolean) as { index: number; label: string }[];
+
+  const levelClass = (count: number, inRange: boolean) => {
+    if (!inRange) return 'bg-slate-950/40 border-slate-900/70';
+    if (count === 0) return 'bg-slate-900 border-slate-800';
+    const ratio = count / maxCount;
+    if (ratio >= 0.75) return 'bg-emerald-400 border-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.25)]';
+    if (ratio >= 0.45) return 'bg-emerald-500 border-emerald-400';
+    if (ratio >= 0.2) return 'bg-emerald-700 border-emerald-600';
+    return 'bg-emerald-950 border-emerald-800';
+  };
+
+  return (
+    <div className="bg-slate-950/50 rounded-2xl p-6 border border-slate-800 shadow-sm">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-5">
+        <div>
+          <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
+            <Activity className="w-4 h-4 text-emerald-400" /> {t('User Event Contributions')}
+          </h3>
+          <p className="text-xs text-slate-500 mt-1">{t('Logs, emails, deals, quotes, campaigns, and EXP events by day.')}</p>
+        </div>
+        <div className="text-sm text-slate-300">
+          <span className="font-bold text-white">{total}</span> {t('events in the last year')}
+        </div>
+      </div>
+
+      <div className="overflow-x-auto pb-2">
+        <div className="min-w-[760px]">
+          <div className="relative h-5 ml-10 mb-1">
+            {monthLabels.map(month => (
+              <span
+                key={`${month.label}-${month.index}`}
+                className="absolute text-xs text-slate-400"
+                style={{ left: `${month.index * 14}px` }}
+              >
+                {month.label}
+              </span>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <div className="grid grid-rows-7 gap-[3px] pt-[1px] w-8 shrink-0 text-[10px] text-slate-400">
+              <span />
+              <span>{t('Mon')}</span>
+              <span />
+              <span>{t('Wed')}</span>
+              <span />
+              <span>{t('Fri')}</span>
+              <span />
+            </div>
+            <div className="flex gap-[3px]">
+              {weeks.map((week, weekIndex) => (
+                <div key={weekIndex} className="grid grid-rows-7 gap-[3px]">
+                  {week.map(day => (
+                    <div
+                      key={day.key}
+                      title={`${day.count} ${t('events')} · ${day.date.toLocaleDateString()}`}
+                      className={cn('w-3 h-3 rounded-[3px] border transition-transform hover:scale-125', levelClass(day.count, day.inRange))}
+                    />
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="mt-4 ml-10 flex items-center justify-between gap-4 text-xs text-slate-500">
+            <span>{t('User activity intensity across the last 365 days.')}</span>
+            <div className="flex items-center gap-2">
+              <span>{t('Less')}</span>
+              {[0, 1, 2, 3, 4].map(level => (
+                <span
+                  key={level}
+                  className={cn(
+                    'w-3 h-3 rounded-[3px] border',
+                    level === 0 && 'bg-slate-900 border-slate-800',
+                    level === 1 && 'bg-emerald-950 border-emerald-800',
+                    level === 2 && 'bg-emerald-700 border-emerald-600',
+                    level === 3 && 'bg-emerald-500 border-emerald-400',
+                    level === 4 && 'bg-emerald-400 border-emerald-300'
+                  )}
+                />
+              ))}
+              <span>{t('More')}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Dashboard() {
   const { userExp, userLevel, userTitle, currentStreak, dailyQuests, expLogs, setView, skipQuest, language, emails, clients, deals, quotes, logs, leadCampaigns, publicClients } = useStore();
   const t = useTranslation(language);
@@ -186,6 +309,40 @@ export function Dashboard() {
       emails.filter(email => email.date.slice(0, 10) === key).length
     ));
 
+    const contributionEvents = [
+      ...logs.map(log => log.date),
+      ...emails.map(email => email.date),
+      ...deals.map(deal => deal.createdAt),
+      ...quotes.map(quote => quote.createdAt),
+      ...leadCampaigns.map(campaign => campaign.createdAt),
+      ...expLogs.map(log => log.date)
+    ].filter(Boolean);
+
+    const todayStart = startOfDay(new Date());
+    const yearStart = addDays(todayStart, -364);
+    const firstGridDay = addDays(yearStart, -yearStart.getDay());
+    const contributionCounts = contributionEvents.reduce<Record<string, number>>((acc, rawDate) => {
+      const date = startOfDay(new Date(rawDate));
+      if (Number.isNaN(date.getTime()) || date < yearStart || date > todayStart) return acc;
+      const key = formatDateKey(date);
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+
+    const contributionDays = Array.from({ length: 53 * 7 }, (_, index) => {
+      const date = addDays(firstGridDay, index);
+      const key = formatDateKey(date);
+      const inRange = date >= yearStart && date <= todayStart;
+      return {
+        date,
+        key,
+        inRange,
+        count: inRange ? contributionCounts[key] || 0 : 0
+      };
+    });
+
+    const contributionTotal = Object.values(contributionCounts).reduce((sum, count) => sum + count, 0);
+
     const emailRows = [
       { label: t('Unread'), value: emails.filter(email => !email.read && (email.type === 'inbox' || email.type === 'inbound')).length, color: 'stroke-rose-400' },
       { label: t('Inbound'), value: emails.filter(email => email.type === 'inbox' || email.type === 'inbound').length, color: 'stroke-cyan-400' },
@@ -216,9 +373,11 @@ export function Dashboard() {
       wonValue,
       openTodos,
       quoteDrafts,
-      conversionRate
+      conversionRate,
+      contributionDays,
+      contributionTotal
     };
-  }, [clients, deals, emails, leadCampaigns, logs, publicClients, quotes, t]);
+  }, [clients, deals, emails, expLogs, leadCampaigns, logs, publicClients, quotes, t]);
 
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin bg-slate-900 border-t border-slate-800 p-6">
@@ -263,6 +422,8 @@ export function Dashboard() {
             <MetricCard icon={<Mail className="w-5 h-5" />} label={t('Unread Emails')} value={operations.emailRows[0].value} subtext={t('{count} open follow-up todos').replace('{count}', String(operations.openTodos))} tone={operations.emailRows[0].value > 0 ? 'amber' : 'cyan'} />
             <MetricCard icon={<Globe2 className="w-5 h-5" />} label={t('Public Pool')} value={publicClients.length} subtext={t('{count} saved campaigns').replace('{count}', String(leadCampaigns.length))} tone="rose" />
           </div>
+
+          <ContributionHeatmap days={operations.contributionDays} total={operations.contributionTotal} t={t} />
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <div className="bg-slate-950/50 rounded-2xl p-6 border border-slate-800 shadow-sm">
