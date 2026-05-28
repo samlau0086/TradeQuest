@@ -637,12 +637,16 @@ export function AgentHub() {
   }));
   const selectedAgent = draftAgent || agentHubAgents.find(agent => agent.id === selectedAgentId) || agentHubAgents[0] || emptyAgent();
   const saveAgent = (agent: Omit<AgentHubAgent, 'createdAt' | 'updatedAt' | 'tasksCompleted'> | Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'>) => {
+    const normalizedAgent = {
+      ...agent,
+      status: agent.scheduleEnabled && agent.status === 'idle' ? 'active' as AgentHubStatus : agent.status
+    };
     if ('id' in agent) {
-      updateAgentHubAgent(agent.id, agent as AgentHubAgent);
+      updateAgentHubAgent(agent.id, normalizedAgent as AgentHubAgent);
       setSelectedAgentId(agent.id);
       notify(t('Agent configuration saved.'), 'success');
     } else {
-      const id = addAgentHubAgent(agent);
+      const id = addAgentHubAgent(normalizedAgent);
       setSelectedAgentId(id);
       notify(t('Agent created.'), 'success');
     }

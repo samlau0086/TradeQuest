@@ -218,13 +218,13 @@ export default function App() {
       agentRunInFlightRef.current = true;
       const state = useStore.getState();
       const now = Date.now();
-      const dueAgents = state.agentHubAgents.filter(agent => agent.status === 'active' && agent.scheduleEnabled);
+      const dueAgents = state.agentHubAgents.filter(agent => agent.scheduleEnabled && agent.status !== 'paused');
       try {
         for (const agent of dueAgents) {
           if (!isAgentScheduleDue(agent, now)) continue;
           if (agent.id === 'follow_up_agent') {
             const scoringAgent = state.agentHubAgents.find(item => item.id === 'lead_scoring_agent');
-            const scoringIsDue = !!scoringAgent && scoringAgent.status === 'active' && !!scoringAgent.scheduleEnabled && isAgentScheduleDue(scoringAgent, now);
+            const scoringIsDue = !!scoringAgent && scoringAgent.status !== 'paused' && !!scoringAgent.scheduleEnabled && isAgentScheduleDue(scoringAgent, now);
             if (scoringIsDue) continue;
           }
 
