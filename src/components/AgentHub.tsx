@@ -704,12 +704,36 @@ export function AgentHub() {
     if (run.kind === 'global') deleteGlobalAgentPlan(run.id);
   };
 
-  const clearTraceLogs = () => {
-    runLogs.forEach(run => deleteRunLog(run));
+  const clearTraceLogs = async () => {
+    try {
+      await fetch('/api/agent-hub/logs/clear', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ target: 'trace' })
+      });
+      runLogs.forEach(run => deleteRunLog(run));
+      await fetchUserSettings();
+      notify(t('Logs cleared.'), 'success');
+    } catch (error) {
+      console.error(error);
+      notify(t('Failed to clear logs.'), 'error');
+    }
   };
 
-  const clearAgentRunRecords = () => {
-    agentRunRecords.forEach(record => deleteAgentRunRecord(record.id));
+  const clearAgentRunRecords = async () => {
+    try {
+      await fetch('/api/agent-hub/logs/clear', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ target: 'records' })
+      });
+      agentRunRecords.forEach(record => deleteAgentRunRecord(record.id));
+      await fetchUserSettings();
+      notify(t('Logs cleared.'), 'success');
+    } catch (error) {
+      console.error(error);
+      notify(t('Failed to clear logs.'), 'error');
+    }
   };
 
   const runSchedulerNow = async () => {

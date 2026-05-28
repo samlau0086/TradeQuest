@@ -2089,6 +2089,33 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
+  app.post('/api/agent-hub/logs/clear', authenticateToken, async (req: any, res) => {
+    try {
+      const target = String(req.body?.target || 'records');
+      const result = await pool.query('SELECT settings FROM users WHERE id = $1', [req.user.uid]);
+      const settings = typeof result.rows[0]?.settings === 'string'
+        ? JSON.parse(result.rows[0].settings || '{}')
+        : (result.rows[0]?.settings || {});
+
+      if (target === 'trace' || target === 'all') {
+        settings.agentHarnessRuns = [];
+        settings.globalAgentPlans = [];
+      }
+      if (target === 'records' || target === 'all') {
+        settings.agentRunRecords = [];
+      }
+
+      const updated = await pool.query(
+        'UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING settings',
+        [JSON.stringify(settings), req.user.uid]
+      );
+      res.json(updated.rows[0]?.settings || settings);
+    } catch (e: any) {
+      console.error('Failed to clear Agent Hub logs', e);
+      res.status(500).json({ error: e.message || 'Failed to clear Agent Hub logs' });
+    }
+  });
+
   void runAgentHubScheduler();
   setInterval(runAgentHubScheduler, 5 * 1000);
   
