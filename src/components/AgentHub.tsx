@@ -630,6 +630,7 @@ export function AgentHub() {
   const [schedulerRunning, setSchedulerRunning] = useState(false);
   const [schedulerSummary, setSchedulerSummary] = useState<string | null>(null);
   const [schedulerAgentDetails, setSchedulerAgentDetails] = useState<any[]>([]);
+  const [logDisplayLimit, setLogDisplayLimit] = useState(30);
 
   useEffect(() => {
     if (tab === 'fleet') return;
@@ -647,7 +648,9 @@ export function AgentHub() {
   const runLogs = useMemo(() => [
     ...agentHarnessRuns.map(run => ({ kind: 'harness' as const, id: run.id, title: run.summary, agent: 'Agent Harness', status: run.status, steps: run.steps.map(step => `${step.tool}: ${step.status}`), createdAt: run.createdAt })),
     ...globalAgentPlans.map(plan => ({ kind: 'global' as const, id: plan.id, title: plan.summary, agent: 'Global Agent', status: plan.status, steps: plan.steps.map(step => `${step.actionType}: ${step.status}`), createdAt: plan.createdAt }))
-  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 8), [agentHarnessRuns, globalAgentPlans]);
+  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [agentHarnessRuns, globalAgentPlans]);
+  const visibleRunLogs = runLogs.slice(0, logDisplayLimit);
+  const visibleAgentRunRecords = agentRunRecords.slice(0, logDisplayLimit);
 
   const computedAgents = agentHubAgents.map(agent => ({
     ...agent,
@@ -699,6 +702,14 @@ export function AgentHub() {
   const deleteRunLog = (run: typeof runLogs[number]) => {
     if (run.kind === 'harness') deleteAgentHarnessRun(run.id);
     if (run.kind === 'global') deleteGlobalAgentPlan(run.id);
+  };
+
+  const clearTraceLogs = () => {
+    runLogs.forEach(run => deleteRunLog(run));
+  };
+
+  const clearAgentRunRecords = () => {
+    agentRunRecords.forEach(record => deleteAgentRunRecord(record.id));
   };
 
   const runSchedulerNow = async () => {
@@ -879,16 +890,37 @@ export function AgentHub() {
                 <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400">
                   <ListChecks className="w-4 h-4" /> {t('Agent Runs & Trace Log')}
                 </div>
-                <button onClick={() => setTab('harness')} className="text-xs text-blue-300 hover:text-blue-200">{t('Open Harness')}</button>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={logDisplayLimit}
+                    onChange={e => setLogDisplayLimit(Number(e.target.value))}
+                    className="bg-black border border-neutral-700 rounded px-2 py-1.5 text-xs text-slate-300"
+                    title={t('Log display count')}
+                  >
+                    {[10, 30, 50, 100].map(count => <option key={count} value={count}>{count}</option>)}
+                  </select>
+                  <button onClick={() => setTab('harness')} className="text-xs text-blue-300 hover:text-blue-200">{t('Open Harness')}</button>
+                  <button
+                    onClick={clearTraceLogs}
+                    disabled={runLogs.length === 0}
+                    className="p-1.5 rounded text-slate-500 hover:text-red-300 hover:bg-red-500/10 disabled:opacity-40"
+                    title={t('Clear logs')}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
               <div className="space-y-4 max-h-[calc(100vh-260px)] overflow-y-auto pr-1">
                 {runLogs.length === 0 && <div className="text-sm text-slate-500 py-8 text-center">{t('No agent runs yet.')}</div>}
-                {runLogs.map(run => (
+                {visibleRunLogs.map(run => (
                   <div key={run.id} className="bg-black border border-neutral-800 rounded-lg p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="font-bold text-slate-100">{run.title}</div>
-                        <div className="text-xs text-slate-500 mt-2 flex items-center gap-1"><Cpu className="w-3 h-3" /> {run.agent}</div>
+                        <div className="text-xs text-slate-500 mt-2 flex flex-wrap items-center gap-2">
+                          <span className="flex items-center gap-1"><Cpu className="w-3 h-3" /> {run.agent}</span>
+                          <span>{t('Execution time')}: {new Date(run.createdAt).toLocaleString()}</span>
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-slate-400 capitalize">{t(run.status)}</span>
@@ -931,6 +963,14 @@ export function AgentHub() {
                   <RefreshCw className={cn('w-4 h-4', schedulerRunning && 'animate-spin')} />
                   {t('Run Scheduler')}
                 </button>
+                <button
+                  onClick={clearAgentRunRecords}
+                  disabled={agentRunRecords.length === 0}
+                  className="p-2 rounded text-slate-500 hover:text-red-300 hover:bg-red-500/10 disabled:opacity-40"
+                  title={t('Clear logs')}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
               </div>
               {schedulerSummary && (
                 <div className="mb-4 rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-100 space-y-2">
@@ -956,7 +996,7 @@ export function AgentHub() {
                 {agentRunRecords.length === 0 && (
                   <div className="text-sm text-slate-500 py-8 text-center">{t('No agent run records yet.')}</div>
                 )}
-                {agentRunRecords.slice(0, 30).map(record => (
+                {visibleAgentRunRecords.map(record => (
                   <div key={record.id} className="bg-black border border-neutral-800 rounded-lg p-4">
                     <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
                       <div>
