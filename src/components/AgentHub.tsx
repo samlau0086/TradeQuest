@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Bot, Check, CheckCircle2, ClipboardCheck, Cpu, ListChecks, Plus, Power, Save, Search, Server, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, X, XCircle, Zap } from 'lucide-react';
 import { AgentHubAgent, AgentHubGuardrail, AgentHubScheduleUnit, AgentHubStatus, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType, useStore } from '../store';
 import { cn } from '../lib/utils';
@@ -613,6 +613,7 @@ export function AgentHub() {
     deleteAgentRunRecord,
     agentExecutionPolicy,
     updateAgentExecutionPolicy,
+    fetchUserSettings,
     notify
   } = useStore();
   const t = useTranslation(language);
@@ -620,6 +621,13 @@ export function AgentHub() {
   const [modalAgent, setModalAgent] = useState<AgentHubAgent | ReturnType<typeof emptyAgent> | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(agentHubAgents[0]?.id || null);
   const [draftAgent, setDraftAgent] = useState<ReturnType<typeof emptyAgent> | null>(null);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      void fetchUserSettings();
+    }, 10000);
+    return () => window.clearInterval(interval);
+  }, [fetchUserSettings]);
 
   const pendingItems = useMemo(() => [
     ...agentHarnessRuns.filter(run => run.status === 'pending_review').map(run => ({ kind: 'harness' as const, id: run.id, title: run.summary, agent: 'Agent Harness', body: run.objective, createdAt: run.createdAt })),

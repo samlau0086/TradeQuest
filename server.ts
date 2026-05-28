@@ -1785,6 +1785,174 @@ No markdown wrappers, just valid JSON.`;
 
   // Run agent polling frequently; per-client eligibility is controlled by agent_polling_interval_seconds.
   setInterval(runAgentPolling, 5 * 1000);
+
+  const getAgentHubScheduleIntervalMs = (agent: any) => {
+    const value = Math.max(1, Number(agent.scheduleIntervalValue || agent.scheduleIntervalMinutes || 1));
+    const unit = agent.scheduleIntervalUnit || 'minute';
+    if (unit === 'second') return value * 1000;
+    if (unit === 'minute') return value * 60 * 1000;
+    if (unit === 'hour') return value * 60 * 60 * 1000;
+    return value * 24 * 60 * 60 * 1000;
+  };
+
+  const isSameMonth = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+
+  const isAgentHubScheduleDue = (agent: any, now: number) => {
+    if (!agent?.scheduleEnabled || agent.status === 'paused') return false;
+    if (agent.scheduleMaxRuns != null && (agent.scheduleRunCount || 0) >= agent.scheduleMaxRuns) return false;
+    const unit = agent.scheduleIntervalUnit || 'minute';
+    const lastRun = agent.lastRunAt ? new Date(agent.lastRunAt) : null;
+    if (unit === 'month_day') {
+      const current = new Date(now);
+      const requestedDay = Math.min(31, Math.max(1, Number(agent.scheduleDayOfMonth || 1)));
+      const lastDayOfMonth = new Date(current.getFullYear(), current.getMonth() + 1, 0).getDate();
+      const runDay = Math.min(requestedDay, lastDayOfMonth);
+      if (current.getDate() !== runDay) return false;
+      return !lastRun || !isSameMonth(lastRun, current);
+    }
+    if (!lastRun) return true;
+    return now - lastRun.getTime() >= getAgentHubScheduleIntervalMs(agent);
+  };
+
+  const addAgentHubRunRecordToSettings = (settings: any, record: any) => {
+    const now = new Date().toISOString();
+    const id = `agent_run_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const nextRecord = { ...record, id, createdAt: now, updatedAt: now };
+    settings.agentRunRecords = [nextRecord, ...(settings.agentRunRecords || [])].slice(0, 200);
+    return nextRecord;
+  };
+
+  const updateAgentHubRunRecordInSettings = (settings: any, id: string, updates: any) => {
+    settings.agentRunRecords = (settings.agentRunRecords || []).map((record: any) => (
+      record.id === id ? { ...record, ...updates, updatedAt: new Date().toISOString() } : record
+    ));
+  };
+
+  const runAgentHubScheduler = async () => {
+    try {
+      if (!pool) return;
+      const usersRes = await pool.query(`
+        SELECT id, settings
+        FROM users
+        WHERE jsonb_typeof(settings->'agentHubAgents') = 'array'
+      `);
+      const now = Date.now();
+
+      for (const user of usersRes.rows) {
+        const settings = typeof user.settings === 'string' ? JSON.parse(user.settings || '{}') : (user.settings || {});
+        const agents = Array.isArray(settings.agentHubAgents) ? settings.agentHubAgents : [];
+        if (agents.length === 0) continue;
+
+        let changed = false;
+        for (const agent of agents) {
+          if (!isAgentHubScheduleDue(agent, now)) continue;
+          if (agent.id === 'follow_up_agent') {
+            const scoringAgent = agents.find((item: any) => item.id === 'lead_scoring_agent');
+            if (scoringAgent && isAgentHubScheduleDue(scoringAgent, now)) continue;
+          }
+
+          const reviewStatus = agent.guardrail === 'auto' ? 'approved' : 'pending_review';
+          const objective = agent.id === 'follow_up_agent'
+            ? `Scheduled run for ${agent.name}: ${agent.instructions}. Use Lead Scoring Agent outputs when available and do not repeat lead scoring or lead summaries.`
+            : `Scheduled run for ${agent.name}: ${agent.instructions || ''}`;
+          const expectedResult = agent.id === 'global_agent'
+            ? 'Create or update a Global Agent plan for conversion coordination.'
+            : agent.id === 'lead_scoring_agent'
+              ? 'Scan eligible leads, skip unchanged leads, and update score/summary/next step when needed.'
+              : 'Create an Agent Harness run with the configured agent tools and guardrails.';
+          const startedRecord = addAgentHubRunRecordToSettings(settings, {
+            agentId: agent.id,
+            agentName: agent.name,
+            trigger: 'scheduled',
+            status: 'running',
+            plan: objective,
+            expectedResult,
+            actualResult: 'Backend scheduled agent run started.'
+          });
+
+          try {
+            let relatedRunId = '';
+            let relatedRunType: 'harness' | 'global' = 'harness';
+            if (agent.id === 'global_agent') {
+              relatedRunId = `gplan_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+              relatedRunType = 'global';
+              settings.globalAgentPlans = [{
+                id: relatedRunId,
+                objective,
+                summary: `Scheduled Global Agent run: ${agent.name}`,
+                status: reviewStatus,
+                steps: [{
+                  id: `step_${Date.now()}_${agent.id}`,
+                  title: 'Scheduled Global Agent review',
+                  description: agent.instructions || '',
+                  actionType: 'review_pipeline',
+                  status: 'pending',
+                  payload: { source: 'agent-hub-backend-schedule', agentId: agent.id, tools: agent.tools || [] }
+                }],
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+              }, ...(settings.globalAgentPlans || [])];
+            } else {
+              relatedRunId = `harness_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+              settings.agentHarnessRuns = [{
+                id: relatedRunId,
+                objective,
+                summary: `Scheduled Agent Hub run: ${agent.name}`,
+                status: reviewStatus,
+                steps: [{
+                  id: `hstep_${Date.now()}_${agent.id}`,
+                  agentId: agent.id,
+                  title: `Run ${agent.name}`,
+                  description: agent.instructions || '',
+                  tool: (agent.tools || [])[0] || 'agent.run',
+                  risk: agent.guardrail === 'auto' ? 'low' : 'medium',
+                  status: 'pending',
+                  payload: { source: 'agent-hub-backend-schedule', agentId: agent.id, tools: agent.tools || [] }
+                }],
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+              }, ...(settings.agentHarnessRuns || [])];
+            }
+
+            updateAgentHubRunRecordInSettings(settings, startedRecord.id, {
+              status: reviewStatus,
+              actualResult: reviewStatus === 'approved'
+                ? 'Backend scheduler created and auto-approved the agent run according to guardrail policy.'
+                : 'Backend scheduler created the agent run and is waiting for human approval.',
+              relatedRunId,
+              relatedRunType,
+              completedAt: new Date().toISOString()
+            });
+
+            const nextRunCount = (agent.scheduleRunCount || 0) + 1;
+            agent.lastRunAt = new Date(now).toISOString();
+            agent.scheduleRunCount = nextRunCount;
+            agent.scheduleEnabled = agent.scheduleMaxRuns != null && nextRunCount >= agent.scheduleMaxRuns ? false : agent.scheduleEnabled;
+            agent.tasksCompleted = (agent.tasksCompleted || 0) + (agent.guardrail === 'auto' ? 1 : 0);
+            agent.updatedAt = new Date().toISOString();
+          } catch (error: any) {
+            updateAgentHubRunRecordInSettings(settings, startedRecord.id, {
+              status: 'failed',
+              actualResult: error?.message || 'Backend scheduled agent run failed.',
+              completedAt: new Date().toISOString()
+            });
+          }
+          changed = true;
+        }
+
+        if (changed) {
+          await pool.query(
+            'UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+            [JSON.stringify(settings), user.id]
+          );
+        }
+      }
+    } catch (e) {
+      console.error('Failed to run Agent Hub scheduler:', e);
+    }
+  };
+
+  setInterval(runAgentHubScheduler, 5 * 1000);
   
   // Scheduled Emails Processor
   const processScheduledEmails = async () => {
