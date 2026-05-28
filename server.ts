@@ -361,6 +361,7 @@ async function initDB() {
 
       ALTER TABLE whatsapp_conversations ADD COLUMN IF NOT EXISTS agent_context_analysis JSONB;
       ALTER TABLE whatsapp_conversations ADD COLUMN IF NOT EXISTS agent_context_analysis_key TEXT;
+      ALTER TABLE whatsapp_conversations ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE;
 
       CREATE TABLE IF NOT EXISTS whatsapp_messages (
         id VARCHAR(128) PRIMARY KEY,
@@ -877,9 +878,21 @@ No markdown wrappers, just valid JSON.`;
     return result.rows[0]?.id || null;
   };
 
-  const ensureWhatsAppConversation = async (userId: string, phone: string, clientId?: string | null, lastMessageAt?: string) => {
+  const ensureWhatsAppConversation = async (
+    userId: string,
+    phone: string,
+    clientId?: string | null,
+    lastMessageAt?: string,
+    options: { restoreDeleted?: boolean } = {}
+  ) => {
     const conversationId = `wa_conv_${userId}_${phone}`;
     const resolvedClientId = clientId || await findClientForWhatsAppPhone(userId, phone);
+    const deletedRes = await pool.query(
+      `SELECT id, deleted_at FROM whatsapp_conversations
+       WHERE user_id = $1 AND target_phone = $2 AND deleted_at IS NOT NULL`,
+      [userId, phone]
+    );
+    if (deletedRes.rows.length > 0 && !options.restoreDeleted) return null;
     await pool.query(
       `INSERT INTO whatsapp_conversations (id, user_id, target_phone, client_id, last_message_at)
        VALUES ($1, $2, $3, $4, $5)
@@ -887,8 +900,9 @@ No markdown wrappers, just valid JSON.`;
        DO UPDATE SET
          client_id = COALESCE(whatsapp_conversations.client_id, EXCLUDED.client_id),
          last_message_at = GREATEST(COALESCE(whatsapp_conversations.last_message_at, EXCLUDED.last_message_at), COALESCE(EXCLUDED.last_message_at, whatsapp_conversations.last_message_at)),
+         deleted_at = CASE WHEN $6::boolean THEN NULL ELSE whatsapp_conversations.deleted_at END,
          updated_at = CURRENT_TIMESTAMP`,
-      [conversationId, userId, phone, resolvedClientId, lastMessageAt || null]
+      [conversationId, userId, phone, resolvedClientId, lastMessageAt || null, !!options.restoreDeleted]
     );
     return { id: conversationId, clientId: resolvedClientId };
   };
@@ -897,7 +911,16 @@ No markdown wrappers, just valid JSON.`;
     const targetPhone = phoneFromWhatsAppMessage(message);
     if (!targetPhone) return;
     const messageTime = message.created_at || message.received_at || new Date().toISOString();
-    const conversation = await ensureWhatsAppConversation(userId, targetPhone, null, messageTime);
+    const deletedRes = await pool.query(
+      `SELECT deleted_at FROM whatsapp_conversations
+       WHERE user_id = $1 AND target_phone = $2 AND deleted_at IS NOT NULL`,
+      [userId, targetPhone]
+    );
+    const deletedAt = deletedRes.rows[0]?.deleted_at ? new Date(deletedRes.rows[0].deleted_at).getTime() : 0;
+    const incomingAt = new Date(messageTime).getTime();
+    const restoreDeleted = Boolean(deletedAt && Number.isFinite(incomingAt) && incomingAt > deletedAt);
+    const conversation = await ensureWhatsAppConversation(userId, targetPhone, null, messageTime, { restoreDeleted });
+    if (!conversation) return;
     const messageId = String(message.id || `wa_msg_${message.client_id || 'hub'}_${message.direction}_${targetPhone}_${new Date(messageTime).getTime()}`).slice(0, 128);
     await pool.query(
       `INSERT INTO whatsapp_messages
@@ -1177,7 +1200,7 @@ No markdown wrappers, just valid JSON.`;
            ORDER BY COALESCE(m.source_created_at, m.created_at) DESC
            LIMIT 1
          ) last_msg ON true
-         WHERE c.user_id = $1 ${searchSql}
+         WHERE c.user_id = $1 AND c.deleted_at IS NULL ${searchSql}
          ORDER BY COALESCE(c.last_message_at, c.updated_at) DESC
          LIMIT 200`,
         values
@@ -1226,7 +1249,8 @@ No markdown wrappers, just valid JSON.`;
   app.delete('/api/whatsapp-hub/conversations/:id', authenticateToken, async (req: any, res) => {
     try {
       const result = await pool.query(
-        `DELETE FROM whatsapp_conversations
+        `UPDATE whatsapp_conversations
+         SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
          WHERE id = $1 AND user_id = $2
          RETURNING id`,
         [req.params.id, req.user.uid]
