@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, Check, CheckCircle2, ClipboardCheck, Cpu, ListChecks, Plus, Power, RefreshCw, Save, Search, Server, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, X, XCircle, Zap } from 'lucide-react';
 import { AgentHubAgent, AgentHubGuardrail, AgentHubScheduleUnit, AgentHubStatus, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType, useStore } from '../store';
 import { cn } from '../lib/utils';
@@ -407,9 +407,14 @@ function AgentConfigPanel({
   const t = useTranslation(language);
   const [form, setForm] = useState(agent);
   const isEdit = 'id' in agent;
+  const agentKeyRef = useRef('id' in agent ? agent.id : 'new');
 
   React.useEffect(() => {
-    setForm(agent);
+    const nextKey = 'id' in agent ? agent.id : 'new';
+    if (agentKeyRef.current !== nextKey) {
+      agentKeyRef.current = nextKey;
+      setForm(agent);
+    }
   }, [agent]);
 
   const selectToolsWithAI = async () => {
@@ -627,11 +632,12 @@ export function AgentHub() {
   const [schedulerAgentDetails, setSchedulerAgentDetails] = useState<any[]>([]);
 
   useEffect(() => {
+    if (tab === 'fleet') return;
     const interval = window.setInterval(() => {
       void fetchUserSettings();
     }, 10000);
     return () => window.clearInterval(interval);
-  }, [fetchUserSettings]);
+  }, [fetchUserSettings, tab]);
 
   const pendingItems = useMemo(() => [
     ...agentHarnessRuns.filter(run => run.status === 'pending_review').map(run => ({ kind: 'harness' as const, id: run.id, title: run.summary, agent: 'Agent Harness', body: run.objective, createdAt: run.createdAt })),
