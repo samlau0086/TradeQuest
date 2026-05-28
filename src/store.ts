@@ -321,6 +321,7 @@ export interface AgentHarnessRun {
 export type AgentHubStatus = 'active' | 'idle' | 'paused';
 export type AgentHubGuardrail = 'auto' | 'review' | 'human_loop';
 export type AgentHubContextSuggestionMode = 'manual' | 'auto';
+export type AgentHubScheduleUnit = 'second' | 'minute' | 'hour' | 'day' | 'month_day';
 
 export interface AgentHubAgent {
   id: string;
@@ -332,6 +333,11 @@ export interface AgentHubAgent {
   tasksCompleted: number;
   scheduleEnabled?: boolean;
   scheduleIntervalMinutes?: number;
+  scheduleIntervalValue?: number;
+  scheduleIntervalUnit?: AgentHubScheduleUnit;
+  scheduleDayOfMonth?: number;
+  scheduleMaxRuns?: number | null;
+  scheduleRunCount?: number;
   contextSuggestionMode?: AgentHubContextSuggestionMode;
   lastRunAt?: string;
   builtIn?: boolean;
@@ -718,6 +724,9 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     tasksCompleted: 0,
     scheduleEnabled: false,
     scheduleIntervalMinutes: 1440,
+    scheduleIntervalValue: 1,
+    scheduleIntervalUnit: 'day',
+    scheduleRunCount: 0,
     contextSuggestionMode: 'manual',
     builtIn: true,
     createdAt: new Date().toISOString(),
@@ -733,6 +742,9 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     tasksCompleted: 0,
     scheduleEnabled: false,
     scheduleIntervalMinutes: 240,
+    scheduleIntervalValue: 4,
+    scheduleIntervalUnit: 'hour',
+    scheduleRunCount: 0,
     contextSuggestionMode: 'manual',
     builtIn: true,
     createdAt: new Date().toISOString(),
@@ -748,6 +760,9 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     tasksCompleted: 0,
     scheduleEnabled: false,
     scheduleIntervalMinutes: 60,
+    scheduleIntervalValue: 1,
+    scheduleIntervalUnit: 'hour',
+    scheduleRunCount: 0,
     contextSuggestionMode: 'manual',
     builtIn: true,
     createdAt: new Date().toISOString(),
@@ -763,6 +778,9 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     tasksCompleted: 0,
     scheduleEnabled: false,
     scheduleIntervalMinutes: 240,
+    scheduleIntervalValue: 4,
+    scheduleIntervalUnit: 'hour',
+    scheduleRunCount: 0,
     contextSuggestionMode: 'auto',
     builtIn: true,
     createdAt: new Date().toISOString(),
@@ -778,6 +796,9 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     tasksCompleted: 0,
     scheduleEnabled: false,
     scheduleIntervalMinutes: 720,
+    scheduleIntervalValue: 12,
+    scheduleIntervalUnit: 'hour',
+    scheduleRunCount: 0,
     contextSuggestionMode: 'auto',
     builtIn: true,
     createdAt: new Date().toISOString(),
@@ -2282,10 +2303,19 @@ export const useStore = create<StoreState>((set, get) => ({
                   ? {
                       ...agent,
                       contextSuggestionMode: agent.contextSuggestionMode || 'manual',
+                      scheduleIntervalValue: agent.scheduleIntervalValue || agent.scheduleIntervalMinutes || 1440,
+                      scheduleIntervalUnit: agent.scheduleIntervalUnit || 'minute',
+                      scheduleRunCount: agent.scheduleRunCount || 0,
                       instructions: 'Acquire, import, enrich, deduplicate, and normalize lead data across configured data channels.',
                       tools: ['lead.acquire', 'lead.enrich', 'public_pool.import', 'client.dedupe', 'data.normalize']
                     }
-                  : { ...agent, contextSuggestionMode: agent.contextSuggestionMode || 'manual' }
+                  : {
+                      ...agent,
+                      contextSuggestionMode: agent.contextSuggestionMode || 'manual',
+                      scheduleIntervalValue: agent.scheduleIntervalValue || agent.scheduleIntervalMinutes || 1440,
+                      scheduleIntervalUnit: agent.scheduleIntervalUnit || 'minute',
+                      scheduleRunCount: agent.scheduleRunCount || 0
+                    }
                 )
               ]
             : state.agentHubAgents,

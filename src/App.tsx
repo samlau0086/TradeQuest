@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { useStore } from './store';
+import { AgentHubAgent, useStore } from './store';
 import { useAuthStore } from './authStore';
 import { Sidebar } from './components/Sidebar';
 import { TopBar, MagicCommand } from './components/TopBar';
@@ -27,6 +27,35 @@ import { MediaLibrary } from './components/MediaLibrary';
 import { NotificationCenter } from './components/NotificationCenter';
 import { AgentHub } from './components/AgentHub';
 import { getViewForPath, syncViewToUrl } from './lib/viewRoutes';
+
+function getAgentScheduleIntervalMs(agent: AgentHubAgent) {
+  const value = Math.max(1, Number(agent.scheduleIntervalValue || agent.scheduleIntervalMinutes || 1));
+  const unit = agent.scheduleIntervalUnit || 'minute';
+  if (unit === 'second') return value * 1000;
+  if (unit === 'minute') return value * 60 * 1000;
+  if (unit === 'hour') return value * 60 * 60 * 1000;
+  return value * 24 * 60 * 60 * 1000;
+}
+
+function isSameMonth(a: Date, b: Date) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+}
+
+function isAgentScheduleDue(agent: AgentHubAgent, now: number) {
+  if (agent.scheduleMaxRuns != null && (agent.scheduleRunCount || 0) >= agent.scheduleMaxRuns) return false;
+  const unit = agent.scheduleIntervalUnit || 'minute';
+  const lastRun = agent.lastRunAt ? new Date(agent.lastRunAt) : null;
+  if (unit === 'month_day') {
+    const current = new Date(now);
+    const requestedDay = Math.min(31, Math.max(1, Number(agent.scheduleDayOfMonth || 1)));
+    const lastDayOfMonth = new Date(current.getFullYear(), current.getMonth() + 1, 0).getDate();
+    const runDay = Math.min(requestedDay, lastDayOfMonth);
+    if (current.getDate() !== runDay) return false;
+    return !lastRun || !isSameMonth(lastRun, current);
+  }
+  if (!lastRun) return true;
+  return now - lastRun.getTime() >= getAgentScheduleIntervalMs(agent);
+}
 
 export default function App() {
   const { view, setView, selectedClientId, checkScheduledEmails, fetchInitialData, language, globalLoading, inboxConfigs, fetchEmails } = useStore();
@@ -80,14 +109,10 @@ export default function App() {
       state.agentHubAgents
         .filter(agent => agent.status === 'active' && agent.scheduleEnabled)
         .forEach(agent => {
-          const intervalMs = Math.max(15, Number(agent.scheduleIntervalMinutes || 1440)) * 60 * 1000;
-          const lastRun = agent.lastRunAt ? new Date(agent.lastRunAt).getTime() : 0;
-          if (lastRun && now - lastRun < intervalMs) return;
+          if (!isAgentScheduleDue(agent, now)) return;
           if (agent.id === 'follow_up_agent') {
             const scoringAgent = state.agentHubAgents.find(item => item.id === 'lead_scoring_agent');
-            const scoringIntervalMs = Math.max(15, Number(scoringAgent?.scheduleIntervalMinutes || 240)) * 60 * 1000;
-            const scoringLastRun = scoringAgent?.lastRunAt ? new Date(scoringAgent.lastRunAt).getTime() : 0;
-            const scoringIsDue = scoringAgent?.status === 'active' && scoringAgent.scheduleEnabled && (!scoringLastRun || now - scoringLastRun >= scoringIntervalMs);
+            const scoringIsDue = !!scoringAgent && scoringAgent.status === 'active' && !!scoringAgent.scheduleEnabled && isAgentScheduleDue(scoringAgent, now);
             if (scoringIsDue) return;
           }
 
@@ -144,8 +169,11 @@ export default function App() {
             relatedRunId,
             relatedRunType
           });
+          const nextRunCount = (agent.scheduleRunCount || 0) + 1;
           state.updateAgentHubAgent(agent.id, {
             lastRunAt: new Date(now).toISOString(),
+            scheduleRunCount: nextRunCount,
+            scheduleEnabled: agent.scheduleMaxRuns != null && nextRunCount >= agent.scheduleMaxRuns ? false : agent.scheduleEnabled,
             tasksCompleted: agent.tasksCompleted + (agent.guardrail === 'auto' ? 1 : 0)
           });
           state.notify(`${agent.name} scheduled run created.`, 'info');
@@ -153,7 +181,7 @@ export default function App() {
     };
 
     runDueAgents();
-    const agentInterval = window.setInterval(runDueAgents, 60 * 1000);
+    const agentInterval = window.setInterval(runDueAgents, 5 * 1000);
 
     const syncDueInboxConfigs = async () => {
       const currentConfigs = useStore.getState().inboxConfigs.filter(config => config.type === 'imap' || config.type === 'pop3');

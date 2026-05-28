@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Bot, CheckCircle2, ClipboardCheck, Cpu, ListChecks, Plus, Power, Save, Server, ShieldCheck, SlidersHorizontal, Trash2, X, XCircle, Zap } from 'lucide-react';
-import { AgentHubAgent, AgentHubGuardrail, AgentHubStatus, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType, useStore } from '../store';
+import { AgentHubAgent, AgentHubGuardrail, AgentHubScheduleUnit, AgentHubStatus, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType, useStore } from '../store';
 import { cn } from '../lib/utils';
 import { AgentHarness } from './AgentHarness';
 import { GlobalAgent } from './GlobalAgent';
@@ -32,6 +32,11 @@ const emptyAgent = (): Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 't
   tools: [],
   scheduleEnabled: false,
   scheduleIntervalMinutes: 1440,
+  scheduleIntervalValue: 1,
+  scheduleIntervalUnit: 'day',
+  scheduleDayOfMonth: 1,
+  scheduleMaxRuns: null,
+  scheduleRunCount: 0,
   contextSuggestionMode: 'manual',
   builtIn: false
 });
@@ -46,6 +51,15 @@ function guardrailLabel(guardrail: AgentHubGuardrail) {
   if (guardrail === 'auto') return 'Auto';
   if (guardrail === 'human_loop') return 'Human-in-the-loop';
   return 'Review required';
+}
+
+function scheduleLabel(agent: AgentHubAgent, t: (key: string) => string) {
+  if (!agent.scheduleEnabled) return t('Schedule off');
+  const unit = agent.scheduleIntervalUnit || 'minute';
+  const value = agent.scheduleIntervalValue || agent.scheduleIntervalMinutes || 1;
+  const runs = agent.scheduleMaxRuns ? ` · ${t('Runs')} ${agent.scheduleRunCount || 0}/${agent.scheduleMaxRuns}` : '';
+  if (unit === 'month_day') return `${t('Monthly on day')} ${agent.scheduleDayOfMonth || 1}${runs}`;
+  return `${t('Every')} ${value} ${t(unit)}${value === 1 ? '' : t('s')}${runs}`;
 }
 
 function AgentModal({
@@ -138,16 +152,66 @@ function AgentModal({
               />
             </label>
             <label className="block">
-              <span className="text-xs text-slate-400 font-bold uppercase">{t('Run every')}</span>
-              <div className="mt-2 flex items-center gap-2">
+              <span className="text-xs text-slate-400 font-bold uppercase">{t('Schedule Frequency')}</span>
+              <div className="mt-2 grid grid-cols-1 sm:grid-cols-[1fr_1.2fr] gap-2">
                 <input
                   type="number"
-                  min={15}
-                  value={form.scheduleIntervalMinutes || 1440}
-                  onChange={e => setForm({ ...form, scheduleIntervalMinutes: Math.max(15, Number(e.target.value) || 1440) })}
-                  className="w-28 bg-black border border-neutral-700 rounded-md px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500"
+                  min={1}
+                  value={form.scheduleIntervalValue || form.scheduleIntervalMinutes || 1}
+                  onChange={e => {
+                    const value = Math.max(1, Number(e.target.value) || 1);
+                    const unit = form.scheduleIntervalUnit || 'day';
+                    const minutes = unit === 'second' ? Math.max(1, Math.ceil(value / 60)) : unit === 'minute' ? value : unit === 'hour' ? value * 60 : value * 1440;
+                    setForm({ ...form, scheduleIntervalValue: value, scheduleIntervalMinutes: minutes });
+                  }}
+                  disabled={form.scheduleIntervalUnit === 'month_day'}
+                  className="w-full bg-black border border-neutral-700 rounded-md px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500 disabled:opacity-50"
                 />
-                <span className="text-sm text-slate-400">{t('minutes')}</span>
+                <select
+                  value={form.scheduleIntervalUnit || 'day'}
+                  onChange={e => {
+                    const unit = e.target.value as AgentHubScheduleUnit;
+                    const value = form.scheduleIntervalValue || 1;
+                    const minutes = unit === 'second' ? Math.max(1, Math.ceil(value / 60)) : unit === 'minute' ? value : unit === 'hour' ? value * 60 : value * 1440;
+                    setForm({ ...form, scheduleIntervalUnit: unit, scheduleIntervalMinutes: minutes, scheduleDayOfMonth: form.scheduleDayOfMonth || 1 });
+                  }}
+                  className="w-full bg-black border border-neutral-700 rounded-md px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500"
+                >
+                  <option value="second">{t('seconds')}</option>
+                  <option value="minute">{t('minutes')}</option>
+                  <option value="hour">{t('hours')}</option>
+                  <option value="day">{t('days')}</option>
+                  <option value="month_day">{t('monthlyDay')}</option>
+                </select>
+              </div>
+            </label>
+            {(form.scheduleIntervalUnit || 'day') === 'month_day' && (
+              <label className="block">
+                <span className="text-xs text-slate-400 font-bold uppercase">{t('Day of month')}</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={31}
+                  value={form.scheduleDayOfMonth || 1}
+                  onChange={e => setForm({ ...form, scheduleDayOfMonth: Math.min(31, Math.max(1, Number(e.target.value) || 1)) })}
+                  className="mt-2 w-full bg-black border border-neutral-700 rounded-md px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500"
+                />
+              </label>
+            )}
+            <label className="block">
+              <span className="text-xs text-slate-400 font-bold uppercase">{t('Execution count')}</span>
+              <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  value={form.scheduleMaxRuns ?? ''}
+                  placeholder={t('Unlimited')}
+                  onChange={e => setForm({ ...form, scheduleMaxRuns: e.target.value === '' ? null : Math.max(1, Number(e.target.value) || 1) })}
+                  className="w-full bg-black border border-neutral-700 rounded-md px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500"
+                />
+                <div className="bg-black border border-neutral-800 rounded-md px-3 py-2 text-sm text-slate-400">
+                  {t('Executed')}: {form.scheduleRunCount || 0}
+                </div>
               </div>
             </label>
             {'lastRunAt' in form && form.lastRunAt && (
@@ -309,7 +373,7 @@ export function AgentHub() {
                     <span className="px-3 py-1 rounded-md border border-neutral-800 bg-black text-[10px] text-slate-300">{t('Tasks completed')}: {agent.tasksCompleted}</span>
                   </div>
                   <div className="mt-3 flex items-center justify-between gap-4 text-[10px] text-slate-500">
-                    <span>{agent.scheduleEnabled ? `${t('Scheduled every')} ${agent.scheduleIntervalMinutes || 1440} ${t('min')}` : t('Schedule off')}</span>
+                    <span>{scheduleLabel(agent, t)}</span>
                     {agent.lastRunAt && <span>{t('Last run')}: {new Date(agent.lastRunAt).toLocaleString()}</span>}
                   </div>
                 </div>

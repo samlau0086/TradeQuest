@@ -340,6 +340,29 @@ export function Inbox() {
     setSelectedWhatsAppPhone(conversation.targetPhone);
   };
 
+  const handleDeleteWhatsAppConversation = (conversation: InboxWhatsAppConversation) => {
+    setConfirmDialog({
+      message: `Are you sure you want to delete this WhatsApp conversation with ${conversation.clientName || conversation.targetPhone}? This will remove the saved conversation and messages from this system.`,
+      onConfirm: async () => {
+        try {
+          const res = await fetch(`/api/whatsapp-hub/conversations/${encodeURIComponent(conversation.id)}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || 'Failed to delete WhatsApp conversation.');
+          setWhatsappConversations(prev => prev.filter(item => item.id !== conversation.id));
+          if (selectedWhatsAppPhone === conversation.targetPhone) setSelectedWhatsAppPhone(null);
+          notify('WhatsApp conversation deleted.', 'success');
+        } catch (error) {
+          notify(error instanceof Error ? error.message : 'Failed to delete WhatsApp conversation.', 'error');
+        } finally {
+          setConfirmDialog(null);
+        }
+      }
+    });
+  };
+
   const startNewWhatsApp = () => {
     const phone = newWhatsAppPhone.replace(/[^0-9]/g, '');
     if (!phone) return;
@@ -592,9 +615,22 @@ export function Inbox() {
                     <span className="text-sm font-bold truncate text-slate-200">
                       {client?.name || conversation.clientName || conversation.targetPhone}
                     </span>
-                    <span className="text-[10px] text-slate-500 shrink-0">
-                      {conversation.lastMessageAt ? new Date(conversation.lastMessageAt).toLocaleDateString() : 'WhatsApp'}
-                    </span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="text-[10px] text-slate-500">
+                        {conversation.lastMessageAt ? new Date(conversation.lastMessageAt).toLocaleDateString() : 'WhatsApp'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteWhatsAppConversation(conversation);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 p-1 rounded text-slate-500 hover:text-red-300 hover:bg-red-500/10 transition-opacity"
+                        title="Delete WhatsApp conversation"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                   <div className="text-[10px] text-green-400 font-bold uppercase mb-1">
                     WhatsApp {conversation.lastDirection === 'outbound' ? 'sent' : 'inbox'}
@@ -868,16 +904,37 @@ export function Inbox() {
             </div>
           </div>
         ) : selectedWhatsAppPhone ? (
-          <WhatsAppChatModal
-            embedded
-            phone={selectedWhatsAppPhone}
-            client={activeWhatsAppClient}
-            conversation={activeWhatsAppConversation}
-            onClose={() => {
-              setSelectedWhatsAppPhone(null);
-              loadWhatsAppConversations();
-            }}
-          />
+          <div className="flex-1 flex flex-col min-h-0">
+            {activeWhatsAppConversation && (
+              <div className="px-4 py-3 border-b border-slate-800 bg-slate-900/80 flex items-center justify-between gap-3">
+                <button onClick={() => setSelectedWhatsAppPhone(null)} className="md:hidden p-2 -ml-2 text-slate-400 hover:text-white">
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-bold text-slate-200 truncate">{activeWhatsAppClient?.name || activeWhatsAppConversation.clientName || activeWhatsAppConversation.targetPhone}</div>
+                  <div className="text-[10px] text-green-400 font-bold uppercase">WhatsApp conversation</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteWhatsAppConversation(activeWhatsAppConversation)}
+                  className="p-2 rounded-lg text-slate-400 hover:text-red-300 hover:bg-red-500/10"
+                  title="Delete WhatsApp conversation"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+            <WhatsAppChatModal
+              embedded
+              phone={selectedWhatsAppPhone}
+              client={activeWhatsAppClient}
+              conversation={activeWhatsAppConversation}
+              onClose={() => {
+                setSelectedWhatsAppPhone(null);
+                loadWhatsAppConversations();
+              }}
+            />
+          </div>
         ) : selectedEmail ? (
           <>
             <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/80 sticky top-0 md:static backdrop-blur-sm z-10">

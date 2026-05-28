@@ -1221,6 +1221,21 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
+  app.delete('/api/whatsapp-hub/conversations/:id', authenticateToken, async (req: any, res) => {
+    try {
+      const result = await pool.query(
+        `DELETE FROM whatsapp_conversations
+         WHERE id = $1 AND user_id = $2
+         RETURNING id`,
+        [req.params.id, req.user.uid]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Conversation not found' });
+      res.json({ success: true, deletedId: result.rows[0].id });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || 'Failed to delete WhatsApp conversation' });
+    }
+  });
+
   app.post('/api/whatsapp-hub/conversations/:id/comments', authenticateToken, async (req: any, res) => {
     try {
       const comment = {
