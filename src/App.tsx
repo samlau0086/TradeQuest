@@ -29,6 +29,7 @@ import { AgentHub } from './components/AgentHub';
 import { getViewForPath, syncViewToUrl } from './lib/viewRoutes';
 import { getOutboundLanguage } from './lib/language';
 import { buildLeadScoringSignature, hasLeadScoringResult } from './lib/leadScoring';
+import { buildAgentInputSignature } from './lib/agentIdempotency';
 
 function getAgentScheduleIntervalMs(agent: AgentHubAgent) {
   const value = Math.max(1, Number(agent.scheduleIntervalValue || agent.scheduleIntervalMinutes || 1));
@@ -86,6 +87,17 @@ async function executeLeadScoringAgentRun(agent: AgentHubAgent) {
       }
       continue;
     }
+    const idempotencyInput = {
+      agentId: agent.id,
+      tool: 'lead.score',
+      targetType: 'client',
+      targetId: client.id,
+      inputSignature: buildAgentInputSignature({ signature })
+    };
+    if (state.findAgentIdempotencyRecord(idempotencyInput)) {
+      skipped += 1;
+      continue;
+    }
     if (scored >= maxPerRun) {
       skipped += 1;
       continue;
@@ -139,6 +151,11 @@ async function executeLeadScoringAgentRun(agent: AgentHubAgent) {
         'general',
         { source: 'lead_scoring_agent', score, summary: leadSummary }
       );
+      state.recordAgentIdempotency({
+        ...idempotencyInput,
+        status: 'completed',
+        resultRef: `client:${client.id}`
+      });
       scored += 1;
     } catch (error) {
       console.error('Lead scoring agent failed for client', client.id, error);

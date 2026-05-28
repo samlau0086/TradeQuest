@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Bot, CheckCircle2, ClipboardCheck, Loader2, Play, ShieldCheck, Sparkles, Target, XCircle } from 'lucide-react';
 import { useAuthStore } from '../authStore';
 import { AgentExecutionMode, AgentExecutionRisk, ClientStatus, GlobalAgentPlan, GlobalAgentPlanStep, LeadCampaign, LeadDataProvider, useStore } from '../store';
+import { buildAgentInputSignature } from '../lib/agentIdempotency';
 
 const DEFAULT_OBJECTIVES = {
   en: 'Acquire high-quality leads and create an execution plan from public-pool claiming through first touch and ongoing conversion.',
@@ -163,7 +164,9 @@ export function GlobalAgent() {
     addQuote,
     setView,
     notify,
-    sendExternalNotification
+    sendExternalNotification,
+    findAgentIdempotencyRecord,
+    recordAgentIdempotency
   } = useStore();
   const { token } = useAuthStore();
   const defaultObjective = DEFAULT_OBJECTIVES[language];
@@ -496,6 +499,50 @@ ${objective}`;
     return `${client.name} enriched via ${provider}`;
   };
 
+  const getStepTarget = (actionType: string, payload: any = {}) => {
+    const client = findTargetClient(payload);
+    if (client) return { targetType: 'client', targetId: client.id };
+    if (payload.replyToEmailId || payload.emailId) return { targetType: 'email', targetId: payload.replyToEmailId || payload.emailId };
+    if (payload.campaignId) return { targetType: 'campaign', targetId: payload.campaignId };
+    if (payload.to) return { targetType: 'whatsapp', targetId: String(payload.to).replace(/[^0-9]/g, '') || payload.to };
+    if (payload.recipient) return { targetType: 'email_address', targetId: String(payload.recipient).toLowerCase() };
+    return { targetType: 'global_plan', targetId: actionType };
+  };
+
+  const runOnce = async (
+    plan: GlobalAgentPlan,
+    step: GlobalAgentPlanStep,
+    payload: any,
+    target: { targetType: string; targetId: string },
+    action: () => Promise<string | void> | string | void
+  ) => {
+    const inputSignature = buildAgentInputSignature({
+      actionType: step.actionType,
+      payload,
+      target
+    });
+    const key = {
+      agentId: 'global_agent',
+      tool: step.actionType,
+      targetType: target.targetType,
+      targetId: target.targetId,
+      inputSignature
+    };
+    const existing = findAgentIdempotencyRecord(key);
+    if (existing) {
+      const result = `Skipped duplicate ${step.actionType}; already completed at ${new Date(existing.createdAt).toLocaleString()}.`;
+      updateGlobalAgentPlanStep(plan.id, step.id, { status: 'skipped', result });
+      return { skipped: true, result };
+    }
+    const resultRef = await action();
+    recordAgentIdempotency({
+      ...key,
+      status: 'completed',
+      resultRef: typeof resultRef === 'string' ? resultRef : undefined
+    });
+    return { skipped: false, result: resultRef };
+  };
+
   const executeStep = async (plan: GlobalAgentPlan, step: GlobalAgentPlanStep, previousCampaignId?: string) => {
     updateGlobalAgentPlanStep(plan.id, step.id, { status: 'running', error: undefined });
     try {
@@ -533,15 +580,18 @@ ${objective}`;
           updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: 'No unread customer reply found' });
           return previousCampaignId;
         }
-        markEmailRead(email.id);
-        const client = findTargetClient({ ...payload, emailId: email.id });
-        if (client) {
-          addComment(
-            client.id,
-            payload.comment || `Global Agent processed customer reply: ${email.subject || '(no subject)'}`
-          );
-        }
-        updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: `Reply processed: ${email.subject || email.id}` });
+        const once = await runOnce(plan, step, { ...payload, emailId: email.id, subject: email.subject }, { targetType: 'email', targetId: email.id }, async () => {
+          markEmailRead(email.id);
+          const client = findTargetClient({ ...payload, emailId: email.id });
+          if (client) {
+            addComment(
+              client.id,
+              payload.comment || `Global Agent processed customer reply: ${email.subject || '(no subject)'}`
+            );
+          }
+          return `email:${email.id}`;
+        });
+        if (!once.skipped) updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: `Reply processed: ${email.subject || email.id}` });
         return previousCampaignId;
       }
 
@@ -550,21 +600,31 @@ ${objective}`;
         const client = findTargetClient(payload);
         const recipient = payload.recipient || reply?.sender || getClientEmail(client);
         if (!recipient) throw new Error('No recipient available for email');
-        const emailId = addEmail({
+        const normalizedPayload = {
           clientId: payload.clientId || reply?.clientId || client?.id,
-          sender: payload.sender || 'Global Agent',
-          senderName: payload.senderName || 'Global Agent',
           recipient,
           subject: payload.subject || (reply ? `Re: ${reply.subject}` : 'Following up'),
           body: payload.body || payload.content || '',
-          read: true,
-          type: payload.scheduledAt ? 'scheduled' : (payload.type || 'sent'),
-          scheduledAt: payload.scheduledAt
+          scheduledAt: payload.scheduledAt || ''
+        };
+        const once = await runOnce(plan, step, normalizedPayload, client ? { targetType: 'client', targetId: client.id } : { targetType: 'email_address', targetId: recipient.toLowerCase() }, async () => {
+          const emailId = addEmail({
+            clientId: normalizedPayload.clientId,
+            sender: payload.sender || 'Global Agent',
+            senderName: payload.senderName || 'Global Agent',
+            recipient,
+            subject: normalizedPayload.subject,
+            body: normalizedPayload.body,
+            read: true,
+            type: payload.scheduledAt ? 'scheduled' : (payload.type || 'sent'),
+            scheduledAt: payload.scheduledAt
+          });
+          if (client) {
+            addComment(client.id, payload.comment || `Global Agent prepared/sent email: ${payload.subject || 'Following up'}`);
+          }
+          return `email:${emailId}`;
         });
-        if (client) {
-          addComment(client.id, payload.comment || `Global Agent prepared/sent email: ${payload.subject || 'Following up'}`);
-        }
-        updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: `Email queued: ${emailId}` });
+        if (!once.skipped) updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: `Email queued: ${String(once.result || '').replace('email:', '')}` });
         return previousCampaignId;
       }
 
@@ -572,21 +632,30 @@ ${objective}`;
         const client = findTargetClient(payload);
         const to = payload.to || getClientWhatsApp(client);
         if (!to) throw new Error('No WhatsApp phone available for client');
-        const response = await fetch('/api/whatsapp-hub/send', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({
+        const normalizedPayload = {
+          to: String(to).replace(/[^0-9]/g, '') || to,
+          body: payload.body || payload.content || 'Following up.',
+          scheduledAt: payload.scheduledAt || '',
+          hubClientId: payload.hubClientId || ''
+        };
+        const once = await runOnce(plan, step, normalizedPayload, client ? { targetType: 'client', targetId: client.id } : { targetType: 'whatsapp', targetId: normalizedPayload.to }, async () => {
+          const response = await fetch('/api/whatsapp-hub/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({
             to,
-            body: payload.body || payload.content || 'Following up.',
+            body: normalizedPayload.body,
             clientId: payload.hubClientId,
             scheduledAt: payload.scheduledAt,
             metadata: { clientId: client?.id, source: 'global-agent' }
-          })
+            })
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.error || 'WhatsApp send failed');
+          if (client) addComment(client.id, `Global Agent queued WhatsApp message via ${data.selectedClientId || 'Actor Hub'}.`);
+          return `whatsapp:${data.task?.id || data.selectedClientId || to}`;
         });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || 'WhatsApp send failed');
-        if (client) addComment(client.id, `Global Agent queued WhatsApp message via ${data.selectedClientId || 'Actor Hub'}.`);
-        updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: `WhatsApp queued: ${data.task?.id || data.selectedClientId || to}` });
+        if (!once.skipped) updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: `WhatsApp queued: ${String(once.result || '').replace('whatsapp:', '')}` });
         return previousCampaignId;
       }
 
@@ -602,14 +671,21 @@ ${objective}`;
       if (step.actionType === 'add_client_comment') {
         const client = findTargetClient(payload);
         if (!client) throw new Error('No client available for comment');
-        addComment(client.id, payload.content || payload.comment || 'Global Agent added a follow-up note.');
-        updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: `Comment added to ${client.name}` });
+        const content = payload.content || payload.comment || 'Global Agent added a follow-up note.';
+        const once = await runOnce(plan, step, { content }, { targetType: 'client', targetId: client.id }, async () => {
+          addComment(client.id, content);
+          return `client_comment:${client.id}`;
+        });
+        if (!once.skipped) updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: `Comment added to ${client.name}` });
         return previousCampaignId;
       }
 
       if (step.actionType === 'enrich_client_data') {
-        const result = await enrichClientData(payload);
-        updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result });
+        const client = findTargetClient(payload);
+        const once = await runOnce(plan, step, { provider: payload.provider, fields: payload.fields || [] }, client ? { targetType: 'client', targetId: client.id } : getStepTarget(step.actionType, payload), async () => {
+          return await enrichClientData(payload);
+        });
+        if (!once.skipped) updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: String(once.result || 'Client enriched') });
         return previousCampaignId;
       }
 
@@ -617,37 +693,50 @@ ${objective}`;
         const client = findTargetClient(payload);
         if (!client) throw new Error('No client available for deal creation');
         const status = CLIENT_STATUSES.includes(payload.status) ? payload.status : client.status;
-        addDeal({
-          clientId: client.id,
-          name: payload.name || `${client.company || client.name} opportunity`,
-          value: Number(payload.value) || 0,
-          status,
-          contactInfo: {
-            name: client.name,
-            company: client.company,
-            country: client.country,
-            tags: client.tags,
-            contactMethods: client.contactMethods || []
-          }
+        const dealName = payload.name || `${client.company || client.name} opportunity`;
+        const once = await runOnce(plan, step, { name: dealName, value: Number(payload.value) || 0, status }, { targetType: 'client', targetId: client.id }, async () => {
+          addDeal({
+            clientId: client.id,
+            name: dealName,
+            value: Number(payload.value) || 0,
+            status,
+            contactInfo: {
+              name: client.name,
+              company: client.company,
+              country: client.country,
+              tags: client.tags,
+              contactMethods: client.contactMethods || []
+            }
+          });
+          addComment(client.id, payload.comment || `Global Agent created a deal: ${dealName}.`);
+          return `deal:${client.id}:${dealName}`;
         });
-        addComment(client.id, payload.comment || `Global Agent created a deal: ${payload.name || `${client.company || client.name} opportunity`}.`);
-        updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: `Deal created for ${client.name}` });
+        if (!once.skipped) updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: `Deal created for ${client.name}` });
         return previousCampaignId;
       }
 
       if (step.actionType === 'create_quote') {
         const client = findTargetClient(payload);
         const quoteNumber = payload.quoteNumber || `GA-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Date.now().toString().slice(-4)}`;
-        addQuote({
-          quoteNumber,
+        const quotePayload = {
           clientId: payload.clientId || client?.id || null,
           paymentTerms: payload.paymentTerms || '',
           paymentTermId: payload.paymentTermId || '',
           advanceRatio: Number(payload.advanceRatio) || 0,
           balanceRatio: Number(payload.balanceRatio) || 0,
           status: payload.status || 'Draft',
-          items: Array.isArray(payload.items) && payload.items.length
-            ? payload.items.map((item: any) => ({
+          items: Array.isArray(payload.items) && payload.items.length ? payload.items : [{ name: 'Product / service', quantity: 1, unitPrice: 0, total: 0, notes: 'Global Agent draft item' }]
+        };
+        const once = await runOnce(plan, step, quotePayload, client ? { targetType: 'client', targetId: client.id } : { targetType: 'quote_context', targetId: quoteNumber }, async () => {
+          addQuote({
+            quoteNumber,
+            clientId: quotePayload.clientId,
+            paymentTerms: quotePayload.paymentTerms,
+            paymentTermId: quotePayload.paymentTermId,
+            advanceRatio: quotePayload.advanceRatio,
+            balanceRatio: quotePayload.balanceRatio,
+            status: quotePayload.status,
+            items: quotePayload.items.map((item: any) => ({
                 productId: item.productId || '',
                 name: item.name || item.description || 'Product / service',
                 description: item.description || '',
@@ -656,13 +745,14 @@ ${objective}`;
                 total: Number(item.total) || (Number(item.quantity) || 1) * (Number(item.unitPrice) || 0),
                 notes: item.notes || '',
                 isManualPrice: true
-              }))
-            : [{ name: 'Product / service', quantity: 1, unitPrice: 0, total: 0, notes: 'Global Agent draft item', isManualPrice: true }],
-          fees: Array.isArray(payload.fees) ? payload.fees : [],
-          comments: []
+              })),
+            fees: Array.isArray(payload.fees) ? payload.fees : [],
+            comments: []
+          });
+          if (client) addComment(client.id, `Global Agent created quote draft ${quoteNumber}.`);
+          return `quote:${quoteNumber}`;
         });
-        if (client) addComment(client.id, `Global Agent created quote draft ${quoteNumber}.`);
-        updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: `Quote created: ${quoteNumber}` });
+        if (!once.skipped) updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: `Quote created: ${String(once.result || quoteNumber).replace('quote:', '')}` });
         return previousCampaignId;
       }
 

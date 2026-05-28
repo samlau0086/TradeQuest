@@ -1,10 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { Bot, CheckCircle2, ClipboardCheck, Cpu, ListChecks, Plus, Power, Save, Server, ShieldCheck, SlidersHorizontal, Trash2, X, XCircle, Zap } from 'lucide-react';
+import { Bot, Check, CheckCircle2, ClipboardCheck, Cpu, ListChecks, Plus, Power, Save, Search, Server, ShieldCheck, SlidersHorizontal, Trash2, X, XCircle, Zap } from 'lucide-react';
 import { AgentHubAgent, AgentHubGuardrail, AgentHubScheduleUnit, AgentHubStatus, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType, useStore } from '../store';
 import { cn } from '../lib/utils';
 import { AgentHarness } from './AgentHarness';
 import { GlobalAgent } from './GlobalAgent';
 import { useTranslation } from '../lib/i18n';
+import { AGENT_TOOL_REGISTRY, getAgentToolDefinition } from '../lib/agentTools';
 
 const ACTION_LABELS: Record<GlobalAgentActionType, string> = {
   create_lead_campaign: 'Create Lead Campaign',
@@ -60,6 +61,100 @@ function scheduleLabel(agent: AgentHubAgent, t: (key: string) => string) {
   const runs = agent.scheduleMaxRuns ? ` · ${t('Runs')} ${agent.scheduleRunCount || 0}/${agent.scheduleMaxRuns}` : '';
   if (unit === 'month_day') return `${t('Monthly on day')} ${agent.scheduleDayOfMonth || 1}${runs}`;
   return `${t('Every')} ${value} ${t(unit)}${value === 1 ? '' : t('s')}${runs}`;
+}
+
+function riskClass(risk: string) {
+  if (risk === 'high') return 'border-red-500/40 bg-red-500/10 text-red-300';
+  if (risk === 'medium') return 'border-amber-500/40 bg-amber-500/10 text-amber-300';
+  return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300';
+}
+
+function ToolSelector({
+  selected,
+  onChange,
+  t
+}: {
+  selected: string[];
+  onChange: (tools: string[]) => void;
+  t: (key: string) => string;
+}) {
+  const [query, setQuery] = useState('');
+  const normalized = query.trim().toLowerCase();
+  const selectedSet = new Set(selected);
+  const filteredTools = AGENT_TOOL_REGISTRY.filter(tool => {
+    const haystack = `${tool.id} ${tool.label} ${tool.description} ${tool.category}`.toLowerCase();
+    return !normalized || haystack.includes(normalized);
+  });
+  const unknownTools = selected.filter(tool => !getAgentToolDefinition(tool));
+
+  const toggleTool = (toolId: string) => {
+    onChange(selectedSet.has(toolId) ? selected.filter(item => item !== toolId) : [...selected, toolId]);
+  };
+
+  return (
+    <div className="mt-2 space-y-3">
+      <div className="flex flex-wrap gap-2 min-h-8">
+        {selected.length === 0 && <span className="text-xs text-slate-500">{t('No tools selected')}</span>}
+        {selected.map(toolId => {
+          const tool = getAgentToolDefinition(toolId);
+          return (
+            <span key={toolId} className={cn('inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs', tool ? 'border-blue-500/30 bg-blue-500/10 text-blue-200' : 'border-red-500/40 bg-red-500/10 text-red-300')}>
+              {tool?.id || toolId}
+              <button type="button" onClick={() => onChange(selected.filter(item => item !== toolId))} className="text-slate-400 hover:text-white">
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          );
+        })}
+      </div>
+      <div className="relative">
+        <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
+        <input
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder={t('Search tools...')}
+          className="w-full bg-black border border-neutral-700 rounded-md pl-9 pr-3 py-2.5 text-sm text-slate-100 outline-none focus:border-blue-500"
+        />
+      </div>
+      {unknownTools.length > 0 && (
+        <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+          {t('Unknown tools will not be executed by the system')}: {unknownTools.join(', ')}
+        </div>
+      )}
+      <div className="max-h-64 overflow-y-auto rounded-md border border-neutral-800 bg-black">
+        {filteredTools.map(tool => {
+          const isSelected = selectedSet.has(tool.id);
+          return (
+            <button
+              key={tool.id}
+              type="button"
+              onClick={() => toggleTool(tool.id)}
+              className={cn('w-full text-left p-3 border-b border-neutral-900 hover:bg-slate-900/80 transition-colors', isSelected && 'bg-blue-950/30')}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-xs text-blue-300">{tool.id}</span>
+                    <span className="text-xs text-slate-300">{t(tool.label)}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500 leading-relaxed">{t(tool.description)}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="rounded bg-slate-900 px-2 py-0.5 text-[10px] text-slate-400">{t(tool.category)}</span>
+                    <span className={cn('rounded border px-2 py-0.5 text-[10px] uppercase font-bold', riskClass(tool.risk))}>{t(tool.risk)}</span>
+                    {tool.reviewRequired && <span className="rounded border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] text-blue-300">{t('Review required')}</span>}
+                  </div>
+                </div>
+                <span className={cn('mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded border', isSelected ? 'border-blue-400 bg-blue-500 text-white' : 'border-slate-700 text-transparent')}>
+                  <Check className="w-3.5 h-3.5" />
+                </span>
+              </div>
+            </button>
+          );
+        })}
+        {filteredTools.length === 0 && <div className="p-4 text-sm text-slate-500 text-center">{t('No matching tools')}</div>}
+      </div>
+    </div>
+  );
 }
 
 function AgentModal({
@@ -119,12 +214,7 @@ function AgentModal({
           </label>
           <label className="block">
             <span className="text-sm text-slate-200">{t('Tools')}</span>
-            <input
-              value={form.tools.join(', ')}
-              onChange={e => setForm({ ...form, tools: e.target.value.split(',').map(tool => tool.trim()).filter(Boolean) })}
-              placeholder="email.send, whatsapp.send, lead.enrich"
-              className="mt-2 w-full bg-black border border-neutral-700 rounded-md px-4 py-2.5 text-sm text-slate-100 outline-none focus:border-blue-500"
-            />
+            <ToolSelector selected={form.tools || []} onChange={tools => setForm({ ...form, tools })} t={t} />
           </label>
           <label className="block">
             <span className="text-sm text-slate-200">{t('Context Suggestions')}</span>

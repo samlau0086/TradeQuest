@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { useAuthStore } from './authStore';
 import { syncViewToUrl } from './lib/viewRoutes';
+import { AgentIdempotencyRecord, AgentIdempotencyStatus, createAgentIdempotencyKey } from './lib/agentIdempotency';
 
 export type ViewMode = 'kanban' | 'map' | 'inbox' | 'dashboard' | 'agent-hub' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests' | 'list' | 'products' | 'quotes' | 'knowledge-base' | 'media-library';
 
@@ -366,6 +367,8 @@ export interface AgentHubRunRecord {
   completedAt?: string;
 }
 
+export type { AgentIdempotencyRecord };
+
 export interface ClientEditRequest {
   id: number;
   client_id: string;
@@ -543,6 +546,9 @@ export interface StoreState {
   addAgentRunRecord: (record: Omit<AgentHubRunRecord, 'id' | 'createdAt' | 'updatedAt'>) => string;
   updateAgentRunRecord: (id: string, updates: Partial<AgentHubRunRecord>) => void;
   deleteAgentRunRecord: (id: string) => void;
+  agentIdempotencyRecords: AgentIdempotencyRecord[];
+  findAgentIdempotencyRecord: (input: { agentId: string; tool: string; targetType: string; targetId: string; inputSignature: string }) => AgentIdempotencyRecord | undefined;
+  recordAgentIdempotency: (input: { agentId: string; tool: string; targetType: string; targetId: string; inputSignature: string; status: AgentIdempotencyStatus; resultRef?: string; expiresAt?: string | null }) => string;
 
   knowledgeBase: KnowledgeItem[];
   fetchKnowledgeBase: () => void;
@@ -1070,6 +1076,27 @@ export const useStore = create<StoreState>((set, get) => ({
   deleteAgentRunRecord: (id) => set((state) => ({
     agentRunRecords: state.agentRunRecords.filter(record => record.id !== id)
   })),
+  agentIdempotencyRecords: [],
+  findAgentIdempotencyRecord: (input) => {
+    const key = createAgentIdempotencyKey(input);
+    const now = Date.now();
+    return get().agentIdempotencyRecords.find(record => (
+      createAgentIdempotencyKey(record) === key &&
+      record.status === 'completed' &&
+      (!record.expiresAt || new Date(record.expiresAt).getTime() > now)
+    ));
+  },
+  recordAgentIdempotency: (input) => {
+    const now = new Date().toISOString();
+    const id = `agent_idem_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const nextRecord: AgentIdempotencyRecord = { ...input, id, createdAt: now, updatedAt: now };
+    set((state) => {
+      const key = createAgentIdempotencyKey(input);
+      const existing = state.agentIdempotencyRecords.filter(record => createAgentIdempotencyKey(record) !== key);
+      return { agentIdempotencyRecords: [nextRecord, ...existing].slice(0, 500) };
+    });
+    return id;
+  },
 
   knowledgeBase: [],
   fetchKnowledgeBase: () => {
@@ -2322,6 +2349,7 @@ export const useStore = create<StoreState>((set, get) => ({
               ]
             : state.agentHubAgents,
           agentRunRecords: settings.agentRunRecords ?? state.agentRunRecords,
+          agentIdempotencyRecords: settings.agentIdempotencyRecords ?? state.agentIdempotencyRecords,
           leadCampaigns: settings.leadCampaigns ?? state.leadCampaigns,
           globalAgentPlans: settings.globalAgentPlans ?? state.globalAgentPlans,
           agentHarnessRuns: settings.agentHarnessRuns ?? state.agentHarnessRuns,
@@ -2419,6 +2447,7 @@ useStore.subscribe((state, prevState) => {
     state.agentWorkflows !== prevState.agentWorkflows ||
     state.agentHubAgents !== prevState.agentHubAgents ||
     state.agentRunRecords !== prevState.agentRunRecords ||
+    state.agentIdempotencyRecords !== prevState.agentIdempotencyRecords ||
     state.leadCampaigns !== prevState.leadCampaigns ||
     state.globalAgentPlans !== prevState.globalAgentPlans ||
     state.agentHarnessRuns !== prevState.agentHarnessRuns ||
@@ -2454,6 +2483,7 @@ useStore.subscribe((state, prevState) => {
             agentWorkflows: state.agentWorkflows,
             agentHubAgents: state.agentHubAgents,
             agentRunRecords: state.agentRunRecords,
+            agentIdempotencyRecords: state.agentIdempotencyRecords,
             leadCampaigns: state.leadCampaigns,
             globalAgentPlans: state.globalAgentPlans,
             agentHarnessRuns: state.agentHarnessRuns,
