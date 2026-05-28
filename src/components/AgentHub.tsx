@@ -1,11 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { Bot, Check, CheckCircle2, ClipboardCheck, Cpu, ListChecks, Plus, Power, Save, Search, Server, ShieldCheck, SlidersHorizontal, Trash2, X, XCircle, Zap } from 'lucide-react';
+import { Bot, Check, CheckCircle2, ClipboardCheck, Cpu, ListChecks, Plus, Power, Save, Search, Server, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, X, XCircle, Zap } from 'lucide-react';
 import { AgentHubAgent, AgentHubGuardrail, AgentHubScheduleUnit, AgentHubStatus, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType, useStore } from '../store';
 import { cn } from '../lib/utils';
 import { AgentHarness } from './AgentHarness';
 import { GlobalAgent } from './GlobalAgent';
 import { useTranslation } from '../lib/i18n';
-import { AGENT_TOOL_REGISTRY, getAgentToolDefinition } from '../lib/agentTools';
+import { AGENT_TOOL_REGISTRY, getAgentToolDefinition, inferAgentToolsFromPrompt } from '../lib/agentTools';
 
 const ACTION_LABELS: Record<GlobalAgentActionType, string> = {
   create_lead_campaign: 'Create Lead Campaign',
@@ -72,15 +72,18 @@ function riskClass(risk: string) {
 function ToolSelector({
   selected,
   onChange,
-  t
+  t,
+  autoPrompt
 }: {
   selected: string[];
   onChange: (tools: string[]) => void;
   t: (key: string) => string;
+  autoPrompt?: string;
 }) {
   const [query, setQuery] = useState('');
   const normalized = query.trim().toLowerCase();
   const selectedSet = new Set(selected);
+  const inferredTools = useMemo(() => inferAgentToolsFromPrompt(autoPrompt || ''), [autoPrompt]);
   const filteredTools = AGENT_TOOL_REGISTRY.filter(tool => {
     const haystack = `${tool.id} ${tool.label} ${tool.description} ${tool.category}`.toLowerCase();
     return !normalized || haystack.includes(normalized);
@@ -93,6 +96,22 @@ function ToolSelector({
 
   return (
     <div className="mt-2 space-y-3">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2">
+        <div>
+          <div className="text-xs font-bold text-blue-200 flex items-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5" /> {t('AI Auto Select Tools')}
+          </div>
+          <p className="mt-1 text-[11px] text-slate-500">{t('Infer tools from the agent name and prompt, then keep editing manually if needed.')}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onChange(inferredTools)}
+          disabled={inferredTools.length === 0}
+          className="shrink-0 rounded-md border border-blue-500/40 bg-blue-600/20 px-3 py-1.5 text-xs font-bold text-blue-200 hover:bg-blue-600/30 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-900 disabled:text-slate-500"
+        >
+          {t('Auto Select')} {inferredTools.length > 0 ? `(${inferredTools.length})` : ''}
+        </button>
+      </div>
       <div className="flex flex-wrap gap-2 min-h-8">
         {selected.length === 0 && <span className="text-xs text-slate-500">{t('No tools selected')}</span>}
         {selected.map(toolId => {
@@ -214,7 +233,7 @@ function AgentModal({
           </label>
           <label className="block">
             <span className="text-sm text-slate-200">{t('Tools')}</span>
-            <ToolSelector selected={form.tools || []} onChange={tools => setForm({ ...form, tools })} t={t} />
+            <ToolSelector selected={form.tools || []} onChange={tools => setForm({ ...form, tools })} t={t} autoPrompt={`${form.name} ${form.instructions}`} />
           </label>
           <label className="block">
             <span className="text-sm text-slate-200">{t('Context Suggestions')}</span>
@@ -407,7 +426,7 @@ function AgentConfigPanel({
         </label>
         <label className="block">
           <span className="text-sm text-slate-200">{t('Tools')}</span>
-          <ToolSelector selected={form.tools || []} onChange={tools => setForm({ ...form, tools })} t={t} />
+          <ToolSelector selected={form.tools || []} onChange={tools => setForm({ ...form, tools })} t={t} autoPrompt={`${form.name} ${form.instructions}`} />
         </label>
         <label className="block">
           <span className="text-sm text-slate-200">{t('Context Suggestions')}</span>

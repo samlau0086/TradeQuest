@@ -36,3 +36,53 @@ export const AGENT_TOOL_IDS = AGENT_TOOL_REGISTRY.map(tool => tool.id);
 export function getAgentToolDefinition(id: string) {
   return AGENT_TOOL_REGISTRY.find(tool => tool.id === id);
 }
+
+const TOOL_INFERENCE_KEYWORDS: Record<string, string[]> = {
+  'global_agent.plan': ['global', 'manager', 'orchestrate', 'plan', 'strategy', 'approval', '统筹', '全局', '规划', '计划', '审核', '管理'],
+  'lead.acquire': ['acquire', 'prospect', 'campaign', 'keyword', 'industry', 'country', 'lead generation', '获客', '线索获取', '开发客户', 'campaign', '关键词', '行业', '国家'],
+  'lead.enrich': ['enrich', 'data enrichment', 'company data', 'contact data', 'append', '补全', '丰富', '客户数据', '线索数据', '资料完善'],
+  'public_pool.import': ['public pool', 'pool', 'import leads', '公海', '导入公海', '公海池'],
+  'client.dedupe': ['dedupe', 'duplicate', 'merge', '去重', '重复', '合并'],
+  'data.normalize': ['normalize', 'clean', 'standardize', 'format', '清洗', '标准化', '格式化'],
+  'lead.analyze': ['analyze', 'analysis', 'intent', 'qualification', 'radar', '分析', '意图', '资质', '画像', '雷达'],
+  'lead.score': ['score', 'scoring', 'grade', 'priority', '评分', '打分', '评级', '优先级'],
+  'client.summarize': ['summary', 'summarize', 'profile', 'brief', '摘要', '总结', '客户摘要', '概况'],
+  'next_step.recommend': ['next step', 'recommend', 'suggest', 'follow-up recommendation', '下一步', '建议', '推荐', '跟进建议'],
+  'email.send': ['email', 'mail', 'inbox', 'reply', 'outbound email', '邮件', '收件箱', '回邮件', '发邮件', '邮件跟进'],
+  'whatsapp.read': ['whatsapp read', 'chat history', 'conversation history', '读取whatsapp', '聊天记录', '对话记录'],
+  'whatsapp.send': ['whatsapp', 'wa', 'message', 'chat', 'send message', 'whatsapp消息', '发whatsapp', '发送消息', '聊天'],
+  'conversation.tag': ['tag conversation', 'conversation tag', 'label conversation', '对话标签', '打标签', '标签'],
+  'conversation.comment': ['conversation comment', 'internal note', 'comment on conversation', '对话备注', '内部备注', '评论'],
+  'client.comment': ['client comment', 'crm note', 'customer note', '客户备注', '客户评论', '跟进记录'],
+  'client.stage': ['stage', 'pipeline', 'status', 'kanban', '阶段', '状态', '看板', '客户阶段', '推进'],
+  'client.update': ['update client', 'customer profile', 'contact method', 'crm update', '更新客户', '客户资料', '联系方式'],
+  'quote.create': ['quote', 'quotation', 'pricing', 'proposal', 'offer', '报价', '报价单', '方案', '价格', '提案']
+};
+
+export function inferAgentToolsFromPrompt(prompt: string) {
+  const normalized = prompt.trim().toLowerCase();
+  if (!normalized) return [];
+
+  const scores = AGENT_TOOL_REGISTRY.map(tool => {
+    const keywords = TOOL_INFERENCE_KEYWORDS[tool.id] || [];
+    const directToolMatch = normalized.includes(tool.id.toLowerCase()) ? 6 : 0;
+    const registryText = `${tool.label} ${tool.description} ${tool.category}`.toLowerCase();
+    const registryScore = registryText.split(/\W+/).filter(word => word.length > 3 && normalized.includes(word)).length;
+    const keywordScore = keywords.reduce((sum, keyword) => sum + (normalized.includes(keyword.toLowerCase()) ? 3 : 0), 0);
+    return { tool, score: directToolMatch + registryScore + keywordScore };
+  });
+
+  const selected = scores
+    .filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.tool.id.localeCompare(b.tool.id))
+    .map(item => item.tool.id);
+
+  if (/(follow.?up|跟进|回复|reply|客户转化|conversion)/i.test(normalized)) {
+    selected.push('lead.analyze', 'next_step.recommend', 'client.comment', 'client.stage');
+  }
+  if (/(lead|client|customer|线索|客户)/i.test(normalized)) {
+    selected.push('lead.analyze', 'client.summarize');
+  }
+
+  return Array.from(new Set(selected));
+}
