@@ -537,7 +537,8 @@ export function AgentHub() {
     updateAgentRunRecord,
     deleteAgentRunRecord,
     agentExecutionPolicy,
-    updateAgentExecutionPolicy
+    updateAgentExecutionPolicy,
+    notify
   } = useStore();
   const t = useTranslation(language);
   const [tab, setTab] = useState<AgentHubTab>('fleet');
@@ -564,9 +565,11 @@ export function AgentHub() {
     if ('id' in agent) {
       updateAgentHubAgent(agent.id, agent as AgentHubAgent);
       setSelectedAgentId(agent.id);
+      notify(t('Agent configuration saved.'), 'success');
     } else {
       const id = addAgentHubAgent(agent);
       setSelectedAgentId(id);
+      notify(t('Agent created.'), 'success');
     }
     setDraftAgent(null);
   };
