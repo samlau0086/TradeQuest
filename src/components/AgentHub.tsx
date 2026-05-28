@@ -193,6 +193,32 @@ function ToolSelector({
   );
 }
 
+async function generateAgentInstructions(
+  form: Pick<AgentHubAgent, 'name' | 'instructions' | 'tools' | 'guardrail'>,
+  token: string | null,
+  language: string
+) {
+  const state = useStore.getState();
+  const llmId = state.llmMappings.agent_instruction_generation || state.activeLLMId;
+  const llmConfig = llmId ? state.llmConfigs.find(config => config.id === llmId) : null;
+  const response = await fetch('/api/agent-instructions/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      agentName: form.name,
+      currentInstructions: form.instructions,
+      selectedTools: form.tools || [],
+      availableTools: AGENT_TOOL_REGISTRY,
+      guardrail: form.guardrail,
+      systemLanguage: language === 'zh' ? 'Chinese' : 'English',
+      llmConfig
+    })
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || 'Failed to generate agent instructions');
+  return String(data.instructions || '').trim();
+}
+
 function AgentModal({
   agent,
   onClose,
@@ -206,6 +232,7 @@ function AgentModal({
   const { token } = useAuthStore();
   const t = useTranslation(language);
   const [form, setForm] = useState(agent);
+  const [generatingInstructions, setGeneratingInstructions] = useState(false);
   const isEdit = 'id' in agent;
   const selectToolsWithAI = async () => {
     const state = useStore.getState();
@@ -224,6 +251,17 @@ function AgentModal({
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || 'Failed to select tools');
     return Array.isArray(data.tools) ? data.tools : [];
+  };
+  const handleGenerateInstructions = async () => {
+    setGeneratingInstructions(true);
+    try {
+      const instructions = await generateAgentInstructions(form, token, language);
+      if (instructions) setForm({ ...form, instructions });
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setGeneratingInstructions(false);
+    }
   };
 
   return (
@@ -246,7 +284,18 @@ function AgentModal({
             />
           </label>
           <label className="block">
-            <span className="text-sm text-slate-200">{t('Prompt / Instructions')}</span>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm text-slate-200">{t('Prompt / Instructions')}</span>
+              <button
+                type="button"
+                onClick={handleGenerateInstructions}
+                disabled={generatingInstructions || (!form.name.trim() && !form.instructions.trim())}
+                className="inline-flex items-center gap-1.5 rounded-md border border-blue-500/40 bg-blue-600/20 px-2.5 py-1 text-xs font-bold text-blue-200 hover:bg-blue-600/30 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-900 disabled:text-slate-500"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                {generatingInstructions ? t('Generating...') : t('AI Generate')}
+              </button>
+            </div>
             <textarea
               value={form.instructions}
               onChange={e => setForm({ ...form, instructions: e.target.value })}
@@ -406,6 +455,7 @@ function AgentConfigPanel({
   const { token } = useAuthStore();
   const t = useTranslation(language);
   const [form, setForm] = useState(agent);
+  const [generatingInstructions, setGeneratingInstructions] = useState(false);
   const isEdit = 'id' in agent;
   const agentKeyRef = useRef('id' in agent ? agent.id : 'new');
 
@@ -434,6 +484,18 @@ function AgentConfigPanel({
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || 'Failed to select tools');
     return Array.isArray(data.tools) ? data.tools : [];
+  };
+  const handleGenerateInstructions = async () => {
+    setGeneratingInstructions(true);
+    try {
+      const instructions = await generateAgentInstructions(form, token, language);
+      if (instructions) setForm({ ...form, instructions });
+    } catch (error) {
+      console.error(error);
+      useStore.getState().notify(t('Failed to generate agent instructions.'), 'error');
+    } finally {
+      setGeneratingInstructions(false);
+    }
   };
 
   return (
@@ -464,7 +526,18 @@ function AgentConfigPanel({
           />
         </label>
         <label className="block">
-          <span className="text-sm text-slate-200">{t('Prompt / Instructions')}</span>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm text-slate-200">{t('Prompt / Instructions')}</span>
+            <button
+              type="button"
+              onClick={handleGenerateInstructions}
+              disabled={generatingInstructions || (!form.name.trim() && !form.instructions.trim())}
+              className="inline-flex items-center gap-1.5 rounded-md border border-blue-500/40 bg-blue-600/20 px-2.5 py-1 text-xs font-bold text-blue-200 hover:bg-blue-600/30 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-900 disabled:text-slate-500"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              {generatingInstructions ? t('Generating...') : t('AI Generate')}
+            </button>
+          </div>
           <textarea
             value={form.instructions}
             onChange={e => setForm({ ...form, instructions: e.target.value })}

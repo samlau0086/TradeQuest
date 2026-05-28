@@ -1478,6 +1478,7 @@ export function Settings() {
                     { key: 'global_agent', label: t('globalAgent'), desc: t('descGlobalAgent') },
                     { key: 'agent_context_suggestions', label: t('agentContextSuggestions'), desc: t('descAgentContextSuggestions') },
                     { key: 'agent_tool_selection', label: t('agentToolSelection'), desc: t('descAgentToolSelection') },
+                    { key: 'agent_instruction_generation', label: t('agentInstructionGeneration'), desc: t('descAgentInstructionGeneration') },
                     { key: 'drafting', label: t('emailDrafting'), desc: t('descDrafting') },
                     { key: 'whatsapp_drafting', label: t('whatsappMessageDrafting'), desc: t('descWhatsAppDrafting') },
                     { key: 'analysis', label: t('clientAnalysis'), desc: t('descAnalysis') },

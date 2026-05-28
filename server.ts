@@ -573,6 +573,53 @@ Return JSON only:
     }
   });
 
+  app.post("/api/agent-instructions/generate", authenticateToken, async (req: any, res) => {
+    try {
+      const { agentName = '', currentInstructions = '', selectedTools = [], availableTools = [], guardrail = 'review', systemLanguage = 'English', llmConfig } = req.body;
+      if (!agentName && !currentInstructions) return res.status(400).json({ error: "Missing agent context" });
+      const selectedToolDefinitions = (Array.isArray(availableTools) ? availableTools : [])
+        .filter((tool: any) => Array.isArray(selectedTools) && selectedTools.includes(tool.id));
+      const prompt = `You are configuring an AI agent inside a foreign trade CRM.
+Generate a clear, operational "Prompt / Instructions" block for this agent.
+
+Language:
+- Write the instructions in ${systemLanguage}.
+- Keep customer-facing output rules explicit: outbound email/WhatsApp content should use the customer's preferred language, or the official language of the customer's country, or English if unknown.
+
+Agent name:
+${agentName || '(not set)'}
+
+Current draft instructions:
+${currentInstructions || '(empty)'}
+
+Guardrail mode:
+${guardrail}
+
+Selected tools:
+${JSON.stringify(selectedToolDefinitions.length > 0 ? selectedToolDefinitions : selectedTools, null, 2)}
+
+Write instructions that define:
+- Role and primary objective.
+- What data/context to inspect before acting.
+- Which actions it may perform through the selected tools.
+- Idempotency rules: skip unchanged or already-completed work.
+- Approval rules for risky or customer-facing actions.
+- Output expectations for logs, comments, summaries, and next steps.
+
+Return JSON only:
+{
+  "instructions": "final prompt instructions"
+}`;
+
+      const text = await callAI(prompt, llmConfig, true);
+      const parsed = JSON.parse(text || '{}');
+      res.json({ instructions: String(parsed.instructions || '').trim() });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to generate agent instructions" });
+    }
+  });
+
   // Workflow Auto-Planner
   app.post("/api/ai/plan-workflow", authenticateToken, async (req: any, res) => {
     try {
