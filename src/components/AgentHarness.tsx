@@ -9,13 +9,13 @@ const AGENTS = [
     id: 'global_agent',
     name: 'Global Conversion Agent',
     goal: 'Plan and coordinate CRM-wide lead acquisition, enrichment, follow-up, quotes, and conversion.',
-    tools: ['global_agent.plan', 'lead.acquire', 'lead.create', 'lead.enrich', 'email.send', 'whatsapp.send', 'quote.create', 'client.update']
+    tools: ['global_agent.plan', 'lead.acquire', 'lead.create', 'lead.enrich', 'knowledge.search', 'product.read', 'email.send', 'whatsapp.send', 'quote.create', 'client.update']
   },
   {
     id: 'follow_up_agent',
     name: 'AI Follow-Up Agent',
     goal: 'Run account-level email and WhatsApp follow-up decisions using client history and workflow rules.',
-    tools: ['email.send', 'whatsapp.send', 'client.comment', 'client.stage']
+    tools: ['knowledge.search', 'product.read', 'email.send', 'whatsapp.send', 'client.comment', 'client.stage']
   },
   {
     id: 'whatsapp_agent',

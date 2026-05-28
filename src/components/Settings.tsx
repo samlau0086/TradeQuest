@@ -1494,7 +1494,7 @@ export function Settings() {
                         onChange={(e) => setLLMMapping(mod.key, e.target.value || null)}
                         className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300 focus:border-indigo-500 outline-none mt-auto"
                       >
-                        <option value="">Default (Internal Gemini)</option>
+                        <option value="">{t('Use active AI provider')}</option>
                         {llmConfigs.map(c => (
                           <option key={c.id} value={c.id}>{c.name}</option>
                         ))}

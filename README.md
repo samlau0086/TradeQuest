@@ -159,6 +159,15 @@ Use these tool identifiers when configuring agents in **Agent Hub**. Keep custom
 | `client.comment` | Add internal comments to client records. |
 | `client.stage` | Update client pipeline stage. |
 | `client.update` | Update client profile fields and contact methods. |
+| `product.read` | Read product catalog details, SKUs, descriptions, pricing, and bulk price rules. |
+| `product.create` | Create a new product catalog item. |
+| `product.update` | Update product catalog details, pricing, images, and bulk price rules. |
+| `product.delete` | Delete a product catalog item. |
+| `knowledge.search` | Search global or client-specific knowledge base content for RAG context. |
+| `knowledge.read` | Read knowledge base items and attached extracted document content. |
+| `knowledge.create` | Create a global or client-specific knowledge base item. |
+| `knowledge.update` | Update knowledge base title, content, or client association. |
+| `knowledge.delete` | Delete a knowledge base item. |
 | `quote.create` | Create quote drafts for operator review and sending. |
 
 Global Agent action types used by **Agent Execution Policy**:
@@ -329,6 +338,15 @@ Global Agent action types used by **Agent Execution Policy**:
 | `client.comment` | 给客户记录添加内部 comments。 |
 | `client.stage` | 更新客户管线阶段。 |
 | `client.update` | 更新客户资料和联系方式。 |
+| `product.read` | 读取产品目录详情、SKU、描述、价格和阶梯报价规则。 |
+| `product.create` | 创建新的产品目录条目。 |
+| `product.update` | 更新产品目录详情、价格、图片和阶梯报价规则。 |
+| `product.delete` | 删除产品目录条目。 |
+| `knowledge.search` | 搜索全局或客户专属知识库内容，用作 RAG 上下文。 |
+| `knowledge.read` | 读取知识库条目和附件解析内容。 |
+| `knowledge.create` | 创建全局或客户专属知识库条目。 |
+| `knowledge.update` | 更新知识库标题、内容或客户关联。 |
+| `knowledge.delete` | 删除知识库条目。 |
 | `quote.create` | 创建报价草稿，供人工检查后发送。 |
 
 **Agent Execution Policy** 使用的 Global Agent action type：

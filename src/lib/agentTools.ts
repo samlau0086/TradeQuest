@@ -29,6 +29,15 @@ export const AGENT_TOOL_REGISTRY: AgentToolDefinition[] = [
   { id: 'client.comment', label: 'Comment on client', description: 'Add internal comments to client records.', category: 'CRM', risk: 'low', reviewRequired: false },
   { id: 'client.stage', label: 'Update client stage', description: 'Update client pipeline stage.', category: 'CRM', risk: 'medium', reviewRequired: false },
   { id: 'client.update', label: 'Update client', description: 'Update client profile fields and contact methods.', category: 'CRM', risk: 'medium', reviewRequired: false },
+  { id: 'product.read', label: 'Read products', description: 'Read product catalog details, SKUs, descriptions, pricing, and bulk price rules.', category: 'Products', risk: 'low', reviewRequired: false },
+  { id: 'product.create', label: 'Create product', description: 'Create a new product catalog item.', category: 'Products', risk: 'medium', reviewRequired: true },
+  { id: 'product.update', label: 'Update product', description: 'Update product catalog details, pricing, images, and bulk price rules.', category: 'Products', risk: 'medium', reviewRequired: true },
+  { id: 'product.delete', label: 'Delete product', description: 'Delete a product catalog item.', category: 'Products', risk: 'high', reviewRequired: true },
+  { id: 'knowledge.search', label: 'Search knowledge base', description: 'Search global or client-specific knowledge base content for RAG context.', category: 'Knowledge Base', risk: 'low', reviewRequired: false },
+  { id: 'knowledge.read', label: 'Read knowledge base', description: 'Read knowledge base items and attached extracted document content.', category: 'Knowledge Base', risk: 'low', reviewRequired: false },
+  { id: 'knowledge.create', label: 'Create knowledge item', description: 'Create a global or client-specific knowledge base item.', category: 'Knowledge Base', risk: 'medium', reviewRequired: false },
+  { id: 'knowledge.update', label: 'Update knowledge item', description: 'Update knowledge base title, content, or client association.', category: 'Knowledge Base', risk: 'medium', reviewRequired: true },
+  { id: 'knowledge.delete', label: 'Delete knowledge item', description: 'Delete a knowledge base item.', category: 'Knowledge Base', risk: 'high', reviewRequired: true },
   { id: 'quote.create', label: 'Create quote', description: 'Create quote drafts for operator review and sending.', category: 'Sales', risk: 'high', reviewRequired: true }
 ];
 
@@ -39,8 +48,8 @@ export function getAgentToolDefinition(id: string) {
 }
 
 const TOOL_INFERENCE_KEYWORDS: Record<string, string[]> = {
-  'global_agent.plan': ['global', 'manager', 'orchestrate', 'plan', 'strategy', 'approval', '统筹', '全局', '规划', '计划', '审核', '管理'],
-  'lead.acquire': ['acquire', 'prospect', 'campaign', 'keyword', 'industry', 'country', 'lead generation', '获客', '线索获取', '开发客户', 'campaign', '关键词', '行业', '国家'],
+  'global_agent.plan': ['global', 'manager', 'orchestrate', 'plan', 'strategy', 'approval', 'system-wide', '统筹', '全局', '规划', '计划', '审核', '管理'],
+  'lead.acquire': ['acquire', 'prospect', 'campaign', 'keyword', 'industry', 'country', 'lead generation', '获客', '线索获取', '开发客户', '关键词', '行业', '国家'],
   'lead.create': ['create lead', 'create client', 'new lead', 'new client', 'crm record', '创建线索', '创建客户', '新增线索', '新增客户', '客户记录'],
   'lead.enrich': ['enrich', 'data enrichment', 'company data', 'contact data', 'append', '补全', '丰富', '客户数据', '线索数据', '资料完善'],
   'public_pool.import': ['public pool', 'pool', 'import leads', '公海', '导入公海', '公海池'],
@@ -58,6 +67,15 @@ const TOOL_INFERENCE_KEYWORDS: Record<string, string[]> = {
   'client.comment': ['client comment', 'crm note', 'customer note', '客户备注', '客户评论', '跟进记录'],
   'client.stage': ['stage', 'pipeline', 'status', 'kanban', '阶段', '状态', '看板', '客户阶段', '推进'],
   'client.update': ['update client', 'customer profile', 'contact method', 'crm update', '更新客户', '客户资料', '联系方式'],
+  'product.read': ['product', 'catalog', 'sku', 'price', 'pricing', 'bulk price', '产品', '目录', '产品目录', '型号', '价格', '报价规则', '阶梯价'],
+  'product.create': ['create product', 'new product', 'add product', '创建产品', '新增产品', '添加产品'],
+  'product.update': ['update product', 'edit product', 'pricing rule', 'bulk price', '更新产品', '编辑产品', '价格规则', '阶梯报价'],
+  'product.delete': ['delete product', 'remove product', '删除产品', '移除产品'],
+  'knowledge.search': ['knowledge', 'rag', 'search knowledge', 'kb', 'knowledge base', '知识库', '检索知识库', '搜索知识', '资料库', '文档检索'],
+  'knowledge.read': ['read knowledge', 'knowledge item', 'document content', '读取知识', '知识条目', '文档内容'],
+  'knowledge.create': ['create knowledge', 'add knowledge', 'upload document', '创建知识', '添加知识', '上传文档'],
+  'knowledge.update': ['update knowledge', 'edit knowledge', 'revise knowledge', '更新知识', '编辑知识', '修订知识'],
+  'knowledge.delete': ['delete knowledge', 'remove knowledge', '删除知识', '移除知识'],
   'quote.create': ['quote', 'quotation', 'pricing', 'proposal', 'offer', '报价', '报价单', '方案', '价格', '提案']
 };
 
@@ -84,6 +102,12 @@ export function inferAgentToolsFromPrompt(prompt: string) {
   }
   if (/(lead|client|customer|线索|客户)/i.test(normalized)) {
     selected.push('lead.analyze', 'client.summarize');
+  }
+  if (/(quote|pricing|proposal|product|catalog|sku|报价|价格|产品|目录|型号)/i.test(normalized)) {
+    selected.push('product.read');
+  }
+  if (/(knowledge|rag|document|kb|知识库|知识|文档|资料库)/i.test(normalized)) {
+    selected.push('knowledge.search', 'knowledge.read');
   }
 
   return Array.from(new Set(selected));
