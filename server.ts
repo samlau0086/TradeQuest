@@ -1829,23 +1829,27 @@ No markdown wrappers, just valid JSON.`;
   };
 
   const runAgentHubScheduler = async () => {
+    const summary = { users: 0, configuredAgents: 0, dueAgents: 0, recordsCreated: 0, errors: 0 };
     try {
       if (!pool) return;
       const usersRes = await pool.query(`
         SELECT id, settings
         FROM users
-        WHERE jsonb_typeof(settings->'agentHubAgents') = 'array'
+        WHERE settings IS NOT NULL
       `);
       const now = Date.now();
 
       for (const user of usersRes.rows) {
+        summary.users += 1;
         const settings = typeof user.settings === 'string' ? JSON.parse(user.settings || '{}') : (user.settings || {});
         const agents = Array.isArray(settings.agentHubAgents) ? settings.agentHubAgents : [];
         if (agents.length === 0) continue;
+        summary.configuredAgents += agents.length;
 
         let changed = false;
         for (const agent of agents) {
           if (!isAgentHubScheduleDue(agent, now)) continue;
+          summary.dueAgents += 1;
           if (agent.id === 'follow_up_agent') {
             const scoringAgent = agents.find((item: any) => item.id === 'lead_scoring_agent');
             if (scoringAgent && isAgentHubScheduleDue(scoringAgent, now)) continue;
@@ -1869,6 +1873,7 @@ No markdown wrappers, just valid JSON.`;
             expectedResult,
             actualResult: 'Backend scheduled agent run started.'
           });
+          summary.recordsCreated += 1;
 
           try {
             let relatedRunId = '';
@@ -1931,6 +1936,7 @@ No markdown wrappers, just valid JSON.`;
             agent.tasksCompleted = (agent.tasksCompleted || 0) + (agent.guardrail === 'auto' ? 1 : 0);
             agent.updatedAt = new Date().toISOString();
           } catch (error: any) {
+            summary.errors += 1;
             updateAgentHubRunRecordInSettings(settings, startedRecord.id, {
               status: 'failed',
               actualResult: error?.message || 'Backend scheduled agent run failed.',
@@ -1948,10 +1954,22 @@ No markdown wrappers, just valid JSON.`;
         }
       }
     } catch (e) {
+      summary.errors += 1;
       console.error('Failed to run Agent Hub scheduler:', e);
     }
+    return summary;
   };
 
+  app.post('/api/agent-hub/scheduler/run', authenticateToken, async (_req: any, res) => {
+    try {
+      const summary = await runAgentHubScheduler();
+      res.json({ success: true, summary });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || 'Failed to run Agent Hub scheduler' });
+    }
+  });
+
+  void runAgentHubScheduler();
   setInterval(runAgentHubScheduler, 5 * 1000);
   
   // Scheduled Emails Processor
