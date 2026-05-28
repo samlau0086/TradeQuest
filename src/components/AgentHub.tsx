@@ -624,6 +624,7 @@ export function AgentHub() {
   const [draftAgent, setDraftAgent] = useState<ReturnType<typeof emptyAgent> | null>(null);
   const [schedulerRunning, setSchedulerRunning] = useState(false);
   const [schedulerSummary, setSchedulerSummary] = useState<string | null>(null);
+  const [schedulerAgentDetails, setSchedulerAgentDetails] = useState<any[]>([]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -707,11 +708,13 @@ export function AgentHub() {
       setSchedulerSummary(
         `${t('Users')}: ${summary.users || 0} · ${t('Agents')}: ${summary.configuredAgents || 0} · ${t('Due')}: ${summary.dueAgents || 0} · ${t('Records')}: ${summary.recordsCreated || 0}`
       );
+      setSchedulerAgentDetails(Array.isArray(summary.agents) ? summary.agents : []);
       await fetchUserSettings();
       notify(t('Agent scheduler checked.'), 'info');
     } catch (error) {
       console.error(error);
       setSchedulerSummary(error instanceof Error ? error.message : 'Failed to run scheduler');
+      setSchedulerAgentDetails([]);
       notify(t('Agent scheduler check failed.'), 'error');
     } finally {
       setSchedulerRunning(false);
@@ -924,8 +927,23 @@ export function AgentHub() {
                 </button>
               </div>
               {schedulerSummary && (
-                <div className="mb-4 rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-100">
-                  {schedulerSummary}
+                <div className="mb-4 rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-100 space-y-2">
+                  <div>{schedulerSummary}</div>
+                  {schedulerAgentDetails.length > 0 && (
+                    <div className="space-y-1 text-slate-300">
+                      {schedulerAgentDetails.slice(0, 8).map((item, index) => (
+                        <div key={`${item.userId}-${item.agentId}-${index}`} className="flex flex-col gap-0.5 rounded bg-black/40 px-2 py-1">
+                          <span className="font-bold text-slate-100">{item.agentName}</span>
+                          <span>
+                            {t('Status')}: {item.status} · {t('Interval')}: {item.scheduleIntervalValue} {item.scheduleIntervalUnit} · {t('Reason')}: {item.reason}
+                            {item.secondsRemaining != null ? ` · ${t('Seconds remaining')}: ${item.secondsRemaining}` : ''}
+                          </span>
+                          {item.lastRunAt && <span>{t('Last run')}: {new Date(item.lastRunAt).toLocaleString()}</span>}
+                          {item.nextRunAt && <span>{t('Next run')}: {new Date(item.nextRunAt).toLocaleString()}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
               <div className="space-y-3 max-h-[calc(100vh-260px)] overflow-y-auto pr-1">

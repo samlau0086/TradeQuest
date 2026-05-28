@@ -1842,6 +1842,50 @@ No markdown wrappers, just valid JSON.`;
     return now - lastRun.getTime() >= getAgentHubScheduleIntervalMs(agent);
   };
 
+  const getAgentHubScheduleState = (agent: any, now: number) => {
+    const unit = agent?.scheduleIntervalUnit || 'minute';
+    const value = Math.max(1, Number(agent?.scheduleIntervalValue || agent?.scheduleIntervalMinutes || 1));
+    const lastRun = agent?.lastRunAt ? new Date(agent.lastRunAt) : null;
+    if (!agent?.scheduleEnabled) {
+      return { due: false, reason: 'schedule_disabled', unit, value, lastRunAt: agent?.lastRunAt || null, nextRunAt: null };
+    }
+    if (agent.status === 'paused') {
+      return { due: false, reason: 'paused', unit, value, lastRunAt: agent?.lastRunAt || null, nextRunAt: null };
+    }
+    if (agent.scheduleMaxRuns != null && (agent.scheduleRunCount || 0) >= agent.scheduleMaxRuns) {
+      return { due: false, reason: 'max_runs_reached', unit, value, lastRunAt: agent?.lastRunAt || null, nextRunAt: null };
+    }
+    if (unit === 'month_day') {
+      const current = new Date(now);
+      const requestedDay = Math.min(31, Math.max(1, Number(agent.scheduleDayOfMonth || 1)));
+      const lastDayOfMonth = new Date(current.getFullYear(), current.getMonth() + 1, 0).getDate();
+      const runDay = Math.min(requestedDay, lastDayOfMonth);
+      const due = current.getDate() === runDay && (!lastRun || !isSameMonth(lastRun, current));
+      return {
+        due,
+        reason: due ? 'due' : 'waiting_for_month_day',
+        unit,
+        value,
+        lastRunAt: agent?.lastRunAt || null,
+        nextRunAt: due ? new Date(now).toISOString() : new Date(current.getFullYear(), current.getMonth() + (current.getDate() > runDay ? 1 : 0), runDay).toISOString()
+      };
+    }
+    if (!lastRun) {
+      return { due: true, reason: 'never_run', unit, value, lastRunAt: null, nextRunAt: new Date(now).toISOString() };
+    }
+    const intervalMs = getAgentHubScheduleIntervalMs(agent);
+    const nextRunAtMs = lastRun.getTime() + intervalMs;
+    return {
+      due: now >= nextRunAtMs,
+      reason: now >= nextRunAtMs ? 'due' : 'waiting_interval',
+      unit,
+      value,
+      lastRunAt: agent.lastRunAt,
+      nextRunAt: new Date(nextRunAtMs).toISOString(),
+      secondsRemaining: Math.max(0, Math.ceil((nextRunAtMs - now) / 1000))
+    };
+  };
+
   const addAgentHubRunRecordToSettings = (settings: any, record: any) => {
     const now = new Date().toISOString();
     const id = `agent_run_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
@@ -1857,7 +1901,7 @@ No markdown wrappers, just valid JSON.`;
   };
 
   const runAgentHubScheduler = async () => {
-    const summary = { users: 0, configuredAgents: 0, dueAgents: 0, recordsCreated: 0, errors: 0 };
+    const summary: any = { users: 0, configuredAgents: 0, dueAgents: 0, recordsCreated: 0, errors: 0, agents: [] };
     try {
       if (!pool) return;
       const usersRes = await pool.query(`
@@ -1876,7 +1920,24 @@ No markdown wrappers, just valid JSON.`;
 
         let changed = false;
         for (const agent of agents) {
-          if (!isAgentHubScheduleDue(agent, now)) continue;
+          const scheduleState = getAgentHubScheduleState(agent, now);
+          summary.agents.push({
+            userId: user.id,
+            agentId: agent.id,
+            agentName: agent.name,
+            status: agent.status,
+            scheduleEnabled: !!agent.scheduleEnabled,
+            scheduleIntervalUnit: scheduleState.unit,
+            scheduleIntervalValue: scheduleState.value,
+            scheduleRunCount: agent.scheduleRunCount || 0,
+            scheduleMaxRuns: agent.scheduleMaxRuns ?? null,
+            lastRunAt: scheduleState.lastRunAt,
+            nextRunAt: scheduleState.nextRunAt,
+            secondsRemaining: scheduleState.secondsRemaining ?? null,
+            due: scheduleState.due,
+            reason: scheduleState.reason
+          });
+          if (!scheduleState.due) continue;
           summary.dueAgents += 1;
           if (agent.id === 'follow_up_agent') {
             const scoringAgent = agents.find((item: any) => item.id === 'lead_scoring_agent');
