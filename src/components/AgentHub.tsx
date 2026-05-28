@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Bot, Check, CheckCircle2, ClipboardCheck, Cpu, ListChecks, Plus, Power, Save, Search, Server, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, X, XCircle, Zap } from 'lucide-react';
+import { Bot, Check, CheckCircle2, ClipboardCheck, Cpu, ListChecks, Plus, Power, RefreshCw, Save, Search, Server, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, X, XCircle, Zap } from 'lucide-react';
 import { AgentHubAgent, AgentHubGuardrail, AgentHubScheduleUnit, AgentHubStatus, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType, useStore } from '../store';
 import { cn } from '../lib/utils';
 import { AgentHarness } from './AgentHarness';
@@ -616,11 +616,14 @@ export function AgentHub() {
     fetchUserSettings,
     notify
   } = useStore();
+  const { token } = useAuthStore();
   const t = useTranslation(language);
   const [tab, setTab] = useState<AgentHubTab>('fleet');
   const [modalAgent, setModalAgent] = useState<AgentHubAgent | ReturnType<typeof emptyAgent> | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(agentHubAgents[0]?.id || null);
   const [draftAgent, setDraftAgent] = useState<ReturnType<typeof emptyAgent> | null>(null);
+  const [schedulerRunning, setSchedulerRunning] = useState(false);
+  const [schedulerSummary, setSchedulerSummary] = useState<string | null>(null);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -691,6 +694,30 @@ export function AgentHub() {
     if (run.kind === 'global') deleteGlobalAgentPlan(run.id);
   };
 
+  const runSchedulerNow = async () => {
+    setSchedulerRunning(true);
+    try {
+      const response = await fetch('/api/agent-hub/scheduler/run', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Failed to run scheduler');
+      const summary = data.summary || {};
+      setSchedulerSummary(
+        `${t('Users')}: ${summary.users || 0} · ${t('Agents')}: ${summary.configuredAgents || 0} · ${t('Due')}: ${summary.dueAgents || 0} · ${t('Records')}: ${summary.recordsCreated || 0}`
+      );
+      await fetchUserSettings();
+      notify(t('Agent scheduler checked.'), 'info');
+    } catch (error) {
+      console.error(error);
+      setSchedulerSummary(error instanceof Error ? error.message : 'Failed to run scheduler');
+      notify(t('Agent scheduler check failed.'), 'error');
+    } finally {
+      setSchedulerRunning(false);
+    }
+  };
+
   const tabButton = (id: AgentHubTab, label: string, icon: React.ReactNode) => (
     <button onClick={() => setTab(id)} className={cn('px-4 py-2 rounded text-sm flex items-center gap-2', tab === id ? 'bg-blue-600/30 text-blue-300' : 'text-slate-400 hover:text-white')}>
       {icon} {t(label)}
@@ -709,8 +736,6 @@ export function AgentHub() {
             <div className="bg-neutral-900 border border-neutral-700 rounded-md p-1 flex flex-wrap">
               {tabButton('approvals', 'Harness & Approvals', <ShieldCheck className="w-4 h-4" />)}
               {tabButton('runs', 'Agent Run History', <ListChecks className="w-4 h-4" />)}
-              {tabButton('harness', 'Agent Harness', <Cpu className="w-4 h-4" />)}
-              {tabButton('global', 'Global Agent', <Bot className="w-4 h-4" />)}
               {tabButton('fleet', 'Agent Fleet', <Server className="w-4 h-4" />)}
             </div>
             <button onClick={() => { setDraftAgent(emptyAgent()); setSelectedAgentId(null); setTab('fleet'); }} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-md text-sm font-bold text-white flex items-center gap-2">
@@ -803,6 +828,16 @@ export function AgentHub() {
               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">
                 <ShieldCheck className="w-4 h-4" /> {t('Harness Strategy')}
               </div>
+              <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <button onClick={() => setTab('harness')} className="bg-black border border-neutral-800 rounded-md p-4 text-left hover:border-blue-500/50 transition-colors">
+                  <div className="flex items-center gap-2 text-sm font-bold text-slate-100"><Cpu className="w-4 h-4 text-blue-300" /> {t('Agent Harness')}</div>
+                  <p className="mt-2 text-xs text-slate-500">{t('Plan multi-step agent runs, tools, risks, and approvals.')}</p>
+                </button>
+                <button onClick={() => setTab('global')} className="bg-black border border-neutral-800 rounded-md p-4 text-left hover:border-blue-500/50 transition-colors">
+                  <div className="flex items-center gap-2 text-sm font-bold text-slate-100"><Bot className="w-4 h-4 text-blue-300" /> {t('Global Agent')}</div>
+                  <p className="mt-2 text-xs text-slate-500">{t('Coordinate CRM-wide acquisition, enrichment, follow-up, and conversion plans.')}</p>
+                </button>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {GLOBAL_AGENT_ACTION_TYPES.map(actionType => {
                   const rule = agentExecutionPolicy[actionType];
@@ -879,7 +914,20 @@ export function AgentHub() {
                   </div>
                   <p className="text-xs text-slate-500 mt-2">{t('Monitor each agent run plan, expected result, and actual result.')}</p>
                 </div>
+                <button
+                  onClick={runSchedulerNow}
+                  disabled={schedulerRunning}
+                  className="px-3 py-2 bg-blue-600/20 hover:bg-blue-600/30 disabled:bg-slate-900 border border-blue-500/30 disabled:border-slate-700 rounded-md text-xs font-bold text-blue-200 disabled:text-slate-500 flex items-center gap-2"
+                >
+                  <RefreshCw className={cn('w-4 h-4', schedulerRunning && 'animate-spin')} />
+                  {t('Run Scheduler')}
+                </button>
               </div>
+              {schedulerSummary && (
+                <div className="mb-4 rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-100">
+                  {schedulerSummary}
+                </div>
+              )}
               <div className="space-y-3 max-h-[calc(100vh-260px)] overflow-y-auto pr-1">
                 {agentRunRecords.length === 0 && (
                   <div className="text-sm text-slate-500 py-8 text-center">{t('No agent run records yet.')}</div>

@@ -778,11 +778,39 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
+  const mergeSettingsArrayById = (existingItems: any[] = [], incomingItems: any[] = []) => {
+    const merged = new Map<string, any>();
+    [...incomingItems, ...existingItems].forEach(item => {
+      if (!item?.id) return;
+      const current = merged.get(item.id);
+      if (!current) {
+        merged.set(item.id, item);
+        return;
+      }
+      const currentTime = current.updatedAt ? new Date(current.updatedAt).getTime() : 0;
+      const itemTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
+      if (itemTime > currentTime) merged.set(item.id, item);
+    });
+    return Array.from(merged.values()).sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
+  };
+
+  const mergeUserSettings = (existing: any = {}, incoming: any = {}) => {
+    const merged = { ...existing, ...incoming };
+    merged.agentRunRecords = mergeSettingsArrayById(existing.agentRunRecords || [], incoming.agentRunRecords || []).slice(0, 200);
+    merged.agentHarnessRuns = mergeSettingsArrayById(existing.agentHarnessRuns || [], incoming.agentHarnessRuns || []);
+    merged.globalAgentPlans = mergeSettingsArrayById(existing.globalAgentPlans || [], incoming.globalAgentPlans || []);
+    merged.agentHubAgents = mergeSettingsArrayById(existing.agentHubAgents || [], incoming.agentHubAgents || []);
+    return merged;
+  };
+
   app.patch('/api/user/settings', authenticateToken, async (req: any, res) => {
     try {
+      const existingRes = await pool.query('SELECT settings FROM users WHERE id = $1', [req.user.uid]);
+      const existingSettings = existingRes.rows[0]?.settings || {};
+      const nextSettings = mergeUserSettings(existingSettings, req.body || {});
       const result = await pool.query(
         'UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING settings',
-        [JSON.stringify(req.body), req.user.uid]
+        [JSON.stringify(nextSettings), req.user.uid]
       );
       res.json(result.rows[0].settings || {});
     } catch (e) {
