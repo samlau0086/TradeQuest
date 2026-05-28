@@ -739,7 +739,7 @@ export function AgentHub() {
         )}
 
         {tab === 'runs' && (
-          <div className="space-y-8">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
             <section className="bg-neutral-900/80 border border-neutral-700 rounded-lg p-6">
               <div className="flex items-center justify-between gap-3 mb-6">
                 <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400">
@@ -747,8 +747,8 @@ export function AgentHub() {
                 </div>
                 <button onClick={() => setTab('harness')} className="text-xs text-blue-300 hover:text-blue-200">{t('Open Harness')}</button>
               </div>
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                {runLogs.length === 0 && <div className="xl:col-span-2 text-sm text-slate-500 py-8 text-center">{t('No agent runs yet.')}</div>}
+              <div className="space-y-4 max-h-[calc(100vh-260px)] overflow-y-auto pr-1">
+                {runLogs.length === 0 && <div className="text-sm text-slate-500 py-8 text-center">{t('No agent runs yet.')}</div>}
                 {runLogs.map(run => (
                   <div key={run.id} className="bg-black border border-neutral-800 rounded-lg p-4">
                     <div className="flex items-start justify-between gap-3">
@@ -790,7 +790,7 @@ export function AgentHub() {
                   <p className="text-xs text-slate-500 mt-2">{t('Monitor each agent run plan, expected result, and actual result.')}</p>
                 </div>
               </div>
-              <div className="space-y-3">
+              <div className="space-y-3 max-h-[calc(100vh-260px)] overflow-y-auto pr-1">
                 {agentRunRecords.length === 0 && (
                   <div className="text-sm text-slate-500 py-8 text-center">{t('No agent run records yet.')}</div>
                 )}
@@ -822,7 +822,7 @@ export function AgentHub() {
                         </button>
                       </div>
                     </div>
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-4">
+                    <div className="grid grid-cols-1 gap-3 mt-4">
                       <div className="bg-neutral-950 border border-neutral-800 rounded-md p-3">
                         <div className="text-[10px] uppercase font-bold text-blue-300 mb-2">{t('Plan')}</div>
                         <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{record.plan}</p>
