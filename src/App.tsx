@@ -27,6 +27,8 @@ import { MediaLibrary } from './components/MediaLibrary';
 import { NotificationCenter } from './components/NotificationCenter';
 import { AgentHub } from './components/AgentHub';
 import { getViewForPath, syncViewToUrl } from './lib/viewRoutes';
+import { getOutboundLanguage } from './lib/language';
+import { buildLeadScoringSignature, hasLeadScoringResult } from './lib/leadScoring';
 
 function getAgentScheduleIntervalMs(agent: AgentHubAgent) {
   const value = Math.max(1, Number(agent.scheduleIntervalValue || agent.scheduleIntervalMinutes || 1));
@@ -57,12 +59,103 @@ function isAgentScheduleDue(agent: AgentHubAgent, now: number) {
   return now - lastRun.getTime() >= getAgentScheduleIntervalMs(agent);
 }
 
+function getLLMConfigForModule(module: string) {
+  const state = useStore.getState();
+  const id = state.llmMappings[module] || state.activeLLMId;
+  return state.llmConfigs.find(config => config.id === id) || state.llmConfigs[0];
+}
+
+async function executeLeadScoringAgentRun(agent: AgentHubAgent) {
+  const state = useStore.getState();
+  const candidates = state.clients.filter(client => client.status !== 'Closed Won');
+  let skipped = 0;
+  let scored = 0;
+  let failed = 0;
+  const maxPerRun = 10;
+  const nowIso = new Date().toISOString();
+
+  for (const client of candidates) {
+    const signature = buildLeadScoringSignature(client, state.logs, state.emails);
+    if (hasLeadScoringResult(client) && (client.leadScoringSignature === signature || !client.leadScoringSignature)) {
+      skipped += 1;
+      if (!client.leadScoringSignature) {
+        state.editClient(client.id, {
+          leadScoringSignature: signature,
+          leadScoringAnalyzedAt: client.leadScoringAnalyzedAt || nowIso
+        });
+      }
+      continue;
+    }
+    if (scored >= maxPerRun) {
+      skipped += 1;
+      continue;
+    }
+
+    const clientLogs = state.logs
+      .filter(log => log.clientId === client.id)
+      .slice(0, 20)
+      .map(log => ({ date: log.date, type: log.type, content: log.content }));
+    const clientEmails = state.emails
+      .filter(email => email.clientId === client.id)
+      .slice(0, 10)
+      .map(email => ({ date: email.date, type: email.type, subject: email.subject, body: email.body?.slice(0, 800) }));
+
+    try {
+      const res = await fetch('/api/chat/icebreaker', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${useAuthStore.getState().token}`
+        },
+        body: JSON.stringify({
+          client,
+          logs: clientLogs,
+          emails: clientEmails,
+          llmConfig: getLLMConfigForModule('analysis'),
+          embeddingLlmConfig: getLLMConfigForModule('embedding'),
+          systemLanguage: state.language === 'zh' ? 'Chinese' : 'English',
+          outboundLanguage: getOutboundLanguage(client.preferredLanguage, client.country)
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Lead scoring failed');
+      const score = Number(data.leadScore ?? data.temperature ?? 0);
+      const fallbackSummary = [client.company || client.name, client.country, client.status, client.tags?.length ? `Tags: ${client.tags.join(', ')}` : ''].filter(Boolean).join(' / ');
+      const leadSummary = data.leadSummary || data.summary || fallbackSummary || 'Lead profile requires more interaction data.';
+      const leadNextStep = data.leadNextStep || data.nextStep || client.agentNextStep || 'Review the lead profile and choose the next follow-up action.';
+      state.editClient(client.id, {
+        leadScore: score,
+        leadSummary,
+        leadNextStep,
+        leadScoringSignature: signature,
+        leadScoringAnalyzedAt: new Date().toISOString(),
+        agentSummary: leadSummary || client.agentSummary,
+        agentNextStep: leadNextStep || client.agentNextStep
+      });
+      state.addLog(
+        client.id,
+        `Lead Scoring Agent analyzed lead: score ${score}/100. Next step: ${leadNextStep}`,
+        undefined,
+        'general',
+        { source: 'lead_scoring_agent', score, summary: leadSummary }
+      );
+      scored += 1;
+    } catch (error) {
+      console.error('Lead scoring agent failed for client', client.id, error);
+      failed += 1;
+    }
+  }
+
+  return { scanned: candidates.length, skipped, scored, failed };
+}
+
 export default function App() {
   const { view, setView, selectedClientId, checkScheduledEmails, fetchInitialData, language, globalLoading, inboxConfigs, fetchEmails } = useStore();
   const t = useTranslation(language);
   const { token, isInitializing } = useAuthStore();
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'app-layout' });
   const emailSyncStateRef = useRef<Record<string, { lastAttempt: number; inFlight: boolean }>>({});
+  const agentRunInFlightRef = useRef(false);
 
   const urlParams = new URLSearchParams(window.location.search);
   const resetToken = urlParams.get('resetToken');
@@ -103,17 +196,19 @@ export default function App() {
   useEffect(() => {
     if (!token) return;
 
-    const runDueAgents = () => {
+    const runDueAgents = async () => {
+      if (agentRunInFlightRef.current) return;
+      agentRunInFlightRef.current = true;
       const state = useStore.getState();
       const now = Date.now();
-      state.agentHubAgents
-        .filter(agent => agent.status === 'active' && agent.scheduleEnabled)
-        .forEach(agent => {
-          if (!isAgentScheduleDue(agent, now)) return;
+      const dueAgents = state.agentHubAgents.filter(agent => agent.status === 'active' && agent.scheduleEnabled);
+      try {
+        for (const agent of dueAgents) {
+          if (!isAgentScheduleDue(agent, now)) continue;
           if (agent.id === 'follow_up_agent') {
             const scoringAgent = state.agentHubAgents.find(item => item.id === 'lead_scoring_agent');
             const scoringIsDue = !!scoringAgent && scoringAgent.status === 'active' && !!scoringAgent.scheduleEnabled && isAgentScheduleDue(scoringAgent, now);
-            if (scoringIsDue) return;
+            if (scoringIsDue) continue;
           }
 
           const reviewStatus = agent.guardrail === 'auto' ? 'approved' : 'pending_review';
@@ -154,6 +249,15 @@ export default function App() {
               }]
             });
           }
+          let actualResult = reviewStatus === 'approved'
+            ? 'Scheduled run was auto-approved according to guardrail policy.'
+            : 'Scheduled run created and waiting for human approval.';
+
+          if (agent.id === 'lead_scoring_agent' && reviewStatus === 'approved') {
+            const result = await executeLeadScoringAgentRun(agent);
+            actualResult = `Lead scoring scanned ${result.scanned} lead(s), scored ${result.scored}, skipped ${result.skipped}, failed ${result.failed}.`;
+          }
+
           state.addAgentRunRecord({
             agentId: agent.id,
             agentName: agent.name,
@@ -163,9 +267,7 @@ export default function App() {
             expectedResult: agent.id === 'global_agent'
               ? 'Create or update a Global Agent plan for conversion coordination.'
               : 'Create an Agent Harness run with the configured agent tools and guardrails.',
-            actualResult: reviewStatus === 'approved'
-              ? 'Scheduled run was auto-approved according to guardrail policy.'
-              : 'Scheduled run created and waiting for human approval.',
+            actualResult,
             relatedRunId,
             relatedRunType
           });
@@ -177,7 +279,10 @@ export default function App() {
             tasksCompleted: agent.tasksCompleted + (agent.guardrail === 'auto' ? 1 : 0)
           });
           state.notify(`${agent.name} scheduled run created.`, 'info');
-        });
+        }
+      } finally {
+        agentRunInFlightRef.current = false;
+      }
     };
 
     runDueAgents();

@@ -148,6 +148,8 @@ async function initDB() {
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS lead_score INT;
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS lead_summary TEXT;
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS lead_next_step TEXT;
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS lead_scoring_signature TEXT;
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS lead_scoring_analyzed_at TIMESTAMP WITH TIME ZONE;
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS agent_last_run TIMESTAMP WITH TIME ZONE;
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS agent_workflow_id VARCHAR(128);
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS preferred_language VARCHAR(100);
@@ -2459,6 +2461,8 @@ Query: "${query}"`;
         leadScore: row.lead_score,
         leadSummary: row.lead_summary,
         leadNextStep: row.lead_next_step,
+        leadScoringSignature: row.lead_scoring_signature,
+        leadScoringAnalyzedAt: row.lead_scoring_analyzed_at,
         agentWorkflowId: row.agent_workflow_id,
         preferredLanguage: row.preferred_language,
         preferredTimeRange: row.preferred_time_range
@@ -2494,6 +2498,8 @@ Query: "${query}"`;
         leadScore: row.lead_score,
         leadSummary: row.lead_summary,
         leadNextStep: row.lead_next_step,
+        leadScoringSignature: row.lead_scoring_signature,
+        leadScoringAnalyzedAt: row.lead_scoring_analyzed_at,
         agentWorkflowId: row.agent_workflow_id,
         preferredLanguage: row.preferred_language,
         preferredTimeRange: row.preferred_time_range
@@ -2635,6 +2641,7 @@ Query: "${query}"`;
         agentContext: 'agent_context', agentSummary: 'agent_summary',
         agentNextStep: 'agent_next_step',
         leadScore: 'lead_score', leadSummary: 'lead_summary', leadNextStep: 'lead_next_step',
+        leadScoringSignature: 'lead_scoring_signature', leadScoringAnalyzedAt: 'lead_scoring_analyzed_at',
         agentWorkflowId: 'agent_workflow_id', preferredLanguage: 'preferred_language',
         preferredTimeRange: 'preferred_time_range'
       };

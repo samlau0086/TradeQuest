@@ -23,6 +23,7 @@ import { LocalTime } from './LocalTime';
 import { ComposeEmail } from './Inbox';
 import { WhatsAppChatModal } from './WhatsAppChatModal';
 import { getOutboundLanguage } from '../lib/language';
+import { buildLeadScoringSignature } from '../lib/leadScoring';
 
 function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { method: ContactMethod, client: Client, onClose: () => void, onOpenEmailCompose?: (email: string) => void }) {
   const [purpose, setPurpose] = useState('');
@@ -534,6 +535,8 @@ export function ClientDetails() {
         leadScore: score,
         leadSummary,
         leadNextStep,
+        leadScoringSignature: buildLeadScoringSignature(client, logs, emails),
+        leadScoringAnalyzedAt: new Date().toISOString(),
         agentSummary: leadSummary || client.agentSummary,
         agentNextStep: leadNextStep || client.agentNextStep
       });

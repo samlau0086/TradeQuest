@@ -178,6 +178,8 @@ export interface Client {
   leadScore?: number;
   leadSummary?: string;
   leadNextStep?: string;
+  leadScoringSignature?: string;
+  leadScoringAnalyzedAt?: string;
   agentWorkflowId?: string;
   preferredLanguage?: string;
   preferredTimeRange?: string;
