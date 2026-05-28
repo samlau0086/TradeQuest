@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Bot, CheckCircle2, ClipboardCheck, Cpu, ListChecks, Plus, Power, Save, Server, ShieldCheck, SlidersHorizontal, X, XCircle, Zap } from 'lucide-react';
+import { Bot, CheckCircle2, ClipboardCheck, Cpu, ListChecks, Plus, Power, Save, Server, ShieldCheck, SlidersHorizontal, Trash2, X, XCircle, Zap } from 'lucide-react';
 import { AgentHubAgent, AgentHubGuardrail, AgentHubStatus, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType, useStore } from '../store';
 import { cn } from '../lib/utils';
 import { AgentHarness } from './AgentHarness';
@@ -196,8 +196,11 @@ export function AgentHub() {
     globalAgentPlans,
     agentRunRecords,
     updateAgentHarnessRun,
+    deleteAgentHarnessRun,
     updateGlobalAgentPlan,
+    deleteGlobalAgentPlan,
     updateAgentRunRecord,
+    deleteAgentRunRecord,
     agentExecutionPolicy,
     updateAgentExecutionPolicy
   } = useStore();
@@ -211,8 +214,8 @@ export function AgentHub() {
   ], [agentHarnessRuns, globalAgentPlans]);
 
   const runLogs = useMemo(() => [
-    ...agentHarnessRuns.map(run => ({ id: run.id, title: run.summary, agent: 'Agent Harness', status: run.status, steps: run.steps.map(step => `${step.tool}: ${step.status}`), createdAt: run.createdAt })),
-    ...globalAgentPlans.map(plan => ({ id: plan.id, title: plan.summary, agent: 'Global Agent', status: plan.status, steps: plan.steps.map(step => `${step.actionType}: ${step.status}`), createdAt: plan.createdAt }))
+    ...agentHarnessRuns.map(run => ({ kind: 'harness' as const, id: run.id, title: run.summary, agent: 'Agent Harness', status: run.status, steps: run.steps.map(step => `${step.tool}: ${step.status}`), createdAt: run.createdAt })),
+    ...globalAgentPlans.map(plan => ({ kind: 'global' as const, id: plan.id, title: plan.summary, agent: 'Global Agent', status: plan.status, steps: plan.steps.map(step => `${step.actionType}: ${step.status}`), createdAt: plan.createdAt }))
   ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 8), [agentHarnessRuns, globalAgentPlans]);
 
   const computedAgents = agentHubAgents.map(agent => ({
@@ -243,6 +246,11 @@ export function AgentHub() {
         completedAt: new Date().toISOString()
       });
     }
+  };
+
+  const deleteRunLog = (run: typeof runLogs[number]) => {
+    if (run.kind === 'harness') deleteAgentHarnessRun(run.id);
+    if (run.kind === 'global') deleteGlobalAgentPlan(run.id);
   };
 
   const tabButton = (id: AgentHubTab, label: string, icon: React.ReactNode) => (
@@ -391,7 +399,17 @@ export function AgentHub() {
                         <div className="font-bold text-slate-100">{run.title}</div>
                         <div className="text-xs text-slate-500 mt-2 flex items-center gap-1"><Cpu className="w-3 h-3" /> {run.agent}</div>
                       </div>
-                      <span className="text-xs text-slate-400 capitalize">{t(run.status)}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-400 capitalize">{t(run.status)}</span>
+                        <button
+                          type="button"
+                          onClick={() => deleteRunLog(run)}
+                          title={t('Delete run record')}
+                          className="p-1.5 rounded text-slate-500 hover:text-red-300 hover:bg-red-500/10"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                     <ol className="mt-4 space-y-2 text-xs text-slate-300">
                       {run.steps.slice(0, 4).map((step, index) => (
@@ -435,7 +453,17 @@ export function AgentHub() {
                           {record.relatedRunId && ` · ${record.relatedRunType}:${record.relatedRunId}`}
                         </div>
                       </div>
-                      {record.completedAt && <div className="text-[10px] text-slate-500">{t('Completed at')}: {new Date(record.completedAt).toLocaleString()}</div>}
+                      <div className="flex items-center gap-2">
+                        {record.completedAt && <div className="text-[10px] text-slate-500">{t('Completed at')}: {new Date(record.completedAt).toLocaleString()}</div>}
+                        <button
+                          type="button"
+                          onClick={() => deleteAgentRunRecord(record.id)}
+                          title={t('Delete run record')}
+                          className="p-1.5 rounded text-slate-500 hover:text-red-300 hover:bg-red-500/10"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-4">
                       <div className="bg-neutral-950 border border-neutral-800 rounded-md p-3">

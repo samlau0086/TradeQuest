@@ -518,11 +518,13 @@ export interface StoreState {
   updateAgentExecutionPolicy: (actionType: GlobalAgentActionType, updates: Partial<AgentExecutionPolicyRule>) => void;
   addGlobalAgentPlan: (plan: Omit<GlobalAgentPlan, 'id' | 'createdAt' | 'updatedAt'>) => string;
   updateGlobalAgentPlan: (id: string, updates: Partial<GlobalAgentPlan>) => void;
+  deleteGlobalAgentPlan: (id: string) => void;
   updateGlobalAgentPlanStep: (planId: string, stepId: string, updates: Partial<GlobalAgentPlanStep>) => void;
 
   agentHarnessRuns: AgentHarnessRun[];
   addAgentHarnessRun: (run: Omit<AgentHarnessRun, 'id' | 'createdAt' | 'updatedAt'>) => string;
   updateAgentHarnessRun: (id: string, updates: Partial<AgentHarnessRun>) => void;
+  deleteAgentHarnessRun: (id: string) => void;
   updateAgentHarnessStep: (runId: string, stepId: string, updates: Partial<AgentHarnessStep>) => void;
 
   agentHubAgents: AgentHubAgent[];
@@ -531,6 +533,7 @@ export interface StoreState {
   agentRunRecords: AgentHubRunRecord[];
   addAgentRunRecord: (record: Omit<AgentHubRunRecord, 'id' | 'createdAt' | 'updatedAt'>) => string;
   updateAgentRunRecord: (id: string, updates: Partial<AgentHubRunRecord>) => void;
+  deleteAgentRunRecord: (id: string) => void;
 
   knowledgeBase: KnowledgeItem[];
   fetchKnowledgeBase: () => void;
@@ -952,6 +955,10 @@ export const useStore = create<StoreState>((set, get) => ({
       plan.id === id ? { ...plan, ...updates, updatedAt: new Date().toISOString() } : plan
     ))
   })),
+  deleteGlobalAgentPlan: (id) => set((state) => ({
+    globalAgentPlans: state.globalAgentPlans.filter(plan => plan.id !== id),
+    agentRunRecords: state.agentRunRecords.filter(record => record.relatedRunId !== id || record.relatedRunType !== 'global')
+  })),
   updateGlobalAgentPlanStep: (planId, stepId, updates) => set((state) => ({
     globalAgentPlans: state.globalAgentPlans.map(plan => (
       plan.id === planId
@@ -982,6 +989,10 @@ export const useStore = create<StoreState>((set, get) => ({
     agentHarnessRuns: state.agentHarnessRuns.map(run => (
       run.id === id ? { ...run, ...updates, updatedAt: new Date().toISOString() } : run
     ))
+  })),
+  deleteAgentHarnessRun: (id) => set((state) => ({
+    agentHarnessRuns: state.agentHarnessRuns.filter(run => run.id !== id),
+    agentRunRecords: state.agentRunRecords.filter(record => record.relatedRunId !== id || record.relatedRunType !== 'harness')
   })),
   updateAgentHarnessStep: (runId, stepId, updates) => set((state) => ({
     agentHarnessRuns: state.agentHarnessRuns.map(run => (
@@ -1031,6 +1042,9 @@ export const useStore = create<StoreState>((set, get) => ({
     agentRunRecords: state.agentRunRecords.map(record => (
       record.id === id ? { ...record, ...updates, updatedAt: new Date().toISOString() } : record
     ))
+  })),
+  deleteAgentRunRecord: (id) => set((state) => ({
+    agentRunRecords: state.agentRunRecords.filter(record => record.id !== id)
   })),
 
   knowledgeBase: [],
