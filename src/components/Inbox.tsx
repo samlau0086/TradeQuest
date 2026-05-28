@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useStore, EmailMessage } from '../store';
 import { useAuthStore } from '../authStore';
 import { Mail, Send, Reply, Trash2, ArrowLeft, RefreshCw, PenLine, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, MessageCircle, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2, MoreHorizontal, Star, Clock, Activity, Eye, MousePointerClick, Radar, Timer } from 'lucide-react';
@@ -31,6 +31,7 @@ export function Inbox() {
   const { emails, markEmailRead, clients, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail, notify } = useStore();
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'inbox-layout' });
   const [filter, setFilter] = useState<'inbox' | 'sent' | 'scheduled' | 'drafts'>('inbox');
+  const [emailListMode, setEmailListMode] = useState<'list' | 'conversation'>('list');
   const [search, setSearch] = useState('');
   const [searchTags, setSearchTags] = useState<string[]>([]);
   const [isComposing, setIsComposing] = useState(false);
@@ -172,6 +173,53 @@ export function Inbox() {
       })
     : [];
 
+  const emailConversationGroups = useMemo(() => {
+    const stripHtml = (value: string) => value.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
+    const findClientForEmail = (email: EmailMessage) => {
+      if (email.clientId) return clients.find(client => client.id === email.clientId) || null;
+      const addresses = [email.sender, email.recipient].map(value => value?.toLowerCase()).filter(Boolean);
+      return clients.find(client => client.contactMethods?.some(method => (
+        method.type === 'email' && addresses.includes(method.value.toLowerCase())
+      ))) || null;
+    };
+    const contactAddress = (email: EmailMessage) => {
+      if (email.type === 'inbox' || email.type === 'inbound') return email.sender;
+      return email.recipient || email.sender;
+    };
+    const groups = new Map<string, {
+      key: string;
+      title: string;
+      subtitle: string;
+      clientId?: string;
+      emails: EmailMessage[];
+      latest: EmailMessage;
+      unreadCount: number;
+    }>();
+
+    filteredEmails.forEach(email => {
+      const client = findClientForEmail(email);
+      const address = contactAddress(email);
+      const key = client ? `client:${client.id}` : `email:${(address || 'unknown').toLowerCase()}`;
+      const existing = groups.get(key);
+      const nextEmails = existing ? [...existing.emails, email] : [email];
+      nextEmails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      groups.set(key, {
+        key,
+        title: client?.name || client?.company || address || 'Unknown contact',
+        subtitle: client ? [client.company, client.country].filter(Boolean).join(' · ') || address : address,
+        clientId: client?.id,
+        emails: nextEmails,
+        latest: nextEmails[0],
+        unreadCount: nextEmails.filter(item => !item.read && (item.type === 'inbox' || item.type === 'inbound')).length
+      });
+    });
+
+    return Array.from(groups.values()).sort((a, b) => new Date(b.latest.date).getTime() - new Date(a.latest.date).getTime()).map(group => ({
+      ...group,
+      preview: stripHtml(group.latest.body || '').slice(0, 140)
+    }));
+  }, [filteredEmails, clients]);
+
   const toggleSelection = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     const newSet = new Set(selectedIds);
@@ -246,6 +294,17 @@ export function Inbox() {
       setIsSyncing(false);
       syncInFlightRef.current = false;
     }
+  };
+
+  const toggleGroupSelection = (e: React.MouseEvent, ids: string[]) => {
+    e.stopPropagation();
+    const newSet = new Set(selectedIds);
+    const allSelected = ids.every(id => newSet.has(id));
+    ids.forEach(id => {
+      if (allSelected) newSet.delete(id);
+      else newSet.add(id);
+    });
+    setSelectedIds(newSet);
   };
 
   useEffect(() => {
@@ -445,6 +504,25 @@ export function Inbox() {
               </datalist>
             </div>
           </div>
+          <div className="flex items-center justify-between gap-2">
+            <div className="inline-flex bg-slate-950 border border-slate-800 rounded-md p-1">
+              <button
+                onClick={() => setEmailListMode('list')}
+                className={cn("px-2 py-1 rounded text-[10px] font-bold transition-colors", emailListMode === 'list' ? "bg-slate-700 text-white" : "text-slate-500 hover:text-slate-300")}
+              >
+                List
+              </button>
+              <button
+                onClick={() => setEmailListMode('conversation')}
+                className={cn("px-2 py-1 rounded text-[10px] font-bold transition-colors", emailListMode === 'conversation' ? "bg-slate-700 text-white" : "text-slate-500 hover:text-slate-300")}
+              >
+                By Customer
+              </button>
+            </div>
+            {emailListMode === 'conversation' && (
+              <span className="text-[10px] text-slate-500">{emailConversationGroups.length} conversations</span>
+            )}
+          </div>
           <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500">
             <span className="inline-flex min-w-0 items-center gap-1">
               <Timer className={cn("w-3 h-3 shrink-0", isSyncing ? "text-cyan-400" : syncError ? "text-rose-400" : "text-slate-500")} />
@@ -537,7 +615,81 @@ export function Inbox() {
               </div>
             );
           })}
-          {filteredEmails.map(email => (
+          {emailListMode === 'conversation' && emailConversationGroups.map(group => {
+            const groupIds = group.emails.map(email => email.id);
+            const groupSelected = groupIds.length > 0 && groupIds.every(id => selectedIds.has(id));
+            const groupIndeterminate = groupIds.some(id => selectedIds.has(id)) && !groupSelected;
+            return (
+              <div
+                key={group.key}
+                onClick={() => handleSelect(group.latest.id)}
+                className={cn("cursor-pointer border-b border-slate-800/50 p-4 transition-colors group relative",
+                  selectedEmailId && groupIds.includes(selectedEmailId) ? "bg-cyan-950/20" : "hover:bg-slate-800/30",
+                  group.unreadCount > 0 && filter === 'inbox' && "bg-slate-800/40"
+                )}
+              >
+                <div className="flex gap-3">
+                  <div
+                    className={cn("pt-0.5 transition-opacity", groupSelected || groupIndeterminate ? "opacity-100" : "opacity-0 group-hover:opacity-100")}
+                    onClick={(e) => toggleGroupSelection(e, groupIds)}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={groupSelected}
+                      ref={input => {
+                        if (input) input.indeterminate = groupIndeterminate;
+                      }}
+                      onChange={() => {}}
+                      className="rounded border-slate-700 bg-slate-800 text-cyan-500 focus:ring-cyan-500"
+                    />
+                  </div>
+                  <div className="pt-0.5 flex-shrink-0">
+                    <div className="w-7 h-7 rounded-full bg-cyan-950/50 border border-cyan-900/60 flex items-center justify-center">
+                      <Mail className="w-4 h-4 text-cyan-400" />
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <div className="min-w-0">
+                        <div className={cn("text-sm font-bold truncate", group.unreadCount > 0 ? "text-white" : "text-slate-200")}>{group.title}</div>
+                        {group.subtitle && <div className="text-[10px] text-slate-500 truncate">{group.subtitle}</div>}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {group.unreadCount > 0 && (
+                          <span className="rounded-full bg-cyan-500/20 border border-cyan-500/30 px-2 py-0.5 text-[10px] font-bold text-cyan-300">
+                            {group.unreadCount}
+                          </span>
+                        )}
+                        <span className="text-[10px] text-slate-500">{new Date(group.latest.date).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 text-[10px] text-slate-500 mb-1">
+                      <span>{group.emails.length} email{group.emails.length === 1 ? '' : 's'}</span>
+                      <span>·</span>
+                      <span>{group.latest.type === 'draft' ? 'Draft' : group.latest.type === 'scheduled' ? 'Scheduled' : group.latest.type === 'sent' || group.latest.type === 'outbound' ? 'Latest sent' : 'Latest inbox'}</span>
+                    </div>
+                    <div className="text-xs font-medium mb-2 truncate text-slate-300">{group.latest.subject}</div>
+                    {group.preview && <div className="text-xs text-slate-500 line-clamp-2">{group.preview}</div>}
+                    {group.emails.length > 1 && (
+                      <div className="mt-3 space-y-1">
+                        {group.emails.slice(1, 4).map(email => (
+                          <button
+                            key={email.id}
+                            onClick={(e) => { e.stopPropagation(); handleSelect(email.id); }}
+                            className="w-full flex items-center justify-between gap-2 rounded bg-slate-950/60 border border-slate-800 px-2 py-1 text-left hover:border-slate-700"
+                          >
+                            <span className={cn("min-w-0 truncate text-[11px]", !email.read && (email.type === 'inbox' || email.type === 'inbound') ? "text-slate-100 font-bold" : "text-slate-400")}>{email.subject || '(No Subject)'}</span>
+                            <span className="shrink-0 text-[9px] text-slate-600">{new Date(email.date).toLocaleDateString()}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {emailListMode === 'list' && filteredEmails.map(email => (
             <div 
               key={email.id}
               onClick={() => handleSelect(email.id)}

@@ -135,6 +135,34 @@ Recommended usage:
 - Use `Auto` for low-risk internal actions such as enrichment, internal comments, and lead prioritization.
 - Review this policy whenever new channels, AI models, or automation capabilities are added.
 
+#### Agent Tool Reference
+Use these tool identifiers when configuring agents in **Agent Hub**. Keep customer-facing tools behind review unless the workflow is proven safe.
+
+| Tool | Description |
+| --- | --- |
+| `global_agent.plan` | Generate a cross-system acquisition and conversion plan for human review. |
+| `lead.acquire` | Acquire new leads from configured lead data channels and campaign criteria. |
+| `lead.enrich` | Enrich lead or client data through configured enrichment providers. |
+| `public_pool.import` | Import acquired leads into the public lead pool. |
+| `client.dedupe` | Detect and avoid duplicate client or lead records. |
+| `data.normalize` | Normalize imported lead fields, contact methods, country, and tags. |
+| `lead.analyze` | Analyze a lead or client using CRM history, messages, and context. |
+| `lead.score` | Score lead quality and conversion potential. |
+| `client.summarize` | Generate or update internal client summaries. |
+| `next_step.recommend` | Recommend the best next follow-up action. |
+| `email.send` | Draft, schedule, or send email through configured outbox rules. |
+| `whatsapp.read` | Read WhatsApp conversation history from the unified inbox cache. |
+| `whatsapp.send` | Draft, schedule, or send WhatsApp messages through WhatsApp Actor Hub. |
+| `conversation.tag` | Add or update tags on WhatsApp conversations. |
+| `conversation.comment` | Add internal comments to WhatsApp conversations. |
+| `client.comment` | Add internal comments to client records. |
+| `client.stage` | Update client pipeline stage. |
+| `client.update` | Update client profile fields and contact methods. |
+| `quote.create` | Create quote drafts for operator review and sending. |
+
+Global Agent action types used by **Agent Execution Policy**:
+`create_lead_campaign`, `run_lead_campaign`, `create_followup_workflow`, `process_customer_reply`, `send_email`, `send_whatsapp`, `update_client_stage`, `add_client_comment`, `enrich_client_data`, `create_deal`, `create_quote`, `prioritize_leads`, `review_pipeline`.
+
 ### Technology Stack
 - **Frontend:** React, TypeScript, Tailwind CSS, Zustand, Lucide Icons, jsPDF.
 - **Backend:** Express.js, PostgreSQL, JWT, bcrypt.
@@ -275,6 +303,34 @@ Recommended usage:
 - 对客户外发动作保持 `Review`，尤其是邮件、WhatsApp、报价和客户阶段变更。
 - 对低风险内部动作使用 `Auto`，例如资料补全、内部 comments、线索优先级排序。
 - 每次新增渠道、AI 模型或自动化能力后，都应复查一次执行策略。
+
+#### Agent 工具清单
+在 **Agent Hub** 中配置 Agent tools 时可使用以下标识。客户外发类工具建议保持人工审核，除非流程已经充分验证安全。
+
+| Tool | 说明 |
+| --- | --- |
+| `global_agent.plan` | 生成跨系统获客与转化计划，供人工审核。 |
+| `lead.acquire` | 按 campaign 条件和数据渠道获取新 lead。 |
+| `lead.enrich` | 通过已配置的数据补全渠道补全 lead 或客户资料。 |
+| `public_pool.import` | 将获取到的 lead 导入公海。 |
+| `client.dedupe` | 检测并避免重复客户或重复 lead。 |
+| `data.normalize` | 标准化导入字段、联系方式、国家和标签。 |
+| `lead.analyze` | 基于 CRM 历史、消息和上下文分析 lead 或客户。 |
+| `lead.score` | 给 lead 质量和转化潜力打分。 |
+| `client.summarize` | 生成或更新内部客户摘要。 |
+| `next_step.recommend` | 推荐最佳下一步跟进动作。 |
+| `email.send` | 通过已配置发件箱起草、定时或发送邮件。 |
+| `whatsapp.read` | 从统一收件箱缓存读取 WhatsApp 对话历史。 |
+| `whatsapp.send` | 通过 WhatsApp Actor Hub 起草、定时或发送 WhatsApp 消息。 |
+| `conversation.tag` | 添加或更新 WhatsApp 对话标签。 |
+| `conversation.comment` | 给 WhatsApp 对话添加内部 comments。 |
+| `client.comment` | 给客户记录添加内部 comments。 |
+| `client.stage` | 更新客户管线阶段。 |
+| `client.update` | 更新客户资料和联系方式。 |
+| `quote.create` | 创建报价草稿，供人工检查后发送。 |
+
+**Agent Execution Policy** 使用的 Global Agent action type：
+`create_lead_campaign`、`run_lead_campaign`、`create_followup_workflow`、`process_customer_reply`、`send_email`、`send_whatsapp`、`update_client_stage`、`add_client_comment`、`enrich_client_data`、`create_deal`、`create_quote`、`prioritize_leads`、`review_pipeline`。
 
 ### 技术栈
 - **前端：** React、TypeScript、Tailwind CSS、Zustand、Lucide Icons、jsPDF。
