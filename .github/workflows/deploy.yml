@@ -58,9 +58,21 @@ jobs:
             ./ "$VPS_USERNAME@$VPS_HOST:$DEPLOY_TARGET/"
 
           echo "Rebuilding containers..."
-          ssh $SSH_OPTS "$VPS_USERNAME@$VPS_HOST" \
-            "set -e; \
-             cd '$DEPLOY_TARGET'; \
-             docker compose version; \
-             docker compose down || true; \
-             docker compose up -d --build"
+          ssh $SSH_OPTS "$VPS_USERNAME@$VPS_HOST" "DEPLOY_TARGET='$DEPLOY_TARGET' bash -s" <<'REMOTE_DEPLOY'
+          set -Eeuo pipefail
+          cd "$DEPLOY_TARGET"
+          docker compose version
+
+          echo "Building image before replacing the running container..."
+          if ! docker compose build; then
+            echo "::warning::Initial Docker build failed. Cleaning Docker builder cache and retrying without cache."
+            docker builder prune -af || true
+            docker buildx prune -af || true
+            docker image prune -f || true
+            docker compose build --no-cache
+          fi
+
+          echo "Starting updated containers..."
+          docker compose up -d --remove-orphans
+          docker image prune -f || true
+          REMOTE_DEPLOY
