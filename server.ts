@@ -266,6 +266,12 @@ async function initDB() {
       );
       
       ALTER TABLE deals ADD COLUMN IF NOT EXISTS contact_info JSONB DEFAULT '{}'::jsonb;
+      ALTER TABLE deals ADD COLUMN IF NOT EXISTS comments JSONB DEFAULT '[]'::jsonb;
+      ALTER TABLE deals ADD COLUMN IF NOT EXISTS lead_score INTEGER;
+      ALTER TABLE deals ADD COLUMN IF NOT EXISTS lead_summary TEXT;
+      ALTER TABLE deals ADD COLUMN IF NOT EXISTS lead_next_step TEXT;
+      ALTER TABLE deals ADD COLUMN IF NOT EXISTS lead_scoring_signature TEXT;
+      ALTER TABLE deals ADD COLUMN IF NOT EXISTS lead_scoring_analyzed_at TIMESTAMP WITH TIME ZONE;
       ALTER TABLE deals ADD COLUMN IF NOT EXISTS pending_delete BOOLEAN DEFAULT FALSE;
       ALTER TABLE deals ADD COLUMN IF NOT EXISTS pending_edit_request BOOLEAN DEFAULT FALSE;
 
@@ -2256,6 +2262,12 @@ No markdown wrappers, just valid JSON.`;
         name: row.name,
         value: row.value,
         status: row.status,
+        comments: row.comments || [],
+        leadScore: row.lead_score,
+        leadSummary: row.lead_summary,
+        leadNextStep: row.lead_next_step,
+        leadScoringSignature: row.lead_scoring_signature,
+        leadScoringAnalyzedAt: row.lead_scoring_analyzed_at,
         contactInfo: row.contact_info,
         createdAt: row.created_at,
         updatedAt: row.updated_at
@@ -2268,11 +2280,11 @@ No markdown wrappers, just valid JSON.`;
 
   app.post('/api/deals', authenticateToken, async (req: any, res) => {
     try {
-      const { id, clientId, name, value, status, contactInfo } = req.body;
+      const { id, clientId, name, value, status, contactInfo, comments, leadScore, leadSummary, leadNextStep, leadScoringSignature, leadScoringAnalyzedAt } = req.body;
       const result = await pool.query(
-        `INSERT INTO deals (id, user_id, client_id, name, value, status, contact_info)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-        [id, req.user.uid, clientId || null, name, value || 0, status || 'Leads', contactInfo || {}]
+        `INSERT INTO deals (id, user_id, client_id, name, value, status, contact_info, comments, lead_score, lead_summary, lead_next_step, lead_scoring_signature, lead_scoring_analyzed_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+        [id, req.user.uid, clientId || null, name, value || 0, status || 'Leads', contactInfo || {}, comments || [], leadScore ?? null, leadSummary || null, leadNextStep || null, leadScoringSignature || null, leadScoringAnalyzedAt || null]
       );
       res.json(result.rows[0]);
     } catch (e) {
@@ -2284,7 +2296,7 @@ No markdown wrappers, just valid JSON.`;
   app.patch('/api/deals/:id', authenticateToken, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const { status, name, value, contactInfo, clientId } = req.body;
+      const { status, name, value, contactInfo, clientId, comments, leadScore, leadSummary, leadNextStep, leadScoringSignature, leadScoringAnalyzedAt } = req.body;
       
       const updates: string[] = [];
       const values: any[] = [];
@@ -2309,6 +2321,30 @@ No markdown wrappers, just valid JSON.`;
       if (clientId !== undefined) {
         updates.push(`client_id = $${idx++}`);
         values.push(clientId);
+      }
+      if (comments !== undefined) {
+        updates.push(`comments = $${idx++}`);
+        values.push(comments);
+      }
+      if (leadScore !== undefined) {
+        updates.push(`lead_score = $${idx++}`);
+        values.push(leadScore);
+      }
+      if (leadSummary !== undefined) {
+        updates.push(`lead_summary = $${idx++}`);
+        values.push(leadSummary);
+      }
+      if (leadNextStep !== undefined) {
+        updates.push(`lead_next_step = $${idx++}`);
+        values.push(leadNextStep);
+      }
+      if (leadScoringSignature !== undefined) {
+        updates.push(`lead_scoring_signature = $${idx++}`);
+        values.push(leadScoringSignature);
+      }
+      if (leadScoringAnalyzedAt !== undefined) {
+        updates.push(`lead_scoring_analyzed_at = $${idx++}`);
+        values.push(leadScoringAnalyzedAt);
       }
       
       updates.push(`updated_at = CURRENT_TIMESTAMP`);

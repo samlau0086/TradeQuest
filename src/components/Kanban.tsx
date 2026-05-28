@@ -19,7 +19,7 @@ const CONTACT_ICONS: any = {
 const COLUMNS: ClientStatus[] = ['Leads', 'Contacted', 'Sample Sent', 'Negotiating', 'Closed Won'];
 
 export function Kanban() {
-  const { clients, deals, selectClient, updateDeal, kanbanSearch, setKanbanSearch, addClient, addDeal } = useStore();
+  const { clients, deals, selectLead, updateDeal, kanbanSearch, setKanbanSearch, addClient, addDeal } = useStore();
   const [viewMode, setViewMode] = useState<'board' | 'list' | 'map'>('board');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -235,7 +235,7 @@ export function Kanban() {
               
               <div className="flex flex-col gap-3 overflow-y-auto pb-2 scrollbar-thin flex-1">
                 {columnDeals.map(({ deal, client }) => (
-                  <DealCard key={deal.id} deal={deal} client={client!} onClick={() => selectClient(client!.id)} />
+                  <DealCard key={deal.id} deal={deal} client={client!} onClick={() => client!.id && selectLead(client!.id, deal.id)} />
                 ))}
                 <div className={cn(
                   "h-28 border-2 border-dashed border-cyan-500/50 rounded-lg items-center justify-center text-cyan-500/50 text-xs font-medium pointer-events-none transition-all duration-200 bg-cyan-950/10",

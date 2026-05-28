@@ -13,6 +13,12 @@ export interface Deal {
   name: string;
   value: number;
   status: ClientStatus;
+  comments?: Comment[];
+  leadScore?: number;
+  leadSummary?: string;
+  leadNextStep?: string;
+  leadScoringSignature?: string;
+  leadScoringAnalyzedAt?: string;
   contactInfo?: {
     name: string;
     company: string;
@@ -675,6 +681,9 @@ export interface StoreState {
 
   selectedClientId: string | null;
   selectClient: (id: string | null) => void;
+  selectedDealId: string | null;
+  selectDeal: (id: string | null) => void;
+  selectLead: (clientId: string, dealId: string) => void;
   
   selectedEmailId: string | null;
   selectEmail: (id: string | null) => void;
@@ -1549,12 +1558,15 @@ export const useStore = create<StoreState>((set, get) => ({
     const id = `d${Date.now()}`;
     const newDeal: Deal = {
       ...deal,
+      comments: deal.comments || [],
       id,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
     
-    get().addLog(deal.clientId, `Created new deal: ${deal.name} (Value: ${deal.value})`);
+    if (deal.clientId) {
+      get().addLog(deal.clientId, `Created new lead: ${deal.name} (Value: ${deal.value})`, undefined, 'general', { leadId: id, dealId: id });
+    }
     
     set((state) => ({ deals: [...state.deals, newDeal] }));
 
@@ -1600,12 +1612,12 @@ export const useStore = create<StoreState>((set, get) => ({
         }
 
         if (statusChanged) {
-          get().addLog(deal.clientId, `Deal "${deal.name}" status updated to: ${updates.status}`);
+          get().addLog(deal.clientId, `Lead "${deal.name}" status updated to: ${updates.status}`, undefined, 'general', { leadId: id, dealId: id });
           if (updates.status === 'Closed Won') {
             get().addExp(get().expConfig['event_win_deal'] ?? 100, 'Won a deal!');
           }
         } else {
-          get().addLog(deal.clientId, `Deal "${deal.name}" updated: ${Object.keys(updates).join(', ')}`);
+          get().addLog(deal.clientId, `Lead "${deal.name}" updated: ${Object.keys(updates).join(', ')}`, undefined, 'general', { leadId: id, dealId: id });
         }
       } catch (err) {
         console.error(err);
@@ -1625,7 +1637,7 @@ export const useStore = create<StoreState>((set, get) => ({
   deleteDeal: (id) => {
     const deal = get().deals.find(d => d.id === id);
     if (deal) {
-      get().addLog(deal.clientId, `Deleted deal: ${deal.name}`);
+      get().addLog(deal.clientId, `Deleted lead: ${deal.name}`, undefined, 'general', { leadId: id, dealId: id });
     }
     
     set((state) => {
@@ -1745,7 +1757,8 @@ export const useStore = create<StoreState>((set, get) => ({
     set((state) => ({
       clients: state.clients.filter(c => c.id !== id),
       deals: state.deals.filter(d => d.clientId !== id),
-      selectedClientId: state.selectedClientId === id ? null : state.selectedClientId
+      selectedClientId: state.selectedClientId === id ? null : state.selectedClientId,
+      selectedDealId: state.selectedClientId === id ? null : state.selectedDealId
     }));
 
     const token = localStorage.getItem('token');
@@ -2101,7 +2114,10 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   selectedClientId: null,
-  selectClient: (id) => set({ selectedClientId: id }),
+  selectClient: (id) => set({ selectedClientId: id, selectedDealId: null }),
+  selectedDealId: null,
+  selectDeal: (id) => set({ selectedDealId: id }),
+  selectLead: (clientId, dealId) => set({ selectedClientId: clientId, selectedDealId: dealId }),
   
   selectedEmailId: null,
   selectEmail: (id) => set({ selectedEmailId: id }),

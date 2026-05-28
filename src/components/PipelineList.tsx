@@ -9,7 +9,7 @@ import { useTranslation } from '../lib/i18n';
 import { DealFormModal } from './DealFormModal';
 
 export function PipelineList() {
-  const { clients, deals, selectClient, deleteDeal, updateDeal, kanbanSearch, setKanbanSearch, addClient, addDeal, language, notify } = useStore();
+  const { clients, deals, selectLead, deleteDeal, updateDeal, kanbanSearch, setKanbanSearch, addClient, addDeal, language, notify } = useStore();
   const t = useTranslation(language);
   const [localSearch, setLocalSearch] = useState('');
   const [showColumnFilter, setShowColumnFilter] = useState(false);
@@ -183,7 +183,7 @@ export function PipelineList() {
                   </td>
                   {visibleColumns.name && (
                     <td className="px-4 py-3 font-medium text-slate-200">
-                      <button onClick={() => { if(client!.id) selectClient(client!.id); else setEditingDealId(deal.id); }} className="hover:text-cyan-400 hover:underline text-left inline-block">
+                      <button onClick={() => { if(client!.id) selectLead(client!.id, deal.id); else setEditingDealId(deal.id); }} className="hover:text-cyan-400 hover:underline text-left inline-block">
                         <span className="block font-bold text-cyan-500 mb-0.5">{deal.name}</span>
                         <span className="block text-xs text-slate-400">{client!.id ? client!.name : `${client!.name} (Unlinked)`}</span>
                       </button>

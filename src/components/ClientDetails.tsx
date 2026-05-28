@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { useStore, ClientStatus, Client, ContactMethod } from '../store';
+import { useStore, ClientStatus, Client, ContactMethod, Comment } from '../store';
 import { useAuthStore } from '../authStore';
 import { X, Thermometer, Flame, Snowflake, Sparkles, Send, Loader2, Workflow, History, Mail, MessageCircle, Phone, Edit, Trash2, Paperclip, MessageSquare, Settings } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -423,7 +423,7 @@ function AgentSettingsModal({ client, onClose }: { client: Client, onClose: () =
 }
 
 export function ClientDetails() {
-  const { clients, selectedClientId, selectClient, updateClientStatus, deleteClient, addComment, addReply, llmConfigs, activeLLMId, llmMappings, setView, selectEmail, logs, emails } = useStore();
+  const { clients, deals, selectedClientId, selectedDealId, selectClient, selectDeal, updateClientStatus, updateDeal, deleteClient, addComment, addReply, llmConfigs, activeLLMId, llmMappings, setView, selectEmail, logs, emails } = useStore();
   
   const getLLMConfig = (module: string) => {
     const id = llmMappings[module] || activeLLMId;
@@ -457,8 +457,26 @@ export function ClientDetails() {
   const [agentSettingsOpen, setAgentSettingsOpen] = useState(false);
 
   const client = clients.find(c => c.id === selectedClientId);
+  const selectedDeal = selectedDealId
+    ? deals.find(deal => deal.id === selectedDealId && (!selectedClientId || deal.clientId === selectedClientId))
+    : undefined;
+  const leadRecord = selectedDeal || null;
+  const leadComments = leadRecord ? (leadRecord.comments || []) : (client?.comments || []);
+  const leadLogs = logs.filter(log => {
+    if (!client || log.clientId !== client.id) return false;
+    if (!leadRecord) return true;
+    return log.metadata?.leadId === leadRecord.id || log.metadata?.dealId === leadRecord.id;
+  });
+  const leadScore = leadRecord ? leadRecord.leadScore : client?.leadScore;
+  const leadSummary = leadRecord ? leadRecord.leadSummary : client?.leadSummary;
+  const leadNextStep = leadRecord ? leadRecord.leadNextStep : client?.leadNextStep;
 
   if (!client) return null;
+
+  const closeDetails = () => {
+    selectDeal(null);
+    selectClient(null);
+  };
 
   const handleRunAgent = async () => {
     if (!client.agentEnabled) return;
@@ -494,8 +512,7 @@ export function ClientDetails() {
 
   const handleAnalyze = async () => {
     setLoading(true);
-    const clientLogs = logs
-      .filter(log => log.clientId === client.id)
+    const clientLogs = leadLogs
       .slice(0, 20)
       .map(log => ({ date: log.date, type: log.type, content: log.content }));
     const clientEmails = emails
@@ -527,25 +544,35 @@ export function ClientDetails() {
         client.status,
         client.tags?.length ? `Tags: ${client.tags.join(', ')}` : ''
       ].filter(Boolean).join(' / ');
-      const leadSummary = data.leadSummary || data.summary || fallbackSummary || 'Lead profile requires more interaction data.';
-      const leadNextStep = data.leadNextStep || data.nextStep || client.agentNextStep || 'Review the lead profile and choose the next follow-up action.';
-      const normalizedData = { ...data, leadScore: score, leadSummary, leadNextStep };
+      const analyzedLeadSummary = data.leadSummary || data.summary || fallbackSummary || 'Lead profile requires more interaction data.';
+      const analyzedLeadNextStep = data.leadNextStep || data.nextStep || client.agentNextStep || 'Review the lead profile and choose the next follow-up action.';
+      const normalizedData = { ...data, leadScore: score, leadSummary: analyzedLeadSummary, leadNextStep: analyzedLeadNextStep };
       setAiData(normalizedData);
-      useStore.getState().editClient(client.id, {
-        leadScore: score,
-        leadSummary,
-        leadNextStep,
-        leadScoringSignature: buildLeadScoringSignature(client, logs, emails),
-        leadScoringAnalyzedAt: new Date().toISOString(),
-        agentSummary: leadSummary || client.agentSummary,
-        agentNextStep: leadNextStep || client.agentNextStep
-      });
+      if (leadRecord) {
+        updateDeal(leadRecord.id, {
+          leadScore: score,
+          leadSummary: analyzedLeadSummary,
+          leadNextStep: analyzedLeadNextStep,
+          leadScoringSignature: buildLeadScoringSignature(client, leadLogs, emails),
+          leadScoringAnalyzedAt: new Date().toISOString()
+        });
+      } else {
+        useStore.getState().editClient(client.id, {
+          leadScore: score,
+          leadSummary: analyzedLeadSummary,
+          leadNextStep: analyzedLeadNextStep,
+          leadScoringSignature: buildLeadScoringSignature(client, logs, emails),
+          leadScoringAnalyzedAt: new Date().toISOString(),
+          agentSummary: analyzedLeadSummary || client.agentSummary,
+          agentNextStep: analyzedLeadNextStep || client.agentNextStep
+        });
+      }
       useStore.getState().addLog(
         client.id,
-        `Lead Scoring Agent analyzed lead: score ${score}/100. Next step: ${leadNextStep}`,
+        `Lead Scoring Agent analyzed lead: score ${score}/100. Next step: ${analyzedLeadNextStep}`,
         undefined,
         'general',
-        { source: 'lead_scoring_agent', score, summary: leadSummary }
+        { source: 'lead_scoring_agent', score, summary: analyzedLeadSummary, leadId: leadRecord?.id, dealId: leadRecord?.id }
       );
     } catch(err) {
       console.error(err);
@@ -567,9 +594,50 @@ export function ClientDetails() {
         })) 
       : undefined;
 
-    addComment(client.id, commentText, attachments);
+    if (leadRecord) {
+      const newComment: Comment = {
+        id: `cmt${Date.now()}`,
+        author: useStore.getState().userTitle,
+        content: commentText,
+        createdAt: new Date().toISOString(),
+        attachments,
+        replies: []
+      };
+      updateDeal(leadRecord.id, { comments: [...(leadRecord.comments || []), newComment] });
+    } else {
+      addComment(client.id, commentText, attachments);
+    }
     setCommentText('');
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleAddLeadReply = (commentId: string, content: string, attachments?: any[]) => {
+    if (!leadRecord) {
+      addReply(client.id, commentId, content, attachments);
+      return;
+    }
+    const addReplyRecursive = (comments: Comment[]): Comment[] => comments.map(comment => {
+      if (comment.id === commentId) {
+        return {
+          ...comment,
+          replies: [
+            ...(comment.replies || []),
+            {
+              id: `rep${Date.now()}`,
+              author: useStore.getState().userTitle,
+              content,
+              createdAt: new Date().toISOString(),
+              attachments,
+              replies: []
+            }
+          ]
+        };
+      }
+      return comment.replies?.length
+        ? { ...comment, replies: addReplyRecursive(comment.replies) }
+        : comment;
+    });
+    updateDeal(leadRecord.id, { comments: addReplyRecursive(leadRecord.comments || []) });
   };
 
   return (
@@ -590,7 +658,7 @@ export function ClientDetails() {
           <button onClick={() => setConfirmDeleteTarget(true)} className="p-2 text-slate-500 hover:text-red-400 rounded-lg hover:bg-slate-800 transition-colors">
             <Trash2 className="w-4 h-4" />
           </button>
-          <button onClick={() => selectClient(null)} className="p-2 text-slate-500 hover:text-white rounded-lg hover:bg-slate-800 transition-colors">
+          <button onClick={closeDetails} className="p-2 text-slate-500 hover:text-white rounded-lg hover:bg-slate-800 transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -604,8 +672,12 @@ export function ClientDetails() {
             <Workflow className="w-4 h-4" /> Pipeline Stage
           </h3>
           <select 
-            value={client.status} 
-            onChange={(e) => updateClientStatus(client.id, e.target.value as ClientStatus)}
+            value={leadRecord?.status || client.status} 
+            onChange={(e) => {
+              const status = e.target.value as ClientStatus;
+              if (leadRecord) updateDeal(leadRecord.id, { status });
+              else updateClientStatus(client.id, status);
+            }}
             className="w-full bg-slate-800 border border-slate-700 text-sm text-white rounded-lg p-2 focus:ring-2 ring-cyan-500 outline-none"
           >
             {['Leads', 'Contacted', 'Sample Sent', 'Negotiating', 'Closed Won'].map(s => (
@@ -759,16 +831,16 @@ export function ClientDetails() {
                     <span className="text-lg font-bold text-white">{Number(aiData.leadScore ?? aiData.temperature ?? 0)}/100</span>
                   </div>
                 </div>
-                {(aiData.leadSummary || client.leadSummary) && (
+                {(aiData.leadSummary || leadSummary) && (
                   <div className="bg-slate-900 rounded-lg p-3 border border-slate-700">
                     <span className="text-[10px] text-slate-500 font-bold uppercase">Lead Summary</span>
-                    <p className="text-xs text-slate-300 mt-1 leading-relaxed">{aiData.leadSummary || client.leadSummary}</p>
+                    <p className="text-xs text-slate-300 mt-1 leading-relaxed">{aiData.leadSummary || leadSummary}</p>
                   </div>
                 )}
-                {(aiData.leadNextStep || client.leadNextStep) && (
+                {(aiData.leadNextStep || leadNextStep) && (
                   <div className="bg-cyan-950/30 rounded-lg p-3 border border-cyan-500/20">
                     <span className="text-[10px] text-cyan-400 font-bold uppercase">Best Next Step</span>
-                    <p className="text-sm text-white mt-1 font-medium">{aiData.leadNextStep || client.leadNextStep}</p>
+                    <p className="text-sm text-white mt-1 font-medium">{aiData.leadNextStep || leadNextStep}</p>
                   </div>
                 )}
               </div>
@@ -813,14 +885,14 @@ export function ClientDetails() {
             </div>
           ) : (
             <div className="text-center py-6 text-slate-500 text-sm">
-              {client.leadScore !== undefined ? (
+              {leadScore !== undefined ? (
                 <div className="space-y-3 text-left">
                   <div className="flex items-center justify-between bg-slate-900 rounded-lg p-3 border border-cyan-500/20">
                     <span className="text-[10px] text-cyan-400 font-bold uppercase">Lead Score</span>
-                    <span className="text-lg font-bold text-white">{client.leadScore}/100</span>
+                    <span className="text-lg font-bold text-white">{leadScore}/100</span>
                   </div>
-                  {client.leadSummary && <p className="text-xs text-slate-300 leading-relaxed">{client.leadSummary}</p>}
-                  {client.leadNextStep && <p className="text-sm text-white font-medium">Next: {client.leadNextStep}</p>}
+                  {leadSummary && <p className="text-xs text-slate-300 leading-relaxed">{leadSummary}</p>}
+                  {leadNextStep && <p className="text-sm text-white font-medium">Next: {leadNextStep}</p>}
                 </div>
               ) : 'AI analysis requires target scan.'}
             </div>
@@ -838,8 +910,7 @@ export function ClientDetails() {
             <History className="w-4 h-4" /> Growth Logs
           </h3>
           <div className="space-y-3 relative before:absolute before:inset-0 before:ml-2 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-800 before:to-transparent">
-            {useStore(s => s.logs).filter(l => {
-              if (l.clientId !== client.id) return false;
+            {leadLogs.filter(l => {
               if (l.content.startsWith('Saved Draft:')) return false;
               if (l.relatedEmailId) {
                 const relatedEmail = useStore.getState().emails.find(e => e.id === l.relatedEmailId);
@@ -894,10 +965,10 @@ export function ClientDetails() {
           </h3>
           
           <div className="space-y-4 mb-6">
-            {client.comments?.map((comment) => (
-              <CommentItem key={comment.id} comment={comment} onReply={(commentId, text, attach) => addReply(client.id, commentId, text, attach)} />
+            {leadComments.map((comment) => (
+              <CommentItem key={comment.id} comment={comment} onReply={handleAddLeadReply} />
             ))}
-            {(!client.comments || client.comments.length === 0) && (
+            {leadComments.length === 0 && (
               <div className="text-center text-xs text-slate-500 py-4 italic">No comments yet.</div>
             )}
           </div>
