@@ -6,6 +6,7 @@ import { AgentHarness } from './AgentHarness';
 import { GlobalAgent } from './GlobalAgent';
 import { useTranslation } from '../lib/i18n';
 import { AGENT_TOOL_REGISTRY, getAgentToolDefinition, inferAgentToolsFromPrompt } from '../lib/agentTools';
+import { useAuthStore } from '../authStore';
 
 const ACTION_LABELS: Record<GlobalAgentActionType, string> = {
   create_lead_campaign: 'Create Lead Campaign',
@@ -73,14 +74,17 @@ function ToolSelector({
   selected,
   onChange,
   t,
-  autoPrompt
+  autoPrompt,
+  onAutoSelect
 }: {
   selected: string[];
   onChange: (tools: string[]) => void;
   t: (key: string) => string;
   autoPrompt?: string;
+  onAutoSelect?: () => Promise<string[]>;
 }) {
   const [query, setQuery] = useState('');
+  const [autoSelecting, setAutoSelecting] = useState(false);
   const normalized = query.trim().toLowerCase();
   const selectedSet = new Set(selected);
   const inferredTools = useMemo(() => inferAgentToolsFromPrompt(autoPrompt || ''), [autoPrompt]);
@@ -94,6 +98,19 @@ function ToolSelector({
     onChange(selectedSet.has(toolId) ? selected.filter(item => item !== toolId) : [...selected, toolId]);
   };
 
+  const handleAutoSelect = async () => {
+    setAutoSelecting(true);
+    try {
+      const tools = onAutoSelect ? await onAutoSelect() : inferredTools;
+      onChange(tools);
+    } catch (error) {
+      console.error(error);
+      onChange(inferredTools);
+    } finally {
+      setAutoSelecting(false);
+    }
+  };
+
   return (
     <div className="mt-2 space-y-3">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2">
@@ -101,15 +118,15 @@ function ToolSelector({
           <div className="text-xs font-bold text-blue-200 flex items-center gap-1.5">
             <Sparkles className="w-3.5 h-3.5" /> {t('AI Auto Select Tools')}
           </div>
-          <p className="mt-1 text-[11px] text-slate-500">{t('Infer tools from the agent name and prompt, then keep editing manually if needed.')}</p>
+          <p className="mt-1 text-[11px] text-slate-500">{t('Use the configured AI model to infer tools from the agent name and prompt.')}</p>
         </div>
         <button
           type="button"
-          onClick={() => onChange(inferredTools)}
-          disabled={inferredTools.length === 0}
+          onClick={handleAutoSelect}
+          disabled={autoSelecting || (!onAutoSelect && inferredTools.length === 0)}
           className="shrink-0 rounded-md border border-blue-500/40 bg-blue-600/20 px-3 py-1.5 text-xs font-bold text-blue-200 hover:bg-blue-600/30 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-900 disabled:text-slate-500"
         >
-          {t('Auto Select')} {inferredTools.length > 0 ? `(${inferredTools.length})` : ''}
+          {autoSelecting ? t('Selecting...') : t('Auto Select')}
         </button>
       </div>
       <div className="flex flex-wrap gap-2 min-h-8">
@@ -186,9 +203,28 @@ function AgentModal({
   onSave: (agent: Omit<AgentHubAgent, 'createdAt' | 'updatedAt' | 'tasksCompleted'> | Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'>) => void;
 }) {
   const { language } = useStore();
+  const { token } = useAuthStore();
   const t = useTranslation(language);
   const [form, setForm] = useState(agent);
   const isEdit = 'id' in agent;
+  const selectToolsWithAI = async () => {
+    const state = useStore.getState();
+    const llmId = state.llmMappings.agent_tool_selection || state.activeLLMId;
+    const llmConfig = llmId ? state.llmConfigs.find(config => config.id === llmId) : null;
+    const response = await fetch('/api/agent-tools/select', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        agentName: form.name,
+        instructions: form.instructions,
+        availableTools: AGENT_TOOL_REGISTRY,
+        llmConfig
+      })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Failed to select tools');
+    return Array.isArray(data.tools) ? data.tools : [];
+  };
 
   return (
     <div className="fixed inset-0 z-[90] bg-black/70 flex items-center justify-center p-4">
@@ -233,7 +269,7 @@ function AgentModal({
           </label>
           <label className="block">
             <span className="text-sm text-slate-200">{t('Tools')}</span>
-            <ToolSelector selected={form.tools || []} onChange={tools => setForm({ ...form, tools })} t={t} autoPrompt={`${form.name} ${form.instructions}`} />
+            <ToolSelector selected={form.tools || []} onChange={tools => setForm({ ...form, tools })} t={t} autoPrompt={`${form.name} ${form.instructions}`} onAutoSelect={selectToolsWithAI} />
           </label>
           <label className="block">
             <span className="text-sm text-slate-200">{t('Context Suggestions')}</span>
@@ -367,6 +403,7 @@ function AgentConfigPanel({
   onSave: (agent: Omit<AgentHubAgent, 'createdAt' | 'updatedAt' | 'tasksCompleted'> | Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'>) => void;
 }) {
   const { language } = useStore();
+  const { token } = useAuthStore();
   const t = useTranslation(language);
   const [form, setForm] = useState(agent);
   const isEdit = 'id' in agent;
@@ -374,6 +411,25 @@ function AgentConfigPanel({
   React.useEffect(() => {
     setForm(agent);
   }, [agent]);
+
+  const selectToolsWithAI = async () => {
+    const state = useStore.getState();
+    const llmId = state.llmMappings.agent_tool_selection || state.activeLLMId;
+    const llmConfig = llmId ? state.llmConfigs.find(config => config.id === llmId) : null;
+    const response = await fetch('/api/agent-tools/select', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        agentName: form.name,
+        instructions: form.instructions,
+        availableTools: AGENT_TOOL_REGISTRY,
+        llmConfig
+      })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Failed to select tools');
+    return Array.isArray(data.tools) ? data.tools : [];
+  };
 
   return (
     <section className="bg-neutral-900/80 border border-neutral-700 rounded-lg overflow-hidden">
@@ -426,7 +482,7 @@ function AgentConfigPanel({
         </label>
         <label className="block">
           <span className="text-sm text-slate-200">{t('Tools')}</span>
-          <ToolSelector selected={form.tools || []} onChange={tools => setForm({ ...form, tools })} t={t} autoPrompt={`${form.name} ${form.instructions}`} />
+          <ToolSelector selected={form.tools || []} onChange={tools => setForm({ ...form, tools })} t={t} autoPrompt={`${form.name} ${form.instructions}`} onAutoSelect={selectToolsWithAI} />
         </label>
         <label className="block">
           <span className="text-sm text-slate-200">{t('Context Suggestions')}</span>

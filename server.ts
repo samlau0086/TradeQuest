@@ -530,6 +530,43 @@ Respond only with the draft or the direct output of the action requested. Do not
     }
   });
 
+  app.post("/api/agent-tools/select", authenticateToken, async (req: any, res) => {
+    try {
+      const { agentName = '', instructions = '', availableTools = [], llmConfig } = req.body;
+      if (!agentName && !instructions) return res.status(400).json({ error: "Missing agent prompt" });
+      const toolIds = new Set((Array.isArray(availableTools) ? availableTools : []).map((tool: any) => String(tool.id || '')));
+      const prompt = `You are configuring an AI agent inside a foreign trade CRM.
+Choose the tools this agent should be allowed to use based on its name and prompt.
+Select only tools from the provided registry. Do not invent tool IDs.
+Prefer the smallest sufficient tool set. Include outbound tools only if the prompt clearly needs sending messages, quotes, or follow-up execution.
+
+Agent name:
+${agentName}
+
+Agent prompt / instructions:
+${instructions}
+
+Available tool registry:
+${JSON.stringify(availableTools, null, 2)}
+
+Return JSON only:
+{
+  "tools": ["tool.id"],
+  "reason": "one short reason"
+}`;
+
+      const text = await callAI(prompt, llmConfig, true);
+      const parsed = JSON.parse(text || '{}');
+      const tools = Array.isArray(parsed.tools)
+        ? parsed.tools.map((id: any) => String(id)).filter((id: string) => toolIds.has(id))
+        : [];
+      res.json({ tools, reason: parsed.reason || '' });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to select agent tools" });
+    }
+  });
+
   // Workflow Auto-Planner
   app.post("/api/ai/plan-workflow", authenticateToken, async (req: any, res) => {
     try {
