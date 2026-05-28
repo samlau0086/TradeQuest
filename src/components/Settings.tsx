@@ -522,19 +522,19 @@ export function Settings() {
               <div className="bg-slate-900 border border-slate-700/50 rounded-xl p-4 md:p-6 space-y-6">
                 <div>
                   <label className="text-sm font-bold text-slate-300 block mb-2">
-                    AI Agent Auto Follow-up Polling Interval (Hours)
+                    AI Agent Auto Polling Interval (Seconds)
                   </label>
                   <div className="flex items-center gap-4">
                     <input
                       type="number"
                       min="1"
-                      placeholder="e.g. 24"
-                      value={globalSettings.agent_polling_interval_hours || ''}
-                      onChange={e => handleSaveGlobalSetting('agent_polling_interval_hours', e.target.value)}
+                      placeholder="e.g. 3600"
+                      value={globalSettings.agent_polling_interval_seconds ?? (globalSettings.agent_polling_interval_hours ? Number(globalSettings.agent_polling_interval_hours) * 3600 : '')}
+                      onChange={e => handleSaveGlobalSetting('agent_polling_interval_seconds', e.target.value)}
                       className="w-32 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
                     />
                     <p className="text-xs text-slate-500">
-                      Determines how frequently the backend checks for enabled agents to run. (e.g., 24 means once per day). Leave empty to disable.
+                      Determines how frequently the backend checks enabled auto follow-up agents per client. (e.g., 3600 means once per hour). Leave empty to disable.
                     </p>
                   </div>
                 </div>

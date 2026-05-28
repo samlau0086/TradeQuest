@@ -1625,18 +1625,21 @@ No markdown wrappers, just valid JSON.`;
   const runAgentPolling = async () => {
     try {
       if (!pool) return;
-      const settingsRes = await pool.query("SELECT value FROM global_settings WHERE key = 'agent_polling_interval_hours'");
+      const settingsRes = await pool.query("SELECT key, value FROM global_settings WHERE key IN ('agent_polling_interval_seconds', 'agent_polling_interval_hours')");
       if (settingsRes.rows.length === 0) return; // Not configured yet
-      const intervalHours = parseFloat(settingsRes.rows[0].value);
-      if (isNaN(intervalHours) || intervalHours <= 0) return;
+      const settings = settingsRes.rows.reduce((acc: Record<string, any>, row: any) => ({ ...acc, [row.key]: row.value }), {});
+      const intervalSeconds = settings.agent_polling_interval_seconds !== undefined
+        ? parseFloat(settings.agent_polling_interval_seconds)
+        : parseFloat(settings.agent_polling_interval_hours) * 3600;
+      if (isNaN(intervalSeconds) || intervalSeconds <= 0) return;
 
       const clientsRes = await pool.query(`
         SELECT c.*, u.settings as user_settings 
         FROM clients c
         JOIN users u ON c.user_id = u.id
         WHERE c.agent_enabled = TRUE 
-          AND (c.agent_last_run IS NULL OR c.agent_last_run < NOW() - INTERVAL '1 hour' * $1)
-      `, [intervalHours]);
+          AND (c.agent_last_run IS NULL OR c.agent_last_run < NOW() - INTERVAL '1 second' * $1)
+      `, [intervalSeconds]);
 
       for (const client of clientsRes.rows) {
         try {
@@ -1780,8 +1783,8 @@ No markdown wrappers, just valid JSON.`;
     }
   };
 
-  // Run agent polling every 10 minutes
-  setInterval(runAgentPolling, 10 * 60 * 1000);
+  // Run agent polling frequently; per-client eligibility is controlled by agent_polling_interval_seconds.
+  setInterval(runAgentPolling, 5 * 1000);
   
   // Scheduled Emails Processor
   const processScheduledEmails = async () => {
@@ -2922,7 +2925,7 @@ No markdown wrappers, just valid JSON.`;
   // Public Settings
   app.get('/api/settings/public', authenticateToken, async (req: any, res) => {
     try {
-      const result = await pool.query('SELECT * FROM global_settings WHERE key LIKE \'exp_%\' OR key = \'agent_polling_interval_hours\'');
+      const result = await pool.query('SELECT * FROM global_settings WHERE key LIKE \'exp_%\' OR key IN (\'agent_polling_interval_seconds\', \'agent_polling_interval_hours\')');
       const settings = result.rows.reduce((acc, row) => ({ ...acc, [row.key]: typeof row.value === 'string' ? JSON.parse(row.value) : row.value }), {});
       res.json(settings);
     } catch (e) {
