@@ -142,23 +142,42 @@ Use these tool identifiers when configuring agents in **Agent Hub**. Keep custom
 | --- | --- |
 | `global_agent.plan` | Generate a cross-system acquisition and conversion plan for human review. |
 | `lead.acquire` | Search and retrieve external lead data from configured lead channels; does not create CRM records by itself. |
-| `lead.create` | Create a single CRM lead or client record from validated lead data. |
+| `lead.read` | Read lead profile, stage, score, comments, growth logs, and related activity. |
+| `lead.create` | Create a single CRM lead from validated lead data. |
+| `lead.update` | Update lead profile fields, stage, tags, score, summary, and next step. |
+| `lead.delete` | Delete or archive a lead record. |
+| `lead.comment` | Add internal comments or replies to a lead. |
+| `lead.log` | Add lead-level growth logs, activity notes, and timeline events. |
+| `lead.stage` | Move a lead through the pipeline without changing the client-level status. |
+| `lead.tag` | Add, update, or remove lead-level tags. |
 | `lead.enrich` | Enrich lead or client data through configured enrichment providers. |
 | `public_pool.import` | Import acquired leads into the public lead pool. |
+| `client.read` | Read client profile, contact methods, preferences, comments, and activity context. |
+| `client.create` | Create a new client or convert a qualified lead into a client record. |
+| `client.update` | Update client profile fields, contact methods, preferences, tags, and ownership. |
+| `client.delete` | Delete, archive, or move a client record out of the active CRM. |
+| `client.comment` | Add internal comments to client records. |
+| `client.log` | Add client-level growth logs, activity notes, and timeline events. |
+| `client.stage` | Update client pipeline stage. |
+| `client.tag` | Add, update, or remove tags on a client record. |
 | `client.dedupe` | Detect and avoid duplicate client or lead records. |
 | `data.normalize` | Normalize imported lead fields, contact methods, country, and tags. |
 | `lead.analyze` | Analyze a lead or client using CRM history, messages, and context. |
 | `lead.score` | Score lead quality and conversion potential. |
 | `client.summarize` | Generate or update internal client summaries. |
 | `next_step.recommend` | Recommend the best next follow-up action. |
-| `email.send` | Draft, schedule, or send email through configured outbox rules. |
+| `email.read` | Read inbox, sent, scheduled, draft, and conversation email records. |
+| `email.draft` | Create or update an email draft without sending it. |
+| `email.schedule` | Schedule an email to be sent later through configured outbox rules. |
+| `email.send` | Send email through configured outbox rules. |
+| `email.delete` | Delete or archive email records from the unified inbox. |
+| `email.tag` | Add, update, or remove tags on email messages or threads. |
+| `email.comment` | Add internal comments or replies to email messages. |
+| `email.reply` | Draft, schedule, or send replies in an existing email conversation. |
 | `whatsapp.read` | Read WhatsApp conversation history from the unified inbox cache. |
 | `whatsapp.send` | Draft, schedule, or send WhatsApp messages through WhatsApp Actor Hub. |
 | `conversation.tag` | Add or update tags on WhatsApp conversations. |
 | `conversation.comment` | Add internal comments to WhatsApp conversations. |
-| `client.comment` | Add internal comments to client records. |
-| `client.stage` | Update client pipeline stage. |
-| `client.update` | Update client profile fields and contact methods. |
 | `product.read` | Read product catalog details, SKUs, descriptions, pricing, and bulk price rules. |
 | `product.create` | Create a new product catalog item. |
 | `product.update` | Update product catalog details, pricing, images, and bulk price rules. |
@@ -321,23 +340,42 @@ Global Agent action types used by **Agent Execution Policy**:
 | --- | --- |
 | `global_agent.plan` | 生成跨系统获客与转化计划，供人工审核。 |
 | `lead.acquire` | 按 campaign 条件和数据渠道搜索并获取外部 lead 数据；此工具本身不会创建 CRM 记录。 |
-| `lead.create` | 根据已验证的 lead 数据创建单个 CRM 线索或客户记录。 |
+| `lead.read` | 读取 lead 资料、阶段、评分、comments、Growth Logs 和相关活动。 |
+| `lead.create` | 根据已验证的 lead 数据创建单个 CRM 线索。 |
+| `lead.update` | 更新 lead 资料字段、阶段、标签、评分、摘要和下一步。 |
+| `lead.delete` | 删除或归档 lead 记录。 |
+| `lead.comment` | 给 lead 添加内部 comments 或回复。 |
+| `lead.log` | 添加 lead 级 Growth Logs、活动备注和时间线事件。 |
+| `lead.stage` | 移动 lead 管线阶段，不改变 client 级状态。 |
+| `lead.tag` | 添加、更新或移除 lead 级标签。 |
 | `lead.enrich` | 通过已配置的数据补全渠道补全 lead 或客户资料。 |
 | `public_pool.import` | 将获取到的 lead 导入公海。 |
+| `client.read` | 读取客户资料、联系方式、偏好、comments 和活动上下文。 |
+| `client.create` | 创建新客户，或将合格 lead 转为客户记录。 |
+| `client.update` | 更新客户资料字段、联系方式、偏好、标签和归属。 |
+| `client.delete` | 删除、归档或将客户移出活跃 CRM。 |
+| `client.comment` | 给客户记录添加内部 comments。 |
+| `client.log` | 添加客户级 Growth Logs、活动备注和时间线事件。 |
+| `client.stage` | 更新客户管线阶段。 |
+| `client.tag` | 添加、更新或移除客户标签。 |
 | `client.dedupe` | 检测并避免重复客户或重复 lead。 |
 | `data.normalize` | 标准化导入字段、联系方式、国家和标签。 |
 | `lead.analyze` | 基于 CRM 历史、消息和上下文分析 lead 或客户。 |
 | `lead.score` | 给 lead 质量和转化潜力打分。 |
 | `client.summarize` | 生成或更新内部客户摘要。 |
 | `next_step.recommend` | 推荐最佳下一步跟进动作。 |
-| `email.send` | 通过已配置发件箱起草、定时或发送邮件。 |
+| `email.read` | 读取收件、已发送、定时、草稿和会话邮件记录。 |
+| `email.draft` | 创建或更新邮件草稿，不发送。 |
+| `email.schedule` | 通过已配置发件规则定时发送邮件。 |
+| `email.send` | 通过已配置发件规则发送邮件。 |
+| `email.delete` | 从统一收件箱删除或归档邮件记录。 |
+| `email.tag` | 添加、更新或移除邮件或邮件线程标签。 |
+| `email.comment` | 给邮件添加内部 comments 或回复。 |
+| `email.reply` | 在已有邮件会话中起草、定时或发送回复。 |
 | `whatsapp.read` | 从统一收件箱缓存读取 WhatsApp 对话历史。 |
 | `whatsapp.send` | 通过 WhatsApp Actor Hub 起草、定时或发送 WhatsApp 消息。 |
 | `conversation.tag` | 添加或更新 WhatsApp 对话标签。 |
 | `conversation.comment` | 给 WhatsApp 对话添加内部 comments。 |
-| `client.comment` | 给客户记录添加内部 comments。 |
-| `client.stage` | 更新客户管线阶段。 |
-| `client.update` | 更新客户资料和联系方式。 |
 | `product.read` | 读取产品目录详情、SKU、描述、价格和阶梯报价规则。 |
 | `product.create` | 创建新的产品目录条目。 |
 | `product.update` | 更新产品目录详情、价格、图片和阶梯报价规则。 |

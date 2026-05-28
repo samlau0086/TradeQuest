@@ -737,7 +737,7 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     instructions: 'Plan and coordinate CRM-wide lead acquisition, enrichment, follow-up, quotes, and conversion.',
     guardrail: 'review',
     status: 'active',
-    tools: ['global_agent.plan', 'lead.acquire', 'lead.create', 'lead.enrich', 'knowledge.search', 'product.read', 'email.send', 'whatsapp.send', 'quote.create', 'client.update'],
+    tools: ['global_agent.plan', 'lead.acquire', 'lead.read', 'lead.create', 'lead.update', 'lead.enrich', 'lead.comment', 'lead.log', 'knowledge.search', 'product.read', 'email.read', 'email.draft', 'email.schedule', 'email.send', 'whatsapp.send', 'quote.create', 'client.read', 'client.create', 'client.update', 'client.comment', 'client.log'],
     tasksCompleted: 0,
     scheduleEnabled: false,
     scheduleIntervalMinutes: 1440,
@@ -755,7 +755,7 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     instructions: 'Run account-level email and WhatsApp follow-up decisions using client history and workflow rules.',
     guardrail: 'human_loop',
     status: 'active',
-    tools: ['knowledge.search', 'product.read', 'email.send', 'whatsapp.send', 'client.comment', 'client.stage'],
+    tools: ['lead.read', 'lead.comment', 'lead.log', 'knowledge.search', 'product.read', 'email.read', 'email.draft', 'email.schedule', 'email.send', 'email.reply', 'whatsapp.send', 'client.read', 'client.comment', 'client.stage'],
     tasksCompleted: 0,
     scheduleEnabled: false,
     scheduleIntervalMinutes: 240,
@@ -809,7 +809,7 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     instructions: 'Acquire, create, import, enrich, deduplicate, and normalize lead data across configured data channels.',
     guardrail: 'auto',
     status: 'active',
-    tools: ['lead.acquire', 'lead.create', 'lead.enrich', 'public_pool.import', 'client.dedupe', 'data.normalize'],
+    tools: ['lead.acquire', 'lead.read', 'lead.create', 'lead.update', 'lead.enrich', 'lead.tag', 'lead.comment', 'lead.log', 'public_pool.import', 'client.dedupe', 'data.normalize'],
     tasksCompleted: 0,
     scheduleEnabled: false,
     scheduleIntervalMinutes: 720,
@@ -2353,7 +2353,7 @@ export const useStore = create<StoreState>((set, get) => ({
                       scheduleIntervalUnit: agent.scheduleIntervalUnit || 'minute',
                       scheduleRunCount: agent.scheduleRunCount || 0,
                       instructions: 'Acquire, create, import, enrich, deduplicate, and normalize lead data across configured data channels.',
-                      tools: ['lead.acquire', 'lead.create', 'lead.enrich', 'public_pool.import', 'client.dedupe', 'data.normalize']
+                      tools: ['lead.acquire', 'lead.read', 'lead.create', 'lead.update', 'lead.enrich', 'lead.tag', 'lead.comment', 'lead.log', 'public_pool.import', 'client.dedupe', 'data.normalize']
                     }
                   : {
                       ...agent,

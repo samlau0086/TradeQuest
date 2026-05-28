@@ -9,13 +9,13 @@ const AGENTS = [
     id: 'global_agent',
     name: 'Global Conversion Agent',
     goal: 'Plan and coordinate CRM-wide lead acquisition, enrichment, follow-up, quotes, and conversion.',
-    tools: ['global_agent.plan', 'lead.acquire', 'lead.create', 'lead.enrich', 'knowledge.search', 'product.read', 'email.send', 'whatsapp.send', 'quote.create', 'client.update']
+    tools: ['global_agent.plan', 'lead.acquire', 'lead.read', 'lead.create', 'lead.update', 'lead.enrich', 'lead.comment', 'lead.log', 'knowledge.search', 'product.read', 'email.read', 'email.draft', 'email.schedule', 'email.send', 'whatsapp.send', 'quote.create', 'client.read', 'client.create', 'client.update', 'client.comment', 'client.log']
   },
   {
     id: 'follow_up_agent',
     name: 'AI Follow-Up Agent',
     goal: 'Run account-level email and WhatsApp follow-up decisions using client history and workflow rules.',
-    tools: ['knowledge.search', 'product.read', 'email.send', 'whatsapp.send', 'client.comment', 'client.stage']
+    tools: ['lead.read', 'lead.comment', 'lead.log', 'knowledge.search', 'product.read', 'email.read', 'email.draft', 'email.schedule', 'email.send', 'email.reply', 'whatsapp.send', 'client.read', 'client.comment', 'client.stage']
   },
   {
     id: 'whatsapp_agent',
@@ -33,7 +33,7 @@ const AGENTS = [
     id: 'lead_data_agent',
     name: 'Lead Data Agent',
     goal: 'Acquire, import, enrich, deduplicate, and normalize lead data across configured data channels.',
-    tools: ['lead.acquire', 'lead.create', 'lead.enrich', 'public_pool.import', 'client.dedupe', 'data.normalize']
+    tools: ['lead.acquire', 'lead.read', 'lead.create', 'lead.update', 'lead.enrich', 'lead.tag', 'lead.comment', 'lead.log', 'public_pool.import', 'client.dedupe', 'data.normalize']
   }
 ];
 
