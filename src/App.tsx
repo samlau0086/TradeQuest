@@ -27,7 +27,7 @@ import { MediaLibrary } from './components/MediaLibrary';
 import { NotificationCenter } from './components/NotificationCenter';
 import { AgentHub } from './components/AgentHub';
 import { getViewForPath, syncViewToUrl } from './lib/viewRoutes';
-import { getOutboundLanguage } from './lib/language';
+import { getCustomerOutputLanguage } from './lib/language';
 import { buildLeadScoringSignature, hasLeadScoringResult } from './lib/leadScoring';
 import { buildAgentInputSignature } from './lib/agentIdempotency';
 
@@ -111,6 +111,7 @@ async function executeLeadScoringAgentRun(agent: AgentHubAgent) {
       .filter(email => email.clientId === client.id)
       .slice(0, 10)
       .map(email => ({ date: email.date, type: email.type, subject: email.subject, body: email.body?.slice(0, 800) }));
+    const latestCustomerEmail = clientEmails.find(email => email.type === 'inbox' || email.type === 'inbound') || clientEmails[0];
 
     try {
       const res = await fetch('/api/chat/icebreaker', {
@@ -126,7 +127,11 @@ async function executeLeadScoringAgentRun(agent: AgentHubAgent) {
           llmConfig: getLLMConfigForModule('analysis'),
           embeddingLlmConfig: getLLMConfigForModule('embedding'),
           systemLanguage: state.language === 'zh' ? 'Chinese' : 'English',
-          outboundLanguage: getOutboundLanguage(client.preferredLanguage, client.country)
+          outboundLanguage: getCustomerOutputLanguage({
+            lastCommunicationText: latestCustomerEmail?.body,
+            preferredLanguage: client.preferredLanguage,
+            country: client.country
+          })
         })
       });
       const data = await res.json();
@@ -229,14 +234,17 @@ export default function App() {
           }
 
           const reviewStatus = agent.guardrail === 'auto' ? 'approved' : 'pending_review';
+          const isZh = state.language === 'zh';
           const objective = agent.id === 'follow_up_agent'
             ? `Scheduled run for ${agent.name}: ${agent.instructions}. Use Lead Scoring Agent outputs when available and do not repeat lead scoring or lead summaries.`
             : `Scheduled run for ${agent.name}: ${agent.instructions}`;
           const expectedResult = agent.id === 'global_agent'
-            ? 'Create or update a Global Agent plan for conversion coordination.'
+            ? (isZh ? '创建或更新全局 Agent 转化协同计划。' : 'Create or update a Global Agent plan for conversion coordination.')
             : agent.id === 'lead_scoring_agent'
-              ? 'Scan eligible leads, skip unchanged leads, and update score/summary/next step when needed.'
-              : `Run the configured ${agent.name} workflow after approval: read eligible customer context, check idempotency and risk rules, generate channel-appropriate outbound content, execute permitted tools (${agent.tools.join(', ') || 'agent tools'}), update CRM logs/status, and report scanned/acted/skipped/failed counts.`;
+              ? (isZh ? '扫描符合条件的线索，跳过未变化线索，并在需要时更新评分、摘要和最佳下一步。' : 'Scan eligible leads, skip unchanged leads, and update score/summary/next step when needed.')
+              : (isZh
+                ? `审核通过后执行 ${agent.name} 的配置工作流：读取符合条件的客户上下文，检查幂等和风险规则，生成适合渠道的外发内容，执行已授权工具（${agent.tools.join(', ') || 'agent tools'}），更新 CRM 日志/状态，并汇总扫描、执行、跳过、失败数量。`
+                : `Run the configured ${agent.name} workflow after approval: read eligible customer context, check idempotency and risk rules, generate channel-appropriate outbound content, execute permitted tools (${agent.tools.join(', ') || 'agent tools'}), update CRM logs/status, and report scanned/acted/skipped/failed counts.`);
           const runRecordId = state.addAgentRunRecord({
             agentId: agent.id,
             agentName: agent.name,
@@ -282,12 +290,14 @@ export default function App() {
               });
             }
             let actualResult = reviewStatus === 'approved'
-              ? 'Scheduled run was auto-approved according to guardrail policy.'
-              : 'Scheduled run created and waiting for human approval.';
+              ? (isZh ? '定期运行已根据护栏策略自动批准。' : 'Scheduled run was auto-approved according to guardrail policy.')
+              : (isZh ? '定期运行已创建，正在等待人工审核。' : 'Scheduled run created and waiting for human approval.');
 
             if (agent.id === 'lead_scoring_agent' && reviewStatus === 'approved') {
               const result = await executeLeadScoringAgentRun(agent);
-              actualResult = `Lead scoring scanned ${result.scanned} lead(s), scored ${result.scored}, skipped ${result.skipped}, failed ${result.failed}.`;
+              actualResult = isZh
+                ? `线索评分已扫描 ${result.scanned} 个线索，评分 ${result.scored} 个，跳过 ${result.skipped} 个，失败 ${result.failed} 个。`
+                : `Lead scoring scanned ${result.scanned} lead(s), scored ${result.scored}, skipped ${result.skipped}, failed ${result.failed}.`;
             }
 
             state.updateAgentRunRecord(runRecordId, {

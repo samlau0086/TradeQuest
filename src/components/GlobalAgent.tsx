@@ -3,6 +3,7 @@ import { Bot, CheckCircle2, ClipboardCheck, Loader2, Play, ShieldCheck, Sparkles
 import { useAuthStore } from '../authStore';
 import { AgentExecutionMode, AgentExecutionRisk, ClientStatus, GlobalAgentPlan, GlobalAgentPlanStep, LeadCampaign, LeadDataProvider, useStore } from '../store';
 import { buildAgentInputSignature } from '../lib/agentIdempotency';
+import { buildLanguagePolicy, getCustomerOutputLanguage } from '../lib/language';
 
 const DEFAULT_OBJECTIVES = {
   en: 'Acquire high-quality leads and create an execution plan from public-pool claiming through first touch and ongoing conversion.',
@@ -206,6 +207,14 @@ export function GlobalAgent() {
       company: c.company,
       status: c.status,
       country: c.country,
+      preferredLanguage: c.preferredLanguage,
+      customerOutputLanguage: getCustomerOutputLanguage({
+        lastCommunicationText: emails
+          .filter(e => e.clientId === c.id && (e.type === 'inbox' || e.type === 'inbound'))
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]?.body,
+        preferredLanguage: c.preferredLanguage,
+        country: c.country
+      }),
       tags: c.tags,
       contactMethods: c.contactMethods
     })),
@@ -281,8 +290,10 @@ export function GlobalAgent() {
       const prompt = `You are the Global Agent for a CRM. Your core goal is acquiring leads and converting leads.
 You may plan across all system functions, but execution must wait for human approval.
 Language rules:
-- Internal planning fields such as summary, step title, description, comments, and CRM notes must use ${language === 'zh' ? 'Chinese' : 'English'}.
-- Outbound customer-facing payload fields such as email body, WhatsApp body, and email subject must use the target client's preferredLanguage. If preferredLanguage is missing, use English.
+${buildLanguagePolicy({ systemLanguage: language })}
+- Internal planning fields include summary, step title, description, comments, and CRM notes.
+- Outbound customer-facing payload fields include email body, WhatsApp body, email subject, quote/proposal text, and customer-visible attachments or notes.
+- When a payload targets a known client, use that client's customerOutputLanguage from context.
 Return JSON only:
 {
   "summary": "short summary",

@@ -22,7 +22,7 @@ import { WorkflowConfigModal } from './WorkflowConfigModal';
 import { LocalTime } from './LocalTime';
 import { ComposeEmail } from './Inbox';
 import { WhatsAppChatModal } from './WhatsAppChatModal';
-import { getOutboundLanguage } from '../lib/language';
+import { getCustomerOutputLanguage } from '../lib/language';
 import { buildLeadScoringSignature } from '../lib/leadScoring';
 
 function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { method: ContactMethod, client: Client, onClose: () => void, onOpenEmailCompose?: (email: string) => void }) {
@@ -39,7 +39,14 @@ function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { met
     const id = llmMappings[module] || activeLLMId;
     return llmConfigs.find(l => l.id === id) || null;
   };
-  const outboundLanguage = getOutboundLanguage(client.preferredLanguage, client.country);
+  const latestCustomerEmail = emails
+    .filter(e => e.clientId === client.id && (e.type === 'inbox' || e.type === 'inbound'))
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+  const outboundLanguage = getCustomerOutputLanguage({
+    lastCommunicationText: latestCustomerEmail?.body,
+    preferredLanguage: client.preferredLanguage,
+    country: client.country,
+  });
 
   const generatePurpose = async () => {
     setLoadingPurpose(true);
@@ -83,7 +90,7 @@ function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { met
           'Authorization': `Bearer ${useAuthStore.getState().token}`
         },
         body: JSON.stringify({ 
-          command: `Draft a very short professional outbound message to the client on ${method.type}. Purpose: ${purpose}. Output language: ${outboundLanguage}. If the customer has no preferred language configured, use the official language of the customer's country; if country is missing, use English.`, 
+          command: `Draft a very short professional outbound message to the client on ${method.type}. Purpose: ${purpose}. Customer-facing output language: ${outboundLanguage}. This language was resolved by priority: last customer communication language > client preferred language > official country/region language > English. Return only the customer-facing draft.`, 
           context: { client, outboundLanguage, clientPreferredLanguage: client.preferredLanguage || null },
           llmConfig: getLLMConfig('drafting')
         })
@@ -292,7 +299,7 @@ function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { met
 }
 
 function AgentSettingsModal({ client, onClose }: { client: Client, onClose: () => void }) {
-  const { editClient, agentWorkflows, addQuest } = useStore();
+  const { editClient, agentWorkflows, addQuest, emails } = useStore();
   const [enabled, setEnabled] = useState(client.agentEnabled || false);
   const [mode, setMode] = useState<'manual'|'auto_email'>(client.agentMode || 'manual');
   const [context, setContext] = useState(client.agentContext || '');
@@ -313,8 +320,16 @@ function AgentSettingsModal({ client, onClose }: { client: Client, onClose: () =
     
     // Auto-schedule non-email steps if enabled and auto email mode
     if (enabled && mode === 'auto_email' && selectedWf && hasNonEmailSteps) {
+        const latestCustomerEmail = emails
+          .filter(e => e.clientId === client.id && (e.type === 'inbox' || e.type === 'inbound'))
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+        const customerLanguage = getCustomerOutputLanguage({
+          lastCommunicationText: latestCustomerEmail?.body,
+          preferredLanguage: client.preferredLanguage,
+          country: client.country,
+        });
         selectedWf.steps.filter(s => s.type !== 'email').forEach((step, idx) => {
-         const languageInstruction = `Language: Write outbound content in ${getOutboundLanguage(client.preferredLanguage, client.country)}. If the customer has no preferred language configured, use the official language of the customer's country; if country is missing, use English.`;
+         const languageInstruction = `Language: Write customer-facing outbound content in ${customerLanguage}. This was resolved by priority: last customer communication language > client preferred language > official country/region language > English.`;
          
          addQuest({
             title: `[Agent] Follow up via ${step.type} (${client.name})`,
@@ -500,7 +515,6 @@ export function ClientDetails() {
         body: JSON.stringify({
           llmConfig: getLLMConfig('analysis'),
           systemLanguage: useStore.getState().language === 'zh' ? 'Chinese' : 'English',
-          outboundLanguage: getOutboundLanguage(client.preferredLanguage, client.country)
         })
       });
       const data = await res.json();
@@ -542,7 +556,6 @@ export function ClientDetails() {
           llmConfig: getLLMConfig('analysis'),
           embeddingLlmConfig: getLLMConfig('embedding'),
           systemLanguage: useStore.getState().language === 'zh' ? 'Chinese' : 'English',
-          outboundLanguage: getOutboundLanguage(client.preferredLanguage, client.country)
         })
       });
       const data = await res.json();

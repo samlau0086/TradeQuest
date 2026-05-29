@@ -3,9 +3,10 @@ import { useStore, AgentWorkflow, WorkflowStep } from '../store';
 import { X, Plus, Trash2, Edit2, Check, Sparkles, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuthStore } from '../authStore';
+import { getCustomerOutputLanguage } from '../lib/language';
 
 export function WorkflowConfigModal({ onClose, clientId }: { onClose: () => void, clientId?: string }) {
-  const { agentWorkflows, addAgentWorkflow, updateAgentWorkflow, deleteAgentWorkflow, llmConfigs, activeLLMId, clients } = useStore();
+  const { agentWorkflows, addAgentWorkflow, updateAgentWorkflow, deleteAgentWorkflow, llmConfigs, activeLLMId, clients, emails } = useStore();
   const [editingWfId, setEditingWfId] = useState<string | null>(null);
   const [formData, setFormData] = useState<Partial<AgentWorkflow>>({});
   
@@ -24,9 +25,18 @@ export function WorkflowConfigModal({ onClose, clientId }: { onClose: () => void
         const methods = client.contactMethods || [];
         const hasEmail = methods.some(m => m.type === 'email' && m.value);
         const hasPhone = methods.some(m => ['whatsapp', 'phone', 'call', 'mobile', 'wechat'].includes(m.type) && m.value);
+        const latestCustomerEmail = emails
+          .filter(e => e.clientId === client.id && (e.type === 'inbox' || e.type === 'inbound'))
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+        const customerLanguage = getCustomerOutputLanguage({
+          lastCommunicationText: latestCustomerEmail?.body,
+          preferredLanguage: client.preferredLanguage,
+          country: client.country,
+        });
         clientContext = `CRITICAL ASSISTANT RULE: You are planning a workflow tailored for a specific client.
 The client has the following contact methods: Email (${hasEmail ? 'Yes' : 'No'}), Phone/WhatsApp (${hasPhone ? 'Yes' : 'No'}). If they do not have a phone/WhatsApp contact, you MUST NOT include 'call' or 'whatsapp' steps. Only include steps for contact methods they actually have.
-Client's Preferred Language: ${client.preferredLanguage || 'Auto-detect or English'}
+Customer-facing output language for this client: ${customerLanguage}
+Language priority used for customer-facing content: last customer communication language > client preferred language > official country/region language > English.
 Client's Preferred Communication Time: ${client.preferredTimeRange || 'Any time'} (in Client's Local Time)
 When outputting steps, take the client's language and preferred time range into account. IMPORTANT: All time references and the 'sendTime' provided MUST be strictly planned in the Client's Local Time, NOT Beijing time. The step's 'sendTime' should try to match the preferred communication time if applicable. If 'sendTime' is provided, format it as "HH:mm".`;
       }

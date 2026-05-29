@@ -76,6 +76,46 @@ const getOutboundLanguage = (preferredLanguage?: string, country?: string) => {
   return COUNTRY_LANGUAGE_OVERRIDES[normalizedCountry] || 'English';
 };
 
+const getSystemLanguageName = (language?: string) => language === 'zh' ? 'Chinese' : 'English';
+
+const inferCommunicationLanguage = (text?: string | null) => {
+  const sample = (text || '').trim();
+  if (!sample) return '';
+  if (/[\u4e00-\u9fff]/.test(sample)) return 'Chinese';
+  if (/[\u3040-\u30ff]/.test(sample)) return 'Japanese';
+  if (/[\uac00-\ud7af]/.test(sample)) return 'Korean';
+  if (/[\u0400-\u04ff]/.test(sample)) return 'Russian or Ukrainian';
+  if (/[\u0600-\u06ff]/.test(sample)) return 'Arabic';
+  if (/[¿¡ñáéíóúü]/i.test(sample)) return 'Spanish';
+  if (/[àâçéèêëîïôùûüÿœ]/i.test(sample)) return 'French';
+  if (/[äöüß]/i.test(sample)) return 'German';
+  if (/[ãõç]/i.test(sample)) return 'Portuguese';
+  return '';
+};
+
+const getCustomerOutputLanguage = (input: {
+  lastCommunicationLanguage?: string | null;
+  lastCommunicationText?: string | null;
+  preferredLanguage?: string | null;
+  country?: string | null;
+}) => {
+  const last = input.lastCommunicationLanguage?.trim();
+  if (last) return last;
+  const inferred = inferCommunicationLanguage(input.lastCommunicationText);
+  if (inferred) return inferred;
+  return getOutboundLanguage(input.preferredLanguage || undefined, input.country || undefined);
+};
+
+const buildLanguagePolicy = (input: { systemLanguage?: string; customerLanguage?: string }) => {
+  const internalLanguage = getSystemLanguageName(input.systemLanguage);
+  const customerLanguage = input.customerLanguage || 'the customer language resolved by policy';
+  return [
+    `Internal-facing output for CRM users MUST be written in ${internalLanguage}.`,
+    `Customer-facing output such as email, WhatsApp, quotes, proposal text, and externally visible notes MUST be written in ${customerLanguage}.`,
+    'Customer-facing language priority is: last communication language > client preferred language > official language of client country/region > English.'
+  ].join('\n');
+};
+
 const countryNameFromCode = (code?: string) => {
   if (!code) return '';
   try {
@@ -551,6 +591,8 @@ async function startServer() {
       const prompt = `You are an AI assistant in a Foreign Trade CRM. 
 User executed magic command: "${command}". 
 Client Context: ${JSON.stringify(context)}.
+Language policy:
+${buildLanguagePolicy({ systemLanguage: context?.systemLanguage, customerLanguage: context?.customerLanguage || context?.outboundLanguage })}
 Knowledge Base (RAG):
 ${kbRes.rows.map(kb => `[${kb.title}]\n${kb.content}`).join('\n\n')}
 If the command asks to draft a WhatsApp message, write a concise, natural, conversational WhatsApp message that respects the customer preferences, prior records, recent conversation, and RAG context. Do not format it like an email.
@@ -636,8 +678,9 @@ Return JSON only:
 Generate a clear, operational "Prompt / Instructions" block for this agent.
 
 Language:
-- Write the instructions in ${systemLanguage}.
-- Keep customer-facing output rules explicit: outbound email/WhatsApp content should use the customer's preferred language, or the official language of the customer's country, or English if unknown.
+- Write internal-facing instructions, logs, summaries, comments for CRM users, and operational guidance in ${systemLanguage}.
+- Include this policy in the generated agent instructions:
+${buildLanguagePolicy({ systemLanguage })}
 
 Agent name:
 ${agentName || '(not set)'}
@@ -715,15 +758,21 @@ No markdown wrappers, just valid JSON.`;
   app.post("/api/chat/icebreaker", authenticateToken, async (req: any, res) => {
     try {
       const { client, logs, emails, llmConfig, embeddingLlmConfig, systemLanguage = 'English', outboundLanguage } = req.body;
-      const resolvedOutboundLanguage = outboundLanguage || getOutboundLanguage(client?.preferredLanguage, client?.country);
+      const latestCustomerText = Array.isArray(emails) ? (emails.find((email: any) => ['inbox', 'inbound'].includes(email.type)) || emails[0])?.body : '';
+      const resolvedOutboundLanguage = outboundLanguage || getCustomerOutputLanguage({
+        lastCommunicationText: latestCustomerText,
+        preferredLanguage: client?.preferredLanguage,
+        country: client?.country
+      });
       
       const kbRes = await searchKnowledgeBase(req.user.uid, client?.id || null, `Icebreaker and follow up strategy for client in ${client?.company || 'foreign trade'}`, embeddingLlmConfig || llmConfig, 5);
       
       const prompt = `You are a savvy foreign trade AI assistant.
 Analyze this client and their recent logs.
 Language rules:
-- sentiment, leadSummary, leadNextStep, and summary are internal CRM outputs and MUST use ${systemLanguage}.
-- icebreaker is customer-facing outbound content and MUST use ${resolvedOutboundLanguage}. If no preferred language is configured, use the official language of the customer's country; if country is missing, use English.
+${buildLanguagePolicy({ systemLanguage, customerLanguage: resolvedOutboundLanguage })}
+- sentiment, leadSummary, leadNextStep, and summary are internal CRM outputs.
+- icebreaker is customer-facing outbound content.
 Client: ${JSON.stringify(client)}
 Logs: ${JSON.stringify(logs)}
 Emails: ${JSON.stringify(emails || [])}
@@ -1820,6 +1869,12 @@ No markdown wrappers, just valid JSON.`;
           const logsRes = await pool.query(`SELECT * FROM logs WHERE client_id = $1 ORDER BY date DESC LIMIT 5`, [client.id]);
           const productsRes = await pool.query(`SELECT * FROM products WHERE user_id = $1 ORDER BY created_at DESC LIMIT 5`, [client.user_id]); 
           const kbRes = await searchKnowledgeBase(client.user_id, client.id, `Agent follow up strategy for client in ${client.country || client.company || 'foreign trade'}`, undefined, 5);
+          const latestCustomerEmail = emailsRes.rows.find((email: any) => ['inbox', 'inbound'].includes(email.type)) || emailsRes.rows[0];
+          const resolvedOutboundLanguage = getCustomerOutputLanguage({
+            lastCommunicationText: latestCustomerEmail?.body,
+            preferredLanguage: client.preferred_language,
+            country: client.country
+          });
 
           let workflowInstructions = 'None specified.';
           if (selectedWf) {
@@ -1834,9 +1889,12 @@ Client Information:
 Name: ${client.name}
 Company: ${client.company}
 Country/Local Region: ${client.country || 'Unknown'} (Compute their local time based on this)
-Preferred Language: ${client.preferred_language || 'Auto-detect or English'}
+Preferred Language: ${client.preferred_language || 'Not configured'}
+Resolved Customer-Facing Language: ${resolvedOutboundLanguage}
 Preferred Comm Time: ${client.preferred_time_range || 'Any'} (This is in the Client's Local Time)
 Agent Context / Instructions: ${client.agent_context || 'None'}
+Language policy:
+${buildLanguagePolicy({ systemLanguage: userSettings.language, customerLanguage: resolvedOutboundLanguage })}
 Long-term Summary: ${client.agent_summary || 'None'}
 Lead Scoring Agent:
 - Lead Score: ${client.lead_score ?? 'Not scored yet'}
@@ -1861,6 +1919,7 @@ ${JSON.stringify(productsRes.rows)}
 
           const prompt = `${contextPrompt}
 Based on the above context, you must decide on the next best action to advance this lead. 
+Internal fields newSummary and suggestedNextStep must follow the internal system language. Customer-facing fields draftEmail and draftWhatsApp must follow the customer-facing output language policy.
 If the instruction is to "Stop on Meaningful Reply" and a meaningful reply has recently been received from the client, you MUST abort further follow ups (return an empty draftEmail and set suggestedNextStep to 'Stopped: received reply').
 If an email or WhatsApp message should be sent according to a workflow step, take note of its "delayDays" and "sendTime" (HH:mm form). Compute precisely when it should be sent in ISO format. IMPORTANT: you must calculate the ISO schedule time so that it hits the "sendTime" in the **Client's Local Time** (based on their Country/Local Region), rather than Beijing time or your system time. If no specific time is required, just send it immediately (leave the corresponding scheduled field empty).
 
@@ -2082,14 +2141,17 @@ No markdown wrappers, just valid JSON.`;
           }
 
           const reviewStatus = agent.guardrail === 'auto' ? 'approved' : 'pending_review';
+          const isZh = settings.language === 'zh';
           const objective = agent.id === 'follow_up_agent'
             ? `Scheduled run for ${agent.name}: ${agent.instructions}. Use Lead Scoring Agent outputs when available and do not repeat lead scoring or lead summaries.`
             : `Scheduled run for ${agent.name}: ${agent.instructions || ''}`;
           const expectedResult = agent.id === 'global_agent'
-            ? 'Create or update a Global Agent plan for conversion coordination.'
+            ? (isZh ? '创建或更新全局 Agent 转化协同计划。' : 'Create or update a Global Agent plan for conversion coordination.')
             : agent.id === 'lead_scoring_agent'
-              ? 'Scan eligible leads, skip unchanged leads, and update score/summary/next step when needed.'
-              : `Run the configured ${agent.name} workflow after approval: read eligible customer context, check idempotency and risk rules, generate channel-appropriate outbound content, execute permitted tools (${(agent.tools || []).join(', ') || 'agent tools'}), update CRM logs/status, and report scanned/acted/skipped/failed counts.`;
+              ? (isZh ? '扫描符合条件的线索，跳过未变化线索，并在需要时更新评分、摘要和最佳下一步。' : 'Scan eligible leads, skip unchanged leads, and update score/summary/next step when needed.')
+              : (isZh
+                ? `审核通过后执行 ${agent.name} 的配置工作流：读取符合条件的客户上下文，检查幂等和风险规则，生成适合渠道的外发内容，执行已授权工具（${(agent.tools || []).join(', ') || 'agent tools'}），更新 CRM 日志/状态，并汇总扫描、执行、跳过、失败数量。`
+                : `Run the configured ${agent.name} workflow after approval: read eligible customer context, check idempotency and risk rules, generate channel-appropriate outbound content, execute permitted tools (${(agent.tools || []).join(', ') || 'agent tools'}), update CRM logs/status, and report scanned/acted/skipped/failed counts.`);
           const startedRecord = addAgentHubRunRecordToSettings(settings, {
             agentId: agent.id,
             agentName: agent.name,
@@ -2148,8 +2210,8 @@ No markdown wrappers, just valid JSON.`;
             updateAgentHubRunRecordInSettings(settings, startedRecord.id, {
               status: reviewStatus,
               actualResult: reviewStatus === 'approved'
-                ? 'Backend scheduler created and auto-approved the agent run according to guardrail policy.'
-                : 'Backend scheduler created the agent run and is waiting for human approval.',
+                ? (isZh ? '后端调度器已创建该智能体运行，并根据护栏策略自动批准。' : 'Backend scheduler created and auto-approved the agent run according to guardrail policy.')
+                : (isZh ? '后端调度器已创建该智能体运行，正在等待人工审核。' : 'Backend scheduler created the agent run and is waiting for human approval.'),
               relatedRunId,
               relatedRunType,
               completedAt: new Date().toISOString()
@@ -2250,6 +2312,7 @@ No markdown wrappers, just valid JSON.`;
   };
 
   const executeAgentHubHarnessRun = async (userId: string, settings: any, runId: string) => {
+    const isZh = settings.language === 'zh';
     const runs = Array.isArray(settings.agentHarnessRuns) ? settings.agentHarnessRuns : [];
     const run = runs.find((item: any) => item.id === runId);
     if (!run) throw new Error('Agent Harness run not found');
@@ -2299,7 +2362,7 @@ No markdown wrappers, just valid JSON.`;
         const whatsappAddress = findContactValue(client, ['whatsapp', 'phone']);
         if ((canSendEmail && !emailAddress) && (canSendWhatsApp && !whatsappAddress)) {
           skipped += 1;
-          details.push(`${client.id}: skipped, no usable outbound contact.`);
+          details.push(isZh ? `${client.id}：已跳过，没有可用的外发联系方式。` : `${client.id}: skipped, no usable outbound contact.`);
           continue;
         }
 
@@ -2313,7 +2376,7 @@ No markdown wrappers, just valid JSON.`;
         );
         if (recentMarker.rows.length > 0) {
           skipped += 1;
-          details.push(`${client.id}: skipped by idempotency window.`);
+          details.push(isZh ? `${client.id}：已按幂等窗口跳过。` : `${client.id}: skipped by idempotency window.`);
           continue;
         }
 
@@ -2349,7 +2412,12 @@ No markdown wrappers, just valid JSON.`;
           5
         );
 
-        const outboundLanguage = getOutboundLanguage(client.preferred_language, client.country);
+        const latestCustomerMessage = emailsRes.rows.find((email: any) => ['inbox', 'inbound'].includes(email.type)) || emailsRes.rows[0];
+        const outboundLanguage = getCustomerOutputLanguage({
+          lastCommunicationText: latestCustomerMessage?.body,
+          preferredLanguage: client.preferred_language,
+          country: client.country
+        });
         const prompt = `You are executing a configured CRM Agent.
 Agent name: ${agent.name}
 Agent instructions:
@@ -2383,7 +2451,9 @@ Products:
 ${JSON.stringify(productsRes.rows, null, 2)}
 
 Rules:
-- Customer-facing email/WhatsApp content MUST use ${outboundLanguage}.
+${buildLanguagePolicy({ systemLanguage: settings.language, customerLanguage: outboundLanguage })}
+- Internal CRM fields include clientNote, clientUpdate, nextAction, run summaries, skip reasons, and risk notes.
+- Customer-facing fields include emailSubject, emailBody, whatsappBody, quote/proposal text, and any message visible to the customer.
 - Do not duplicate prior outreach. If no useful ice-breaking action is appropriate, set channel to "none".
 - If sensitive promotion/complaint/legal-risk content would be needed, set requiresApproval true and do not produce send-ready content.
 - Keep email concise and professional. Keep WhatsApp natural and shorter.
@@ -2411,7 +2481,9 @@ Return JSON only:
             );
           }
           skipped += 1;
-          details.push(`${client.id}: reviewed, no send${parsed.requiresApproval ? ' (needs approval)' : ''}.`);
+          details.push(isZh
+            ? `${client.id}：已分析，未发送${parsed.requiresApproval ? '（需要审批）' : ''}。`
+            : `${client.id}: reviewed, no send${parsed.requiresApproval ? ' (needs approval)' : ''}.`);
           continue;
         }
 
@@ -2438,7 +2510,7 @@ Return JSON only:
 
         if (sent.length === 0) {
           skipped += 1;
-          details.push(`${client.id}: no matching channel content generated.`);
+          details.push(isZh ? `${client.id}：未生成匹配渠道的内容。` : `${client.id}: no matching channel content generated.`);
           continue;
         }
 
@@ -2460,14 +2532,16 @@ Return JSON only:
         }
 
         acted += 1;
-        details.push(`${client.id}: sent ${sent.join(', ')}.`);
+        details.push(isZh ? `${client.id}：已发送 ${sent.join(', ')}。` : `${client.id}: sent ${sent.join(', ')}.`);
       } catch (error: any) {
         failed += 1;
-        details.push(`${client.id}: failed - ${error?.message || 'unknown error'}.`);
+        details.push(isZh ? `${client.id}：失败 - ${error?.message || '未知错误'}。` : `${client.id}: failed - ${error?.message || 'unknown error'}.`);
       }
     }
 
-    const resultText = `Workflow completed: scanned ${scanned} client(s), acted on ${acted}, skipped ${skipped}, failed ${failed}. ${details.slice(0, 8).join(' ')}`;
+    const resultText = isZh
+      ? `工作流已完成：扫描 ${scanned} 个客户，执行 ${acted} 个，跳过 ${skipped} 个，失败 ${failed} 个。${details.slice(0, 8).join(' ')}`
+      : `Workflow completed: scanned ${scanned} client(s), acted on ${acted}, skipped ${skipped}, failed ${failed}. ${details.slice(0, 8).join(' ')}`;
     run.status = failed > 0 && acted === 0 ? 'failed' : 'completed';
     run.completedAt = new Date().toISOString();
     run.steps = (run.steps || []).map((step: any) => ({
@@ -2506,7 +2580,7 @@ Return JSON only:
       settings.agentRunRecords = (settings.agentRunRecords || []).map((record: any) => record.relatedRunId === runId && record.relatedRunType === 'harness' ? {
         ...record,
         status: 'running',
-        actualResult: 'Human approved the planned agent run. Executing configured tools now.',
+        actualResult: settings.language === 'zh' ? '人工已批准该智能体运行，正在执行配置的工具。' : 'Human approved the planned agent run. Executing configured tools now.',
         updatedAt: new Date().toISOString()
       } : record);
 
@@ -3623,7 +3697,6 @@ Query: "${query}"`;
       const clientRes = await pool.query('SELECT * FROM clients WHERE id = $1 AND user_id = $2', [id, req.user.uid]);
       if (clientRes.rows.length === 0) return res.status(404).json({ error: 'Client not found' });
       const client = clientRes.rows[0];
-      const resolvedOutboundLanguage = outboundLanguage || getOutboundLanguage(client.preferred_language, client.country);
       
       if (!client.agent_enabled) {
         return res.status(400).json({ error: 'Agent is not enabled for this client' });
@@ -3634,6 +3707,12 @@ Query: "${query}"`;
       const logsRes = await pool.query(`SELECT * FROM logs WHERE client_id = $1 ORDER BY date DESC LIMIT 5`, [id]);
       const productsRes = await pool.query(`SELECT * FROM products WHERE user_id = $1 ORDER BY created_at DESC LIMIT 5`, [req.user.uid]); // Top 5 recent products for context
       const kbRes = await searchKnowledgeBase(req.user.uid, id, `Agent follow up strategy for client in ${client.country || client.company || 'foreign trade'}`, undefined, 5);
+      const latestCustomerEmail = emailsRes.rows.find((email: any) => ['inbox', 'inbound'].includes(email.type)) || emailsRes.rows[0];
+      const resolvedOutboundLanguage = outboundLanguage || getCustomerOutputLanguage({
+        lastCommunicationText: latestCustomerEmail?.body,
+        preferredLanguage: client.preferred_language,
+        country: client.country
+      });
       
       const contextPrompt = `
 You are an expert sales AI assistant tasked with following up with a specific client.
@@ -3642,9 +3721,10 @@ Client Information:
 Name: ${client.name}
 Company: ${client.company}
 Country: ${client.country}
-Preferred Language: ${client.preferred_language || 'Auto-detect or English'}
-System Language for internal agent outputs: ${systemLanguage}
-Outbound Content Language: ${resolvedOutboundLanguage}
+Preferred Language: ${client.preferred_language || 'Not configured'}
+Resolved Customer-Facing Language: ${resolvedOutboundLanguage}
+Language policy:
+${buildLanguagePolicy({ systemLanguage, customerLanguage: resolvedOutboundLanguage })}
 Preferred Comm Time: ${client.preferred_time_range || 'Any'}
 Agent Context / Instructions: ${client.agent_context || 'None'}
 Long-term Summary: ${client.agent_summary || 'None'}
@@ -3670,8 +3750,8 @@ ${JSON.stringify(productsRes.rows)}
       const prompt = `${contextPrompt}
 Based on the above context, you must decide on the next best action to advance this lead. 
 Language rules:
-- newSummary and suggestedNextStep are internal CRM agent outputs and MUST be written in ${systemLanguage}.
-- draftEmail is outbound customer-facing content and MUST be written in ${resolvedOutboundLanguage}. If the client has no preferred language, use the official language of the customer's country; if country is missing, use English.
+- newSummary and suggestedNextStep are internal CRM agent outputs.
+- draftEmail is outbound customer-facing content.
 Your output MUST be a JSON object with the following schema:
 {
   "newSummary": "An updated long-term summary incorporating the new history. Max 3 sentences.",

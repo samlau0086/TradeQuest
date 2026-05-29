@@ -869,6 +869,34 @@ export function AgentHub() {
     </button>
   );
 
+  const runTimelineItems = (record: typeof agentRunRecords[number]) => [
+    {
+      label: t('Plan'),
+      value: record.plan,
+      tone: 'blue',
+      time: new Date(record.createdAt).toLocaleString()
+    },
+    {
+      label: t('Expected Result'),
+      value: record.expectedResult,
+      tone: 'amber',
+      time: record.relatedRunId ? `${record.relatedRunType}:${record.relatedRunId}` : t(`trigger_${record.trigger}`)
+    },
+    {
+      label: t('Actual Result'),
+      value: record.actualResult || t('Waiting for execution result.'),
+      tone: record.status === 'failed' || record.status === 'rejected' ? 'red' : record.status === 'completed' || record.status === 'approved' ? 'emerald' : 'blue',
+      time: record.completedAt ? `${t('Completed at')}: ${new Date(record.completedAt).toLocaleString()}` : t(record.status)
+    }
+  ];
+
+  const timelineTone = (tone: string) => {
+    if (tone === 'emerald') return { dot: 'bg-emerald-400 border-emerald-300 shadow-emerald-500/30', label: 'text-emerald-300' };
+    if (tone === 'amber') return { dot: 'bg-amber-400 border-amber-300 shadow-amber-500/30', label: 'text-amber-300' };
+    if (tone === 'red') return { dot: 'bg-red-400 border-red-300 shadow-red-500/30', label: 'text-red-300' };
+    return { dot: 'bg-blue-400 border-blue-300 shadow-blue-500/30', label: 'text-blue-300' };
+  };
+
   return (
     <div className="flex-1 bg-black text-slate-100 overflow-y-auto">
       <div className="p-8 space-y-8">
@@ -1149,18 +1177,23 @@ export function AgentHub() {
                         </button>
                       </div>
                     </div>
-                    <div className="grid grid-cols-1 gap-3 mt-4">
-                      <div className="bg-neutral-950 border border-neutral-800 rounded-md p-3">
-                        <div className="text-[10px] uppercase font-bold text-blue-300 mb-2">{t('Plan')}</div>
-                        <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{record.plan}</p>
-                      </div>
-                      <div className="bg-neutral-950 border border-neutral-800 rounded-md p-3">
-                        <div className="text-[10px] uppercase font-bold text-amber-300 mb-2">{t('Expected Result')}</div>
-                        <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{record.expectedResult}</p>
-                      </div>
-                      <div className="bg-neutral-950 border border-neutral-800 rounded-md p-3">
-                        <div className="text-[10px] uppercase font-bold text-emerald-300 mb-2">{t('Actual Result')}</div>
-                        <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{record.actualResult || t('Waiting for execution result.')}</p>
+                    <div className="mt-5 pl-1">
+                      <div className="relative space-y-5 before:absolute before:left-[10px] before:top-2 before:bottom-2 before:w-px before:bg-neutral-800">
+                        {runTimelineItems(record).map((item, index) => {
+                          const tone = timelineTone(item.tone);
+                          return (
+                            <div key={`${record.id}-${item.label}-${index}`} className="relative flex gap-4">
+                              <div className={cn('relative z-10 mt-1 h-5 w-5 rounded-full border-2 shadow-lg', tone.dot)} />
+                              <div className="min-w-0 flex-1 rounded-md border border-neutral-800 bg-neutral-950 p-3">
+                                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                                  <div className={cn('text-[10px] uppercase font-bold', tone.label)}>{item.label}</div>
+                                  <div className="text-[10px] text-slate-600">{item.time}</div>
+                                </div>
+                                <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{item.value}</p>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>

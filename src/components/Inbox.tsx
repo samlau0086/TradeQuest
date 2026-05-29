@@ -11,7 +11,7 @@ import { MediaSelectorModal } from './MediaSelectorModal';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle, useDefaultLayout } from 'react-resizable-panels';
 import { WhatsAppChatModal } from './WhatsAppChatModal';
 import { AgentContextSuggestions } from './AgentContextSuggestions';
-import { getOutboundLanguage } from '../lib/language';
+import { getCustomerOutputLanguage } from '../lib/language';
 
 interface InboxWhatsAppConversation {
   id: string;
@@ -1686,7 +1686,16 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
   const matchedClient = clients.find(c => 
     c.contactMethods?.some(m => m.type === 'email' && m.value.toLowerCase() === firstRecipient.toLowerCase())
   );
-  const outboundLanguage = getOutboundLanguage(matchedClient?.preferredLanguage, matchedClient?.country);
+  const latestCustomerEmail = matchedClient
+    ? emails
+      .filter(email => email.clientId === matchedClient.id && (email.type === 'inbox' || email.type === 'inbound'))
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
+    : undefined;
+  const outboundLanguage = getCustomerOutputLanguage({
+    lastCommunicationText: latestCustomerEmail?.body,
+    preferredLanguage: matchedClient?.preferredLanguage,
+    country: matchedClient?.country
+  });
 
   const { llmConfigs, activeLLMId, llmMappings, language } = useStore();
   
@@ -1913,7 +1922,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
           'Authorization': `Bearer ${useAuthStore.getState().token}`
         },
         body: JSON.stringify({ 
-          command: `Please politely optimize the following outbound email draft for clarity, professional tone, and grammatical correctness. Do not include any email signature, sign-off block, sender name, company footer, or quoted original email. Output ONLY the resulting optimized email body, nothing else. Output language: ${outboundLanguage}.\n\n${emailHtmlToText(stripTrailingConfiguredSignature(body))}`,
+          command: `Please politely optimize the following outbound email draft for clarity, professional tone, and grammatical correctness. Do not include any email signature, sign-off block, sender name, company footer, or quoted original email. Output ONLY the resulting optimized email body, nothing else. Customer-facing output language: ${outboundLanguage}.\n\n${emailHtmlToText(stripTrailingConfiguredSignature(body))}`,
           context: { 
              outboundLanguage,
              clientPreferredLanguage: matchedClient?.preferredLanguage || null
@@ -1943,7 +1952,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
           'Authorization': `Bearer ${useAuthStore.getState().token}`
         },
         body: JSON.stringify({ 
-          command: `Write an outbound email snippet or sentence based on this instruction: ${prompt}. Do not include any email signature, sign-off block, sender name, company footer, or quoted original email. Output language: ${outboundLanguage}.`,
+          command: `Write an outbound email snippet or sentence based on this instruction: ${prompt}. Do not include any email signature, sign-off block, sender name, company footer, or quoted original email. Customer-facing output language: ${outboundLanguage}.`,
           context: { 
              currentEmailBodyPreview: emailHtmlToText(currentHtml).replace(`/ai:${prompt}`, '[Generate Here]'),
              outboundLanguage,
@@ -2012,7 +2021,7 @@ Purpose for this email: ${purpose || 'General follow up'}.
 Use relevant product facts and knowledge base snippets when they help answer the customer or move the deal forward.
 Do not invent product specs, prices, delivery promises, compliance claims, or discounts not present in the provided context.
 Do not include any email signature, sign-off block, sender name, company footer, or quoted original email. The app will append the selected signature and original email separately when sending.
-Output language: ${outboundLanguage}. If the customer has no preferred language configured, use the official language of the customer's country; if country is missing, use English.`,
+Customer-facing output language: ${outboundLanguage}. This language was resolved by priority: last customer communication language > client preferred language > official country/region language > English.`,
           context: { 
             client: matchedClient,
             clientId: matchedClient.id,
