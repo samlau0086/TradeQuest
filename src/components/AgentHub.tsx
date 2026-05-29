@@ -897,6 +897,59 @@ export function AgentHub() {
     return { dot: 'bg-blue-400 border-blue-300 shadow-blue-500/30', label: 'text-blue-300' };
   };
 
+  const splitTimelineText = (value: string) => {
+    const cleanLine = (line: string) => line
+      .replace(/^\s*(?:[-*•]|\d+[.)]|[一二三四五六七八九十]+[、.])\s*/, '')
+      .trim();
+    const directLines = value
+      .replace(/\r/g, '\n')
+      .split('\n')
+      .map(cleanLine)
+      .filter(Boolean);
+    if (directLines.length > 1) return directLines.slice(0, 12);
+
+    const text = directLines[0] || value.trim();
+    if (!text) return [];
+    const colonMatch = text.match(/^([^:：]{1,80})[:：]\s*(.+)$/);
+    const candidate = colonMatch && colonMatch[2].length > 40 ? colonMatch[2] : text;
+    const parts = candidate
+      .replace(/\band\s+(?=(read|check|generate|execute|update|report|scan|skip|create|review|send|enrich|process)\b)/gi, ', ')
+      .replace(/并(?=(读取|检查|生成|执行|更新|汇总|扫描|跳过|创建|审核|发送|富集|处理|报告))/g, '，')
+      .split(/;\s*|；\s*|,\s+(?=(?:read|check|generate|execute|update|report|scan|skip|create|review|send|enrich|process|wait)\b)|，(?=(?:读取|检查|生成|执行|更新|汇总|扫描|跳过|创建|审核|发送|富集|处理|报告|等待))/i)
+      .map(cleanLine)
+      .filter(Boolean);
+    return (parts.length > 1 ? parts : [text]).slice(0, 12);
+  };
+
+  const todoTone = (text: string, fallback: string) => {
+    const lower = text.toLowerCase();
+    if (/(failed|error|rejected|失败|错误|拒绝)/.test(lower)) return 'red';
+    if (/(skipped|skip|waiting|pending|待审核|等待|跳过)/.test(lower)) return 'amber';
+    if (/(completed|success|approved|sent|acted|done|完成|成功|通过|已发送|执行)/.test(lower)) return 'emerald';
+    return fallback;
+  };
+
+  const renderTodoTimeline = (value: string, fallbackTone: string) => {
+    const items = splitTimelineText(value);
+    if (items.length === 0) return <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{value}</p>;
+    return (
+      <div className="relative space-y-3 before:absolute before:left-[7px] before:top-2 before:bottom-2 before:w-px before:bg-neutral-800/80">
+        {items.map((line, itemIndex) => {
+          const tone = timelineTone(todoTone(line, fallbackTone));
+          return (
+            <div key={`${line}-${itemIndex}`} className="relative flex gap-3">
+              <div className={cn('relative z-10 mt-1.5 h-3.5 w-3.5 rounded-full border shadow', tone.dot)} />
+              <div className="min-w-0 flex-1">
+                <div className="text-[10px] text-slate-600 mb-0.5">{language === 'zh' ? '步骤' : 'Step'} {itemIndex + 1}</div>
+                <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{line}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <div className="flex-1 bg-black text-slate-100 overflow-y-auto">
       <div className="p-8 space-y-8">
@@ -1189,7 +1242,11 @@ export function AgentHub() {
                                   <div className={cn('text-[10px] uppercase font-bold', tone.label)}>{item.label}</div>
                                   <div className="text-[10px] text-slate-600">{item.time}</div>
                                 </div>
-                                <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{item.value}</p>
+                                {item.label === t('Plan') ? (
+                                  <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{item.value}</p>
+                                ) : (
+                                  renderTodoTimeline(item.value, item.tone)
+                                )}
                               </div>
                             </div>
                           );
