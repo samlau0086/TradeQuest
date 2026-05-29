@@ -747,15 +747,43 @@ export function AgentHub() {
     setDraftAgent(null);
   };
 
-  const approveItem = (item: typeof pendingItems[number]) => {
-    if (item.kind === 'harness') updateAgentHarnessRun(item.id, { status: 'approved', approvedAt: new Date().toISOString() });
+  const approveItem = async (item: typeof pendingItems[number]) => {
+    if (item.kind === 'harness') updateAgentHarnessRun(item.id, { status: 'running', approvedAt: new Date().toISOString() });
     if (item.kind === 'global') updateGlobalAgentPlan(item.id, { status: 'approved', approvedAt: new Date().toISOString() });
     const linkedRecord = agentRunRecords.find(record => record.relatedRunId === item.id && record.relatedRunType === item.kind);
     if (linkedRecord) {
       updateAgentRunRecord(linkedRecord.id, {
-        status: 'approved',
-        actualResult: 'Human approved the planned agent run.'
+        status: item.kind === 'harness' ? 'running' : 'approved',
+        actualResult: item.kind === 'harness'
+          ? 'Human approved the planned agent run. Executing configured tools now.'
+          : 'Human approved the planned agent run.'
       });
+    }
+    if (item.kind !== 'harness') return;
+    try {
+      const response = await fetch(`/api/agent-hub/harness-runs/${item.id}/execute`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Failed to execute Agent Hub run');
+      await fetchUserSettings();
+      const result = data.result || {};
+      notify(
+        `${t('Agent run completed.') || 'Agent run completed.'} ${t('Acted') || 'Acted'}: ${result.acted || 0}, ${t('Skipped') || 'Skipped'}: ${result.skipped || 0}`,
+        'success'
+      );
+    } catch (error) {
+      console.error(error);
+      updateAgentHarnessRun(item.id, { status: 'failed' });
+      if (linkedRecord) {
+        updateAgentRunRecord(linkedRecord.id, {
+          status: 'failed',
+          actualResult: error instanceof Error ? error.message : 'Agent Hub run failed.',
+          completedAt: new Date().toISOString()
+        });
+      }
+      notify(error instanceof Error ? error.message : 'Agent Hub run failed.', 'error');
     }
   };
 

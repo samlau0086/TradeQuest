@@ -2222,6 +2222,303 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
+  const parseJsonArray = (value: any) => {
+    if (Array.isArray(value)) return value;
+    if (!value) return [];
+    try {
+      const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const findContactValue = (client: any, types: string[]) => {
+    const methods = [
+      ...parseJsonArray(client.contact_methods),
+      ...parseJsonArray(client.contacts).flatMap((contact: any) => contact.contactMethods || [])
+    ];
+    const match = methods.find((method: any) => types.includes(String(method.type || '').toLowerCase()) && method.value);
+    return match?.value || '';
+  };
+
+  const stripAgentJson = (raw: string) => {
+    const cleaned = String(raw || '').replace(/```json|```/g, '').trim();
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    return JSON.parse(start >= 0 && end > start ? cleaned.slice(start, end + 1) : cleaned);
+  };
+
+  const executeAgentHubHarnessRun = async (userId: string, settings: any, runId: string) => {
+    const runs = Array.isArray(settings.agentHarnessRuns) ? settings.agentHarnessRuns : [];
+    const run = runs.find((item: any) => item.id === runId);
+    if (!run) throw new Error('Agent Harness run not found');
+    const firstStep = run.steps?.[0] || {};
+    const agentId = firstStep.payload?.agentId || firstStep.agentId;
+    const agents = Array.isArray(settings.agentHubAgents) ? settings.agentHubAgents : [];
+    const agent = agents.find((item: any) => item.id === agentId);
+    if (!agent) throw new Error('Agent configuration not found');
+
+    const tools = Array.isArray(agent.tools) ? agent.tools : [];
+    const canSendEmail = tools.includes('email.send');
+    const canSendWhatsApp = tools.includes('whatsapp.send');
+    const canLog = tools.includes('client.log') || tools.includes('lead.log');
+    const canUpdateClient = tools.includes('client.update') || tools.includes('lead.update');
+    if (!canSendEmail && !canSendWhatsApp && !canLog && !canUpdateClient) {
+      throw new Error('Agent has no executable tools configured');
+    }
+
+    const llmId = settings.llmMappings?.agent_harness || settings.llmMappings?.drafting || settings.activeLLMId;
+    const llmConfig = llmId ? (settings.llmConfigs || []).find((config: any) => config.id === llmId) : null;
+    const nowIso = new Date().toISOString();
+    const outbox = (settings.outboxConfigs || [])[0] || {};
+    const sender = outbox.fromEmail || 'AutoAgent';
+    const senderName = outbox.fromName || agent.name || 'AutoAgent';
+    const batchLimit = Math.max(1, Math.min(10, Number(agent.batchSize || 5)));
+    const clientsRes = await pool.query(
+      `SELECT *
+       FROM clients
+       WHERE user_id = $1
+         AND COALESCE(status, '') <> 'Closed Won'
+       ORDER BY updated_at DESC NULLS LAST, last_contact NULLS FIRST
+       LIMIT 30`,
+      [userId]
+    );
+
+    let scanned = 0;
+    let acted = 0;
+    let skipped = 0;
+    let failed = 0;
+    const details: string[] = [];
+
+    for (const client of clientsRes.rows) {
+      if (acted >= batchLimit) break;
+      scanned += 1;
+      try {
+        const emailAddress = findContactValue(client, ['email']);
+        const whatsappAddress = findContactValue(client, ['whatsapp', 'phone']);
+        if ((canSendEmail && !emailAddress) && (canSendWhatsApp && !whatsappAddress)) {
+          skipped += 1;
+          details.push(`${client.id}: skipped, no usable outbound contact.`);
+          continue;
+        }
+
+        const recentMarker = await pool.query(
+          `SELECT id FROM logs
+           WHERE client_id = $1
+             AND content ILIKE $2
+             AND date > NOW() - INTERVAL '30 days'
+           LIMIT 1`,
+          [client.id, `%Agent ${agent.id}%`]
+        );
+        if (recentMarker.rows.length > 0) {
+          skipped += 1;
+          details.push(`${client.id}: skipped by idempotency window.`);
+          continue;
+        }
+
+        const emailsRes = await pool.query(
+          `SELECT sender, recipient, subject, body, date, type
+           FROM emails
+           WHERE client_id = $1 AND user_id = $2
+           ORDER BY date DESC
+           LIMIT 8`,
+          [client.id, userId]
+        );
+        const logsRes = await pool.query(
+          `SELECT date, content, type
+           FROM logs
+           WHERE client_id = $1
+           ORDER BY date DESC
+           LIMIT 8`,
+          [client.id]
+        );
+        const productsRes = await pool.query(
+          `SELECT name, category, description, price
+           FROM products
+           WHERE user_id = $1
+           ORDER BY created_at DESC
+           LIMIT 5`,
+          [userId]
+        );
+        const kbRes = await searchKnowledgeBase(
+          userId,
+          client.id,
+          `${agent.name} ${client.company || client.name || ''} ${client.country || ''}`,
+          llmConfig,
+          5
+        );
+
+        const outboundLanguage = getOutboundLanguage(client.preferred_language, client.country);
+        const prompt = `You are executing a configured CRM Agent.
+Agent name: ${agent.name}
+Agent instructions:
+${agent.instructions || ''}
+
+Allowed tools: ${tools.join(', ')}
+
+Client:
+${JSON.stringify({
+  id: client.id,
+  name: client.name,
+  company: client.company,
+  country: client.country,
+  status: client.status,
+  preferredLanguage: client.preferred_language,
+  preferredTimeRange: client.preferred_time_range,
+  contacts: parseJsonArray(client.contacts),
+  contactMethods: parseJsonArray(client.contact_methods)
+}, null, 2)}
+
+Recent emails:
+${JSON.stringify(emailsRes.rows, null, 2)}
+
+Recent logs:
+${JSON.stringify(logsRes.rows, null, 2)}
+
+Knowledge base:
+${kbRes.rows.map((kb: any) => `[${kb.title}]\n${kb.content}`).join('\n\n')}
+
+Products:
+${JSON.stringify(productsRes.rows, null, 2)}
+
+Rules:
+- Customer-facing email/WhatsApp content MUST use ${outboundLanguage}.
+- Do not duplicate prior outreach. If no useful ice-breaking action is appropriate, set channel to "none".
+- If sensitive promotion/complaint/legal-risk content would be needed, set requiresApproval true and do not produce send-ready content.
+- Keep email concise and professional. Keep WhatsApp natural and shorter.
+
+Return JSON only:
+{
+  "channel": "email" | "whatsapp" | "both" | "none",
+  "language": "language actually used",
+  "emailSubject": "subject if email is needed",
+  "emailBody": "HTML or plain text body if email is needed",
+  "whatsappBody": "WhatsApp body if WhatsApp is needed",
+  "clientNote": "internal CRM note/log",
+  "clientUpdate": { "status": "optional CRM status" },
+  "requiresApproval": false,
+  "nextAction": "recommended next action"
+}`;
+
+        const parsed = stripAgentJson(await callAI(prompt, llmConfig, true));
+        if (parsed.requiresApproval || parsed.channel === 'none') {
+          if (canLog) {
+            await pool.query(
+              `INSERT INTO logs (id, client_id, date, content, type, metadata)
+               VALUES ($1, $2, $3, $4, $5, $6)`,
+              [`l${Date.now()}${Math.floor(Math.random() * 1000)}`, client.id, nowIso, `Agent ${agent.id} reviewed client but did not send. ${parsed.clientNote || parsed.nextAction || ''}`, 'general', JSON.stringify({ agentId: agent.id, requiresApproval: !!parsed.requiresApproval })]
+            );
+          }
+          skipped += 1;
+          details.push(`${client.id}: reviewed, no send${parsed.requiresApproval ? ' (needs approval)' : ''}.`);
+          continue;
+        }
+
+        const sent: string[] = [];
+        if (canSendEmail && ['email', 'both'].includes(parsed.channel) && parsed.emailBody && emailAddress) {
+          const emailId = `e${Date.now()}${Math.floor(Math.random() * 1000)}`;
+          await pool.query(
+            `INSERT INTO emails (id, user_id, client_id, sender, sender_name, recipient, subject, body, date, read, type, outbox_config_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, 'sent', $10)`,
+            [emailId, userId, client.id, sender, senderName, emailAddress, parsed.emailSubject || `Hello from ${senderName}`, parsed.emailBody, nowIso, outbox.id || null]
+          );
+          sent.push(`email:${emailAddress}`);
+        }
+
+        if (canSendWhatsApp && ['whatsapp', 'both'].includes(parsed.channel) && parsed.whatsappBody && whatsappAddress) {
+          const to = normalizeWhatsAppPhone(whatsappAddress);
+          await sendWhatsAppViaHub(userId, {
+            to,
+            body: parsed.whatsappBody,
+            metadata: { source: 'agent-hub-executor', agentId: agent.id, clientId: client.id }
+          });
+          sent.push(`whatsapp:${to}`);
+        }
+
+        if (sent.length === 0) {
+          skipped += 1;
+          details.push(`${client.id}: no matching channel content generated.`);
+          continue;
+        }
+
+        if (canLog) {
+          await pool.query(
+            `INSERT INTO logs (id, client_id, date, content, type, metadata)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [`l${Date.now()}${Math.floor(Math.random() * 1000)}`, client.id, nowIso, `Agent ${agent.id} executed ice-breaking outreach via ${sent.join(', ')}. Language: ${parsed.language || outboundLanguage}. ${parsed.clientNote || parsed.nextAction || ''}`, sent.some(item => item.startsWith('whatsapp')) ? 'whatsapp' : 'email', JSON.stringify({ agentId: agent.id, sent, language: parsed.language || outboundLanguage })]
+          );
+        }
+
+        if (canUpdateClient) {
+          const allowedStatuses = ['Leads', 'Contacted', 'Sample Sent', 'Negotiating', 'Closed Won'];
+          const statusUpdate = allowedStatuses.includes(parsed.clientUpdate?.status) ? parsed.clientUpdate.status : (client.status === 'Leads' ? 'Contacted' : client.status);
+          await pool.query(
+            `UPDATE clients SET status = $1, last_contact = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
+            [statusUpdate, nowIso.slice(0, 10), client.id]
+          );
+        }
+
+        acted += 1;
+        details.push(`${client.id}: sent ${sent.join(', ')}.`);
+      } catch (error: any) {
+        failed += 1;
+        details.push(`${client.id}: failed - ${error?.message || 'unknown error'}.`);
+      }
+    }
+
+    const resultText = `Scanned ${scanned} client(s), acted on ${acted}, skipped ${skipped}, failed ${failed}. ${details.slice(0, 8).join(' ')}`;
+    run.status = failed > 0 && acted === 0 ? 'failed' : 'completed';
+    run.completedAt = new Date().toISOString();
+    run.steps = (run.steps || []).map((step: any) => ({
+      ...step,
+      status: run.status === 'failed' ? 'failed' : 'completed',
+      result: resultText,
+      error: run.status === 'failed' ? resultText : undefined
+    }));
+
+    const record = (settings.agentRunRecords || []).find((item: any) => item.relatedRunId === runId && item.relatedRunType === 'harness');
+    if (record) {
+      record.status = run.status === 'failed' ? 'failed' : 'completed';
+      record.actualResult = resultText;
+      record.completedAt = new Date().toISOString();
+      record.updatedAt = new Date().toISOString();
+    }
+
+    agent.tasksCompleted = (agent.tasksCompleted || 0) + acted;
+    agent.updatedAt = new Date().toISOString();
+    return { scanned, acted, skipped, failed, details };
+  };
+
+  app.post('/api/agent-hub/harness-runs/:runId/execute', authenticateToken, async (req: any, res) => {
+    try {
+      const { runId } = req.params;
+      const userRes = await pool.query('SELECT settings FROM users WHERE id = $1', [req.user.uid]);
+      if (userRes.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+      const settings = typeof userRes.rows[0].settings === 'string' ? JSON.parse(userRes.rows[0].settings || '{}') : (userRes.rows[0].settings || {});
+      settings.agentHarnessRuns = (settings.agentHarnessRuns || []).map((run: any) => run.id === runId ? {
+        ...run,
+        status: 'running',
+        approvedAt: run.approvedAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        steps: (run.steps || []).map((step: any) => ({ ...step, status: 'running', error: undefined }))
+      } : run);
+      settings.agentRunRecords = (settings.agentRunRecords || []).map((record: any) => record.relatedRunId === runId && record.relatedRunType === 'harness' ? {
+        ...record,
+        status: 'running',
+        actualResult: 'Human approved the planned agent run. Executing configured tools now.',
+        updatedAt: new Date().toISOString()
+      } : record);
+
+      const result = await executeAgentHubHarnessRun(req.user.uid, settings, runId);
+      await pool.query('UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [JSON.stringify(settings), req.user.uid]);
+      res.json({ success: true, result });
+    } catch (e: any) {
+      console.error('Failed to execute Agent Hub harness run', e);
+      res.status(500).json({ error: e.message || 'Failed to execute Agent Hub run' });
+    }
+  });
+
   void runAgentHubScheduler();
   setInterval(runAgentHubScheduler, 5 * 1000);
   
