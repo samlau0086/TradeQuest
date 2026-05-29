@@ -470,16 +470,19 @@ function AgentModal({
 
 function AgentConfigPanel({
   agent,
-  onSave
+  onSave,
+  onDelete
 }: {
   agent: Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'> | AgentHubAgent;
   onSave: (agent: Omit<AgentHubAgent, 'createdAt' | 'updatedAt' | 'tasksCompleted'> | Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'>) => void;
+  onDelete?: (agent: AgentHubAgent) => void;
 }) {
   const { language } = useStore();
   const { token } = useAuthStore();
   const t = useTranslation(language);
   const [form, setForm] = useState(agent);
   const [generatingInstructions, setGeneratingInstructions] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const isEdit = 'id' in agent;
   const agentKeyRef = useRef('id' in agent ? agent.id : 'new');
 
@@ -529,14 +532,32 @@ function AgentConfigPanel({
           <h3 className="text-lg font-bold text-neutral-100">{isEdit ? t('Configure Agent') : t('Create Agent')}</h3>
           <p className="text-xs text-slate-500 mt-1">{t('Edit the selected agent role, tools, guardrails, and schedule.')}</p>
         </div>
-        <button
-          onClick={() => form.name.trim() && onSave(form)}
-          disabled={!form.name.trim()}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-500 rounded-md text-sm font-bold text-white flex items-center gap-2"
-        >
-          <Save className="w-4 h-4" />
-          {isEdit ? t('Save Changes') : t('Create Agent')}
-        </button>
+        <div className="flex items-center gap-2">
+          {isEdit && onDelete && (
+            <button
+              type="button"
+              onClick={() => confirmDelete ? onDelete(form as AgentHubAgent) : setConfirmDelete(true)}
+              onBlur={() => window.setTimeout(() => setConfirmDelete(false), 150)}
+              className={cn(
+                'px-4 py-2 rounded-md text-sm font-bold flex items-center gap-2 border',
+                confirmDelete
+                  ? 'bg-red-600/20 border-red-500/50 text-red-200 hover:bg-red-600/30'
+                  : 'bg-red-500/10 border-red-500/25 text-red-300 hover:bg-red-500/15'
+              )}
+            >
+              <Trash2 className="w-4 h-4" />
+              {confirmDelete ? (language === 'zh' ? '确认删除' : 'Confirm Delete') : t('Delete')}
+            </button>
+          )}
+          <button
+            onClick={() => form.name.trim() && onSave(form)}
+            disabled={!form.name.trim()}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-500 rounded-md text-sm font-bold text-white flex items-center gap-2"
+          >
+            <Save className="w-4 h-4" />
+            {isEdit ? t('Save Changes') : t('Create Agent')}
+          </button>
+        </div>
       </div>
 
       <div className="p-6 space-y-5 max-h-[calc(100vh-230px)] overflow-y-auto">
@@ -745,6 +766,7 @@ export function AgentHub() {
     agentHubAgents,
     addAgentHubAgent,
     updateAgentHubAgent,
+    deleteAgentHubAgent,
     agentHarnessRuns,
     globalAgentPlans,
     agentRunRecords,
@@ -766,6 +788,7 @@ export function AgentHub() {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(agentHubAgents[0]?.id || null);
   const [draftAgent, setDraftAgent] = useState<ReturnType<typeof emptyAgent> | null>(null);
   const [schedulerRunning, setSchedulerRunning] = useState(false);
+  const [runningAgentId, setRunningAgentId] = useState<string | null>(null);
   const [schedulerSummary, setSchedulerSummary] = useState<string | null>(null);
   const [schedulerAgentDetails, setSchedulerAgentDetails] = useState<any[]>([]);
   const [logDisplayLimit, setLogDisplayLimit] = useState(30);
@@ -810,6 +833,38 @@ export function AgentHub() {
       notify(t('Agent created.'), 'success');
     }
     setDraftAgent(null);
+  };
+
+  const deleteSelectedAgent = (agent: AgentHubAgent) => {
+    deleteAgentHubAgent(agent.id);
+    const nextAgent = agentHubAgents.find(item => item.id !== agent.id) || null;
+    setSelectedAgentId(nextAgent?.id || null);
+    setDraftAgent(null);
+    notify(language === 'zh' ? '智能体已删除。' : 'Agent deleted.', 'success');
+  };
+
+  const runAgentNow = async (agent: AgentHubAgent) => {
+    setRunningAgentId(agent.id);
+    try {
+      const response = await fetch(`/api/agent-hub/agents/${encodeURIComponent(agent.id)}/run`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Failed to run agent');
+      await fetchUserSettings();
+      notify(agent.guardrail === 'auto'
+        ? (language === 'zh' ? '智能体已开始执行。' : 'Agent run started.')
+        : (language === 'zh' ? '已创建待审核的智能体运行。' : 'Agent run created for review.'),
+        'success'
+      );
+      setTab(agent.guardrail === 'auto' ? 'runs' : 'approvals');
+    } catch (error) {
+      console.error(error);
+      notify(error instanceof Error ? error.message : (language === 'zh' ? '智能体执行失败。' : 'Failed to run agent.'), 'error');
+    } finally {
+      setRunningAgentId(null);
+    }
   };
 
   const approveItem = async (item: typeof pendingItems[number]) => {
@@ -1043,12 +1098,13 @@ export function AgentHub() {
               </div>
               <div className="space-y-4">
                 {computedAgents.map(agent => (
-                  <button
+                  <div
                     key={agent.id}
-                    type="button"
                     onClick={() => { setSelectedAgentId(agent.id); setDraftAgent(null); }}
+                    role="button"
+                    tabIndex={0}
                     className={cn(
-                      'w-full text-left border rounded-lg p-5 bg-neutral-900 transition-colors',
+                      'w-full text-left border rounded-lg p-5 bg-neutral-900 transition-colors cursor-pointer',
                       selectedAgentId === agent.id && !draftAgent ? 'border-blue-500/70 bg-blue-950/20' : 'border-neutral-800 hover:border-blue-500/60'
                     )}
                   >
@@ -1083,11 +1139,25 @@ export function AgentHub() {
                       {(agent.eventTriggers || []).length > 4 && <span className="text-[10px] text-slate-500">+{(agent.eventTriggers || []).length - 4}</span>}
                     </div>
                   )}
-                  </button>
+                  <div className="mt-4 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void runAgentNow(agent);
+                      }}
+                      disabled={runningAgentId === agent.id || agent.status === 'paused'}
+                      className="inline-flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-900 disabled:text-slate-500"
+                    >
+                      {runningAgentId === agent.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                      {language === 'zh' ? '执行' : 'Run'}
+                    </button>
+                  </div>
+                  </div>
                 ))}
               </div>
             </section>
-            <AgentConfigPanel agent={selectedAgent} onSave={saveAgent} />
+            <AgentConfigPanel agent={selectedAgent} onSave={saveAgent} onDelete={'id' in selectedAgent ? deleteSelectedAgent : undefined} />
           </div>
         )}
 

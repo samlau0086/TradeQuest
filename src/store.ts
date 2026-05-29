@@ -580,8 +580,10 @@ export interface StoreState {
   updateAgentHarnessStep: (runId: string, stepId: string, updates: Partial<AgentHarnessStep>) => void;
 
   agentHubAgents: AgentHubAgent[];
+  deletedAgentHubAgentIds: string[];
   addAgentHubAgent: (agent: Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'> & Partial<Pick<AgentHubAgent, 'tasksCompleted'>>) => string;
   updateAgentHubAgent: (id: string, updates: Partial<AgentHubAgent>) => void;
+  deleteAgentHubAgent: (id: string) => void;
   agentRunRecords: AgentHubRunRecord[];
   addAgentRunRecord: (record: Omit<AgentHubRunRecord, 'id' | 'createdAt' | 'updatedAt'>) => string;
   updateAgentRunRecord: (id: string, updates: Partial<AgentHubRunRecord>) => void;
@@ -1090,6 +1092,7 @@ export const useStore = create<StoreState>((set, get) => ({
   })),
 
   agentHubAgents: INITIAL_AGENT_HUB_AGENTS,
+  deletedAgentHubAgentIds: [],
   addAgentHubAgent: (agent) => {
     const id = `agent_${Date.now()}`;
     const now = new Date().toISOString();
@@ -1111,6 +1114,11 @@ export const useStore = create<StoreState>((set, get) => ({
     agentHubAgents: state.agentHubAgents.map(agent => (
       agent.id === id ? { ...agent, ...updates, updatedAt: new Date().toISOString() } : agent
     ))
+  })),
+  deleteAgentHubAgent: (id) => set((state) => ({
+    agentHubAgents: state.agentHubAgents.filter(agent => agent.id !== id),
+    deletedAgentHubAgentIds: Array.from(new Set([...(state.deletedAgentHubAgentIds || []), id])),
+    agentRunRecords: state.agentRunRecords.filter(record => record.agentId !== id)
   })),
   agentRunRecords: [],
   addAgentRunRecord: (record) => {
@@ -2419,9 +2427,10 @@ export const useStore = create<StoreState>((set, get) => ({
             ? { ...INITIAL_AGENT_EXECUTION_POLICY, ...settings.agentExecutionPolicy }
             : state.agentExecutionPolicy,
           agentWorkflows: settings.agentWorkflows ?? state.agentWorkflows,
+          deletedAgentHubAgentIds: settings.deletedAgentHubAgentIds ?? state.deletedAgentHubAgentIds,
           agentHubAgents: settings.agentHubAgents
             ? [
-                ...INITIAL_AGENT_HUB_AGENTS.filter(defaultAgent => !settings.agentHubAgents.some((agent: AgentHubAgent) => agent.id === defaultAgent.id)),
+                ...INITIAL_AGENT_HUB_AGENTS.filter(defaultAgent => !(settings.deletedAgentHubAgentIds || []).includes(defaultAgent.id) && !settings.agentHubAgents.some((agent: AgentHubAgent) => agent.id === defaultAgent.id)),
                 ...settings.agentHubAgents.map((agent: AgentHubAgent) => agent.id === 'lead_data_agent'
                   ? {
                       ...agent,
@@ -2541,6 +2550,7 @@ useStore.subscribe((state, prevState) => {
     state.agentExecutionPolicy !== prevState.agentExecutionPolicy ||
     state.agentWorkflows !== prevState.agentWorkflows ||
     state.agentHubAgents !== prevState.agentHubAgents ||
+    state.deletedAgentHubAgentIds !== prevState.deletedAgentHubAgentIds ||
     state.agentRunRecords !== prevState.agentRunRecords ||
     state.agentIdempotencyRecords !== prevState.agentIdempotencyRecords ||
     state.leadCampaigns !== prevState.leadCampaigns ||
@@ -2578,6 +2588,7 @@ useStore.subscribe((state, prevState) => {
             agentExecutionPolicy: state.agentExecutionPolicy,
             agentWorkflows: state.agentWorkflows,
             agentHubAgents: state.agentHubAgents,
+            deletedAgentHubAgentIds: state.deletedAgentHubAgentIds,
             agentRunRecords: state.agentRunRecords,
             agentIdempotencyRecords: state.agentIdempotencyRecords,
             leadCampaigns: state.leadCampaigns,

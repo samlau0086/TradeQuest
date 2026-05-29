@@ -983,10 +983,19 @@ No markdown wrappers, just valid JSON.`;
 
   const mergeUserSettings = (existing: any = {}, incoming: any = {}) => {
     const merged = { ...existing, ...incoming };
+    const deletedAgentHubAgentIds = Array.from(new Set([
+      ...((existing.deletedAgentHubAgentIds || []) as string[]),
+      ...((incoming.deletedAgentHubAgentIds || []) as string[])
+    ]));
+    const deletedAgentHubAgentIdSet = new Set(deletedAgentHubAgentIds);
     merged.agentRunRecords = mergeSettingsArrayById(existing.agentRunRecords || [], incoming.agentRunRecords || []).slice(0, 200);
     merged.agentHarnessRuns = mergeSettingsArrayById(existing.agentHarnessRuns || [], incoming.agentHarnessRuns || []);
     merged.globalAgentPlans = mergeSettingsArrayById(existing.globalAgentPlans || [], incoming.globalAgentPlans || []);
-    merged.agentHubAgents = mergeAgentHubAgents(existing.agentHubAgents || [], incoming.agentHubAgents || []);
+    merged.deletedAgentHubAgentIds = deletedAgentHubAgentIds;
+    merged.agentHubAgents = mergeAgentHubAgents(
+      (existing.agentHubAgents || []).filter((agent: any) => !deletedAgentHubAgentIdSet.has(agent.id)),
+      (incoming.agentHubAgents || []).filter((agent: any) => !deletedAgentHubAgentIdSet.has(agent.id))
+    );
     return merged;
   };
 
@@ -2684,6 +2693,109 @@ Return JSON only:
     } catch (e: any) {
       console.error('Failed to trigger Agent Hub event', e);
       res.status(500).json({ error: e.message || 'Failed to trigger Agent Hub event' });
+    }
+  });
+
+  app.post('/api/agent-hub/agents/:agentId/run', authenticateToken, async (req: any, res) => {
+    try {
+      const { agentId } = req.params;
+      const userRes = await pool.query('SELECT settings FROM users WHERE id = $1', [req.user.uid]);
+      if (userRes.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+      const settings = typeof userRes.rows[0].settings === 'string' ? JSON.parse(userRes.rows[0].settings || '{}') : (userRes.rows[0].settings || {});
+      const agents = Array.isArray(settings.agentHubAgents) ? settings.agentHubAgents : [];
+      const agent = agents.find((item: any) => item.id === agentId);
+      if (!agent) return res.status(404).json({ error: 'Agent not found' });
+      if (agent.status === 'paused') return res.status(400).json({ error: 'Agent is paused' });
+
+      const isZh = settings.language === 'zh';
+      const reviewStatus = agent.guardrail === 'auto' ? 'approved' : 'pending_review';
+      const nowIso = new Date().toISOString();
+      const objective = isZh
+        ? `手动执行智能体：${agent.name}\n\n${agent.instructions || ''}`
+        : `Manual agent run: ${agent.name}\n\n${agent.instructions || ''}`;
+      const expectedResult = isZh
+        ? `1. 读取该智能体可处理的上下文。\n2. 检查工具权限、幂等性和审核策略。\n3. 按配置执行工具：${(agent.tools || []).join(', ') || 'agent tools'}。\n4. 输出实际执行结果并写入运行记录。`
+        : `1. Read context eligible for this agent.\n2. Check tool permissions, idempotency, and guardrail policy.\n3. Execute configured tools: ${(agent.tools || []).join(', ') || 'agent tools'}.\n4. Output actual execution result and write the run record.`;
+      const actualResult = reviewStatus === 'approved'
+        ? (isZh ? '1. 手动执行已触发。\n2. 护栏策略允许自动通过。\n3. 正在执行配置的工具。' : '1. Manual run was triggered.\n2. Guardrail policy allowed auto-approval.\n3. Executing configured tools.')
+        : (isZh ? '1. 手动执行已触发。\n2. 护栏策略要求人工审核。\n3. 已创建待审核任务。' : '1. Manual run was triggered.\n2. Guardrail policy requires human review.\n3. A review task was created.');
+
+      const relatedRunType: 'global' | 'harness' = agent.id === 'global_agent' ? 'global' : 'harness';
+      const relatedRunId = relatedRunType === 'global'
+        ? `gplan_manual_${Date.now()}_${Math.floor(Math.random() * 1000)}`
+        : `harness_manual_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+
+      if (relatedRunType === 'global') {
+        settings.globalAgentPlans = [{
+          id: relatedRunId,
+          objective,
+          summary: isZh ? `手动执行：${agent.name}` : `Manual run: ${agent.name}`,
+          status: reviewStatus,
+          steps: [{
+            id: `step_manual_${Date.now()}_${agent.id}`,
+            title: isZh ? `执行 ${agent.name}` : `Run ${agent.name}`,
+            description: agent.instructions || '',
+            actionType: 'review_pipeline',
+            status: 'pending',
+            payload: { source: 'agent-hub-manual', agentId: agent.id, tools: agent.tools || [] }
+          }],
+          createdAt: nowIso,
+          updatedAt: nowIso
+        }, ...(settings.globalAgentPlans || [])];
+      } else {
+        settings.agentHarnessRuns = [{
+          id: relatedRunId,
+          objective,
+          summary: isZh ? `手动执行：${agent.name}` : `Manual run: ${agent.name}`,
+          status: reviewStatus,
+          steps: [{
+            id: `hstep_manual_${Date.now()}_${agent.id}`,
+            agentId: agent.id,
+            title: isZh ? `执行 ${agent.name}` : `Run ${agent.name}`,
+            description: agent.instructions || '',
+            tool: (agent.tools || [])[0] || 'agent.run',
+            risk: agent.guardrail === 'auto' ? 'low' : 'medium',
+            status: reviewStatus === 'approved' ? 'approved' : 'pending',
+            payload: { source: 'agent-hub-manual', agentId: agent.id, tools: agent.tools || [] }
+          }],
+          createdAt: nowIso,
+          updatedAt: nowIso
+        }, ...(settings.agentHarnessRuns || [])];
+      }
+
+      const record = addAgentHubRunRecordToSettings(settings, {
+        agentId: agent.id,
+        agentName: agent.name,
+        trigger: 'manual',
+        status: reviewStatus,
+        plan: objective,
+        expectedResult,
+        actualResult,
+        relatedRunId,
+        relatedRunType,
+        completedAt: nowIso
+      });
+
+      let executionResult = null;
+      if (reviewStatus === 'approved' && relatedRunType === 'harness') {
+        try {
+          executionResult = await executeAgentHubHarnessRun(req.user.uid, settings, relatedRunId);
+        } catch (error: any) {
+          updateAgentHubRunRecordInSettings(settings, record.id, {
+            status: 'failed',
+            actualResult: isZh
+              ? `1. 手动执行失败。\n2. 错误：${error?.message || '未知错误'}`
+              : `1. Manual run failed.\n2. Error: ${error?.message || 'Unknown error'}`,
+            completedAt: new Date().toISOString()
+          });
+        }
+      }
+
+      await pool.query('UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [JSON.stringify(settings), req.user.uid]);
+      res.json({ success: true, runId: relatedRunId, relatedRunType, executionResult });
+    } catch (e: any) {
+      console.error('Failed to run Agent Hub agent manually', e);
+      res.status(500).json({ error: e.message || 'Failed to run agent' });
     }
   });
 
