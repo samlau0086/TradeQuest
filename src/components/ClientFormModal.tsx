@@ -56,6 +56,7 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
   const [contacts, setContacts] = useState<ClientContact[]>(buildInitialContacts);
 
   const [isApplyMode, setIsApplyMode] = useState(false);
+  const [activeTab, setActiveTab] = useState<'basic' | 'preferences' | 'contacts'>('basic');
 
   useEffect(() => {
     setContacts(prev => {
@@ -174,7 +175,7 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
 
   return (
     <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+      <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         <div className="flex items-center justify-between p-4 border-b border-slate-800 bg-slate-800/30">
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-bold text-white">{existingClient ? t('editClientTitle') : t('newClientTarget')}</h2>
@@ -192,12 +193,36 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
           </button>
         </div>
         
-        <form onSubmit={handleSubmit} className="p-4 space-y-4 max-h-[70vh] overflow-y-auto scrollbar-thin">
+        <form onSubmit={handleSubmit} className="flex max-h-[76vh] flex-col">
+          <div className="border-b border-slate-800 bg-slate-950/30 px-4 py-3">
+            <div className="grid grid-cols-3 gap-2 rounded-xl bg-slate-950 p-1 border border-slate-800">
+              {[
+                { id: 'basic', label: 'Basic Info' },
+                { id: 'preferences', label: 'Preferences' },
+                { id: 'contacts', label: 'Contacts' }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id as typeof activeTab)}
+                  className={cn(
+                    "rounded-lg px-3 py-2 text-xs font-bold transition-colors",
+                    activeTab === tab.id ? "bg-cyan-600 text-white shadow-lg shadow-cyan-950/30" : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                  )}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-4">
           {isApplyMode && (
              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded p-3 text-xs text-yellow-500 font-medium">
                You are applying for modifications. Your changes will need superadmin approval before taking effect.
              </div>
           )}
+          {activeTab === 'basic' && (
+            <div className="space-y-4">
           <div className="space-y-1">
             <label className="text-xs font-bold text-slate-400 uppercase">{t('name')} {isLocked(existingClient?.name) && <span className="text-[10px] text-slate-500 ml-1">(Locked)</span>}</label>
             <input required disabled={isLocked(existingClient?.name)} value={name} onChange={e => setName(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 disabled:opacity-50" placeholder="e.g. John Doe" />
@@ -283,21 +308,24 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
                 </div>
               )}
             </div>
-            
-            {!isPublicPool && (
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-400 uppercase">{t('stage')}</label>
-                <select value={status} onChange={e => setStatus(e.target.value as ClientStatus)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500">
-                  <option value="Leads">{t('status.lead')}</option>
-                  <option value="Contacted">{t('status.contacted')}</option>
-                  <option value="Sample Sent">{t('status.sample')}</option>
-                  <option value="Negotiating">{t('status.negotiating')}</option>
-                  <option value="Closed Won">{t('status.closed')}</option>
-                </select>
-              </div>
-            )}
           </div>
+            </div>
+          )}
 
+          {activeTab === 'preferences' && (
+            <div className="space-y-4">
+          {!isPublicPool && (
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-400 uppercase">{t('stage')}</label>
+              <select value={status} onChange={e => setStatus(e.target.value as ClientStatus)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500">
+                <option value="Leads">{t('status.lead')}</option>
+                <option value="Contacted">{t('status.contacted')}</option>
+                <option value="Sample Sent">{t('status.sample')}</option>
+                <option value="Negotiating">{t('status.negotiating')}</option>
+                <option value="Closed Won">{t('status.closed')}</option>
+              </select>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
               <label className="text-xs font-bold text-slate-400 uppercase">{t('tagsLabel')}</label>
@@ -328,7 +356,10 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
               </div>
             </div>
           </div>
+            </div>
+          )}
 
+          {activeTab === 'contacts' && (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-slate-400 uppercase">Contacts</label>
@@ -404,12 +435,19 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
               </div>
             ))}
           </div>
+          )}
+          </div>
           
-          <div className="pt-4 border-t border-slate-800 flex justify-end gap-3">
+          <div className="border-t border-slate-800 bg-slate-900 px-4 py-3 flex justify-between gap-3">
+            <div className="text-xs text-slate-500 self-center">
+              {activeTab === 'basic' ? 'Company and location' : activeTab === 'preferences' ? 'Stage, tags, and communication preferences' : 'People and contact methods'}
+            </div>
+            <div className="flex justify-end gap-3">
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800 rounded-lg transition-colors">{t('cancel')}</button>
             <button type="submit" className="px-4 py-2 text-sm font-bold bg-cyan-600 text-white hover:bg-cyan-500 rounded-lg shadow-lg shadow-cyan-600/20 transition-colors">
               {existingClient ? t('saveChanges') : t('createTarget')}
             </button>
+            </div>
           </div>
         </form>
       </div>
