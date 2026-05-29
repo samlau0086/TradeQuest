@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, Check, CheckCircle2, ClipboardCheck, Cpu, ListChecks, Plus, Power, RefreshCw, Save, Search, Server, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, X, XCircle, Zap } from 'lucide-react';
-import { AgentHubAgent, AgentHubGuardrail, AgentHubScheduleUnit, AgentHubStatus, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType, useStore } from '../store';
+import { AgentHubAgent, AgentHubEventTrigger, AgentHubGuardrail, AgentHubScheduleUnit, AgentHubStatus, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType, useStore } from '../store';
 import { cn } from '../lib/utils';
 import { AgentHarness } from './AgentHarness';
 import { GlobalAgent } from './GlobalAgent';
@@ -39,9 +39,33 @@ const emptyAgent = (): Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 't
   scheduleDayOfMonth: 1,
   scheduleMaxRuns: null,
   scheduleRunCount: 0,
+  eventTriggers: [],
   contextSuggestionMode: 'manual',
   builtIn: false
 });
+
+const AGENT_EVENT_TRIGGER_OPTIONS: { id: AgentHubEventTrigger; label: string; description: string }[] = [
+  { id: 'email_received', label: 'Email received', description: 'Run when new inbound email is synced.' },
+  { id: 'whatsapp_received', label: 'WhatsApp received', description: 'Run when a WhatsApp inbound message is saved.' },
+  { id: 'review_required', label: 'Review required', description: 'Run when a human approval item is created.' },
+  { id: 'execution_failed', label: 'Execution failed', description: 'Run when an agent or workflow execution fails.' },
+  { id: 'client_created', label: 'Client created', description: 'Run when a new client record is created.' },
+  { id: 'lead_created', label: 'Lead created', description: 'Run when a new lead/deal is created.' },
+  { id: 'client_updated', label: 'Client updated', description: 'Run when a client profile or stage changes.' },
+];
+
+function eventTriggerLabel(trigger: AgentHubEventTrigger, language?: string) {
+  const zh: Record<AgentHubEventTrigger, string> = {
+    email_received: '收到邮件',
+    whatsapp_received: '收到 WhatsApp',
+    review_required: '需要审核',
+    execution_failed: '执行失败',
+    client_created: '创建客户',
+    lead_created: '创建线索',
+    client_updated: '客户更新',
+  };
+  return language === 'zh' ? zh[trigger] : (AGENT_EVENT_TRIGGER_OPTIONS.find(item => item.id === trigger)?.label || trigger);
+}
 
 function statusClass(status: AgentHubStatus) {
   if (status === 'active') return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300';
@@ -575,6 +599,47 @@ function AgentConfigPanel({
           <p className="mt-2 text-xs text-slate-500">{t('Controls whether inbox context suggestions are shown as manual actions or automation-ready options.')}</p>
         </label>
         <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-4 space-y-3">
+          <div>
+            <div className="text-sm text-slate-200">{language === 'zh' ? 'Event Trigger / 事件触发' : 'Event Trigger'}</div>
+            <p className="mt-1 text-xs text-slate-500">{language === 'zh' ? '当系统事件发生时自动创建该智能体运行。是否直接执行仍由 Harness / Guardrails 控制。' : 'Create an agent run automatically when selected system events happen. Execution is still controlled by Harness / Guardrails.'}</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {AGENT_EVENT_TRIGGER_OPTIONS.map(option => {
+              const selected = (form.eventTriggers || []).includes(option.id);
+              return (
+                <label key={option.id} className={cn('flex items-start gap-2 rounded-md border p-3 cursor-pointer transition-colors', selected ? 'border-blue-500/40 bg-blue-500/10' : 'border-neutral-800 bg-black hover:border-neutral-700')}>
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={e => {
+                      const current = form.eventTriggers || [];
+                      setForm({
+                        ...form,
+                        eventTriggers: e.target.checked
+                          ? [...current, option.id]
+                          : current.filter(item => item !== option.id)
+                      });
+                    }}
+                    className="mt-0.5 h-4 w-4 accent-blue-600"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-xs font-bold text-slate-200">{eventTriggerLabel(option.id, language)}</span>
+                    <span className="mt-1 block text-[11px] leading-relaxed text-slate-500">{language === 'zh' ? {
+                      email_received: '同步到新的入站邮件时触发。',
+                      whatsapp_received: '保存新的 WhatsApp 入站消息时触发。',
+                      review_required: '创建人工审核事项时触发。',
+                      execution_failed: '智能体或工作流执行失败时触发。',
+                      client_created: '创建新客户记录时触发。',
+                      lead_created: '创建新线索/Deal 时触发。',
+                      client_updated: '客户资料或阶段更新时触发。',
+                    }[option.id] : option.description}</span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+        <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-4 space-y-3">
           <label className="flex items-center justify-between gap-4">
             <span>
               <span className="block text-sm text-slate-200">{t('Scheduled Run')}</span>
@@ -1008,6 +1073,16 @@ export function AgentHub() {
                     <span>{scheduleLabel(agent, t)}</span>
                     {agent.lastRunAt && <span>{t('Last run')}: {new Date(agent.lastRunAt).toLocaleString()}</span>}
                   </div>
+                  {(agent.eventTriggers || []).length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {(agent.eventTriggers || []).slice(0, 4).map(trigger => (
+                        <span key={trigger} className="rounded border border-cyan-500/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] text-cyan-200">
+                          {eventTriggerLabel(trigger, language)}
+                        </span>
+                      ))}
+                      {(agent.eventTriggers || []).length > 4 && <span className="text-[10px] text-slate-500">+{(agent.eventTriggers || []).length - 4}</span>}
+                    </div>
+                  )}
                   </button>
                 ))}
               </div>

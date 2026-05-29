@@ -974,6 +974,7 @@ No markdown wrappers, just valid JSON.`;
         scheduleIntervalUnit: agent.scheduleIntervalUnit,
         scheduleDayOfMonth: agent.scheduleDayOfMonth,
         scheduleMaxRuns: agent.scheduleMaxRuns,
+        eventTriggers: Array.isArray(agent.eventTriggers) ? agent.eventTriggers : existing.eventTriggers,
         updatedAt: new Date(Math.max(existingTime, incomingTime, Date.now())).toISOString()
       });
     });
@@ -2564,6 +2565,128 @@ Return JSON only:
     return { scanned, acted, skipped, failed, details };
   };
 
+  const triggerAgentHubEvent = async (userId: string, event: string, payload: any = {}) => {
+    const userRes = await pool.query('SELECT settings FROM users WHERE id = $1', [userId]);
+    if (userRes.rows.length === 0) return { created: 0, executed: 0 };
+    const settings = typeof userRes.rows[0].settings === 'string' ? JSON.parse(userRes.rows[0].settings || '{}') : (userRes.rows[0].settings || {});
+    const agents = Array.isArray(settings.agentHubAgents) ? settings.agentHubAgents : [];
+    const matchedAgents = agents.filter((agent: any) => (
+      agent?.status !== 'paused' &&
+      Array.isArray(agent.eventTriggers) &&
+      agent.eventTriggers.includes(event)
+    ));
+    if (matchedAgents.length === 0) return { created: 0, executed: 0 };
+
+    const isZh = settings.language === 'zh';
+    let created = 0;
+    let executed = 0;
+
+    for (const agent of matchedAgents) {
+      const reviewStatus = agent.guardrail === 'auto' ? 'approved' : 'pending_review';
+      const objective = isZh
+        ? `事件触发运行：${agent.name}\n触发事件：${event}\n事件上下文：${JSON.stringify(payload, null, 2)}\n\n${agent.instructions || ''}`
+        : `Event-triggered run: ${agent.name}\nEvent: ${event}\nEvent context: ${JSON.stringify(payload, null, 2)}\n\n${agent.instructions || ''}`;
+      const expectedResult = isZh
+        ? `1. 读取事件上下文和相关客户/线索资料。\n2. 根据 ${agent.name} 的指令判断是否需要行动。\n3. 检查幂等性、风险和审核策略。\n4. 执行已授权工具：${(agent.tools || []).join(', ') || 'agent tools'}。\n5. 写入运行结果、CRM 日志和后续建议。`
+        : `1. Read event context and related client/lead data.\n2. Decide whether action is needed according to ${agent.name} instructions.\n3. Check idempotency, risk, and approval policy.\n4. Execute permitted tools: ${(agent.tools || []).join(', ') || 'agent tools'}.\n5. Record run result, CRM logs, and next-step suggestions.`;
+      const actualResult = reviewStatus === 'approved'
+        ? (isZh
+          ? `1. 事件 ${event} 已匹配该智能体。\n2. 护栏策略允许自动通过。\n3. 运行已进入执行流程。`
+          : `1. Event ${event} matched this agent.\n2. Guardrail policy allowed auto-approval.\n3. The run entered execution.`)
+        : (isZh
+          ? `1. 事件 ${event} 已匹配该智能体。\n2. 护栏策略要求人工审核。\n3. 已创建待审核运行。`
+          : `1. Event ${event} matched this agent.\n2. Guardrail policy requires human review.\n3. A review-gated run was created.`);
+
+      const relatedRunId = agent.id === 'global_agent'
+        ? `gplan_event_${Date.now()}_${Math.floor(Math.random() * 1000)}`
+        : `harness_event_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      const relatedRunType: 'global' | 'harness' = agent.id === 'global_agent' ? 'global' : 'harness';
+      const nowIso = new Date().toISOString();
+
+      if (relatedRunType === 'global') {
+        settings.globalAgentPlans = [{
+          id: relatedRunId,
+          objective,
+          summary: isZh ? `事件触发：${agent.name}` : `Event-triggered run: ${agent.name}`,
+          status: reviewStatus,
+          steps: [{
+            id: `step_event_${Date.now()}_${agent.id}`,
+            title: isZh ? `处理事件：${event}` : `Handle event: ${event}`,
+            description: agent.instructions || '',
+            actionType: 'review_pipeline',
+            status: 'pending',
+            payload: { source: 'agent-hub-event', event, eventPayload: payload, agentId: agent.id, tools: agent.tools || [] }
+          }],
+          createdAt: nowIso,
+          updatedAt: nowIso
+        }, ...(settings.globalAgentPlans || [])];
+      } else {
+        settings.agentHarnessRuns = [{
+          id: relatedRunId,
+          objective,
+          summary: isZh ? `事件触发：${agent.name}` : `Event-triggered run: ${agent.name}`,
+          status: reviewStatus,
+          steps: [{
+            id: `hstep_event_${Date.now()}_${agent.id}`,
+            agentId: agent.id,
+            title: isZh ? `处理事件：${event}` : `Handle event: ${event}`,
+            description: agent.instructions || '',
+            tool: (agent.tools || [])[0] || 'agent.run',
+            risk: agent.guardrail === 'auto' ? 'low' : 'medium',
+            status: reviewStatus === 'approved' ? 'approved' : 'pending',
+            payload: { source: 'agent-hub-event', event, eventPayload: payload, agentId: agent.id, tools: agent.tools || [] }
+          }],
+          createdAt: nowIso,
+          updatedAt: nowIso
+        }, ...(settings.agentHarnessRuns || [])];
+      }
+
+      const eventRecord = addAgentHubRunRecordToSettings(settings, {
+        agentId: agent.id,
+        agentName: agent.name,
+        trigger: 'event',
+        status: reviewStatus,
+        plan: objective,
+        expectedResult,
+        actualResult,
+        relatedRunId,
+        relatedRunType,
+        completedAt: nowIso
+      });
+      created += 1;
+
+      if (reviewStatus === 'approved' && relatedRunType === 'harness') {
+        try {
+          const result = await executeAgentHubHarnessRun(userId, settings, relatedRunId);
+          executed += result.acted || 0;
+        } catch (error: any) {
+          updateAgentHubRunRecordInSettings(settings, eventRecord.id, {
+            status: 'failed',
+            actualResult: isZh
+              ? `1. 事件触发运行失败。\n2. 错误：${error?.message || '未知错误'}`
+              : `1. Event-triggered run failed.\n2. Error: ${error?.message || 'Unknown error'}`,
+            completedAt: new Date().toISOString()
+          });
+        }
+      }
+    }
+
+    await pool.query('UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [JSON.stringify(settings), userId]);
+    return { created, executed };
+  };
+
+  app.post('/api/agent-hub/events/trigger', authenticateToken, async (req: any, res) => {
+    try {
+      const event = String(req.body?.event || '').trim();
+      if (!event) return res.status(400).json({ error: 'Missing event' });
+      const result = await triggerAgentHubEvent(req.user.uid, event, req.body?.payload || {});
+      res.json({ success: true, result });
+    } catch (e: any) {
+      console.error('Failed to trigger Agent Hub event', e);
+      res.status(500).json({ error: e.message || 'Failed to trigger Agent Hub event' });
+    }
+  });
+
   app.post('/api/agent-hub/harness-runs/:runId/execute', authenticateToken, async (req: any, res) => {
     try {
       const { runId } = req.params;
@@ -2589,6 +2712,11 @@ Return JSON only:
       res.json({ success: true, result });
     } catch (e: any) {
       console.error('Failed to execute Agent Hub harness run', e);
+      await triggerAgentHubEvent(req.user.uid, 'execution_failed', {
+        source: 'agent-hub-harness',
+        runId: req.params?.runId,
+        error: e.message || 'Failed to execute Agent Hub run'
+      }).catch(err => console.warn('Agent Hub execution_failed trigger failed', err));
       res.status(500).json({ error: e.message || 'Failed to execute Agent Hub run' });
     }
   });
@@ -2757,6 +2885,13 @@ Return JSON only:
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
         [id, req.user.uid, clientId || null, name, value || 0, status || 'Leads', contactInfo || {}, comments || [], leadScore ?? null, leadSummary || null, leadNextStep || null, leadScoringSignature || null, leadScoringAnalyzedAt || null]
       );
+      await triggerAgentHubEvent(req.user.uid, 'lead_created', {
+        leadId: id,
+        clientId: clientId || null,
+        name,
+        value: value || 0,
+        status: status || 'Leads'
+      }).catch(err => console.warn('Agent Hub lead_created trigger failed', err));
       res.json(result.rows[0]);
     } catch (e) {
       console.error(e);
@@ -3615,6 +3750,15 @@ Query: "${query}"`;
       );
 
       await pool.query(`UPDATE users SET points = points + 5 WHERE id = $1`, [req.user.uid]);
+      if (!req.body.isPublic) {
+        await triggerAgentHubEvent(req.user.uid, 'client_created', {
+          clientId: id,
+          name,
+          company,
+          country,
+          status
+        }).catch(err => console.warn('Agent Hub client_created trigger failed', err));
+      }
 
       res.json({ success: true, pointsAdded: 5 });
     } catch (e) {
@@ -3681,6 +3825,10 @@ Query: "${query}"`;
         if (pointsToAward > 0) {
             await pool.query(`UPDATE users SET points = points + $1 WHERE id = $2`, [pointsToAward, req.user.uid]);
         }
+        await triggerAgentHubEvent(req.user.uid, 'client_updated', {
+          clientId: id,
+          updatedFields: Object.keys(updates)
+        }).catch(err => console.warn('Agent Hub client_updated trigger failed', err));
       }
       res.json({ success: true, pointsAdded: pointsToAward });
     } catch (e) {
@@ -4424,6 +4572,12 @@ No markdown wrappers, just valid JSON.`;
             body: `${syncedEmails.length} new email(s) synced from ${username}.`,
             metadata: { count: syncedEmails.length, mailbox: username, type }
           }).catch(err => console.warn('Email external notification failed', err));
+          await triggerAgentHubEvent(req.user.uid, 'email_received', {
+            count: syncedEmails.length,
+            mailbox: username,
+            type,
+            emailIds: syncedEmails
+          }).catch(err => console.warn('Agent Hub email_received trigger failed', err));
         }
         return res.json({ success: true, count: syncedEmails.length });
       }
@@ -4550,6 +4704,12 @@ No markdown wrappers, just valid JSON.`;
           body: `${syncedEmails.length} new email(s) synced from ${username}.`,
           metadata: { count: syncedEmails.length, mailbox: username, type }
         }).catch(err => console.warn('Email external notification failed', err));
+        await triggerAgentHubEvent(req.user.uid, 'email_received', {
+          count: syncedEmails.length,
+          mailbox: username,
+          type,
+          emailIds: syncedEmails
+        }).catch(err => console.warn('Agent Hub email_received trigger failed', err));
       }
       res.json({ success: true, count: syncedEmails.length });
     } catch (e: any) {

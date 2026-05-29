@@ -343,6 +343,14 @@ export type AgentHubStatus = 'active' | 'idle' | 'paused';
 export type AgentHubGuardrail = 'auto' | 'review' | 'human_loop';
 export type AgentHubContextSuggestionMode = 'manual' | 'auto';
 export type AgentHubScheduleUnit = 'second' | 'minute' | 'hour' | 'day' | 'month_day';
+export type AgentHubEventTrigger =
+  | 'email_received'
+  | 'whatsapp_received'
+  | 'review_required'
+  | 'execution_failed'
+  | 'client_created'
+  | 'lead_created'
+  | 'client_updated';
 
 export interface AgentHubAgent {
   id: string;
@@ -359,6 +367,7 @@ export interface AgentHubAgent {
   scheduleDayOfMonth?: number;
   scheduleMaxRuns?: number | null;
   scheduleRunCount?: number;
+  eventTriggers?: AgentHubEventTrigger[];
   contextSuggestionMode?: AgentHubContextSuggestionMode;
   lastRunAt?: string;
   builtIn?: boolean;
@@ -367,7 +376,7 @@ export interface AgentHubAgent {
 }
 
 export type AgentHubRunStatus = 'planned' | 'pending_review' | 'approved' | 'running' | 'completed' | 'failed' | 'rejected';
-export type AgentHubRunTrigger = 'scheduled' | 'manual' | 'approval' | 'system';
+export type AgentHubRunTrigger = 'scheduled' | 'manual' | 'approval' | 'system' | 'event';
 
 export interface AgentHubRunRecord {
   id: string;
@@ -774,6 +783,7 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     scheduleIntervalValue: 1,
     scheduleIntervalUnit: 'day',
     scheduleRunCount: 0,
+    eventTriggers: ['review_required', 'execution_failed'],
     contextSuggestionMode: 'manual',
     builtIn: true,
     createdAt: new Date().toISOString(),
@@ -792,6 +802,7 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     scheduleIntervalValue: 4,
     scheduleIntervalUnit: 'hour',
     scheduleRunCount: 0,
+    eventTriggers: ['email_received', 'whatsapp_received'],
     contextSuggestionMode: 'manual',
     builtIn: true,
     createdAt: new Date().toISOString(),
@@ -810,6 +821,7 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     scheduleIntervalValue: 1,
     scheduleIntervalUnit: 'hour',
     scheduleRunCount: 0,
+    eventTriggers: ['whatsapp_received'],
     contextSuggestionMode: 'manual',
     builtIn: true,
     createdAt: new Date().toISOString(),
@@ -828,6 +840,7 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     scheduleIntervalValue: 4,
     scheduleIntervalUnit: 'hour',
     scheduleRunCount: 0,
+    eventTriggers: ['lead_created', 'client_updated'],
     contextSuggestionMode: 'auto',
     builtIn: true,
     createdAt: new Date().toISOString(),
@@ -846,6 +859,7 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     scheduleIntervalValue: 12,
     scheduleIntervalUnit: 'hour',
     scheduleRunCount: 0,
+    eventTriggers: ['lead_created', 'client_created'],
     contextSuggestionMode: 'auto',
     builtIn: true,
     createdAt: new Date().toISOString(),
