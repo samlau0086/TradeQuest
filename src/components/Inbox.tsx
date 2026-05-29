@@ -1396,7 +1396,8 @@ function EmailRichTextEditor({
   loading,
   originalEmailBody,
   quotes,
-  onOptimize
+  onOptimize,
+  onInlineAI
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -1404,6 +1405,7 @@ function EmailRichTextEditor({
   originalEmailBody?: string;
   quotes: any[];
   onOptimize: () => void;
+  onInlineAI: (prompt: string, currentHtml: string) => Promise<string>;
 }) {
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1412,6 +1414,7 @@ function EmailRichTextEditor({
   const [quoteSearch, setQuoteSearch] = useState('');
   const [showLinkForm, setShowLinkForm] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
+  const [runningInlineAI, setRunningInlineAI] = useState(false);
 
   useEffect(() => {
     if (!editorRef.current || document.activeElement === editorRef.current) return;
@@ -1434,6 +1437,38 @@ function EmailRichTextEditor({
 
   const insertImage = (url: string, alt = '') => {
     insertHtml(`<p><img src="${escapeEmailHtml(url)}" alt="${escapeEmailHtml(alt)}" style="max-width:100%;height:auto;border-radius:6px;" /></p>`);
+  };
+
+  const findAiCommandNode = () => {
+    if (!editorRef.current) return null;
+    const walker = document.createTreeWalker(editorRef.current, NodeFilter.SHOW_TEXT);
+    const nodes: Text[] = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode as Text);
+    for (const node of nodes.reverse()) {
+      const match = node.data.match(/\/ai:([^\n\r<]*)/);
+      if (match) {
+        return { node, matchText: match[0], prompt: match[1].trim(), index: match.index || 0 };
+      }
+    }
+    return null;
+  };
+
+  const runInlineAI = async () => {
+    const command = findAiCommandNode();
+    if (!command || !command.prompt || runningInlineAI) return;
+    setRunningInlineAI(true);
+    try {
+      const result = await onInlineAI(command.prompt, editorRef.current?.innerHTML || '');
+      const range = document.createRange();
+      range.setStart(command.node, command.index);
+      range.setEnd(command.node, command.index + command.matchText.length);
+      range.deleteContents();
+      range.insertNode(range.createContextualFragment(normalizeEmailEditorHtml(result)));
+      syncEditor();
+      editorRef.current?.focus();
+    } finally {
+      setRunningInlineAI(false);
+    }
   };
 
   const handleLocalImage = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1479,6 +1514,9 @@ function EmailRichTextEditor({
         </button>
         <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => setShowQuoteMenu(prev => !prev)} className="px-2.5 py-2 rounded-lg text-xs font-bold text-slate-300 hover:bg-slate-800 hover:text-white">
           Quote
+        </button>
+        <button type="button" onMouseDown={e => e.preventDefault()} onClick={runInlineAI} disabled={loading || runningInlineAI} className="px-2.5 py-2 rounded-lg text-xs font-bold text-cyan-300 hover:bg-cyan-950/40 disabled:text-slate-600">
+          {runningInlineAI ? 'Generating...' : '/ai'}
         </button>
         <div className="ml-auto">
           <button
@@ -1543,6 +1581,12 @@ function EmailRichTextEditor({
         suppressContentEditableWarning
         onInput={syncEditor}
         onBlur={syncEditor}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && findAiCommandNode()) {
+            e.preventDefault();
+            void runInlineAI();
+          }
+        }}
         className={cn(
           "email-rich-editor flex-1 min-h-[220px] overflow-y-auto rounded-b-xl border-x border-b border-slate-800 bg-slate-950/30 px-4 py-3 text-sm text-slate-200 outline-none focus:border-indigo-500 leading-relaxed",
           !value && "before:content-['Write_your_email_here...'] before:text-slate-600"
@@ -1888,6 +1932,36 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
     }
   };
 
+  const handleInlineAICommand = async (prompt: string, currentHtml: string) => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/chat/magic', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${useAuthStore.getState().token}`
+        },
+        body: JSON.stringify({ 
+          command: `Write an outbound email snippet or sentence based on this instruction: ${prompt}. Do not include any email signature, sign-off block, sender name, company footer, or quoted original email. Output language: ${outboundLanguage}.`,
+          context: { 
+             currentEmailBodyPreview: emailHtmlToText(currentHtml).replace(`/ai:${prompt}`, '[Generate Here]'),
+             outboundLanguage,
+             clientPreferredLanguage: matchedClient?.preferredLanguage || null
+          },
+          llmConfig: getLLMConfig('drafting')
+        })
+      });
+      const data = await res.json();
+      return stripTrailingConfiguredSignature(data.result || '');
+    } catch(err) {
+      console.error(err);
+      notify('Failed to process magic command', 'error');
+      return '';
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       setAttachments(prev => [...prev, ...Array.from(e.target.files!)]);
@@ -2068,6 +2142,7 @@ Output language: ${outboundLanguage}. If the customer has no preferred language 
           originalEmailBody={originalEmailBody}
           quotes={quotes}
           onOptimize={handleOptimizeBody}
+          onInlineAI={handleInlineAICommand}
         />
         {attachments.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-2">
