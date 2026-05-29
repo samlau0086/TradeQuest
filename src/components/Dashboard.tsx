@@ -71,13 +71,50 @@ function BarListChart({ rows, emptyLabel }: { rows: { label: string; value: numb
   );
 }
 
+function FunnelBarChart({ rows, emptyLabel }: { rows: { label: string; value: number; color: string }[]; emptyLabel: string }) {
+  const maxValue = Math.max(1, ...rows.map(row => row.value));
+  const total = rows.reduce((sum, row) => sum + row.value, 0);
+  const hasData = rows.some(row => row.value > 0);
+
+  if (!hasData) {
+    return <div className="h-48 flex items-center justify-center text-sm text-slate-500">{emptyLabel}</div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      {rows.map(row => {
+        const widthPercent = Math.max(4, (row.value / maxValue) * 100);
+        const share = total > 0 ? Math.round((row.value / total) * 100) : 0;
+        return (
+          <div key={row.label}>
+            <div className="flex items-center justify-between text-xs mb-1.5">
+              <span className="text-slate-400">{row.label}</span>
+              <span className="font-bold text-slate-200">{row.value}</span>
+            </div>
+            <div className="relative h-3 rounded-full border border-slate-800 bg-slate-900">
+              <div className={cn('group relative h-full rounded-full transition-all duration-700', row.color)} style={{ width: `${widthPercent}%` }}>
+                <HoverTooltip>
+                  <div className="font-bold">{row.label}</div>
+                  <div className="text-slate-400">{row.value} · {share}%</div>
+                </HoverTooltip>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function SparklineChart({ points, color = 'stroke-cyan-400', valueLabel = 'events' }: { points: { label: string; value: number; meta?: string }[]; color?: string; valueLabel?: string }) {
   const width = 320;
   const height = 120;
+  const paddingX = 16;
+  const plotWidth = width - paddingX * 2;
   const max = Math.max(1, ...points.map(point => point.value));
-  const step = points.length > 1 ? width / (points.length - 1) : width;
+  const step = points.length > 1 ? plotWidth / (points.length - 1) : plotWidth;
   const path = points.map((point, index) => {
-    const x = index * step;
+    const x = paddingX + index * step;
     const y = height - (point.value / max) * (height - 14) - 7;
     return `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
   }).join(' ');
@@ -88,18 +125,18 @@ function SparklineChart({ points, color = 'stroke-cyan-400', valueLabel = 'event
         <svg viewBox={`0 0 ${width} ${height}`} className="absolute inset-0 w-full h-32 overflow-visible">
           <path d={path} fill="none" className={cn(color, 'stroke-[3]')} strokeLinecap="round" strokeLinejoin="round" />
           {points.map((point, index) => {
-            const x = index * step;
+            const x = paddingX + index * step;
             const y = height - (point.value / max) * (height - 14) - 7;
             return <circle key={index} cx={x} cy={y} r="3.5" className="fill-slate-950 stroke-cyan-400 stroke-2" />;
           })}
         </svg>
         {points.map((point, index) => {
-          const x = index * step;
+          const x = paddingX + index * step;
           const y = height - (point.value / max) * (height - 14) - 7;
           return (
             <div
-              key={point.label}
-              className="group absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full"
+              key={`${point.meta || point.label}-${index}`}
+              className="group absolute z-10 h-7 w-7 -translate-x-1/2 -translate-y-1/2 rounded-full"
               style={{ left: `${(x / width) * 100}%`, top: `${(y / height) * 100}%` }}
             >
               <HoverTooltip>
@@ -537,7 +574,7 @@ export function Dashboard() {
                 </h3>
                 <button onClick={() => setView('public-pool')} className="text-xs text-cyan-400 hover:text-cyan-300 font-bold">{t('Public Pool')}</button>
               </div>
-              <BarListChart rows={operations.campaignRows} emptyLabel={t('No lead acquisition data yet.')} />
+              <FunnelBarChart rows={operations.campaignRows} emptyLabel={t('No lead acquisition data yet.')} />
             </div>
           </div>
         </section>
