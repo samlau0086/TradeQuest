@@ -40,12 +40,20 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
   const buildInitialContacts = (): ClientContact[] => {
     const sourceContacts = existingClient?.contacts || initialData?.contacts || [];
     if (sourceContacts.length > 0) {
-      return sourceContacts.map((contact, index) => ({
+      const normalizedSource = sourceContacts.map((contact, index) => ({
         ...contact,
-        id: contact.id || `contact_${Date.now()}_${index}`,
-        isPrimary: contact.id === (existingClient?.primaryContactId || initialData?.primaryContactId) || contact.isPrimary || index === 0,
-        contactMethods: contact.contactMethods?.length ? contact.contactMethods : []
+        id: contact.id || `contact_${Date.now()}_${index}`
       }));
+      const primaryId = existingClient?.primaryContactId || initialData?.primaryContactId || normalizedSource.find(contact => contact.isPrimary)?.id || normalizedSource[0]?.id;
+      return normalizedSource.map((contact) => {
+        const assignedId = contact.id;
+        return {
+          ...contact,
+          id: assignedId,
+          isPrimary: assignedId === primaryId,
+          contactMethods: contact.contactMethods?.length ? contact.contactMethods : []
+        };
+      });
     }
     return [{
       id: existingClient?.primaryContactId || initialData?.primaryContactId || `contact_${Date.now()}`,
@@ -172,6 +180,16 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
 
   const updateContact = (contactId: string, updates: Partial<ClientContact>) => {
     setContacts(prev => prev.map(contact => contact.id === contactId ? { ...contact, ...updates } : contact));
+  };
+
+  const setPrimaryContact = (contactId: string) => {
+    const selected = contacts.find(contact => contact.id === contactId);
+    if (selected?.name?.trim()) {
+      setName(selected.name.trim());
+    }
+    setContacts(prev => {
+      return prev.map(contact => ({ ...contact, isPrimary: contact.id === contactId }));
+    });
   };
 
   const removeContact = (contactId: string) => {
@@ -418,6 +436,16 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
                   />
                   <div className="flex items-center gap-2">
                     {contact.isPrimary && <span className="text-[10px] uppercase font-bold px-2 py-1 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">Key</span>}
+                    {!contact.isPrimary && (!existingClient || isApplyMode) && (
+                      <button
+                        type="button"
+                        disabled={!contact.name.trim()}
+                        onClick={() => setPrimaryContact(contact.id)}
+                        className="text-[10px] uppercase font-bold px-2 py-1 rounded bg-slate-900 text-slate-300 border border-slate-700 hover:border-cyan-500/50 hover:text-cyan-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        Set Key
+                      </button>
+                    )}
                     {!contact.isPrimary && (!existingClient || isApplyMode) && (
                       <button type="button" onClick={() => removeContact(contact.id)} className="p-2 text-slate-500 hover:text-red-400 rounded-md hover:bg-slate-800 transition-colors">
                         <Trash2 className="w-4 h-4" />
