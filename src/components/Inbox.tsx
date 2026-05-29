@@ -35,7 +35,7 @@ export function Inbox() {
   const [search, setSearch] = useState('');
   const [searchTags, setSearchTags] = useState<string[]>([]);
   const [isComposing, setIsComposing] = useState(false);
-  const [composeDefaults, setComposeDefaults] = useState<{recipient: string, subject: string, originalEmailBody?: string, initialBody?: string, draftId?: string} | null>(null);
+  const [composeDefaults, setComposeDefaults] = useState<{recipient: string, subject: string, originalEmailBody?: string, initialBody?: string, draftId?: string, replyToEmailId?: string, initialOutboxId?: string} | null>(null);
   const [isAddingTag, setIsAddingTag] = useState(false);
   const [newTag, setNewTag] = useState('');
   const [commentText, setCommentText] = useState('');
@@ -859,7 +859,7 @@ export function Inbox() {
       {/* Reading Pane / Compose Pane */}
       <Panel id="inbox-content" className={cn("flex flex-col bg-slate-950/50 relative", !selectedEmailId && !selectedWhatsAppPhone && !isComposing && !isStartingWhatsApp && "hidden md:flex")}>
         {isComposing ? (
-          <ComposeEmail onClose={() => setIsComposing(false)} initialRecipient={composeDefaults?.recipient} initialSubject={composeDefaults?.subject} initialBody={composeDefaults?.initialBody} originalEmailBody={composeDefaults?.originalEmailBody} draftId={composeDefaults?.draftId} />
+          <ComposeEmail onClose={() => setIsComposing(false)} initialRecipient={composeDefaults?.recipient} initialSubject={composeDefaults?.subject} initialBody={composeDefaults?.initialBody} originalEmailBody={composeDefaults?.originalEmailBody} draftId={composeDefaults?.draftId} replyToEmailId={composeDefaults?.replyToEmailId} initialOutboxId={composeDefaults?.initialOutboxId} />
         ) : isStartingWhatsApp ? (
           <div className="flex-1 flex flex-col bg-slate-950/50">
             <div className="p-4 border-b border-slate-800 flex items-center gap-3 bg-slate-900/80">
@@ -992,7 +992,8 @@ export function Inbox() {
                          recipient: selectedEmail.recipient, 
                          subject: selectedEmail.subject, 
                          initialBody: selectedEmail.body,
-                         draftId: selectedEmail.id 
+                         draftId: selectedEmail.id,
+                         initialOutboxId: selectedEmail.outboxConfigId
                        }); 
                        setIsComposing(true); 
                      }} 
@@ -1002,7 +1003,7 @@ export function Inbox() {
                      <PenLine className="w-4 h-4" />
                    </button>
                  ) : (
-                   <button onClick={() => { setComposeDefaults({ recipient: selectedEmail.sender, subject: `Re: ${selectedEmail.subject.replace(/^Re:\s*/i, '')}`, originalEmailBody: `On ${new Date(selectedEmail.date).toLocaleString()}, ${selectedEmail.senderName || selectedEmail.sender} wrote:<br>${selectedEmail.body || ''}` }); setIsComposing(true); }} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors" title="Reply">
+                   <button onClick={() => { setComposeDefaults({ recipient: selectedEmail.sender, subject: `Re: ${selectedEmail.subject.replace(/^Re:\s*/i, '')}`, originalEmailBody: `On ${new Date(selectedEmail.date).toLocaleString()}, ${selectedEmail.senderName || selectedEmail.sender} wrote:<br>${selectedEmail.body || ''}`, replyToEmailId: selectedEmail.id }); setIsComposing(true); }} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors" title="Reply">
                      <Reply className="w-4 h-4" />
                    </button>
                  )}
@@ -1107,7 +1108,8 @@ export function Inbox() {
                      recipient: selectedEmail.type === 'inbox' ? selectedEmail.sender : selectedEmail.recipient,
                      subject: `Re: ${selectedEmail.subject.replace(/^Re:\s*/i, '')}`,
                      originalEmailBody: `On ${new Date(selectedEmail.date).toLocaleString()}, ${selectedEmail.senderName || selectedEmail.sender} wrote:<br>${selectedEmail.body || ''}`,
-                     initialBody: ''
+                     initialBody: '',
+                     replyToEmailId: selectedEmail.id
                    });
                    setIsComposing(true);
                  }}
@@ -1340,9 +1342,41 @@ export function Inbox() {
   );
 }
 
-export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '', initialBody = '', originalEmailBody = '', draftId, className = '' }: { onClose: () => void, initialRecipient?: string, initialSubject?: string, initialBody?: string, originalEmailBody?: string, draftId?: string, className?: string }) {
-  const { clients, emails, logs, addEmail, editEmail, deleteEmails, addLog, outboxConfigs, signatures, timezone, notify } = useStore();
-  const [selectedOutboxId, setSelectedOutboxId] = useState<string>(outboxConfigs?.[0]?.id || '');
+export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '', initialBody = '', originalEmailBody = '', draftId, replyToEmailId, initialOutboxId, className = '' }: { onClose: () => void, initialRecipient?: string, initialSubject?: string, initialBody?: string, originalEmailBody?: string, draftId?: string, replyToEmailId?: string, initialOutboxId?: string, className?: string }) {
+  const { clients, emails, logs, addEmail, editEmail, deleteEmails, addLog, outboxConfigs, inboxConfigs, emailServerMappings, signatures, timezone, notify } = useStore();
+  const resolvePreferredOutboxId = () => {
+    if (initialOutboxId && outboxConfigs.some(config => config.id === initialOutboxId)) return initialOutboxId;
+    if (draftId) {
+      const draft = emails.find(email => email.id === draftId);
+      if (draft?.outboxConfigId && outboxConfigs.some(config => config.id === draft.outboxConfigId)) return draft.outboxConfigId;
+    }
+    const replyEmail = replyToEmailId ? emails.find(email => email.id === replyToEmailId) : null;
+    if (replyEmail) {
+      const relatedSent = emails
+        .filter(email => ['sent', 'scheduled', 'outbound'].includes(email.type) && email.outboxConfigId)
+        .filter(email => {
+          if (replyEmail.clientId && email.clientId === replyEmail.clientId) return true;
+          const target = (replyEmail.sender || '').toLowerCase();
+          const recipients = `${email.recipient || ''},${email.cc || ''},${email.bcc || ''}`.toLowerCase();
+          return !!target && recipients.includes(target);
+        })
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      const lastOutboxId = relatedSent[0]?.outboxConfigId;
+      if (lastOutboxId && outboxConfigs.some(config => config.id === lastOutboxId)) return lastOutboxId;
+
+      const mappedByInbox = emailServerMappings.find(route => route.inboxConfigId === replyEmail.inboxConfigId);
+      if (mappedByInbox?.outboxConfigId && outboxConfigs.some(config => config.id === mappedByInbox.outboxConfigId)) return mappedByInbox.outboxConfigId;
+
+      const receivedBy = `${replyEmail.recipient || ''}`.toLowerCase();
+      const matchedInbox = inboxConfigs.find(config => receivedBy.includes((config.username || '').toLowerCase()));
+      const mappedByRecipient = matchedInbox ? emailServerMappings.find(route => route.inboxConfigId === matchedInbox.id) : null;
+      if (mappedByRecipient?.outboxConfigId && outboxConfigs.some(config => config.id === mappedByRecipient.outboxConfigId)) return mappedByRecipient.outboxConfigId;
+    }
+    const defaultRoute = emailServerMappings.find(route => route.isDefault) || emailServerMappings[0];
+    if (defaultRoute?.outboxConfigId && outboxConfigs.some(config => config.id === defaultRoute.outboxConfigId)) return defaultRoute.outboxConfigId;
+    return outboxConfigs?.[0]?.id || '';
+  };
+  const [selectedOutboxId, setSelectedOutboxId] = useState<string>(() => resolvePreferredOutboxId());
   const [selectedSignatureId, setSelectedSignatureId] = useState<string>(
     signatures?.find(s => s.isDefault)?.id || signatures?.[0]?.id || ''
   );
@@ -1439,6 +1473,13 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
     updateCaretPosition();
   }, [body]);
 
+  useEffect(() => {
+    const preferredOutboxId = resolvePreferredOutboxId();
+    if (preferredOutboxId && (!selectedOutboxId || !outboxConfigs.some(config => config.id === selectedOutboxId))) {
+      setSelectedOutboxId(preferredOutboxId);
+    }
+  }, [replyToEmailId, initialOutboxId, draftId, outboxConfigs, emailServerMappings, inboxConfigs, emails]);
+
   // Auto-associate client if recipient matches the first given recipient
   const firstRecipient = recipient.split(',')[0]?.trim() || '';
   const matchedClient = clients.find(c => 
@@ -1532,7 +1573,8 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
       clientId: matchedClient?.id,
       scheduledAt,
       attachments: attachmentsPayload.length > 0 ? attachmentsPayload : undefined,
-      enableTracking: trackEmail
+      enableTracking: trackEmail,
+      outboxConfigId: selectedOutboxId || undefined
     });
     if (matchedClient) {
       addLog(matchedClient.id, `Scheduled Email: ${subject} for ${new Date(scheduledAt).toLocaleString()}${purpose ? ` (Purpose: ${purpose})` : ''}`, newEmailId);
@@ -1569,7 +1611,8 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
       type: 'draft' as const,
       clientId: matchedClient?.id,
       attachments: attachmentsPayload.length > 0 ? attachmentsPayload : undefined,
-      enableTracking: trackEmail
+      enableTracking: trackEmail,
+      outboxConfigId: selectedOutboxId || undefined
     };
 
     if (draftId) {
@@ -1606,7 +1649,8 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
       type: 'sent',
       clientId: matchedClient?.id,
       attachments: attachmentsPayload.length > 0 ? attachmentsPayload : undefined,
-      enableTracking: trackEmail
+      enableTracking: trackEmail,
+      outboxConfigId: selectedOutboxId || undefined
     });
     
     if (draftId) {

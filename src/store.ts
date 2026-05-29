@@ -420,6 +420,8 @@ export interface EmailMessage {
   todoNote?: string;
   trackingEvents?: any[];
   enableTracking?: boolean;
+  inboxConfigId?: string;
+  outboxConfigId?: string;
   agentContextAnalysisMode?: AgentContextAnalysisMode;
   agentContextAnalysis?: AgentContextSuggestionInsight;
   agentContextAnalysisKey?: string;
@@ -480,6 +482,14 @@ export interface OutboxConfig {
   secure?: boolean;
   fromEmail: string;
   fromName: string;
+}
+
+export interface EmailServerMapping {
+  id: string;
+  name: string;
+  inboxConfigId: string;
+  outboxConfigId: string;
+  isDefault?: boolean;
 }
 
 export interface WhatsAppHubConfig {
@@ -597,6 +607,10 @@ export interface StoreState {
   addOutboxConfig: (config: Omit<OutboxConfig, 'id'>) => void;
   updateOutboxConfig: (id: string, updates: Partial<OutboxConfig>) => void;
   deleteOutboxConfig: (id: string) => void;
+  emailServerMappings: EmailServerMapping[];
+  addEmailServerMapping: (mapping: Omit<EmailServerMapping, 'id'>) => void;
+  updateEmailServerMapping: (id: string, updates: Partial<EmailServerMapping>) => void;
+  deleteEmailServerMapping: (id: string) => void;
 
   whatsappHubConfig: WhatsAppHubConfig;
   updateWhatsAppHubConfig: (updates: Partial<WhatsAppHubConfig>) => void;
@@ -1303,6 +1317,20 @@ export const useStore = create<StoreState>((set, get) => ({
   addOutboxConfig: (config) => set((state) => ({ outboxConfigs: [...state.outboxConfigs, { ...config, id: `outbox_${Date.now()}` }] })),
   updateOutboxConfig: (id, updates) => set((state) => ({ outboxConfigs: state.outboxConfigs.map(a => a.id === id ? { ...a, ...updates } : a) })),
   deleteOutboxConfig: (id) => set((state) => ({ outboxConfigs: state.outboxConfigs.filter(a => a.id !== id) })),
+  emailServerMappings: [],
+  addEmailServerMapping: (mapping) => set((state) => ({
+    emailServerMappings: [
+      ...state.emailServerMappings.map(item => mapping.isDefault ? { ...item, isDefault: false } : item),
+      { ...mapping, id: `email_route_${Date.now()}` }
+    ]
+  })),
+  updateEmailServerMapping: (id, updates) => set((state) => ({
+    emailServerMappings: state.emailServerMappings.map(item => {
+      if (item.id === id) return { ...item, ...updates };
+      return updates.isDefault ? { ...item, isDefault: false } : item;
+    })
+  })),
+  deleteEmailServerMapping: (id) => set((state) => ({ emailServerMappings: state.emailServerMappings.filter(item => item.id !== id) })),
 
   whatsappHubConfig: INITIAL_WHATSAPP_HUB_CONFIG,
   updateWhatsAppHubConfig: (updates) => set((state) => ({
@@ -2336,6 +2364,7 @@ export const useStore = create<StoreState>((set, get) => ({
           signatures: settings.signatures ?? state.signatures,
           inboxConfigs: settings.inboxConfigs ?? state.inboxConfigs,
           outboxConfigs: settings.outboxConfigs ?? state.outboxConfigs,
+          emailServerMappings: settings.emailServerMappings ?? state.emailServerMappings,
           whatsappHubConfig: settings.whatsappHubConfig
             ? { ...INITIAL_WHATSAPP_HUB_CONFIG, ...settings.whatsappHubConfig }
             : state.whatsappHubConfig,
@@ -2474,6 +2503,7 @@ useStore.subscribe((state, prevState) => {
     state.signatures !== prevState.signatures ||
     state.inboxConfigs !== prevState.inboxConfigs ||
     state.outboxConfigs !== prevState.outboxConfigs ||
+    state.emailServerMappings !== prevState.emailServerMappings ||
     state.whatsappHubConfig !== prevState.whatsappHubConfig ||
     state.externalNotificationConfig !== prevState.externalNotificationConfig ||
     state.agentContextAnalysisConfig !== prevState.agentContextAnalysisConfig ||
@@ -2510,6 +2540,7 @@ useStore.subscribe((state, prevState) => {
             signatures: state.signatures,
             inboxConfigs: state.inboxConfigs,
             outboxConfigs: state.outboxConfigs,
+            emailServerMappings: state.emailServerMappings,
             whatsappHubConfig: state.whatsappHubConfig,
             externalNotificationConfig: state.externalNotificationConfig,
             agentContextAnalysisConfig: state.agentContextAnalysisConfig,

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useStore, InboxConfig, OutboxConfig, LLMConfig, PaymentTerm, LeadDataProvider, EmailSignature, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType } from '../store';
+import { useStore, InboxConfig, OutboxConfig, LLMConfig, PaymentTerm, LeadDataProvider, EmailSignature, EmailServerMapping, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType } from '../store';
 import { useAuthStore } from '../authStore';
 import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark, Clock, Book, Target, Trophy, Eye, EyeOff, MessageCircle, Bell } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -26,6 +26,7 @@ export function Settings() {
   const { 
     inboxConfigs, addInboxConfig, updateInboxConfig, deleteInboxConfig, 
     outboxConfigs, addOutboxConfig, updateOutboxConfig, deleteOutboxConfig,
+    emailServerMappings, addEmailServerMapping, updateEmailServerMapping, deleteEmailServerMapping,
     signatures, addSignature, updateSignature, deleteSignature, setDefaultSignature,
     llmConfigs, addLLMConfig, updateLLMConfig, deleteLLMConfig, activeLLMId, setActiveLLMId,
     paymentTerms, addPaymentTerm, updatePaymentTerm, deletePaymentTerm,
@@ -81,6 +82,8 @@ export function Settings() {
 
   const [editingOutboxId, setEditingOutboxId] = useState<string | null>(null);
   const [outboxFormData, setOutboxFormData] = useState<Partial<OutboxConfig>>({});
+  const [editingEmailRouteId, setEditingEmailRouteId] = useState<string | null>(null);
+  const [emailRouteFormData, setEmailRouteFormData] = useState<Partial<EmailServerMapping>>({});
 
   const [editingSigId, setEditingSigId] = useState<string | null>(null);
   const [sigFormData, setSigFormData] = useState<Partial<EmailSignature>>({});
@@ -154,6 +157,11 @@ export function Settings() {
     setOutboxFormData(acc);
   };
 
+  const handleEditEmailRoute = (route: EmailServerMapping) => {
+    setEditingEmailRouteId(route.id);
+    setEmailRouteFormData(route);
+  };
+
   const handleEditLLM = (llm: LLMConfig) => {
     setEditingLLMId(llm.id);
     setLLMFormData(llm);
@@ -187,6 +195,16 @@ export function Settings() {
     });
   };
 
+  const handleAddNewEmailRoute = () => {
+    setEditingEmailRouteId('new');
+    setEmailRouteFormData({
+      name: 'Default Route',
+      inboxConfigId: inboxConfigs[0]?.id || '',
+      outboxConfigId: outboxConfigs[0]?.id || '',
+      isDefault: emailServerMappings.length === 0
+    });
+  };
+
   const applyLLMPreset = (preset: 'openrouter') => {
     if (preset === 'openrouter') {
       setLLMFormData({
@@ -216,6 +234,23 @@ export function Settings() {
       updateOutboxConfig(editingOutboxId, outboxFormData);
     }
     setEditingOutboxId(null);
+  };
+
+  const handleSaveEmailRoute = () => {
+    if (!emailRouteFormData.inboxConfigId || !emailRouteFormData.outboxConfigId) return;
+    const payload = {
+      name: emailRouteFormData.name || 'Email Route',
+      inboxConfigId: emailRouteFormData.inboxConfigId,
+      outboxConfigId: emailRouteFormData.outboxConfigId,
+      isDefault: !!emailRouteFormData.isDefault
+    };
+    if (editingEmailRouteId === 'new') {
+      addEmailServerMapping(payload);
+    } else if (editingEmailRouteId) {
+      updateEmailServerMapping(editingEmailRouteId, payload);
+    }
+    setEditingEmailRouteId(null);
+    setEmailRouteFormData({});
   };
 
   const handleTestInbox = async () => {
@@ -1010,6 +1045,125 @@ export function Settings() {
                       <Edit2 className="w-4 h-4" />
                     </button>
                     <button onClick={() => deleteOutboxConfig(acc.id)} className="p-2 text-red-400 hover:text-white bg-red-950/30 hover:bg-red-900/50 rounded-lg transition-colors">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+        {/* Inbox / Outbox Routing Section */}
+        <section className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <Mail className="w-5 h-5 text-indigo-400" /> {t('emailServerMappings')}
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">{t('emailServerMappingsDesc')}</p>
+            </div>
+            {editingEmailRouteId === null && (
+              <button
+                onClick={handleAddNewEmailRoute}
+                disabled={inboxConfigs.length === 0 || outboxConfigs.length === 0}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 rounded-lg text-sm font-bold shadow-lg transition-colors"
+              >
+                <Plus className="w-4 h-4" /> {t('addMapping')}
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 gap-4">
+            {(inboxConfigs.length === 0 || outboxConfigs.length === 0) && editingEmailRouteId !== 'new' && (
+              <div className="text-center py-8 bg-slate-950/30 rounded-xl border border-slate-800 text-slate-500">
+                {t('addInboxAndOutboxBeforeMapping')}
+              </div>
+            )}
+            {emailServerMappings.length === 0 && inboxConfigs.length > 0 && outboxConfigs.length > 0 && editingEmailRouteId !== 'new' && (
+              <div className="text-center py-8 bg-slate-950/30 rounded-xl border border-slate-800 text-slate-500">
+                {t('noEmailServerMappings')}
+              </div>
+            )}
+
+            {(editingEmailRouteId === 'new' ? [...emailServerMappings, { ...emailRouteFormData, id: 'new' } as EmailServerMapping] : emailServerMappings).map(route => {
+              const isEditing = editingEmailRouteId === route.id;
+              const inbox = inboxConfigs.find(item => item.id === route.inboxConfigId);
+              const outbox = outboxConfigs.find(item => item.id === route.outboxConfigId);
+
+              if (isEditing) {
+                return (
+                  <div key={route.id} className="bg-slate-800 border border-indigo-500/50 rounded-xl p-6 space-y-4 shadow-xl">
+                    <div className="flex items-center justify-between border-b border-slate-700 pb-4">
+                      <input
+                        value={emailRouteFormData.name || ''}
+                        onChange={e => setEmailRouteFormData({ ...emailRouteFormData, name: e.target.value })}
+                        placeholder={t('mappingName')}
+                        className="bg-transparent text-xl font-bold border-none outline-none focus:ring-1 focus:ring-indigo-500 rounded px-2 py-1 w-1/2"
+                      />
+                      <div className="flex items-center gap-2">
+                        <button onClick={handleSaveEmailRoute} disabled={!emailRouteFormData.inboxConfigId || !emailRouteFormData.outboxConfigId} className="flex items-center gap-1 text-sm font-bold bg-green-600 hover:bg-green-500 disabled:bg-slate-700 disabled:text-slate-500 px-3 py-1.5 rounded-lg transition-colors">
+                          <Save className="w-4 h-4" /> {t('save')}
+                        </button>
+                        <button onClick={() => setEditingEmailRouteId(null)} className="flex items-center gap-1 text-sm font-bold bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-lg transition-colors">
+                          <X className="w-4 h-4" /> {t('cancel')}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <label className="space-y-1">
+                        <span className="text-xs text-slate-400 font-bold uppercase">{t('incomingServer')}</span>
+                        <select
+                          value={emailRouteFormData.inboxConfigId || ''}
+                          onChange={e => setEmailRouteFormData({ ...emailRouteFormData, inboxConfigId: e.target.value })}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 outline-none"
+                        >
+                          <option value="">{t('selectInbox')}</option>
+                          {inboxConfigs.map(config => <option key={config.id} value={config.id}>{config.name} ({config.username})</option>)}
+                        </select>
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-xs text-slate-400 font-bold uppercase">{t('outgoingServer')}</span>
+                        <select
+                          value={emailRouteFormData.outboxConfigId || ''}
+                          onChange={e => setEmailRouteFormData({ ...emailRouteFormData, outboxConfigId: e.target.value })}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 outline-none"
+                        >
+                          <option value="">{t('selectOutbox')}</option>
+                          {outboxConfigs.map(config => <option key={config.id} value={config.id}>{config.name} ({config.fromEmail})</option>)}
+                        </select>
+                      </label>
+                    </div>
+                    <label className="flex items-center gap-2 text-sm text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={!!emailRouteFormData.isDefault}
+                        onChange={e => setEmailRouteFormData({ ...emailRouteFormData, isDefault: e.target.checked })}
+                        className="rounded border-slate-700 bg-slate-900 text-indigo-500"
+                      />
+                      {t('useAsDefaultEmailRoute')}
+                    </label>
+                  </div>
+                );
+              }
+
+              return (
+                <div key={route.id} className="bg-slate-950 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-colors flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-lg text-white mb-2">
+                      {route.name || t('Email route')}
+                      {route.isDefault && <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">{t('Default')}</span>}
+                    </h3>
+                    <div className="flex flex-wrap items-center gap-3 text-sm text-slate-400">
+                      <span className="flex items-center gap-2 px-2 py-1 bg-slate-900 rounded"><Server className="w-3 h-3" /> {inbox ? `${inbox.name} (${inbox.username})` : route.inboxConfigId}</span>
+                      <span className="text-slate-600">→</span>
+                      <span className="flex items-center gap-2 px-2 py-1 bg-slate-900 rounded"><Send className="w-3 h-3" /> {outbox ? `${outbox.name} (${outbox.fromEmail})` : route.outboxConfigId}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => handleEditEmailRoute(route)} className="p-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors">
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => deleteEmailServerMapping(route.id)} className="p-2 text-red-400 hover:text-white bg-red-950/30 hover:bg-red-900/50 rounded-lg transition-colors">
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>

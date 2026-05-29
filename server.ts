@@ -236,6 +236,8 @@ async function initDB() {
       ALTER TABLE emails ADD COLUMN IF NOT EXISTS todo_note TEXT;
       ALTER TABLE emails ADD COLUMN IF NOT EXISTS agent_context_analysis JSONB;
       ALTER TABLE emails ADD COLUMN IF NOT EXISTS agent_context_analysis_key TEXT;
+      ALTER TABLE emails ADD COLUMN IF NOT EXISTS inbox_config_id VARCHAR(128);
+      ALTER TABLE emails ADD COLUMN IF NOT EXISTS outbox_config_id VARCHAR(128);
 
       CREATE TABLE IF NOT EXISTS deleted_emails (
         id VARCHAR(128) PRIMARY KEY,
@@ -2187,7 +2189,7 @@ No markdown wrappers, just valid JSON.`;
           const userRes = await pool.query('SELECT settings FROM users WHERE id = $1', [email.user_id]);
           const settings = userRes.rows[0]?.settings || {};
           const outboxConfigs = settings.outboxConfigs || [];
-          const config = outboxConfigs.find((c: any) => c.fromEmail === email.sender) || outboxConfigs[0];
+          const config = outboxConfigs.find((c: any) => c.id === email.outbox_config_id) || outboxConfigs.find((c: any) => c.fromEmail === email.sender) || outboxConfigs[0];
 
           if (config) {
             let finalBody = email.body;
@@ -3723,7 +3725,7 @@ No markdown wrappers, just valid JSON.`;
   // Test Inbox Connection
   app.post('/api/test-inbox', authenticateToken, async (req: any, res) => {
     try {
-      const { type, host, port, secure, username, password } = req.body;
+      const { id: inboxConfigId, type, host, port, secure, username, password } = req.body;
       
       if (type === 'pop3') {
         const client = new Pop3Command({
@@ -3787,7 +3789,7 @@ No markdown wrappers, just valid JSON.`;
 
   app.post('/api/sync-emails', authenticateToken, async (req: any, res) => {
     try {
-      const { type, host, port, secure, username, password } = req.body;
+      const { id: inboxConfigId, type, host, port, secure, username, password } = req.body;
       const { simpleParser } = customRequire('mailparser');
       const syncedEmails = [];
 
@@ -3866,14 +3868,14 @@ No markdown wrappers, just valid JSON.`;
             
             if (existingRes.rows.length === 0) {
               await pool.query(
-                `INSERT INTO emails (id, user_id, client_id, sender, sender_name, recipient, subject, body, date, read, type)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+                `INSERT INTO emails (id, user_id, client_id, sender, sender_name, recipient, subject, body, date, read, type, inbox_config_id)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
                 [
                   messageIdStr, req.user.uid, clientId, fromEmail, parsed.from?.value?.[0]?.name || '',
                   toAddress,
                   parsed.subject || '(No Subject)', bodyStr,
                   parsed.date ? new Date(parsed.date).toISOString() : new Date().toISOString(),
-                  false, 'inbound'
+                  false, 'inbound', inboxConfigId || null
                 ]
               );
               syncedEmails.push(messageIdStr);
@@ -3975,8 +3977,8 @@ No markdown wrappers, just valid JSON.`;
 
           if (existingRes.rows.length === 0) {
             await pool.query(
-              `INSERT INTO emails (id, user_id, client_id, sender, sender_name, recipient, subject, body, date, read, type)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+              `INSERT INTO emails (id, user_id, client_id, sender, sender_name, recipient, subject, body, date, read, type, inbox_config_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
               [
                 messageIdStr,
                 req.user.uid,
@@ -3988,7 +3990,8 @@ No markdown wrappers, just valid JSON.`;
                 bodyStr,
                 parsed.date ? new Date(parsed.date).toISOString() : new Date().toISOString(),
                 false,
-                'inbound'
+                'inbound',
+                inboxConfigId || null
               ]
             );
             syncedEmails.push(messageIdStr);
@@ -4051,6 +4054,8 @@ No markdown wrappers, just valid JSON.`;
         todoNote: row.todo_note,
         agentContextAnalysis: row.agent_context_analysis,
         agentContextAnalysisKey: row.agent_context_analysis_key,
+        inboxConfigId: row.inbox_config_id,
+        outboxConfigId: row.outbox_config_id,
         trackingEvents: row.tracking_events
       })));
     } catch (e) {
@@ -4120,7 +4125,7 @@ No markdown wrappers, just valid JSON.`;
 
   app.post('/api/emails', authenticateToken, async (req: any, res) => {
     try {
-      const { id, clientId, sender, senderName, recipient, cc, bcc, subject, body, date, read, type, tags, comments, scheduledAt, attachments, enableTracking } = req.body;
+      const { id, clientId, sender, senderName, recipient, cc, bcc, subject, body, date, read, type, tags, comments, scheduledAt, attachments, enableTracking, inboxConfigId, outboxConfigId } = req.body;
       
       let finalBody = body;
       const appUrl = `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.headers.host}`;
@@ -4137,15 +4142,17 @@ No markdown wrappers, just valid JSON.`;
           finalBody += trackingPixel;
       }
       
+      let resolvedOutboxConfigId = outboxConfigId || null;
       // If type is sent, actually send the email using configured outbox
       if (type === 'sent') {
         const userRes = await pool.query('SELECT settings FROM users WHERE id = $1', [req.user.uid]);
         const settings = userRes.rows[0]?.settings || {};
         const outboxConfigs = settings.outboxConfigs || [];
         // Match outbox config by sender email, fallback to first config
-        const config = outboxConfigs.find((c: any) => c.fromEmail === sender) || outboxConfigs[0];
+        const config = outboxConfigs.find((c: any) => c.id === outboxConfigId) || outboxConfigs.find((c: any) => c.fromEmail === sender) || outboxConfigs[0];
 
         if (config) {
+          resolvedOutboxConfigId = config.id || resolvedOutboxConfigId;
           if (config.type === 'smtp') {
             const transporter = nodemailer.createTransport({
               host: config.host,
@@ -4193,9 +4200,9 @@ No markdown wrappers, just valid JSON.`;
       }
 
       await pool.query(
-        `INSERT INTO emails (id, user_id, client_id, sender, sender_name, recipient, cc, bcc, subject, body, date, read, type, tags, comments, scheduled_at, attachments)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
-        [id, req.user.uid, clientId || null, sender, senderName, recipient, cc, bcc, subject, finalBody, date || new Date().toISOString(), !!read, type, JSON.stringify(tags || []), JSON.stringify(comments || []), scheduledAt || null, JSON.stringify(attachments || [])]
+        `INSERT INTO emails (id, user_id, client_id, sender, sender_name, recipient, cc, bcc, subject, body, date, read, type, tags, comments, scheduled_at, attachments, inbox_config_id, outbox_config_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+        [id, req.user.uid, clientId || null, sender, senderName, recipient, cc, bcc, subject, finalBody, date || new Date().toISOString(), !!read, type, JSON.stringify(tags || []), JSON.stringify(comments || []), scheduledAt || null, JSON.stringify(attachments || []), inboxConfigId || null, resolvedOutboxConfigId]
       );
       if (clientId) {
         await pool.query(`UPDATE clients SET last_contact = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND user_id = $2`, [clientId, req.user.uid]);
@@ -4221,7 +4228,8 @@ No markdown wrappers, just valid JSON.`;
         isImportant: 'is_important', todoAt: 'todo_at', todoNote: 'todo_note',
         recipient: 'recipient', cc: 'cc', bcc: 'bcc', subject: 'subject', body: 'body',
         attachments: 'attachments', agentContextAnalysis: 'agent_context_analysis',
-        agentContextAnalysisKey: 'agent_context_analysis_key'
+        agentContextAnalysisKey: 'agent_context_analysis_key',
+        inboxConfigId: 'inbox_config_id', outboxConfigId: 'outbox_config_id'
       };
       
       for (const [key, val] of Object.entries(updates)) {
