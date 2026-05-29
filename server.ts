@@ -2334,7 +2334,7 @@ No markdown wrappers, just valid JSON.`;
           [client.id]
         );
         const productsRes = await pool.query(
-          `SELECT name, category, description, price
+          `SELECT sku, name, description, bulk_prices
            FROM products
            WHERE user_id = $1
            ORDER BY created_at DESC
