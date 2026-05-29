@@ -63,6 +63,7 @@ export function Inbox() {
 
   const [confirmDialog, setConfirmDialog] = useState<{message: string, onConfirm: () => void} | null>(null);
   const [alertDialog, setAlertDialog] = useState<string | null>(null);
+  const isInboundCustomerEmail = (email: EmailMessage) => ['inbox', 'inbound'].includes(email.type);
 
   useEffect(() => {
     const closeMenu = () => setActiveMenu(null);
@@ -1095,7 +1096,7 @@ export function Inbox() {
                  channel="email"
                  cacheKey={`email:${selectedEmail.id}`}
                  clientId={selectedEmail.clientId}
-                 emailAddress={selectedEmail.type === 'inbox' ? selectedEmail.sender : selectedEmail.recipient}
+                 emailAddress={isInboundCustomerEmail(selectedEmail) ? selectedEmail.sender : selectedEmail.recipient}
                  persistedInsight={selectedEmail.agentContextAnalysisKey === `email:${selectedEmail.id}` ? selectedEmail.agentContextAnalysis : undefined}
                  persistedInsightKey={selectedEmail.agentContextAnalysisKey}
                  subject={selectedEmail.subject}
@@ -1105,7 +1106,7 @@ export function Inbox() {
                  hasKnowledge={addedToRagId === selectedEmail.id}
                  onDraftReply={() => {
                    setComposeDefaults({
-                     recipient: selectedEmail.type === 'inbox' ? selectedEmail.sender : selectedEmail.recipient,
+                     recipient: isInboundCustomerEmail(selectedEmail) ? selectedEmail.sender : selectedEmail.recipient,
                      subject: `Re: ${selectedEmail.subject.replace(/^Re:\s*/i, '')}`,
                      originalEmailBody: `On ${new Date(selectedEmail.date).toLocaleString()}, ${selectedEmail.senderName || selectedEmail.sender} wrote:<br>${selectedEmail.body || ''}`,
                      initialBody: '',
@@ -1400,7 +1401,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
   const [caretCoords, setCaretCoords] = useState<{top: number, left: number, matchText: string} | null>(null);
   const [quoteCoords, setQuoteCoords] = useState<{top: number, left: number, matchText: string, search: string} | null>(null);
 
-  const { quotes } = useStore();
+  const { quotes, products, knowledgeBase } = useStore();
 
   const updateCaretPosition = () => {
     if (!bodyRef.current) return;
@@ -1541,6 +1542,26 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
     return originalEmailBody
       ? `${bodyWithSignature}<br><br><div class="gmail_quote" dir="ltr"><blockquote style="margin: 0px 0px 0px 0.8ex; border-left: 1px solid rgb(204, 204, 204); padding-left: 1ex;">${originalEmailBody}</blockquote></div>`
       : bodyWithSignature;
+  };
+
+  const parseAiEmailDraft = (raw: string) => {
+    const cleaned = (raw || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim();
+    try {
+      const parsed = JSON.parse(cleaned);
+      return {
+        subject: String(parsed.subject || parsed.emailSubject || '').trim(),
+        body: String(parsed.body || parsed.emailBody || parsed.content || '').trim()
+      };
+    } catch {
+      const subjectMatch = cleaned.match(/(?:^|\n)\s*(?:Subject|主题)\s*:\s*(.+)/i);
+      const bodyWithoutSubject = subjectMatch
+        ? cleaned.replace(subjectMatch[0], '').replace(/^\s*(?:Body|正文)\s*:\s*/i, '').trim()
+        : cleaned;
+      return {
+        subject: subjectMatch?.[1]?.trim() || '',
+        body: bodyWithoutSubject
+      };
+    }
   };
 
   const doSchedule = () => {
@@ -1756,7 +1777,25 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
     setLoading(true);
     
     const clientLogs = logs.filter(l => l.clientId === matchedClient.id).map(l => l.content).join('\\n');
-    const lastEmailReceived = emails.filter(e => e.clientId === matchedClient.id && e.type === 'inbox').sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+    const clientEmails = emails
+      .filter(e => e.clientId === matchedClient.id)
+      .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 12)
+      .map(e => `[${e.type} - ${new Date(e.date).toLocaleDateString()}] ${e.subject}\n${e.body?.slice(0, 1200)}`)
+      .join('\n\n');
+    const lastEmailReceived = emails.filter(e => e.clientId === matchedClient.id && ['inbox', 'inbound'].includes(e.type)).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+    const productContext = products
+      .slice(0, 30)
+      .map(product => {
+        const prices = (product.bulkPrices || []).map(price => `${price.minQuantity}+ ${price.price}`).join(', ');
+        return `${product.name}${product.sku ? ` (${product.sku})` : ''}: ${product.description || 'No description'}${prices ? ` | Bulk prices: ${prices}` : ''}`;
+      })
+      .join('\n');
+    const knowledgeContext = knowledgeBase
+      .filter(item => !item.clientId || item.clientId === matchedClient.id)
+      .slice(0, 12)
+      .map(item => `[${item.title}]\n${item.content?.slice(0, 1200)}`)
+      .join('\n\n');
 
     try {
       const res = await fetch('/api/chat/magic', {
@@ -1766,20 +1805,35 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
           'Authorization': `Bearer ${useAuthStore.getState().token}`
         },
         body: JSON.stringify({ 
-          command: `Draft an outbound email. Subject: ${subject || "Follow up"}. Purpose for this email: ${purpose || 'General follow up'}. Do not include any email signature, sign-off block, sender name, company footer, or quoted original email. The app will append the selected signature and original email separately when sending. Output language: ${outboundLanguage}. If the customer has no preferred language configured, use the official language of the customer's country; if country is missing, use English.`,
+          command: `Draft a complete outbound email reply using CRM context, RAG, and product catalog.
+Return JSON only with exactly these keys: "subject" and "body".
+Subject seed: ${subject || "Follow up"}.
+Purpose for this email: ${purpose || 'General follow up'}.
+Use relevant product facts and knowledge base snippets when they help answer the customer or move the deal forward.
+Do not invent product specs, prices, delivery promises, compliance claims, or discounts not present in the provided context.
+Do not include any email signature, sign-off block, sender name, company footer, or quoted original email. The app will append the selected signature and original email separately when sending.
+Output language: ${outboundLanguage}. If the customer has no preferred language configured, use the official language of the customer's country; if country is missing, use English.`,
           context: { 
             client: matchedClient,
+            clientId: matchedClient.id,
             outboundLanguage,
             clientPreferredLanguage: matchedClient.preferredLanguage || null,
             historicalFollowUpLogs: clientLogs,
-            lastReceivedEmailBody: lastEmailReceived?.body || 'No previous received emails'
+            recentEmails: clientEmails,
+            lastReceivedEmailBody: lastEmailReceived?.body || 'No previous received emails',
+            productCatalog: productContext || 'No products configured',
+            localKnowledgeBaseContext: knowledgeContext || 'No local knowledge snippets loaded'
           },
-          llmConfig: getLLMConfig('drafting')
+          llmConfig: getLLMConfig('drafting'),
+          embeddingLlmConfig: getLLMConfig('agent_context_suggestions') || getLLMConfig('drafting'),
+          skipKnowledgeBase: false
         })
       });
       const data = await res.json();
-      setBody(stripTrailingConfiguredSignature(data.result || ''));
-      if (!subject) setSubject('Follow up from Alex');
+      const draft = parseAiEmailDraft(data.result || '');
+      if (draft.subject) setSubject(draft.subject);
+      else if (!subject) setSubject('Follow up');
+      setBody(stripTrailingConfiguredSignature(draft.body || data.result || ''));
     } catch(err) {
       console.error(err);
     } finally {
