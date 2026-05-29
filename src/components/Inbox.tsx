@@ -1,13 +1,13 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useStore, EmailMessage } from '../store';
 import { useAuthStore } from '../authStore';
-import { Mail, Send, Reply, Trash2, ArrowLeft, RefreshCw, PenLine, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, MessageCircle, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2, MoreHorizontal, Star, Clock, Activity, Eye, MousePointerClick, Radar, Timer } from 'lucide-react';
+import { Mail, Send, Reply, Trash2, ArrowLeft, RefreshCw, PenLine, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, MessageCircle, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2, MoreHorizontal, Star, Clock, Activity, Eye, MousePointerClick, Radar, Timer, Bold, Italic, List, Link2, Image as ImageIcon } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { CommentItem } from './CommentItem';
 import { AddressInput } from './AddressInput';
-import { getCaretCoordinates } from '../utils/caret';
 import { ClientFormModal } from './ClientFormModal';
 import { UploadAttachmentModal } from './UploadAttachmentModal';
+import { MediaSelectorModal } from './MediaSelectorModal';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle, useDefaultLayout } from 'react-resizable-panels';
 import { WhatsAppChatModal } from './WhatsAppChatModal';
 import { AgentContextSuggestions } from './AgentContextSuggestions';
@@ -1343,6 +1343,222 @@ export function Inbox() {
   );
 }
 
+const escapeEmailHtml = (value: string) => value
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
+const plainTextToEmailHtml = (value: string) => escapeEmailHtml(value)
+  .replace(/\r\n/g, '\n')
+  .replace(/\r/g, '\n')
+  .split(/\n{2,}/)
+  .map(part => `<p>${part.replace(/\n/g, '<br>') || '<br>'}</p>`)
+  .join('');
+
+const looksLikeHtml = (value: string) => /<\/?[a-z][\s\S]*>/i.test(value);
+const normalizeEmailEditorHtml = (value: string) => {
+  if (!value?.trim()) return '';
+  return looksLikeHtml(value) ? value : plainTextToEmailHtml(value);
+};
+const emailHtmlToText = (value: string) => value
+  .replace(/<br\s*\/?>/gi, '\n')
+  .replace(/<\/p>/gi, '\n\n')
+  .replace(/<[^>]*>/g, ' ')
+  .replace(/&nbsp;/g, ' ')
+  .replace(/&amp;/g, '&')
+  .replace(/&lt;/g, '<')
+  .replace(/&gt;/g, '>')
+  .replace(/&quot;/g, '"')
+  .replace(/&#39;/g, "'")
+  .replace(/[ \t]+/g, ' ')
+  .trim();
+const emailHtmlHasContent = (value: string) => !!emailHtmlToText(value) || /<img\b/i.test(value || '');
+
+function EmailRichTextEditor({
+  value,
+  onChange,
+  loading,
+  originalEmailBody,
+  quotes,
+  onOptimize
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  loading: boolean;
+  originalEmailBody?: string;
+  quotes: any[];
+  onOptimize: () => void;
+}) {
+  const editorRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showMediaSelector, setShowMediaSelector] = useState(false);
+  const [showQuoteMenu, setShowQuoteMenu] = useState(false);
+  const [quoteSearch, setQuoteSearch] = useState('');
+  const [showLinkForm, setShowLinkForm] = useState(false);
+  const [linkUrl, setLinkUrl] = useState('');
+
+  useEffect(() => {
+    if (!editorRef.current || document.activeElement === editorRef.current) return;
+    if (editorRef.current.innerHTML !== value) editorRef.current.innerHTML = value || '';
+  }, [value]);
+
+  const syncEditor = () => onChange(editorRef.current?.innerHTML || '');
+
+  const runCommand = (command: string, commandValue?: string) => {
+    editorRef.current?.focus();
+    document.execCommand(command, false, commandValue);
+    syncEditor();
+  };
+
+  const insertHtml = (html: string) => {
+    editorRef.current?.focus();
+    document.execCommand('insertHTML', false, html);
+    syncEditor();
+  };
+
+  const insertImage = (url: string, alt = '') => {
+    insertHtml(`<p><img src="${escapeEmailHtml(url)}" alt="${escapeEmailHtml(alt)}" style="max-width:100%;height:auto;border-radius:6px;" /></p>`);
+  };
+
+  const handleLocalImage = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => insertImage(String(reader.result || ''), file.name);
+    reader.readAsDataURL(file);
+    event.target.value = '';
+  };
+
+  const applyLink = () => {
+    const url = linkUrl.trim();
+    if (!url) return;
+    runCommand('createLink', url);
+    setLinkUrl('');
+    setShowLinkForm(false);
+  };
+
+  const filteredQuotes = quotes.filter(quote => quote.quoteNumber.toLowerCase().includes(quoteSearch.toLowerCase())).slice(0, 8);
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0">
+      <div className="flex flex-wrap items-center gap-1 rounded-t-xl border border-slate-800 bg-slate-950/70 px-2 py-2">
+        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => runCommand('bold')} className="p-2 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white" title="Bold">
+          <Bold className="w-4 h-4" />
+        </button>
+        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => runCommand('italic')} className="p-2 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white" title="Italic">
+          <Italic className="w-4 h-4" />
+        </button>
+        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => runCommand('insertUnorderedList')} className="p-2 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white" title="List">
+          <List className="w-4 h-4" />
+        </button>
+        <div className="h-6 w-px bg-slate-800 mx-1" />
+        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => setShowLinkForm(prev => !prev)} className="p-2 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white" title="Insert link">
+          <Link2 className="w-4 h-4" />
+        </button>
+        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => fileInputRef.current?.click()} className="p-2 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white" title="Insert image">
+          <ImageIcon className="w-4 h-4" />
+        </button>
+        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => setShowMediaSelector(true)} className="px-2.5 py-2 rounded-lg text-xs font-bold text-slate-300 hover:bg-slate-800 hover:text-white">
+          Media
+        </button>
+        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => setShowQuoteMenu(prev => !prev)} className="px-2.5 py-2 rounded-lg text-xs font-bold text-slate-300 hover:bg-slate-800 hover:text-white">
+          Quote
+        </button>
+        <div className="ml-auto">
+          <button
+            type="button"
+            onClick={onOptimize}
+            disabled={loading || !emailHtmlHasContent(value)}
+            className="p-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-600 text-white shadow-[0_0_15px_rgba(79,70,229,0.35)]"
+            title="Optimize Content with AI"
+          >
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+          </button>
+        </div>
+        <input ref={fileInputRef} type="file" accept="image/*" onChange={handleLocalImage} className="hidden" />
+      </div>
+
+      {showLinkForm && (
+        <div className="flex items-center gap-2 border-x border-slate-800 bg-slate-950 px-3 py-2">
+          <input
+            value={linkUrl}
+            onChange={e => setLinkUrl(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') applyLink(); }}
+            className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 outline-none focus:border-cyan-500"
+            placeholder="https://example.com"
+          />
+          <button type="button" onClick={applyLink} className="px-3 py-1.5 rounded-lg bg-cyan-700 hover:bg-cyan-600 text-xs font-bold text-white">Apply</button>
+          <button type="button" onClick={() => setShowLinkForm(false)} className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300">Cancel</button>
+        </div>
+      )}
+
+      {showQuoteMenu && (
+        <div className="border-x border-slate-800 bg-slate-950 px-3 py-2 space-y-2">
+          <input
+            value={quoteSearch}
+            onChange={e => setQuoteSearch(e.target.value)}
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 outline-none focus:border-cyan-500"
+            placeholder="Search quote number..."
+          />
+          <div className="max-h-32 overflow-y-auto rounded-lg border border-slate-800">
+            {filteredQuotes.map(quote => (
+              <button
+                key={quote.id}
+                type="button"
+                onClick={() => {
+                  const link = `${window.location.origin}/quote/${quote.id}`;
+                  insertHtml(`<a href="${escapeEmailHtml(link)}">${escapeEmailHtml(quote.quoteNumber)}</a>`);
+                  setShowQuoteMenu(false);
+                }}
+                className="w-full px-3 py-2 text-left text-xs text-slate-300 hover:bg-cyan-950/50 hover:text-cyan-300 flex items-center justify-between"
+              >
+                <span className="font-mono">{quote.quoteNumber}</span>
+                <span className="text-slate-500">{quote.status}</span>
+              </button>
+            ))}
+            {filteredQuotes.length === 0 && <div className="px-3 py-2 text-xs text-slate-500 text-center">No matching quotes</div>}
+          </div>
+        </div>
+      )}
+
+      <div
+        ref={editorRef}
+        contentEditable
+        suppressContentEditableWarning
+        onInput={syncEditor}
+        onBlur={syncEditor}
+        className={cn(
+          "email-rich-editor flex-1 min-h-[220px] overflow-y-auto rounded-b-xl border-x border-b border-slate-800 bg-slate-950/30 px-4 py-3 text-sm text-slate-200 outline-none focus:border-indigo-500 leading-relaxed",
+          !value && "before:content-['Write_your_email_here...'] before:text-slate-600"
+        )}
+      />
+
+      {originalEmailBody && (
+        <div className="mt-4 pt-4 border-t border-slate-800 shrink-0">
+          <div className="text-xs text-slate-500 mb-2 font-medium">Original Message</div>
+          <div
+            className="text-sm text-slate-400 pl-3 border-l-2 border-slate-700 py-1"
+            dangerouslySetInnerHTML={{ __html: originalEmailBody }}
+          />
+        </div>
+      )}
+
+      {showMediaSelector && (
+        <MediaSelectorModal
+          onClose={() => setShowMediaSelector(false)}
+          onSelect={(url, media) => {
+            insertImage(url, media.name);
+            setShowMediaSelector(false);
+          }}
+          allowedTypes={['image']}
+        />
+      )}
+    </div>
+  );
+}
+
 export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '', initialBody = '', originalEmailBody = '', draftId, replyToEmailId, initialOutboxId, className = '' }: { onClose: () => void, initialRecipient?: string, initialSubject?: string, initialBody?: string, originalEmailBody?: string, draftId?: string, replyToEmailId?: string, initialOutboxId?: string, className?: string }) {
   const { clients, emails, logs, addEmail, editEmail, deleteEmails, addLog, outboxConfigs, inboxConfigs, emailServerMappings, signatures, timezone, notify } = useStore();
   const resolvePreferredOutboxId = () => {
@@ -1386,7 +1602,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
   const [cc, setCc] = useState('');
   const [bcc, setBcc] = useState('');
   const [subject, setSubject] = useState(initialSubject);
-  const [body, setBody] = useState(initialBody);
+  const [body, setBody] = useState(() => normalizeEmailEditorHtml(initialBody));
   const [purpose, setPurpose] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingPurpose, setLoadingPurpose] = useState(false);
@@ -1397,75 +1613,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
   const [showCcBcc, setShowCcBcc] = useState(false);
   const [trackEmail, setTrackEmail] = useState(true);
 
-  const bodyRef = useRef<HTMLTextAreaElement>(null);
-  const [caretCoords, setCaretCoords] = useState<{top: number, left: number, matchText: string} | null>(null);
-  const [quoteCoords, setQuoteCoords] = useState<{top: number, left: number, matchText: string, search: string} | null>(null);
-
   const { quotes, products, knowledgeBase } = useStore();
-
-  const updateCaretPosition = () => {
-    if (!bodyRef.current) return;
-    const aiPattern = /\/ai:(.*?)(?=\n|$)/g;
-    const quotePattern = /\/quote:(.*?)(?=\n|$)/g;
-    const cursorIdx = bodyRef.current.selectionStart;
-    
-    let match;
-    let foundAiMatch = null;
-    let foundQuoteMatch = null;
-    let text = bodyRef.current.value;
-
-    // Check AI pattern
-    while ((match = aiPattern.exec(text)) !== null) {
-      const startIdx = match.index;
-      const endIdx = match.index + match[0].length;
-      if (cursorIdx >= startIdx && cursorIdx <= endIdx + 1) {
-        foundAiMatch = match;
-        break;
-      }
-    }
-
-    // Check Quote pattern if AI not found
-    if (!foundAiMatch) {
-      // reset lastIndex for regex
-      quotePattern.lastIndex = 0;
-      while ((match = quotePattern.exec(text)) !== null) {
-        const startIdx = match.index;
-        const endIdx = match.index + match[0].length;
-        if (cursorIdx >= startIdx && cursorIdx <= endIdx + 1) {
-          foundQuoteMatch = match;
-          break;
-        }
-      }
-    }
-
-    if (foundAiMatch) {
-       const endIdx = foundAiMatch.index + foundAiMatch[0].length;
-       const coords = getCaretCoordinates(bodyRef.current, endIdx);
-       setCaretCoords({ top: coords.top + 20, left: coords.left, matchText: foundAiMatch[0] });
-       setQuoteCoords(null);
-    } else if (foundQuoteMatch) {
-       const endIdx = foundQuoteMatch.index + foundQuoteMatch[0].length;
-       const coords = getCaretCoordinates(bodyRef.current, endIdx);
-       setQuoteCoords({ top: coords.top + 20, left: coords.left, matchText: foundQuoteMatch[0], search: foundQuoteMatch[1].trim() });
-       setCaretCoords(null);
-    } else {
-       setCaretCoords(null);
-       setQuoteCoords(null);
-    }
-  };
-
-  const handleInsertQuote = (quoteId: string, quoteNumber: string) => {
-    if (!quoteCoords) return;
-    const link = `${window.location.origin}/quote/${quoteId}`;
-    const insertText = `${quoteNumber} <${link}>`;
-    setBody(prev => prev.replace(quoteCoords.matchText, insertText));
-    setQuoteCoords(null);
-  };
-
-
-  useEffect(() => {
-    updateCaretPosition();
-  }, [body]);
 
   useEffect(() => {
     const preferredOutboxId = resolvePreferredOutboxId();
@@ -1537,7 +1685,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
 
   const buildEmailBodyForDelivery = () => {
     const cleanBody = stripTrailingConfiguredSignature(body);
-    const signatureBlock = selectedSignature?.content?.trim() ? `\n\n${selectedSignature.content.trim()}` : '';
+    const signatureBlock = selectedSignature?.content?.trim() ? `<br><br>${plainTextToEmailHtml(selectedSignature.content.trim())}` : '';
     const bodyWithSignature = `${cleanBody}${signatureBlock}`;
     return originalEmailBody
       ? `${bodyWithSignature}<br><br><div class="gmail_quote" dir="ltr"><blockquote style="margin: 0px 0px 0px 0.8ex; border-left: 1px solid rgb(204, 204, 204); padding-left: 1ex;">${originalEmailBody}</blockquote></div>`
@@ -1619,7 +1767,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
   };
 
   const handleSaveDraft = () => {
-    if (!recipient && !subject && !body) {
+    if (!recipient && !subject && !emailHtmlHasContent(body)) {
       onClose();
       return;
     }
@@ -1696,7 +1844,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
   };
 
   const handleOptimizeBody = async () => {
-    if (!body.trim()) return;
+    if (!emailHtmlHasContent(body)) return;
     setLoading(true);
     try {
       const res = await fetch('/api/chat/magic', {
@@ -1706,7 +1854,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
           'Authorization': `Bearer ${useAuthStore.getState().token}`
         },
         body: JSON.stringify({ 
-          command: `Please politely optimize the following outbound email draft for clarity, professional tone, and grammatical correctness. Do not include any email signature, sign-off block, sender name, company footer, or quoted original email. Output ONLY the resulting optimized email body, nothing else. Output language: ${outboundLanguage}.\n\n${stripTrailingConfiguredSignature(body)}`,
+          command: `Please politely optimize the following outbound email draft for clarity, professional tone, and grammatical correctness. Do not include any email signature, sign-off block, sender name, company footer, or quoted original email. Output ONLY the resulting optimized email body, nothing else. Output language: ${outboundLanguage}.\n\n${emailHtmlToText(stripTrailingConfiguredSignature(body))}`,
           context: { 
              outboundLanguage,
              clientPreferredLanguage: matchedClient?.preferredLanguage || null
@@ -1716,48 +1864,11 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
       });
       const data = await res.json();
       if (data.result) {
-        setBody(stripTrailingConfiguredSignature(data.result));
+        setBody(normalizeEmailEditorHtml(stripTrailingConfiguredSignature(data.result)));
       }
     } catch (e) {
       console.error(e);
       notify('Failed to optimize email body.', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleInlineAI = async (matchText: string) => {
-    const aiPattern = /\/ai:(.*?)(?=\n|$)/;
-    const match = matchText.match(aiPattern);
-    if (!match) {
-      notify('Add a /ai:prompt instruction to the email body first.', 'warning');
-      return;
-    }
-    
-    setLoading(true);
-    const prompt = match[1].trim();
-    try {
-      const res = await fetch('/api/chat/magic', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${useAuthStore.getState().token}`
-        },
-        body: JSON.stringify({ 
-          command: `Write an outbound email snippet or sentence based on this instruction: ${prompt}. Do not include any email signature, sign-off block, sender name, company footer, or quoted original email. Output language: ${outboundLanguage}.`,
-          context: { 
-             currentEmailBodyPreview: body.replace(matchText, '[Generate Here]'),
-             outboundLanguage,
-             clientPreferredLanguage: matchedClient?.preferredLanguage || null
-          },
-          llmConfig: getLLMConfig('drafting')
-        })
-      });
-      const data = await res.json();
-      setBody(prev => prev.replace(matchText, stripTrailingConfiguredSignature(data.result || '')));
-      setCaretCoords(null);
-    } catch(err) {
-      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -1833,7 +1944,7 @@ Output language: ${outboundLanguage}. If the customer has no preferred language 
       const draft = parseAiEmailDraft(data.result || '');
       if (draft.subject) setSubject(draft.subject);
       else if (!subject) setSubject('Follow up');
-      setBody(stripTrailingConfiguredSignature(draft.body || data.result || ''));
+      setBody(normalizeEmailEditorHtml(stripTrailingConfiguredSignature(draft.body || data.result || '')));
     } catch(err) {
       console.error(err);
     } finally {
@@ -1936,77 +2047,14 @@ Output language: ${outboundLanguage}. If the customer has no preferred language 
       </div>
       
       <div className="flex-1 flex flex-col p-4 relative overflow-y-auto">
-        <textarea 
-          ref={bodyRef}
+        <EmailRichTextEditor
           value={body}
-          onChange={e => setBody(e.target.value)}
-          onClick={updateCaretPosition}
-          onKeyUp={updateCaretPosition}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && caretCoords && !loading) {
-              e.preventDefault();
-              handleInlineAI(caretCoords.matchText);
-            }
-          }}
-          className={cn("w-full bg-transparent text-sm text-slate-300 resize-none focus:outline-none placeholder:text-slate-600 leading-relaxed relative z-0", originalEmailBody ? 'min-h-[200px] shrink-0' : 'flex-1 scrollbar-thin')}
-          placeholder="Write your email here... Type /ai:prompt to generate content inline."
+          onChange={setBody}
+          loading={loading}
+          originalEmailBody={originalEmailBody}
+          quotes={quotes}
+          onOptimize={handleOptimizeBody}
         />
-        
-        {originalEmailBody && (
-          <div className="mt-4 pt-4 border-t border-slate-800 shrink-0">
-            <div className="text-xs text-slate-500 mb-2 font-medium">Original Message</div>
-            <div 
-              className="text-sm text-slate-400 pl-3 border-l-2 border-slate-700 py-1"
-              dangerouslySetInnerHTML={{ __html: originalEmailBody }} 
-            />
-          </div>
-        )}
-        
-        {/* Optimize Button */}
-        <button
-          onClick={handleOptimizeBody}
-          disabled={loading || !body.trim()}
-          className="absolute bottom-4 right-6 p-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full shadow-[0_0_15px_rgba(79,70,229,0.5)] transition-all flex items-center justify-center disabled:opacity-50 group z-10"
-          title="Optimize Content with AI"
-        >
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 group-hover:rotate-12 transition-transform"/>}
-        </button>
-
-        {caretCoords && (
-          <div className="absolute z-10" style={{ top: caretCoords.top, left: Math.min(caretCoords.left, document.body.clientWidth - 150) }}>
-             <button 
-                onClick={() => handleInlineAI(caretCoords.matchText)} 
-                disabled={loading}
-                className="text-xs flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-1.5 rounded shadow-[0_0_15px_rgba(79,70,229,0.5)] transition-all font-bold animate-pulse hover:animate-none group disabled:opacity-80 disabled:animate-none"
-                title="Generate with AI"
-              >
-                {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Sparkles className="w-3.5 h-3.5 group-hover:rotate-12 transition-transform"/>}
-                {loading ? 'Generating...' : 'Generate AI'} {!loading && <span className="opacity-70 font-normal ml-1 border border-white/20 px-1 rounded text-[10px]">Enter</span>}
-              </button>
-          </div>
-        )}
-        {quoteCoords && (
-          <div className="absolute z-10 bg-slate-800 border border-slate-700 rounded-lg shadow-lg w-64 overflow-hidden" style={{ top: quoteCoords.top, left: Math.min(quoteCoords.left, document.body.clientWidth - 260) }}>
-             <div className="px-3 py-2 bg-slate-900 border-b border-slate-700 text-xs font-bold text-slate-400">
-               Select Quote
-             </div>
-             <div className="max-h-48 overflow-y-auto">
-               {quotes.filter(q => q.quoteNumber.toLowerCase().includes(quoteCoords.search.toLowerCase())).map(quote => (
-                 <button
-                   key={quote.id}
-                   onClick={() => handleInsertQuote(quote.id, quote.quoteNumber)}
-                   className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:bg-cyan-950/50 hover:text-cyan-400 flex items-center justify-between"
-                 >
-                   <span className="font-mono">{quote.quoteNumber}</span>
-                   <span className="text-[10px] text-slate-500">{quote.status}</span>
-                 </button>
-               ))}
-               {quotes.filter(q => q.quoteNumber.toLowerCase().includes(quoteCoords.search.toLowerCase())).length === 0 && (
-                 <div className="px-3 py-2 text-xs text-slate-500 text-center">No matching quotes</div>
-               )}
-             </div>
-          </div>
-        )}
         {attachments.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-2">
             {attachments.map((att, idx) => (
@@ -2089,7 +2137,7 @@ Output language: ${outboundLanguage}. If the customer has no preferred language 
             <div className="relative">
               <button 
                 onClick={() => setShowSchedule(!showSchedule)}
-                disabled={!recipient || !body}
+                disabled={!recipient || !emailHtmlHasContent(body)}
                 className="text-sm bg-slate-800 hover:bg-slate-700 disabled:bg-slate-800 disabled:text-slate-500 text-slate-300 px-3 py-2 rounded-lg flex items-center shadow-lg transition-colors"
                 title="Schedule Send"
               >
@@ -2125,7 +2173,7 @@ Output language: ${outboundLanguage}. If the customer has no preferred language 
             </button>
             <button 
               onClick={handleSend}
-              disabled={!recipient || !body}
+              disabled={!recipient || !emailHtmlHasContent(body)}
               className="text-sm font-bold bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-700 disabled:text-slate-500 text-white px-5 py-2 rounded-lg flex items-center gap-2 shadow-lg shadow-cyan-600/20 transition-colors"
             >
               <Send className="w-4 h-4" /> Send

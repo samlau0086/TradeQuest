@@ -34,6 +34,37 @@
     scrollbar-width: thin;
     scrollbar-color: theme('colors.slate.700') transparent;
   }
+
+  .email-rich-editor p {
+    margin: 0 0 0.75rem;
+  }
+
+  .email-rich-editor ul,
+  .email-rich-editor ol {
+    margin: 0.5rem 0 0.75rem 1.25rem;
+    padding-left: 1rem;
+  }
+
+  .email-rich-editor ul {
+    list-style: disc;
+  }
+
+  .email-rich-editor ol {
+    list-style: decimal;
+  }
+
+  .email-rich-editor a {
+    color: theme('colors.cyan.300');
+    text-decoration: underline;
+  }
+
+  .email-rich-editor img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 0.75rem 0;
+    border-radius: 0.5rem;
+  }
 }
 
 ::-webkit-scrollbar {
