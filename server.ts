@@ -76,6 +76,52 @@ const getOutboundLanguage = (preferredLanguage?: string, country?: string) => {
   return COUNTRY_LANGUAGE_OVERRIDES[normalizedCountry] || 'English';
 };
 
+const countryNameFromCode = (code?: string) => {
+  if (!code) return '';
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'region' }).of(code.toUpperCase()) || code.toUpperCase();
+  } catch {
+    return code.toUpperCase();
+  }
+};
+
+const isPrivateIp = (ip: string) => {
+  const normalized = ip.replace(/^\[|\]$/g, '').replace(/^::ffff:/i, '');
+  if (/^(10\.|127\.|0\.|169\.254\.|192\.168\.)/.test(normalized)) return true;
+  if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(normalized)) return true;
+  if (/^(::1|fc|fd|fe80:)/i.test(normalized)) return true;
+  return false;
+};
+
+const extractSenderGeoFromHeaders = (headers: any) => {
+  const getHeader = (key: string) => {
+    if (!headers) return [];
+    const value = typeof headers.get === 'function' ? headers.get(key) : headers[key] || headers[key.toLowerCase()];
+    if (!value) return [];
+    return Array.isArray(value) ? value.map(String) : [String(value)];
+  };
+
+  const headerText = [
+    ...getHeader('x-originating-ip'),
+    ...getHeader('x-sender-ip'),
+    ...getHeader('received')
+  ].join('\n');
+
+  const matches = [
+    ...headerText.matchAll(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g),
+    ...headerText.matchAll(/\b(?:[a-f0-9]{1,4}:){2,}[a-f0-9]{1,4}\b/gi)
+  ].map(match => match[0].replace(/^\[|\]$/g, '').replace(/^::ffff:/i, ''));
+
+  const publicCandidates = matches.filter(candidate => !isPrivateIp(candidate));
+  const resolved = publicCandidates
+    .map(candidate => ({ ip: candidate, geo: geoip.lookup(candidate) }))
+    .find(item => item.geo) || (publicCandidates[0] ? { ip: publicCandidates[0], geo: null } : null);
+  const ip = resolved?.ip || '';
+  const geo = resolved?.geo || null;
+  const country = geo?.country ? countryNameFromCode(geo.country) : '';
+  return { senderIp: ip || '', senderCountry: country, senderGeo: geo || null };
+};
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   connectionTimeoutMillis: 10000,
@@ -238,6 +284,9 @@ async function initDB() {
       ALTER TABLE emails ADD COLUMN IF NOT EXISTS agent_context_analysis_key TEXT;
       ALTER TABLE emails ADD COLUMN IF NOT EXISTS inbox_config_id VARCHAR(128);
       ALTER TABLE emails ADD COLUMN IF NOT EXISTS outbox_config_id VARCHAR(128);
+      ALTER TABLE emails ADD COLUMN IF NOT EXISTS sender_ip VARCHAR(128);
+      ALTER TABLE emails ADD COLUMN IF NOT EXISTS sender_country VARCHAR(128);
+      ALTER TABLE emails ADD COLUMN IF NOT EXISTS sender_geo JSONB;
 
       CREATE TABLE IF NOT EXISTS deleted_emails (
         id VARCHAR(128) PRIMARY KEY,
@@ -3895,6 +3944,7 @@ No markdown wrappers, just valid JSON.`;
           for (const msg of recentMessages) {
             const raw = await client.RETR(msg.num);
             const parsed = await simpleParser(raw);
+            const senderGeo = extractSenderGeoFromHeaders(parsed.headers);
             
             const fromEmail = parsed.from?.value?.[0]?.address || '';
             const clientRes = await pool.query(`
@@ -3941,20 +3991,24 @@ No markdown wrappers, just valid JSON.`;
             
             if (existingRes.rows.length === 0) {
               await pool.query(
-                `INSERT INTO emails (id, user_id, client_id, sender, sender_name, recipient, subject, body, date, read, type, inbox_config_id)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+                `INSERT INTO emails (id, user_id, client_id, sender, sender_name, recipient, subject, body, date, read, type, inbox_config_id, sender_ip, sender_country, sender_geo)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
                 [
                   messageIdStr, req.user.uid, clientId, fromEmail, parsed.from?.value?.[0]?.name || '',
                   toAddress,
                   parsed.subject || '(No Subject)', bodyStr,
                   parsed.date ? new Date(parsed.date).toISOString() : new Date().toISOString(),
-                  false, 'inbound', inboxConfigId || null
+                  false, 'inbound', inboxConfigId || null,
+                  senderGeo.senderIp || null, senderGeo.senderCountry || null, JSON.stringify(senderGeo.senderGeo || null)
                 ]
               );
               syncedEmails.push(messageIdStr);
             } else {
               // Update existing email's body to fix missing HTML
-              await pool.query('UPDATE emails SET body = $1 WHERE id = $2 AND user_id = $3', [bodyStr, messageIdStr, req.user.uid]);
+              await pool.query(
+                'UPDATE emails SET body = $1, sender_ip = COALESCE(sender_ip, $4), sender_country = COALESCE(sender_country, $5), sender_geo = COALESCE(sender_geo, $6::jsonb) WHERE id = $2 AND user_id = $3',
+                [bodyStr, messageIdStr, req.user.uid, senderGeo.senderIp || null, senderGeo.senderCountry || null, JSON.stringify(senderGeo.senderGeo || null)]
+              );
             }
           }
         } finally {
@@ -3999,6 +4053,7 @@ No markdown wrappers, just valid JSON.`;
           for await (let message of client.fetch(fetchRange, { source: true, uid: true })) {
           if (!message.source) continue;
           const parsed = await simpleParser(message.source);
+          const senderGeo = extractSenderGeoFromHeaders(parsed.headers);
           
           const fromEmail = parsed.from?.value?.[0]?.address || '';
           const clientRes = await pool.query(`
@@ -4050,8 +4105,8 @@ No markdown wrappers, just valid JSON.`;
 
           if (existingRes.rows.length === 0) {
             await pool.query(
-              `INSERT INTO emails (id, user_id, client_id, sender, sender_name, recipient, subject, body, date, read, type, inbox_config_id)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+              `INSERT INTO emails (id, user_id, client_id, sender, sender_name, recipient, subject, body, date, read, type, inbox_config_id, sender_ip, sender_country, sender_geo)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
               [
                 messageIdStr,
                 req.user.uid,
@@ -4064,13 +4119,19 @@ No markdown wrappers, just valid JSON.`;
                 parsed.date ? new Date(parsed.date).toISOString() : new Date().toISOString(),
                 false,
                 'inbound',
-                inboxConfigId || null
+                inboxConfigId || null,
+                senderGeo.senderIp || null,
+                senderGeo.senderCountry || null,
+                JSON.stringify(senderGeo.senderGeo || null)
               ]
             );
             syncedEmails.push(messageIdStr);
           } else {
             // Update existing email's body to fix missing HTML
-            await pool.query('UPDATE emails SET body = $1 WHERE id = $2 AND user_id = $3', [bodyStr, messageIdStr, req.user.uid]);
+            await pool.query(
+              'UPDATE emails SET body = $1, sender_ip = COALESCE(sender_ip, $4), sender_country = COALESCE(sender_country, $5), sender_geo = COALESCE(sender_geo, $6::jsonb) WHERE id = $2 AND user_id = $3',
+              [bodyStr, messageIdStr, req.user.uid, senderGeo.senderIp || null, senderGeo.senderCountry || null, JSON.stringify(senderGeo.senderGeo || null)]
+            );
           }
         }
       }
@@ -4109,6 +4170,9 @@ No markdown wrappers, just valid JSON.`;
         clientId: row.client_id,
         sender: row.sender,
         senderName: row.sender_name,
+        senderIp: row.sender_ip,
+        senderCountry: row.sender_country,
+        senderGeo: row.sender_geo,
         recipient: row.recipient,
         cc: row.cc,
         bcc: row.bcc,

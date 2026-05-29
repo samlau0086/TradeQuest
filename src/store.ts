@@ -402,6 +402,9 @@ export interface EmailMessage {
   clientId?: string; 
   sender: string; 
   senderName?: string;
+  senderIp?: string;
+  senderCountry?: string;
+  senderGeo?: any;
   recipient: string;
   cc?: string;
   bcc?: string;

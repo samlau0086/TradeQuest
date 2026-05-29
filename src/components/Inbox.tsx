@@ -949,10 +949,10 @@ export function Inbox() {
                   </div>
                   <div>
                     <div className="font-bold text-white text-sm">
-                      {selectedEmail.type === 'inbox' ? (selectedEmail.senderName || selectedEmail.sender) : (selectedEmail.type === 'draft' ? `Draft: ${selectedEmail.recipient || '(No Recipient)'}` : selectedEmail.recipient)}
+                      {isInboundCustomerEmail(selectedEmail) ? (selectedEmail.senderName || selectedEmail.sender) : (selectedEmail.type === 'draft' ? `Draft: ${selectedEmail.recipient || '(No Recipient)'}` : selectedEmail.recipient)}
                     </div>
                     <div className="text-[10px] text-slate-500 flex items-center gap-2 mt-1">
-                       {selectedEmail.type === 'inbox' ? `From: ${selectedEmail.sender}` : (selectedEmail.type === 'draft' ? `To: ${selectedEmail.recipient || '(No Recipient)'}` : `To: ${selectedEmail.recipient}`)}
+                       {isInboundCustomerEmail(selectedEmail) ? `From: ${selectedEmail.sender}` : (selectedEmail.type === 'draft' ? `To: ${selectedEmail.recipient || '(No Recipient)'}` : `To: ${selectedEmail.recipient}`)}
                        {selectedEmail.clientId ? (
                          <span onClick={() => selectClient(selectedEmail.clientId!)} className="bg-slate-800 px-2 py-0.5 rounded text-cyan-400 border border-slate-700 cursor-pointer hover:bg-slate-700 transition-colors">
                            {clients.find(c => c.id === selectedEmail.clientId)?.name || 'Linked'}
@@ -961,8 +961,22 @@ export function Inbox() {
                          <button onClick={handleCreateLead} className="text-cyan-500 flex items-center gap-1 hover:text-cyan-400 bg-slate-800/50 rounded px-1.5 py-0.5">
                            <UserPlus className="w-3 h-3" /> New Lead
                          </button>
-                       )}
+                        )}
                     </div>
+                    {isInboundCustomerEmail(selectedEmail) && (selectedEmail.senderIp || selectedEmail.senderCountry) && (
+                      <div className="text-[10px] text-slate-500 flex flex-wrap items-center gap-2 mt-0.5">
+                        {selectedEmail.senderIp && (
+                          <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">
+                            IP: {selectedEmail.senderIp}
+                          </span>
+                        )}
+                        {selectedEmail.senderCountry && (
+                          <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70 text-emerald-300">
+                            {selectedEmail.senderCountry}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {(selectedEmail.cc || selectedEmail.bcc) && (
                       <div className="text-[10px] text-slate-500 flex items-center gap-2 mt-0.5">
                         {selectedEmail.cc && <span>Cc: {selectedEmail.cc}</span>}
