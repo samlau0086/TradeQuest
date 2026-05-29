@@ -1385,14 +1385,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
   const [cc, setCc] = useState('');
   const [bcc, setBcc] = useState('');
   const [subject, setSubject] = useState(initialSubject);
-  const [body, setBody] = useState(() => {
-    let b = initialBody;
-    if (!draftId && !initialBody) {
-       const sig = signatures?.find(s => s.isDefault) || signatures?.[0];
-       if (sig) b = '\n\n' + sig.content;
-    }
-    return b;
-  });
+  const [body, setBody] = useState(initialBody);
   const [purpose, setPurpose] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingPurpose, setLoadingPurpose] = useState(false);
@@ -1529,6 +1522,26 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
   const senderConfig = outboxConfigs.find(c => c.id === selectedOutboxId);
   const senderEmail = senderConfig?.fromEmail || 'me@soho.com';
   const senderName = senderConfig?.fromName || 'Alex.W';
+  const selectedSignature = signatures.find(s => s.id === selectedSignatureId);
+
+  const stripTrailingConfiguredSignature = (value: string) => {
+    let next = value.trimEnd();
+    signatures.forEach(sig => {
+      if (!sig.content?.trim()) return;
+      const escaped = sig.content.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      next = next.replace(new RegExp(`(?:\\s|<br\\s*/?>)*${escaped}\\s*$`, 'i'), '').trimEnd();
+    });
+    return next;
+  };
+
+  const buildEmailBodyForDelivery = () => {
+    const cleanBody = stripTrailingConfiguredSignature(body);
+    const signatureBlock = selectedSignature?.content?.trim() ? `\n\n${selectedSignature.content.trim()}` : '';
+    const bodyWithSignature = `${cleanBody}${signatureBlock}`;
+    return originalEmailBody
+      ? `${bodyWithSignature}<br><br><div class="gmail_quote" dir="ltr"><blockquote style="margin: 0px 0px 0px 0.8ex; border-left: 1px solid rgb(204, 204, 204); padding-left: 1ex;">${originalEmailBody}</blockquote></div>`
+      : bodyWithSignature;
+  };
 
   const doSchedule = () => {
     if (!recipient || !subject || !scheduleDateTime) return;
@@ -1558,7 +1571,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
       url: URL.createObjectURL(a)
     }));
 
-    const finalBody = originalEmailBody ? `${body}<br><br><div class="gmail_quote" dir="ltr"><blockquote style="margin: 0px 0px 0px 0.8ex; border-left: 1px solid rgb(204, 204, 204); padding-left: 1ex;">${originalEmailBody}</blockquote></div>` : body;
+    const finalBody = buildEmailBodyForDelivery();
 
     const newEmailId = addEmail({
       recipient,
@@ -1597,8 +1610,6 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
       url: URL.createObjectURL(a)
     }));
 
-    const finalBody = originalEmailBody ? `${body}<br><br><div class="gmail_quote" dir="ltr"><blockquote style="margin: 0px 0px 0px 0.8ex; border-left: 1px solid rgb(204, 204, 204); padding-left: 1ex;">${originalEmailBody}</blockquote></div>` : body;
-
     const emailPayload = {
       recipient,
       cc: cc || undefined,
@@ -1606,7 +1617,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
       sender: senderEmail,
       senderName: senderName,
       subject: subject || 'No Subject',
-      body: finalBody,
+      body,
       read: true,
       type: 'draft' as const,
       clientId: matchedClient?.id,
@@ -1635,7 +1646,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
       url: URL.createObjectURL(a)
     }));
 
-    const finalBody = originalEmailBody ? `${body}<br><br><div class="gmail_quote" dir="ltr"><blockquote style="margin: 0px 0px 0px 0.8ex; border-left: 1px solid rgb(204, 204, 204); padding-left: 1ex;">${originalEmailBody}</blockquote></div>` : body;
+    const finalBody = buildEmailBodyForDelivery();
 
     const newEmailId = addEmail({
       recipient,
@@ -1674,7 +1685,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
           'Authorization': `Bearer ${useAuthStore.getState().token}`
         },
         body: JSON.stringify({ 
-          command: `Please politely optimize the following outbound email draft for clarity, professional tone, and grammatical correctness. Output ONLY the resulting optimized text, nothing else. Output language: ${outboundLanguage}.\n\n${body}`,
+          command: `Please politely optimize the following outbound email draft for clarity, professional tone, and grammatical correctness. Do not include any email signature, sign-off block, sender name, company footer, or quoted original email. Output ONLY the resulting optimized email body, nothing else. Output language: ${outboundLanguage}.\n\n${stripTrailingConfiguredSignature(body)}`,
           context: { 
              outboundLanguage,
              clientPreferredLanguage: matchedClient?.preferredLanguage || null
@@ -1684,7 +1695,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
       });
       const data = await res.json();
       if (data.result) {
-        setBody(data.result);
+        setBody(stripTrailingConfiguredSignature(data.result));
       }
     } catch (e) {
       console.error(e);
@@ -1712,7 +1723,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
           'Authorization': `Bearer ${useAuthStore.getState().token}`
         },
         body: JSON.stringify({ 
-          command: `Write an outbound email snippet or sentence based on this instruction: ${prompt}. Output language: ${outboundLanguage}.`,
+          command: `Write an outbound email snippet or sentence based on this instruction: ${prompt}. Do not include any email signature, sign-off block, sender name, company footer, or quoted original email. Output language: ${outboundLanguage}.`,
           context: { 
              currentEmailBodyPreview: body.replace(matchText, '[Generate Here]'),
              outboundLanguage,
@@ -1722,7 +1733,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
         })
       });
       const data = await res.json();
-      setBody(prev => prev.replace(matchText, data.result));
+      setBody(prev => prev.replace(matchText, stripTrailingConfiguredSignature(data.result || '')));
       setCaretCoords(null);
     } catch(err) {
       console.error(err);
@@ -1755,7 +1766,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
           'Authorization': `Bearer ${useAuthStore.getState().token}`
         },
         body: JSON.stringify({ 
-          command: `Draft an outbound email. Subject: ${subject || "Follow up"}. Purpose for this email: ${purpose || 'General follow up'}. Output language: ${outboundLanguage}. If the customer has no preferred language configured, use the official language of the customer's country; if country is missing, use English.`,
+          command: `Draft an outbound email. Subject: ${subject || "Follow up"}. Purpose for this email: ${purpose || 'General follow up'}. Do not include any email signature, sign-off block, sender name, company footer, or quoted original email. The app will append the selected signature and original email separately when sending. Output language: ${outboundLanguage}. If the customer has no preferred language configured, use the official language of the customer's country; if country is missing, use English.`,
           context: { 
             client: matchedClient,
             outboundLanguage,
@@ -1767,8 +1778,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
         })
       });
       const data = await res.json();
-      const currentSig = signatures.find(s => s.id === selectedSignatureId);
-      setBody(data.result + (currentSig ? '\n\n' + currentSig.content : ''));
+      setBody(stripTrailingConfiguredSignature(data.result || ''));
       if (!subject) setSubject('Follow up from Alex');
     } catch(err) {
       console.error(err);
@@ -1850,24 +1860,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
           <label className="text-xs font-bold text-slate-500 w-12 text-right">Sign:</label>
           <select 
             value={selectedSignatureId}
-            onChange={(e) => {
-              const newId = e.target.value;
-              const newSig = signatures.find(s => s.id === newId);
-              const oldSig = signatures.find(s => s.id === selectedSignatureId);
-              
-              setSelectedSignatureId(newId);
-              
-              if (newSig) {
-                if (oldSig && body.includes(oldSig.content)) {
-                  setBody(prev => prev.replace(oldSig.content, newSig.content));
-                } else {
-                  setBody(prev => prev + '\n\n' + newSig.content);
-                }
-              } else if (oldSig && body.includes(oldSig.content)) {
-                // If removing signature
-                setBody(prev => prev.replace('\n\n' + oldSig.content, '').replace(oldSig.content, ''));
-              }
-            }}
+            onChange={(e) => setSelectedSignatureId(e.target.value)}
             className="flex-1 bg-transparent text-sm text-slate-200 focus:outline-none focus:ring-0 pb-1 w-full truncate"
           >
             <option value="" className="bg-slate-900">None</option>
