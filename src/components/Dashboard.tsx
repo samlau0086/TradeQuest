@@ -30,8 +30,18 @@ function MetricCard({ icon, label, value, subtext, tone = 'cyan' }: { icon: Reac
   );
 }
 
+function HoverTooltip({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="pointer-events-none absolute left-1/2 top-0 z-20 hidden -translate-x-1/2 -translate-y-[calc(100%+10px)] whitespace-nowrap rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200 shadow-2xl group-hover:block">
+      {children}
+      <span className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1 rotate-45 border-b border-r border-slate-700 bg-slate-950" />
+    </div>
+  );
+}
+
 function BarListChart({ rows, emptyLabel }: { rows: { label: string; value: number; color: string }[]; emptyLabel: string }) {
   const maxValue = Math.max(1, ...rows.map(row => row.value));
+  const total = rows.reduce((sum, row) => sum + row.value, 0);
   const hasData = rows.some(row => row.value > 0);
 
   if (!hasData) {
@@ -41,7 +51,13 @@ function BarListChart({ rows, emptyLabel }: { rows: { label: string; value: numb
   return (
     <div className="space-y-4">
       {rows.map(row => (
-        <div key={row.label}>
+        <div key={row.label} className="group relative">
+          <HoverTooltip>
+            <div className="font-bold">{row.label}</div>
+            <div className="text-slate-400">
+              {row.value} · {total > 0 ? Math.round((row.value / total) * 100) : 0}%
+            </div>
+          </HoverTooltip>
           <div className="flex items-center justify-between text-xs mb-1.5">
             <span className="text-slate-400">{row.label}</span>
             <span className="font-bold text-slate-200">{row.value}</span>
@@ -55,29 +71,49 @@ function BarListChart({ rows, emptyLabel }: { rows: { label: string; value: numb
   );
 }
 
-function SparklineChart({ points, color = 'stroke-cyan-400' }: { points: number[]; color?: string }) {
+function SparklineChart({ points, color = 'stroke-cyan-400', valueLabel = 'events' }: { points: { label: string; value: number; meta?: string }[]; color?: string; valueLabel?: string }) {
   const width = 320;
   const height = 120;
-  const max = Math.max(1, ...points);
+  const max = Math.max(1, ...points.map(point => point.value));
   const step = points.length > 1 ? width / (points.length - 1) : width;
-  const path = points.map((value, index) => {
+  const path = points.map((point, index) => {
     const x = index * step;
-    const y = height - (value / max) * (height - 14) - 7;
+    const y = height - (point.value / max) * (height - 14) - 7;
     return `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
   }).join(' ');
 
   return (
     <div className="h-40">
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-32 overflow-visible">
-        <path d={path} fill="none" className={cn(color, 'stroke-[3]')} strokeLinecap="round" strokeLinejoin="round" />
-        {points.map((value, index) => {
+      <div className="relative h-32">
+        <svg viewBox={`0 0 ${width} ${height}`} className="absolute inset-0 w-full h-32 overflow-visible">
+          <path d={path} fill="none" className={cn(color, 'stroke-[3]')} strokeLinecap="round" strokeLinejoin="round" />
+          {points.map((point, index) => {
+            const x = index * step;
+            const y = height - (point.value / max) * (height - 14) - 7;
+            return <circle key={index} cx={x} cy={y} r="3.5" className="fill-slate-950 stroke-cyan-400 stroke-2" />;
+          })}
+        </svg>
+        {points.map((point, index) => {
           const x = index * step;
-          const y = height - (value / max) * (height - 14) - 7;
-          return <circle key={index} cx={x} cy={y} r="3.5" className="fill-slate-950 stroke-cyan-400 stroke-2" />;
+          const y = height - (point.value / max) * (height - 14) - 7;
+          return (
+            <div
+              key={point.label}
+              className="group absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full"
+              style={{ left: `${(x / width) * 100}%`, top: `${(y / height) * 100}%` }}
+            >
+              <HoverTooltip>
+                <div className="font-bold">{point.label}</div>
+                <div className="text-slate-400">{point.value} {valueLabel}</div>
+                {point.meta && <div className="text-slate-500">{point.meta}</div>}
+              </HoverTooltip>
+              <div className="h-full w-full rounded-full hover:bg-cyan-400/10" />
+            </div>
+          );
         })}
-      </svg>
+      </div>
       <div className="grid grid-cols-7 text-[10px] text-slate-500">
-        {points.map((_, index) => <span key={index} className="text-center">{index === points.length - 1 ? 'Today' : `-${points.length - 1 - index}d`}</span>)}
+        {points.map((point, index) => <span key={point.label} className="text-center">{index === points.length - 1 ? 'Today' : `-${points.length - 1 - index}d`}</span>)}
       </div>
     </div>
   );
@@ -106,7 +142,9 @@ function DonutChart({ rows, emptyLabel }: { rows: { label: string; value: number
               strokeWidth="16"
               strokeDasharray={`${dash} 263.89`}
               strokeDashoffset={-offset}
-            />
+            >
+              <title>{`${row.label}: ${row.value} (${Math.round((row.value / total) * 100)}%)`}</title>
+            </circle>
           );
           offset += dash;
           return circle;
@@ -114,7 +152,13 @@ function DonutChart({ rows, emptyLabel }: { rows: { label: string; value: number
       </svg>
       <div className="space-y-3 min-w-0 flex-1">
         {rows.map(row => (
-          <div key={row.label} className="flex items-center justify-between gap-3 text-xs">
+          <div key={row.label} className="group relative flex items-center justify-between gap-3 text-xs">
+            <HoverTooltip>
+              <div className="font-bold">{row.label}</div>
+              <div className="text-slate-400">
+                {row.value} · {Math.round((row.value / total) * 100)}%
+              </div>
+            </HoverTooltip>
             <span className="text-slate-400 flex items-center gap-2 min-w-0">
               <span className={cn('w-2.5 h-2.5 rounded-full shrink-0', row.color.replace('stroke-', 'bg-'))} />
               <span className="truncate">{row.label}</span>
@@ -307,10 +351,15 @@ export function Dashboard() {
       color: ['bg-sky-500', 'bg-cyan-500', 'bg-amber-500', 'bg-fuchsia-500', 'bg-emerald-500'][index]
     }));
 
-    const activityTrend = dayKeys.map(key => (
-      logs.filter(log => log.date.slice(0, 10) === key).length +
-      emails.filter(email => email.date.slice(0, 10) === key).length
-    ));
+    const activityTrend = dayKeys.map((key, index) => {
+      const date = new Date(`${key}T00:00:00`);
+      return {
+        label: index === dayKeys.length - 1 ? t('Today') : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+        meta: key,
+        value: logs.filter(log => log.date.slice(0, 10) === key).length +
+          emails.filter(email => email.date.slice(0, 10) === key).length
+      };
+    });
 
     const contributionEvents = [
       ...logs.map(log => log.date),
@@ -446,7 +495,7 @@ export function Dashboard() {
                 </h3>
                 <span className="text-xs text-slate-500">{t('Last 7 days')}</span>
               </div>
-              <SparklineChart points={operations.activityTrend} />
+              <SparklineChart points={operations.activityTrend} valueLabel={t('events')} />
             </div>
 
             <div className="bg-slate-950/50 rounded-2xl p-6 border border-slate-800 shadow-sm">
