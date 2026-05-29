@@ -146,6 +146,7 @@ export function GlobalAgent() {
     llmMappings,
     activeLLMId,
     language,
+    outboxConfigs,
     addGlobalAgentPlan,
     updateGlobalAgentPlan,
     updateGlobalAgentPlanStep,
@@ -156,7 +157,7 @@ export function GlobalAgent() {
     importPublicLeads,
     fetchPublicClients,
     addAgentWorkflow,
-    addEmail,
+    fetchEmails,
     markEmailRead,
     editClient,
     updateClientStatus,
@@ -611,31 +612,54 @@ ${objective}`;
         const client = findTargetClient(payload);
         const recipient = payload.recipient || reply?.sender || getClientEmail(client);
         if (!recipient) throw new Error('No recipient available for email');
+        const selectedOutbox = outboxConfigs.find(config => config.id === payload.outboxConfigId)
+          || outboxConfigs.find(config => config.fromEmail === payload.sender)
+          || outboxConfigs[0];
+        if (!selectedOutbox) {
+          throw new Error('No outbox configured. Configure an SMTP or Resend outbox before sending email.');
+        }
         const normalizedPayload = {
           clientId: payload.clientId || reply?.clientId || client?.id,
           recipient,
           subject: payload.subject || (reply ? `Re: ${reply.subject}` : 'Following up'),
           body: payload.body || payload.content || '',
-          scheduledAt: payload.scheduledAt || ''
+          scheduledAt: payload.scheduledAt || '',
+          outboxConfigId: selectedOutbox?.id || payload.outboxConfigId || ''
         };
         const once = await runOnce(plan, step, normalizedPayload, client ? { targetType: 'client', targetId: client.id } : { targetType: 'email_address', targetId: recipient.toLowerCase() }, async () => {
-          const emailId = addEmail({
+          const emailId = `e${Date.now()}${Math.floor(Math.random() * 1000)}`;
+          const emailPayload = {
+            id: emailId,
             clientId: normalizedPayload.clientId,
-            sender: payload.sender || 'Global Agent',
-            senderName: payload.senderName || 'Global Agent',
+            sender: selectedOutbox?.fromEmail || payload.sender || 'Global Agent',
+            senderName: selectedOutbox?.fromName || payload.senderName || 'Global Agent',
             recipient,
             subject: normalizedPayload.subject,
             body: normalizedPayload.body,
             read: true,
             type: payload.scheduledAt ? 'scheduled' : (payload.type || 'sent'),
-            scheduledAt: payload.scheduledAt
+            scheduledAt: payload.scheduledAt,
+            outboxConfigId: normalizedPayload.outboxConfigId || undefined
+          };
+          const response = await fetch('/api/emails', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify(emailPayload)
           });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.error || 'Email send failed');
+          await fetchEmails();
           if (client) {
-            addComment(client.id, payload.comment || `Global Agent prepared/sent email: ${payload.subject || 'Following up'}`);
+            addComment(client.id, payload.comment || `Global Agent ${payload.scheduledAt ? 'scheduled' : 'sent'} email: ${payload.subject || 'Following up'}`);
           }
           return `email:${emailId}`;
         });
-        if (!once.skipped) updateGlobalAgentPlanStep(plan.id, step.id, { status: 'completed', result: `Email queued: ${String(once.result || '').replace('email:', '')}` });
+        if (!once.skipped) {
+          updateGlobalAgentPlanStep(plan.id, step.id, {
+            status: 'completed',
+            result: `${payload.scheduledAt ? 'Email scheduled' : 'Email sent'}: ${String(once.result || '').replace('email:', '')}`
+          });
+        }
         return previousCampaignId;
       }
 
