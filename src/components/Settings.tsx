@@ -121,6 +121,8 @@ export function Settings() {
   const [showLLMApiKey, setShowLLMApiKey] = useState(false);
   const [showOutscraperApiKey, setShowOutscraperApiKey] = useState(false);
   const [visibleLeadChannelKeys, setVisibleLeadChannelKeys] = useState<Record<string, boolean>>({});
+  const [testingLeadChannel, setTestingLeadChannel] = useState<LeadDataProvider | null>(null);
+  const [leadChannelTestResults, setLeadChannelTestResults] = useState<Partial<Record<LeadDataProvider, { status: 'success' | 'failed'; message: string }>>>({});
 
   const [editingLLMId, setEditingLLMId] = useState<string | null>(null);
   const [llmFormData, setLLMFormData] = useState<Partial<LLMConfig>>({});
@@ -327,6 +329,39 @@ export function Settings() {
       setTestOutboxError(e.message || 'Network error');
     }
     setTestingOutbox(false);
+  };
+
+  const handleTestLeadChannel = async (provider: LeadDataProvider) => {
+    setTestingLeadChannel(provider);
+    setLeadChannelTestResults(prev => {
+      const next = { ...prev };
+      delete next[provider];
+      return next;
+    });
+
+    try {
+      const currentToken = localStorage.getItem('token');
+      const res = await fetch('/api/lead-data/test-channel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${currentToken}` },
+        body: JSON.stringify({ provider, config: leadDataChannelConfigs[provider] })
+      });
+      const data = await res.json();
+      setLeadChannelTestResults(prev => ({
+        ...prev,
+        [provider]: {
+          status: res.ok && data.success ? 'success' : 'failed',
+          message: data.message || data.error || (res.ok ? t('Channel connected successfully.') : t('Channel test failed.'))
+        }
+      }));
+    } catch (e: any) {
+      setLeadChannelTestResults(prev => ({
+        ...prev,
+        [provider]: { status: 'failed', message: e.message || t('Network error') }
+      }));
+    } finally {
+      setTestingLeadChannel(null);
+    }
   };
 
   const handleSaveLLM = () => {
@@ -1583,9 +1618,30 @@ export function Settings() {
                         />
                       </div>
 
-                      <a href={provider.docsUrl} target="_blank" rel="noreferrer" className="inline-flex text-xs text-cyan-400 hover:text-cyan-300">
-                        Open provider console
-                      </a>
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <a href={provider.docsUrl} target="_blank" rel="noreferrer" className="inline-flex text-xs text-cyan-400 hover:text-cyan-300">
+                          {t('Open provider console')}
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => handleTestLeadChannel(provider.id)}
+                          disabled={testingLeadChannel === provider.id}
+                          className="text-xs font-bold bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed px-3 py-1.5 rounded-lg transition-colors"
+                        >
+                          {testingLeadChannel === provider.id ? t('Testing...') : t('Test Channel')}
+                        </button>
+                      </div>
+
+                      {leadChannelTestResults[provider.id] && (
+                        <div className={cn(
+                          "text-xs rounded-lg border px-3 py-2",
+                          leadChannelTestResults[provider.id]?.status === 'success'
+                            ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+                            : "bg-red-500/10 border-red-500/30 text-red-300"
+                        )}>
+                          {leadChannelTestResults[provider.id]?.message}
+                        </div>
+                      )}
                     </div>
                   );
                 })}

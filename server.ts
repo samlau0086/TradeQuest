@@ -2833,6 +2833,79 @@ Query: "${query}"`;
     return [];
   };
 
+  const readLeadChannelResponseMessage = async (response: Response) => {
+    const text = await response.text().catch(() => '');
+    if (!text) return `${response.status} ${response.statusText}`.trim();
+    try {
+      const data = JSON.parse(text);
+      return data?.error?.message || data?.error || data?.message || text.slice(0, 300);
+    } catch {
+      return text.slice(0, 300);
+    }
+  };
+
+  const fetchLeadChannelWithTimeout = async (url: string, options: RequestInit = {}, timeoutMs = 12000) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+
+  app.post('/api/lead-data/test-channel', authenticateToken, async (req: any, res) => {
+    try {
+      const { provider, config = {} } = req.body || {};
+      if (!provider) return res.status(400).json({ success: false, error: 'Lead data provider is required' });
+      if (!config.apiKey) return res.status(400).json({ success: false, error: 'Data channel API key required' });
+
+      let testResponse: Response;
+
+      if (provider === 'outscraper') {
+        const url = 'https://api.outscraper.com/maps/search-v2?query=test&limit=1&async=false';
+        testResponse = await fetchLeadChannelWithTimeout(url, { headers: { 'X-API-KEY': config.apiKey } });
+      } else if (provider === 'apify') {
+        const actorId = config.actorId ? String(config.actorId).replace('/', '~') : '';
+        const url = actorId
+          ? `https://api.apify.com/v2/acts/${encodeURIComponent(actorId)}?token=${encodeURIComponent(config.apiKey)}`
+          : `https://api.apify.com/v2/users/me?token=${encodeURIComponent(config.apiKey)}`;
+        testResponse = await fetchLeadChannelWithTimeout(url);
+      } else if (provider === 'phantombuster') {
+        const url = config.agentId
+          ? `https://api.phantombuster.com/api/v2/agents/fetch?id=${encodeURIComponent(config.agentId)}`
+          : 'https://api.phantombuster.com/api/v2/agents/fetch-all';
+        testResponse = await fetchLeadChannelWithTimeout(url, { headers: { 'X-Phantombuster-Key': config.apiKey } });
+      } else {
+        const endpoint = provider === 'clay' ? config.enrichEndpoint : (config.searchEndpoint || config.enrichEndpoint);
+        if (!endpoint) return res.status(400).json({ success: false, error: 'Search or enrichment endpoint required' });
+        testResponse = await fetchLeadChannelWithTimeout(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${config.apiKey}`,
+            'X-API-Key': config.apiKey
+          },
+          body: JSON.stringify({ query: 'test', limit: 1, dryRun: true })
+        });
+      }
+
+      if (!testResponse.ok) {
+        const message = await readLeadChannelResponseMessage(testResponse);
+        return res.status(502).json({
+          success: false,
+          error: `${provider} connection failed: ${message}`,
+          status: testResponse.status
+        });
+      }
+
+      res.json({ success: true, message: `${provider} channel connected successfully.`, status: testResponse.status });
+    } catch (e: any) {
+      const message = e?.name === 'AbortError' ? 'Connection timed out' : (e?.message || 'Failed to test lead data channel');
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
   app.post('/api/lead-data/search', authenticateToken, async (req: any, res) => {
     try {
       const { provider = 'outscraper', query, keywords, industry, country, limit, config = {} } = req.body;
