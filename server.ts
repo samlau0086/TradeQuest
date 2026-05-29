@@ -2089,7 +2089,7 @@ No markdown wrappers, just valid JSON.`;
             ? 'Create or update a Global Agent plan for conversion coordination.'
             : agent.id === 'lead_scoring_agent'
               ? 'Scan eligible leads, skip unchanged leads, and update score/summary/next step when needed.'
-              : 'Create an Agent Harness run with the configured agent tools and guardrails.';
+              : `Run the configured ${agent.name} workflow after approval: read eligible customer context, check idempotency and risk rules, generate channel-appropriate outbound content, execute permitted tools (${(agent.tools || []).join(', ') || 'agent tools'}), update CRM logs/status, and report scanned/acted/skipped/failed counts.`;
           const startedRecord = addAgentHubRunRecordToSettings(settings, {
             agentId: agent.id,
             agentName: agent.name,
@@ -2467,7 +2467,7 @@ Return JSON only:
       }
     }
 
-    const resultText = `Scanned ${scanned} client(s), acted on ${acted}, skipped ${skipped}, failed ${failed}. ${details.slice(0, 8).join(' ')}`;
+    const resultText = `Workflow completed: scanned ${scanned} client(s), acted on ${acted}, skipped ${skipped}, failed ${failed}. ${details.slice(0, 8).join(' ')}`;
     run.status = failed > 0 && acted === 0 ? 'failed' : 'completed';
     run.completedAt = new Date().toISOString();
     run.steps = (run.steps || []).map((step: any) => ({

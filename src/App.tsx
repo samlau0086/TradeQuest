@@ -236,7 +236,7 @@ export default function App() {
             ? 'Create or update a Global Agent plan for conversion coordination.'
             : agent.id === 'lead_scoring_agent'
               ? 'Scan eligible leads, skip unchanged leads, and update score/summary/next step when needed.'
-              : 'Create an Agent Harness run with the configured agent tools and guardrails.';
+              : `Run the configured ${agent.name} workflow after approval: read eligible customer context, check idempotency and risk rules, generate channel-appropriate outbound content, execute permitted tools (${agent.tools.join(', ') || 'agent tools'}), update CRM logs/status, and report scanned/acted/skipped/failed counts.`;
           const runRecordId = state.addAgentRunRecord({
             agentId: agent.id,
             agentName: agent.name,
