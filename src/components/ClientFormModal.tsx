@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useStore, Client, ClientStatus, ContactMethod } from '../store';
+import { useStore, Client, ClientStatus, ContactMethod, ClientContact } from '../store';
 import { X, Plus, Trash2, ChevronDown, Clock } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useTranslation } from '../lib/i18n';
@@ -35,8 +35,36 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
   const [preferredLanguage, setPreferredLanguage] = useState(existingClient?.preferredLanguage || initialData?.preferredLanguage || '');
   const [preferredTimeRange, setPreferredTimeRange] = useState(existingClient?.preferredTimeRange || initialData?.preferredTimeRange || '');
   const [contactMethods, setContactMethods] = useState<ContactMethod[]>(existingClient?.contactMethods || initialData?.contactMethods || [{ type: 'email', value: '' }]);
+  const buildInitialContacts = (): ClientContact[] => {
+    const sourceContacts = existingClient?.contacts || initialData?.contacts || [];
+    if (sourceContacts.length > 0) {
+      return sourceContacts.map((contact, index) => ({
+        ...contact,
+        id: contact.id || `contact_${Date.now()}_${index}`,
+        isPrimary: contact.id === (existingClient?.primaryContactId || initialData?.primaryContactId) || contact.isPrimary || index === 0,
+        contactMethods: contact.contactMethods?.length ? contact.contactMethods : []
+      }));
+    }
+    return [{
+      id: existingClient?.primaryContactId || initialData?.primaryContactId || `contact_${Date.now()}`,
+      name: existingClient?.name || initialData?.name || '',
+      title: '',
+      isPrimary: true,
+      contactMethods: existingClient?.contactMethods || initialData?.contactMethods || [{ type: 'email', value: '' }]
+    }];
+  };
+  const [contacts, setContacts] = useState<ClientContact[]>(buildInitialContacts);
 
   const [isApplyMode, setIsApplyMode] = useState(false);
+
+  useEffect(() => {
+    setContacts(prev => {
+      const next = prev.length ? [...prev] : [{ id: `contact_${Date.now()}`, name, isPrimary: true, contactMethods: [] }];
+      const primaryIndex = Math.max(0, next.findIndex(contact => contact.isPrimary));
+      next[primaryIndex] = { ...next[primaryIndex], name, isPrimary: true };
+      return next.map((contact, index) => ({ ...contact, isPrimary: index === primaryIndex }));
+    });
+  }, [name]);
 
   // Close country dropdown when clicking outside
   useEffect(() => {
@@ -48,7 +76,16 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const parsedTags = tags.split(',').map(t => t.trim()).filter(Boolean);
-    const validContactMethods = contactMethods.filter(cm => cm.value.trim() !== '');
+    const normalizedContacts = contacts.map((contact, index) => ({
+      ...contact,
+      id: contact.id || `contact_${Date.now()}_${index}`,
+      name: (contact.isPrimary ? name : contact.name).trim(),
+      isPrimary: !!contact.isPrimary,
+      contactMethods: (contact.contactMethods || []).filter(cm => cm.value.trim() !== '')
+    })).filter(contact => contact.name || contact.contactMethods.length > 0);
+    const primaryContact = normalizedContacts.find(contact => contact.isPrimary) || normalizedContacts[0];
+    const contactsWithPrimary = normalizedContacts.map(contact => ({ ...contact, isPrimary: contact.id === primaryContact?.id }));
+    const validContactMethods = primaryContact?.contactMethods || contactMethods.filter(cm => cm.value.trim() !== '');
 
     const clientData = {
       name,
@@ -64,6 +101,8 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
       lastContact: existingClient?.lastContact || new Date().toISOString().split('T')[0],
       isDormant: existingClient?.isDormant || false,
       contactMethods: validContactMethods,
+      contacts: contactsWithPrimary,
+      primaryContactId: primaryContact?.id,
     };
 
     if (existingClient) {
@@ -103,6 +142,35 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
 
   const isLocked = (val: string | undefined) => !!existingClient && !!val && !isApplyMode;
   const isMethodLocked = (index: number) => !!existingClient && index < (existingClient.contactMethods?.length || 0) && !isApplyMode;
+
+  const addContact = () => {
+    setContacts(prev => [...prev, { id: `contact_${Date.now()}`, name: '', title: '', contactMethods: [{ type: 'email', value: '' }] }]);
+  };
+
+  const updateContact = (contactId: string, updates: Partial<ClientContact>) => {
+    setContacts(prev => prev.map(contact => contact.id === contactId ? { ...contact, ...updates } : contact));
+  };
+
+  const removeContact = (contactId: string) => {
+    setContacts(prev => prev.filter(contact => contact.id !== contactId || contact.isPrimary));
+  };
+
+  const addContactMethodToContact = (contactId: string) => {
+    setContacts(prev => prev.map(contact => contact.id === contactId ? { ...contact, contactMethods: [...(contact.contactMethods || []), { type: 'email', value: '' }] } : contact));
+  };
+
+  const updateContactMethodInContact = (contactId: string, methodIndex: number, field: keyof ContactMethod, value: string) => {
+    setContacts(prev => prev.map(contact => {
+      if (contact.id !== contactId) return contact;
+      const nextMethods = [...(contact.contactMethods || [])];
+      nextMethods[methodIndex] = { ...nextMethods[methodIndex], [field]: value };
+      return { ...contact, contactMethods: nextMethods };
+    }));
+  };
+
+  const removeContactMethodFromContact = (contactId: string, methodIndex: number) => {
+    setContacts(prev => prev.map(contact => contact.id === contactId ? { ...contact, contactMethods: (contact.contactMethods || []).filter((_, index) => index !== methodIndex) } : contact));
+  };
 
   return (
     <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -261,32 +329,80 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
             </div>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-400 uppercase">{t('contactMethods')}</label>
-            {contactMethods.map((cm, idx) => {
-              const locked = isMethodLocked(idx);
-              return (
-              <div key={idx} className="flex items-center gap-2">
-                <select disabled={locked} value={cm.type} onChange={e => updateContactMethod(idx, 'type', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 disabled:opacity-50">
-                  <option value="email">Email</option>
-                  <option value="whatsapp">WhatsApp</option>
-                  <option value="messenger">Messenger</option>
-                  <option value="telegram">Telegram</option>
-                  <option value="phone">Phone</option>
-                  <option value="wechat">WeChat</option>
-                </select>
-                <input disabled={locked} value={cm.value} onChange={e => updateContactMethod(idx, 'value', e.target.value)} type="text" className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 disabled:opacity-50" placeholder="Value..." />
-                {!locked && (
-                  <button type="button" onClick={() => removeContactMethod(idx)} className="p-2 text-slate-500 hover:text-red-400 rounded-md hover:bg-slate-800 transition-colors">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                )}
-                {locked && <span className="text-[10px] text-slate-500">(Locked)</span>}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-400 uppercase">Contacts</label>
+              <button type="button" onClick={addContact} className="text-xs flex items-center gap-1 text-cyan-400 hover:text-cyan-300 font-medium py-1">
+                <Plus className="w-3 h-3" /> Add Contact
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-500">The client name is linked to the key contact. Each contact can have multiple contact methods.</p>
+            {contacts.map((contact) => (
+              <div key={contact.id} className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 space-y-3">
+                <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
+                  <input
+                    disabled={contact.isPrimary || (!isApplyMode && !!existingClient)}
+                    value={contact.isPrimary ? name : contact.name}
+                    onChange={e => updateContact(contact.id, { name: e.target.value })}
+                    className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 disabled:opacity-60"
+                    placeholder="Contact name"
+                  />
+                  <input
+                    disabled={!isApplyMode && !!existingClient}
+                    value={contact.title || ''}
+                    onChange={e => updateContact(contact.id, { title: e.target.value })}
+                    className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 disabled:opacity-60"
+                    placeholder="Title / role"
+                  />
+                  <div className="flex items-center gap-2">
+                    {contact.isPrimary && <span className="text-[10px] uppercase font-bold px-2 py-1 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">Key</span>}
+                    {!contact.isPrimary && (!existingClient || isApplyMode) && (
+                      <button type="button" onClick={() => removeContact(contact.id)} className="p-2 text-slate-500 hover:text-red-400 rounded-md hover:bg-slate-800 transition-colors">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  {(contact.contactMethods || []).map((cm, idx) => (
+                    <div key={`${contact.id}_${idx}`} className="flex items-center gap-2">
+                      <select
+                        disabled={!isApplyMode && !!existingClient}
+                        value={cm.type}
+                        onChange={e => updateContactMethodInContact(contact.id, idx, 'type', e.target.value)}
+                        className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 disabled:opacity-60"
+                      >
+                        <option value="email">Email</option>
+                        <option value="whatsapp">WhatsApp</option>
+                        <option value="messenger">Messenger</option>
+                        <option value="telegram">Telegram</option>
+                        <option value="phone">Phone</option>
+                        <option value="wechat">WeChat</option>
+                      </select>
+                      <input
+                        disabled={!isApplyMode && !!existingClient}
+                        value={cm.value}
+                        onChange={e => updateContactMethodInContact(contact.id, idx, 'value', e.target.value)}
+                        type="text"
+                        className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 disabled:opacity-60"
+                        placeholder="Value..."
+                      />
+                      {(!existingClient || isApplyMode) && (
+                        <button type="button" onClick={() => removeContactMethodFromContact(contact.id, idx)} className="p-2 text-slate-500 hover:text-red-400 rounded-md hover:bg-slate-800 transition-colors">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  {(!existingClient || isApplyMode) && (
+                    <button type="button" onClick={() => addContactMethodToContact(contact.id)} className="text-xs flex items-center gap-1 text-cyan-400 hover:text-cyan-300 font-medium py-1">
+                      <Plus className="w-3 h-3" /> {t('addContactMethod')}
+                    </button>
+                  )}
+                </div>
               </div>
-            )})}
-            <button type="button" onClick={addContactMethod} className="text-xs flex items-center gap-1 text-cyan-400 hover:text-cyan-300 font-medium py-1">
-              <Plus className="w-3 h-3" /> {t('addContactMethod')}
-            </button>
+            ))}
           </div>
           
           <div className="pt-4 border-t border-slate-800 flex justify-end gap-3">

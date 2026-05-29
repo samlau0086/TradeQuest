@@ -200,6 +200,8 @@ async function initDB() {
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS agent_workflow_id VARCHAR(128);
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS preferred_language VARCHAR(100);
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS preferred_time_range VARCHAR(255);
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS contacts JSONB DEFAULT '[]'::jsonb;
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS primary_contact_id VARCHAR(128);
 
       CREATE TABLE IF NOT EXISTS global_settings (
         key VARCHAR(128) PRIMARY KEY,
@@ -3054,6 +3056,8 @@ Query: "${query}"`;
         lastContact: row.last_contact,
         isDormant: row.is_dormant,
         contactMethods: row.contact_methods,
+        contacts: row.contacts,
+        primaryContactId: row.primary_contact_id,
         comments: row.comments,
         pendingEditRequest: row.pending_edit_request,
         deletedBy: row.deleted_by,
@@ -3091,6 +3095,8 @@ Query: "${query}"`;
         lastContact: row.last_contact,
         isDormant: row.is_dormant,
         contactMethods: row.contact_methods,
+        contacts: row.contacts,
+        primaryContactId: row.primary_contact_id,
         comments: row.comments,
         pendingEditRequest: row.pending_edit_request,
         deletedBy: row.deleted_by,
@@ -3159,12 +3165,20 @@ Query: "${query}"`;
 
       let addedCount = 0;
       for (const lead of leads) {
-        const incomingMethods = (lead.contactMethods || []).filter((cm: any) => cm.value).map((cm: any) => cm.value);
+        const incomingMethods = [
+          ...(lead.contactMethods || []),
+          ...(lead.contacts || []).flatMap((contact: any) => contact.contactMethods || [])
+        ].filter((cm: any) => cm.value).map((cm: any) => cm.value);
         if (incomingMethods.length > 0) {
           const checkQuery = `
             SELECT id FROM clients 
             WHERE EXISTS (
               SELECT 1 FROM jsonb_array_elements(contact_methods) as cm 
+              WHERE cm->>'value' = ANY($1::text[])
+            ) OR EXISTS (
+              SELECT 1
+              FROM jsonb_array_elements(COALESCE(contacts, '[]'::jsonb)) as contact,
+                   jsonb_array_elements(COALESCE(contact->'contactMethods', '[]'::jsonb)) as cm
               WHERE cm->>'value' = ANY($1::text[])
             ) LIMIT 1
           `;
@@ -3176,9 +3190,9 @@ Query: "${query}"`;
         
         const id = `c${Date.now()}${Math.floor(Math.random()*1000)}`;
         await pool.query(
-          `INSERT INTO clients (id, user_id, name, company, address, state, city, country, status, tags, last_contact, is_dormant, contact_methods, comments)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-          [id, null, lead.name, lead.company || '', lead.address || '', lead.state || '', lead.city || '', lead.country || '', 'Leads', JSON.stringify(lead.tags || []), null, false, JSON.stringify(lead.contactMethods || []), JSON.stringify([])]
+          `INSERT INTO clients (id, user_id, name, company, address, state, city, country, status, tags, last_contact, is_dormant, contact_methods, contacts, primary_contact_id, comments)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+          [id, null, lead.name, lead.company || '', lead.address || '', lead.state || '', lead.city || '', lead.country || '', 'Leads', JSON.stringify(lead.tags || []), null, false, JSON.stringify(lead.contactMethods || []), JSON.stringify(lead.contacts || []), lead.primaryContactId || null, JSON.stringify([])]
         );
         addedCount++;
       }
@@ -3196,16 +3210,26 @@ Query: "${query}"`;
 
   app.post('/api/clients', authenticateToken, async (req: any, res) => {
     try {
-      const { id, name, company, country, status, tags, lastContact, isDormant, contactMethods, comments } = req.body;
+      const { id, name, company, country, status, tags, lastContact, isDormant, contactMethods, contacts, primaryContactId, comments } = req.body;
       
-      const incomingMethods = (contactMethods || []).filter((cm: any) => cm.value).map((cm: any) => cm.value);
+      const incomingMethods = [
+        ...(contactMethods || []),
+        ...(contacts || []).flatMap((contact: any) => contact.contactMethods || [])
+      ].filter((cm: any) => cm.value).map((cm: any) => cm.value);
       if (incomingMethods.length > 0) {
         const checkQuery = `
           SELECT id FROM clients 
-          WHERE EXISTS (
-            SELECT 1 FROM jsonb_array_elements(contact_methods) as cm 
-            WHERE cm->>'value' = ANY($1::text[])
-          ) AND user_id = $2 LIMIT 1
+          WHERE user_id = $2 AND (
+            EXISTS (
+              SELECT 1 FROM jsonb_array_elements(contact_methods) as cm 
+              WHERE cm->>'value' = ANY($1::text[])
+            ) OR EXISTS (
+              SELECT 1
+              FROM jsonb_array_elements(COALESCE(contacts, '[]'::jsonb)) as contact,
+                   jsonb_array_elements(COALESCE(contact->'contactMethods', '[]'::jsonb)) as cm
+              WHERE cm->>'value' = ANY($1::text[])
+            )
+          ) LIMIT 1
         `;
         const checkRes = await pool.query(checkQuery, [incomingMethods, req.user.uid]);
         if (checkRes.rows.length > 0) {
@@ -3214,9 +3238,9 @@ Query: "${query}"`;
       }
 
       await pool.query(
-        `INSERT INTO clients (id, user_id, name, company, address, state, city, country, status, tags, last_contact, is_dormant, contact_methods, comments, preferred_language, preferred_time_range, agent_workflow_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
-        [id, req.body.isPublic ? null : req.user.uid, name, company, req.body.address || null, req.body.state || null, req.body.city || null, country, status, JSON.stringify(tags || []), lastContact || null, !!isDormant, JSON.stringify(contactMethods || []), JSON.stringify(comments || []), req.body.preferredLanguage || null, req.body.preferredTimeRange || null, req.body.agentWorkflowId || null]
+        `INSERT INTO clients (id, user_id, name, company, address, state, city, country, status, tags, last_contact, is_dormant, contact_methods, contacts, primary_contact_id, comments, preferred_language, preferred_time_range, agent_workflow_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+        [id, req.body.isPublic ? null : req.user.uid, name, company, req.body.address || null, req.body.state || null, req.body.city || null, country, status, JSON.stringify(tags || []), lastContact || null, !!isDormant, JSON.stringify(contactMethods || []), JSON.stringify(contacts || []), primaryContactId || null, JSON.stringify(comments || []), req.body.preferredLanguage || null, req.body.preferredTimeRange || null, req.body.agentWorkflowId || null]
       );
 
       await pool.query(`UPDATE users SET points = points + 5 WHERE id = $1`, [req.user.uid]);
@@ -3240,7 +3264,7 @@ Query: "${query}"`;
       const mapping: Record<string, string> = {
         name: 'name', company: 'company', address: 'address', state: 'state', city: 'city', country: 'country', status: 'status',
         tags: 'tags', lastContact: 'last_contact', isDormant: 'is_dormant',
-        contactMethods: 'contact_methods', comments: 'comments',
+        contactMethods: 'contact_methods', contacts: 'contacts', primaryContactId: 'primary_contact_id', comments: 'comments',
         agentEnabled: 'agent_enabled', agentMode: 'agent_mode',
         agentContext: 'agent_context', agentSummary: 'agent_summary',
         agentNextStep: 'agent_next_step',
@@ -3274,7 +3298,7 @@ Query: "${query}"`;
       for (const [key, val] of Object.entries(updates)) {
         if (mapping[key]) {
           setClauses.push(`${mapping[key]} = $${valIdx}`);
-          values.push((key === 'tags' || key === 'comments' || key === 'contactMethods') ? JSON.stringify(val) : val);
+          values.push((key === 'tags' || key === 'comments' || key === 'contactMethods' || key === 'contacts') ? JSON.stringify(val) : val);
           valIdx++;
         }
       }

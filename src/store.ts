@@ -35,6 +35,16 @@ export interface ContactMethod {
   value: string;
 }
 
+export interface ClientContact {
+  id: string;
+  name: string;
+  title?: string;
+  department?: string;
+  isPrimary?: boolean;
+  contactMethods: ContactMethod[];
+  notes?: string;
+}
+
 export interface Attachment {
   id: string;
   name: string;
@@ -174,6 +184,8 @@ export interface Client {
   lastContact: string;
   isDormant?: boolean;
   contactMethods?: ContactMethod[];
+  contacts?: ClientContact[];
+  primaryContactId?: string;
   comments?: Comment[];
   pendingEditRequest?: boolean;
   deletedBy?: string;

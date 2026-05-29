@@ -443,7 +443,7 @@ export function ClientDetails() {
   } | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
 
-  const [expandedContactIdx, setExpandedContactIdx] = useState<number | null>(null);
+  const [expandedContactIdx, setExpandedContactIdx] = useState<string | null>(null);
   const [showEmailCompose, setShowEmailCompose] = useState(false);
   const [composeRecipient, setComposeRecipient] = useState('');
 
@@ -472,6 +472,15 @@ export function ClientDetails() {
   const leadNextStep = leadRecord ? leadRecord.leadNextStep : client?.leadNextStep;
 
   if (!client) return null;
+  const displayContacts = (client.contacts && client.contacts.length > 0)
+    ? client.contacts
+    : [{
+        id: client.primaryContactId || 'primary',
+        name: client.name,
+        title: 'Key Contact',
+        isPrimary: true,
+        contactMethods: client.contactMethods || []
+      }];
 
   const closeDetails = () => {
     selectDeal(null);
@@ -686,49 +695,65 @@ export function ClientDetails() {
           </select>
         </div>
 
-        {/* Contact Methods */}
-        {client.contactMethods && client.contactMethods.length > 0 && (
+        {/* Contacts */}
+        {displayContacts.some(contact => (contact.contactMethods || []).length > 0) && (
           <div>
             <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2">
                Contacts
             </h3>
-            <div className="space-y-2">
-              {client.contactMethods.map((cm, idx) => {
-                const Icon = CONTACT_ICONS[cm.type] || Mail;
-                const isExpanded = expandedContactIdx === idx;
-                return (
-                  <div key={idx} className="bg-slate-800/50 border border-slate-700/50 rounded-lg overflow-hidden transition-all">
-                    <button 
-                      onClick={() => setExpandedContactIdx(isExpanded ? null : idx)}
-                      className="w-full flex items-center justify-between p-2 hover:bg-slate-800 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className={cn("p-1.5 rounded-md", cm.type === 'whatsapp' ? 'bg-green-500/20 text-green-400' : 'bg-slate-700 text-slate-300')}>
-                          <Icon className="w-4 h-4" />
-                        </div>
-                        <span className="text-sm text-slate-300 font-medium truncate">{cm.value}</span>
+            <div className="space-y-3">
+              {displayContacts.map((contact) => (
+                <div key={contact.id} className="bg-slate-900/50 border border-slate-800 rounded-xl p-3">
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div>
+                      <div className="text-sm font-bold text-slate-200 flex items-center gap-2">
+                        {contact.name || client.name}
+                        {contact.isPrimary && <span className="text-[10px] uppercase px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">Key</span>}
                       </div>
-                      <span className="text-xs font-medium text-cyan-400 shrink-0 ml-2">
-                        {isExpanded ? 'Close' : 'Action'}
-                      </span>
-                    </button>
-                    {isExpanded && (
-                      <div className="px-2 pb-2">
-                        <ContactActionBox 
-                          method={cm} 
-                          client={client} 
-                          onClose={() => setExpandedContactIdx(null)} 
-                          onOpenEmailCompose={(email) => {
-                            setComposeRecipient(email);
-                            setShowEmailCompose(true);
-                            setExpandedContactIdx(null);
-                          }}
-                        />
-                      </div>
-                    )}
+                      {contact.title && <div className="text-[11px] text-slate-500 mt-0.5">{contact.title}</div>}
+                    </div>
                   </div>
-                )
-              })}
+                  <div className="space-y-2">
+                    {(contact.contactMethods || []).map((cm, idx) => {
+                      const Icon = CONTACT_ICONS[cm.type] || Mail;
+                      const expandKey = `${contact.id}_${idx}`;
+                      const isExpanded = expandedContactIdx === expandKey;
+                      return (
+                        <div key={expandKey} className="bg-slate-800/50 border border-slate-700/50 rounded-lg overflow-hidden transition-all">
+                          <button
+                            onClick={() => setExpandedContactIdx(isExpanded ? null : expandKey)}
+                            className="w-full flex items-center justify-between p-2 hover:bg-slate-800 transition-colors"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className={cn("p-1.5 rounded-md shrink-0", cm.type === 'whatsapp' ? 'bg-green-500/20 text-green-400' : 'bg-slate-700 text-slate-300')}>
+                                <Icon className="w-4 h-4" />
+                              </div>
+                              <span className="text-sm text-slate-300 font-medium truncate">{cm.value}</span>
+                            </div>
+                            <span className="text-xs font-medium text-cyan-400 shrink-0 ml-2">
+                              {isExpanded ? 'Close' : 'Action'}
+                            </span>
+                          </button>
+                          {isExpanded && (
+                            <div className="px-2 pb-2">
+                              <ContactActionBox
+                                method={cm}
+                                client={client}
+                                onClose={() => setExpandedContactIdx(null)}
+                                onOpenEmailCompose={(email) => {
+                                  setComposeRecipient(email);
+                                  setShowEmailCompose(true);
+                                  setExpandedContactIdx(null);
+                                }}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
