@@ -51,18 +51,18 @@ function BarListChart({ rows, emptyLabel }: { rows: { label: string; value: numb
   return (
     <div className="space-y-4">
       {rows.map(row => (
-        <div key={row.label} className="group relative">
-          <HoverTooltip>
-            <div className="font-bold">{row.label}</div>
-            <div className="text-slate-400">
-              {row.value} · {total > 0 ? Math.round((row.value / total) * 100) : 0}%
-            </div>
-          </HoverTooltip>
+        <div key={row.label}>
           <div className="flex items-center justify-between text-xs mb-1.5">
             <span className="text-slate-400">{row.label}</span>
             <span className="font-bold text-slate-200">{row.value}</span>
           </div>
-          <div className="h-2.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+          <div className="group relative h-2.5 bg-slate-900 rounded-full border border-slate-800">
+            <HoverTooltip>
+              <div className="font-bold">{row.label}</div>
+              <div className="text-slate-400">
+                {row.value} · {total > 0 ? Math.round((row.value / total) * 100) : 0}%
+              </div>
+            </HoverTooltip>
             <div className={cn('h-full rounded-full transition-all duration-700', row.color)} style={{ width: `${Math.max(4, (row.value / maxValue) * 100)}%` }} />
           </div>
         </div>
@@ -113,7 +113,7 @@ function SparklineChart({ points, color = 'stroke-cyan-400', valueLabel = 'event
         })}
       </div>
       <div className="grid grid-cols-7 text-[10px] text-slate-500">
-        {points.map((point, index) => <span key={point.label} className="text-center">{index === points.length - 1 ? 'Today' : `-${points.length - 1 - index}d`}</span>)}
+        {points.map((point, index) => <span key={point.label} className="text-center">{index === points.length - 1 ? point.label : `-${points.length - 1 - index}d`}</span>)}
       </div>
     </div>
   );
@@ -121,44 +121,66 @@ function SparklineChart({ points, color = 'stroke-cyan-400', valueLabel = 'event
 
 function DonutChart({ rows, emptyLabel }: { rows: { label: string; value: number; color: string }[]; emptyLabel: string }) {
   const total = rows.reduce((sum, row) => sum + row.value, 0);
+  const chartRef = useRef<HTMLDivElement>(null);
+  const [hoveredSegment, setHoveredSegment] = useState<{ row: { label: string; value: number; color: string }; x: number; y: number } | null>(null);
+
   if (total === 0) {
     return <div className="h-48 flex items-center justify-center text-sm text-slate-500">{emptyLabel}</div>;
   }
 
+  const handleSegmentMove = (event: React.MouseEvent<SVGCircleElement>, row: { label: string; value: number; color: string }) => {
+    const rect = chartRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setHoveredSegment({
+      row,
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top
+    });
+  };
+
   let offset = 0;
   return (
     <div className="flex items-center gap-6">
-      <svg viewBox="0 0 120 120" className="w-32 h-32 shrink-0 -rotate-90">
-        <circle cx="60" cy="60" r="42" className="fill-none stroke-slate-900" strokeWidth="16" />
-        {rows.map(row => {
-          const dash = (row.value / total) * 263.89;
-          const circle = (
-            <circle
-              key={row.label}
-              cx="60"
-              cy="60"
-              r="42"
-              className={cn('fill-none', row.color)}
-              strokeWidth="16"
-              strokeDasharray={`${dash} 263.89`}
-              strokeDashoffset={-offset}
-            >
-              <title>{`${row.label}: ${row.value} (${Math.round((row.value / total) * 100)}%)`}</title>
-            </circle>
-          );
-          offset += dash;
-          return circle;
-        })}
-      </svg>
+      <div ref={chartRef} className="relative w-32 h-32 shrink-0">
+        <svg viewBox="0 0 120 120" className="w-32 h-32 -rotate-90">
+          <circle cx="60" cy="60" r="42" className="fill-none stroke-slate-900" strokeWidth="16" />
+          {rows.map(row => {
+            const dash = (row.value / total) * 263.89;
+            const circle = (
+              <circle
+                key={row.label}
+                cx="60"
+                cy="60"
+                r="42"
+                className={cn('fill-none cursor-pointer transition-opacity hover:opacity-80', row.color)}
+                strokeWidth="16"
+                strokeDasharray={`${dash} 263.89`}
+                strokeDashoffset={-offset}
+                onMouseEnter={event => handleSegmentMove(event, row)}
+                onMouseMove={event => handleSegmentMove(event, row)}
+                onMouseLeave={() => setHoveredSegment(null)}
+              />
+            );
+            offset += dash;
+            return circle;
+          })}
+        </svg>
+        {hoveredSegment && (
+          <div
+            className="pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-[calc(100%+10px)] whitespace-nowrap rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200 shadow-2xl"
+            style={{ left: hoveredSegment.x, top: hoveredSegment.y }}
+          >
+            <div className="font-bold">{hoveredSegment.row.label}</div>
+            <div className="text-slate-400">
+              {hoveredSegment.row.value} · {Math.round((hoveredSegment.row.value / total) * 100)}%
+            </div>
+            <span className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1 rotate-45 border-b border-r border-slate-700 bg-slate-950" />
+          </div>
+        )}
+      </div>
       <div className="space-y-3 min-w-0 flex-1">
         {rows.map(row => (
-          <div key={row.label} className="group relative flex items-center justify-between gap-3 text-xs">
-            <HoverTooltip>
-              <div className="font-bold">{row.label}</div>
-              <div className="text-slate-400">
-                {row.value} · {Math.round((row.value / total) * 100)}%
-              </div>
-            </HoverTooltip>
+          <div key={row.label} className="flex items-center justify-between gap-3 text-xs">
             <span className="text-slate-400 flex items-center gap-2 min-w-0">
               <span className={cn('w-2.5 h-2.5 rounded-full shrink-0', row.color.replace('stroke-', 'bg-'))} />
               <span className="truncate">{row.label}</span>

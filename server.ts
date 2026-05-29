@@ -3585,7 +3585,9 @@ No markdown wrappers, just valid JSON.`;
          name: 'name', company: 'company', country: 'country', status: 'status',
          address: 'address', state: 'state', city: 'city',
          tags: 'tags', lastContact: 'last_contact', isDormant: 'is_dormant',
-         contactMethods: 'contact_methods', comments: 'comments'
+         contactMethods: 'contact_methods', contacts: 'contacts', primaryContactId: 'primary_contact_id',
+         comments: 'comments', preferredLanguage: 'preferred_language', preferredTimeRange: 'preferred_time_range',
+         agentWorkflowId: 'agent_workflow_id'
        };
        
        const setClauses = [];
@@ -3595,7 +3597,7 @@ No markdown wrappers, just valid JSON.`;
        for (const [key, val] of Object.entries(updates)) {
          if (mapping[key]) {
            setClauses.push(`${mapping[key]} = $${valIdx}`);
-           values.push((key === 'tags' || key === 'comments' || key === 'contactMethods') ? JSON.stringify(val) : val as any);
+           values.push((key === 'tags' || key === 'comments' || key === 'contactMethods' || key === 'contacts') ? JSON.stringify(val) : val as any);
            valIdx++;
          }
        }

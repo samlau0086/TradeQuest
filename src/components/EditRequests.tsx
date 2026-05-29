@@ -243,7 +243,9 @@ export function EditRequests() {
                            city: prev.city,
                            state: prev.state,
                            country: prev.country, 
-                           contactMethods: prev.contactMethods || prev.contact_methods 
+                           contactMethods: prev.contactMethods || prev.contact_methods,
+                           contacts: prev.contacts || [],
+                           primaryContactId: prev.primaryContactId || prev.primary_contact_id
                         }, null, 2)}
                       </pre>
                     </div>
@@ -260,7 +262,9 @@ export function EditRequests() {
                            city: next.city,
                            state: next.state,
                            country: next.country, 
-                           contactMethods: next.contactMethods 
+                           contactMethods: next.contactMethods,
+                           contacts: next.contacts || [],
+                           primaryContactId: next.primaryContactId
                         }, null, 2)}
                       </pre>
                     </div>
