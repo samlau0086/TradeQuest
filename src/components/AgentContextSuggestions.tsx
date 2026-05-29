@@ -21,6 +21,7 @@ interface AgentContextSuggestionsProps {
   clientId?: string;
   emailAddress?: string;
   whatsappNumber?: string;
+  defaultAnalysisMode?: AgentContextAnalysisMode;
   persistedInsight?: AgentContextSuggestionInsight;
   persistedInsightKey?: string;
   clientName?: string;
@@ -59,6 +60,7 @@ export function AgentContextSuggestions({
   clientId,
   emailAddress,
   whatsappNumber,
+  defaultAnalysisMode,
   persistedInsight,
   persistedInsightKey,
   clientName,
@@ -101,6 +103,7 @@ export function AgentContextSuggestions({
     (clientId && agentContextAnalysisConfig.clientModes[clientId])
     || (emailAddress && agentContextAnalysisConfig.emailModes[emailAddress.toLowerCase()])
     || (whatsappNumber && agentContextAnalysisConfig.whatsappModes[whatsappNumber])
+    || defaultAnalysisMode
     || agentContextAnalysisConfig.globalMode
     || 'manual';
 

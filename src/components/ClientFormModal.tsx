@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useStore, Client, ClientStatus, ContactMethod, ClientContact } from '../store';
 import { X, Plus, Trash2, ChevronDown, Clock } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -29,6 +29,8 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
   const [country, setCountry] = useState(existingClient?.country || initialData?.country || '');
   const [isCountryOpen, setIsCountryOpen] = useState(false);
   const [countrySearch, setCountrySearch] = useState('');
+  const countryControlRef = useRef<HTMLDivElement>(null);
+  const [countryDropdownRect, setCountryDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
 
   const [status, setStatus] = useState<ClientStatus>(existingClient?.status || initialData?.status || 'Leads');
   const [tags, setTags] = useState<string>(existingClient?.tags.join(', ') || initialData?.tags?.join(', ') || '');
@@ -73,6 +75,26 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
     window.addEventListener('click', handleClick);
     return () => window.removeEventListener('click', handleClick);
   }, []);
+
+  useEffect(() => {
+    if (!isCountryOpen) return;
+    const updatePosition = () => {
+      const rect = countryControlRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setCountryDropdownRect({
+        top: rect.bottom + 6,
+        left: rect.left,
+        width: rect.width
+      });
+    };
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [isCountryOpen]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -254,6 +276,7 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
             <div className="space-y-1 relative" onClick={e => e.stopPropagation()}>
               <label className="text-xs font-bold text-slate-400 uppercase">{t('country')} {isLocked(existingClient?.country) && <span className="text-[10px] text-slate-500 ml-1">(Locked)</span>}</label>
               <div 
+                ref={countryControlRef}
                 className={`w-full bg-slate-950 border ${isCountryOpen ? 'border-cyan-500 ring-1 ring-cyan-500' : 'border-slate-700'} rounded-lg px-3 py-2 text-sm text-slate-200 flex items-center justify-between ${isLocked(existingClient?.country) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                 onClick={() => {
                   if (isLocked(existingClient?.country)) return;
@@ -279,7 +302,15 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
               </div>
               
               {isCountryOpen && (
-                <div className="absolute top-[105%] left-0 w-full max-h-48 overflow-y-auto bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 py-1">
+                <div
+                  className="fixed max-h-56 overflow-y-auto bg-slate-800 border border-slate-700 rounded-lg shadow-2xl z-[80] py-1"
+                  style={{
+                    top: countryDropdownRect?.top ?? 0,
+                    left: countryDropdownRect?.left ?? 0,
+                    width: countryDropdownRect?.width ?? 240
+                  }}
+                  onClick={e => e.stopPropagation()}
+                >
                   {COUNTRIES.filter(c => c.toLowerCase().includes(countrySearch.toLowerCase())).map(c => (
                     <button 
                       key={c}
