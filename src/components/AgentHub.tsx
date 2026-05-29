@@ -225,13 +225,15 @@ async function generateAgentInstructions(
   const state = useStore.getState();
   const llmId = state.llmMappings.agent_instruction_generation || state.activeLLMId;
   const llmConfig = llmId ? state.llmConfigs.find(config => config.id === llmId) : null;
+  const inferredTools = inferAgentToolsFromPrompt(`${form.name} ${form.instructions}`);
+  const selectedTools = Array.from(new Set([...(form.tools || []), ...inferredTools]));
   const response = await fetch('/api/agent-instructions/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({
       agentName: form.name,
       currentInstructions: form.instructions,
-      selectedTools: form.tools || [],
+      selectedTools,
       availableTools: AGENT_TOOL_REGISTRY,
       guardrail: form.guardrail,
       systemLanguage: language === 'zh' ? 'Chinese' : 'English',
@@ -280,7 +282,8 @@ function AgentModal({
     setGeneratingInstructions(true);
     try {
       const instructions = await generateAgentInstructions(form, token, language);
-      if (instructions) setForm({ ...form, instructions });
+      const inferredTools = inferAgentToolsFromPrompt(`${form.name} ${form.instructions} ${instructions}`);
+      if (instructions) setForm({ ...form, instructions, tools: Array.from(new Set([...(form.tools || []), ...inferredTools])) });
     } catch (error) {
       console.error(error);
     } finally {
@@ -516,7 +519,8 @@ function AgentConfigPanel({
     setGeneratingInstructions(true);
     try {
       const instructions = await generateAgentInstructions(form, token, language);
-      if (instructions) setForm({ ...form, instructions });
+      const inferredTools = inferAgentToolsFromPrompt(`${form.name} ${form.instructions} ${instructions}`);
+      if (instructions) setForm({ ...form, instructions, tools: Array.from(new Set([...(form.tools || []), ...inferredTools])) });
     } catch (error) {
       console.error(error);
       useStore.getState().notify(t('Failed to generate agent instructions.'), 'error');

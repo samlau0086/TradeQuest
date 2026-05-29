@@ -674,6 +674,11 @@ Return JSON only:
       if (!agentName && !currentInstructions) return res.status(400).json({ error: "Missing agent context" });
       const selectedToolDefinitions = (Array.isArray(availableTools) ? availableTools : [])
         .filter((tool: any) => Array.isArray(selectedTools) && selectedTools.includes(tool.id));
+      const selectedToolIds = new Set((Array.isArray(selectedTools) ? selectedTools : []).map((tool: any) => String(tool)));
+      const isProductLedLeadAgent = selectedToolIds.has('lead.acquire') && (
+        selectedToolIds.has('product.read') ||
+        /product|catalog|sku|\u4ea7\u54c1|\u4ea7\u54c1\u8d44\u6599|\u6211\u53f8\u4ea7\u54c1/i.test(`${agentName} ${currentInstructions}`)
+      );
       const prompt = `You are configuring an AI agent inside a foreign trade CRM.
 Generate a clear, operational "Prompt / Instructions" block for this agent.
 
@@ -693,6 +698,15 @@ ${guardrail}
 
 Selected tools:
 ${JSON.stringify(selectedToolDefinitions.length > 0 ? selectedToolDefinitions : selectedTools, null, 2)}
+
+Special template rules:
+${isProductLedLeadAgent ? `- This is a product-led lead acquisition agent. The generated instructions MUST explicitly include product.read before lead.acquire.
+- It MUST read product catalog details, product names, SKUs, descriptions, pricing/bulk rules, use cases, target industries, and target countries before acquiring leads.
+- It MUST use knowledge.search / knowledge.read when available to pull product-market fit, ICP, and historical customer context.
+- It MUST generate lead acquisition keywords from product names, synonyms, use cases, industries, buyer roles, and target markets.
+- It MUST explain for every imported lead which product/use case it matches and why.
+- It MUST default imported leads into the public pool when public_pool.import is available.
+- It MUST not say lead.acquire works independently from product context when product.read is available.` : '- No extra specialized template.'}
 
 Write instructions that define:
 - Role and primary objective.

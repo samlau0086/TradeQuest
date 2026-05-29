@@ -151,5 +151,18 @@ export function inferAgentToolsFromPrompt(prompt: string) {
     selected.push('knowledge.search', 'knowledge.read');
   }
 
+  if (/(lead|client|customer|\u7ebf\u7d22|\u5ba2\u6237|\u6210\u4ea4\u5ba2\u6237|\u5ba2\u6237\u753b\u50cf)/i.test(normalized)) {
+    selected.push('lead.read', 'lead.analyze', 'client.read', 'client.summarize');
+  }
+  if (/(product|catalog|sku|\u4ea7\u54c1|\u4ea7\u54c1\u8d44\u6599|\u4ea7\u54c1\u76ee\u5f55|\u6211\u53f8\u4ea7\u54c1)/i.test(normalized)) {
+    selected.push('product.read');
+  }
+  if (/(knowledge|rag|document|kb|\u77e5\u8bc6\u5e93|\u6587\u6863|\u8d44\u6599\u5e93)/i.test(normalized)) {
+    selected.push('knowledge.search', 'knowledge.read');
+  }
+  if (selected.includes('lead.acquire') && selected.includes('product.read')) {
+    selected.push('knowledge.search', 'client.read', 'client.dedupe', 'data.normalize', 'lead.create', 'lead.enrich', 'public_pool.import');
+  }
+
   return Array.from(new Set(selected));
 }
