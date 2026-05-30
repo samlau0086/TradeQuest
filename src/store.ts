@@ -75,6 +75,7 @@ export interface Product {
   sku: string;
   name: string;
   description: string;
+  salesPoints?: string;
   imageUrl: string;
   bulkPrices: { minQuantity: number; price: number }[];
   comments: Comment[];

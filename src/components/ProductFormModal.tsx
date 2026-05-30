@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useStore, Product } from '../store';
+import { useAuthStore } from '../authStore';
 import { useTranslation } from '../lib/i18n';
-import { X, Plus, Trash2, Image as ImageIcon } from 'lucide-react';
+import { X, Plus, Trash2, Image as ImageIcon, Sparkles, Loader2 } from 'lucide-react';
 import { MediaSelectorModal } from './MediaSelectorModal';
 
 interface ProductFormModalProps {
@@ -12,15 +13,17 @@ interface ProductFormModalProps {
 }
 
 export function ProductFormModal({ onClose, productId, initialData, onSave }: ProductFormModalProps) {
-  const { products, addProduct, updateProduct, language, notify } = useStore();
+  const { products, addProduct, updateProduct, language, notify, llmConfigs, llmMappings, activeLLMId, incrementAgentHubTaskCount } = useStore();
   const t = useTranslation(language);
   const existingProduct = productId ? products.find(p => p.id === productId) : null;
 
   const [sku, setSku] = useState(existingProduct?.sku || initialData?.sku || '');
   const [name, setName] = useState(existingProduct?.name || initialData?.name || '');
   const [description, setDescription] = useState(existingProduct?.description || initialData?.description || '');
+  const [salesPoints, setSalesPoints] = useState(existingProduct?.salesPoints || initialData?.salesPoints || '');
   const [imageUrl, setImageUrl] = useState(existingProduct?.imageUrl || initialData?.imageUrl || '');
   const [showMediaSelector, setShowMediaSelector] = useState(false);
+  const [generatingSalesPoints, setGeneratingSalesPoints] = useState(false);
   const [bulkPrices, setBulkPrices] = useState<{minQuantity: number, price: number}[]>(
     existingProduct?.bulkPrices || initialData?.bulkPrices || [{ minQuantity: 1, price: 0 }]
   );
@@ -35,6 +38,7 @@ export function ProductFormModal({ onClose, productId, initialData, onSave }: Pr
       sku,
       name,
       description,
+      salesPoints,
       imageUrl,
       bulkPrices,
       comments: existingProduct?.comments || [],
@@ -67,6 +71,57 @@ export function ProductFormModal({ onClose, productId, initialData, onSave }: Pr
     setBulkPrices(newPrices);
   };
 
+  const handleGenerateSalesPoints = async () => {
+    if (!name.trim() && !description.trim()) {
+      notify(language === 'zh' ? '请先填写产品名称或描述。' : 'Please enter a product name or description first.', 'warning');
+      return;
+    }
+    const llmId = llmMappings.agent_context_suggestions || llmMappings.drafting || activeLLMId;
+    const llmConfig = llmId ? llmConfigs.find(config => config.id === llmId) : null;
+    if (!llmConfig) {
+      notify(language === 'zh' ? '请先在 AI & Integrations 配置可用模型。' : 'Please configure an AI model in AI & Integrations first.', 'warning');
+      return;
+    }
+
+    setGeneratingSalesPoints(true);
+    try {
+      const res = await fetch('/api/chat/magic', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${useAuthStore.getState().token}`
+        },
+        body: JSON.stringify({
+          command: `Generate concise product selling points for this product catalog item. Output language: ${language === 'zh' ? 'Chinese' : 'English'}.
+Rules:
+- Use only the provided product facts. Do not invent certifications, specs, prices, delivery promises, or performance claims.
+- Focus on practical customer value, target use cases, buying reasons, and differentiators implied by the description.
+- Return 4-6 bullet points, one per line, without markdown heading.`,
+          context: {
+            systemLanguage: language,
+            product: {
+              sku,
+              name,
+              description,
+              bulkPrices
+            }
+          },
+          llmConfig,
+          skipKnowledgeBase: true
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to generate sales points.');
+      setSalesPoints(String(data.result || '').trim());
+      incrementAgentHubTaskCount('context_suggestion_agent');
+    } catch (error) {
+      console.error(error);
+      notify(error instanceof Error ? error.message : 'Failed to generate sales points.', 'error');
+    } finally {
+      setGeneratingSalesPoints(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
       <div 
@@ -97,6 +152,28 @@ export function ProductFormModal({ onClose, productId, initialData, onSave }: Pr
           <div className="space-y-1">
             <label className="text-xs font-bold text-slate-400 uppercase">{t('description')}</label>
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500" placeholder="Product details..."></textarea>
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex items-center justify-between gap-3">
+              <label className="text-xs font-bold text-slate-400 uppercase">{t('salesPoints') || 'Sales Points'}</label>
+              <button
+                type="button"
+                onClick={handleGenerateSalesPoints}
+                disabled={generatingSalesPoints}
+                className="flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1.5 text-xs font-bold text-cyan-300 transition-colors hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {generatingSalesPoints ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                {t('aiGenerate') || 'AI Generate'}
+              </button>
+            </div>
+            <textarea
+              value={salesPoints}
+              onChange={e => setSalesPoints(e.target.value)}
+              rows={5}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+              placeholder={language === 'zh' ? '例如：适合光伏电站远程监控；帮助降低巡检成本...' : 'e.g. Ideal for remote solar plant monitoring; helps reduce inspection cost...'}
+            />
           </div>
 
           <div className="space-y-1">

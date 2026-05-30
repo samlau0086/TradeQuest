@@ -2122,7 +2122,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
       .slice(0, 30)
       .map(product => {
         const prices = (product.bulkPrices || []).map(price => `${price.minQuantity}+ ${price.price}`).join(', ');
-        return `${product.name}${product.sku ? ` (${product.sku})` : ''}: ${product.description || 'No description'}${prices ? ` | Bulk prices: ${prices}` : ''}`;
+        return `${product.name}${product.sku ? ` (${product.sku})` : ''}: ${product.description || 'No description'}${product.salesPoints ? ` | Sales points: ${product.salesPoints}` : ''}${prices ? ` | Bulk prices: ${prices}` : ''}`;
       })
       .join('\n');
     const knowledgeContext = knowledgeBase

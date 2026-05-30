@@ -374,12 +374,14 @@ async function initDB() {
         sku VARCHAR(255),
         name VARCHAR(255) NOT NULL,
         description TEXT,
+        sales_points TEXT,
         image_url TEXT,
         bulk_prices JSONB DEFAULT '[]'::jsonb,
         comments JSONB DEFAULT '[]'::jsonb,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS sales_points TEXT;
 
       CREATE TABLE IF NOT EXISTS quotes (
         id VARCHAR(128) PRIMARY KEY,
@@ -692,7 +694,7 @@ Return JSON only:
       if (shouldLoadEnterpriseContext) {
         const [productsRes, knowledgeRes, wonClientsRes] = await Promise.all([
           pool.query(
-            `SELECT sku, name, description, bulk_prices
+            `SELECT sku, name, description, sales_points, bulk_prices
              FROM products
              WHERE user_id = $1
              ORDER BY updated_at DESC
@@ -721,6 +723,7 @@ Return JSON only:
             sku: product.sku,
             name: product.name,
             description: String(product.description || '').slice(0, 700),
+            salesPoints: String(product.sales_points || '').slice(0, 700),
             bulkPrices: product.bulk_prices || []
           })),
           knowledgeBase: knowledgeRes.rows.map((item: any) => ({
@@ -2620,7 +2623,7 @@ No markdown wrappers, just valid JSON.`;
           [client.id]
         );
         const productsRes = await pool.query(
-          `SELECT sku, name, description, bulk_prices
+          `SELECT sku, name, description, sales_points, bulk_prices
            FROM products
            WHERE user_id = $1
            ORDER BY created_at DESC
@@ -3362,7 +3365,7 @@ Return JSON only:
     try {
       const result = await pool.query('SELECT * FROM products WHERE user_id = $1 ORDER BY created_at DESC', [req.user.uid]);
       res.json(result.rows.map(row => ({
-        id: row.id, sku: row.sku, name: row.name, description: row.description, imageUrl: row.image_url,
+        id: row.id, sku: row.sku, name: row.name, description: row.description, salesPoints: row.sales_points, imageUrl: row.image_url,
         bulkPrices: row.bulk_prices, comments: row.comments, createdAt: row.created_at, updatedAt: row.updated_at
       })));
     } catch (e) {
@@ -3372,11 +3375,11 @@ Return JSON only:
 
   app.post('/api/products', authenticateToken, async (req: any, res) => {
     try {
-      const { id, sku, name, description, imageUrl, bulkPrices, comments } = req.body;
+      const { id, sku, name, description, salesPoints, imageUrl, bulkPrices, comments } = req.body;
       const result = await pool.query(
-        `INSERT INTO products (id, user_id, sku, name, description, image_url, bulk_prices, comments)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-        [id, req.user.uid, sku, name, description, imageUrl, JSON.stringify(bulkPrices || []), JSON.stringify(comments || [])]
+        `INSERT INTO products (id, user_id, sku, name, description, sales_points, image_url, bulk_prices, comments)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+        [id, req.user.uid, sku, name, description, salesPoints, imageUrl, JSON.stringify(bulkPrices || []), JSON.stringify(comments || [])]
       );
       res.json(result.rows[0]);
     } catch (e) {
@@ -3386,10 +3389,10 @@ Return JSON only:
 
   app.patch('/api/products/:id', authenticateToken, async (req: any, res) => {
     try {
-      const { sku, name, description, imageUrl, bulkPrices, comments } = req.body;
+      const { sku, name, description, salesPoints, imageUrl, bulkPrices, comments } = req.body;
       const updates = []; const values = []; let idx = 1;
-      const mapping = { sku: 'sku', name: 'name', description: 'description', imageUrl: 'image_url', bulkPrices: 'bulk_prices', comments: 'comments' };
-      for (const [k, v] of Object.entries({ sku, name, description, imageUrl, bulkPrices, comments })) {
+      const mapping = { sku: 'sku', name: 'name', description: 'description', salesPoints: 'sales_points', imageUrl: 'image_url', bulkPrices: 'bulk_prices', comments: 'comments' };
+      for (const [k, v] of Object.entries({ sku, name, description, salesPoints, imageUrl, bulkPrices, comments })) {
         if (v !== undefined) {
           updates.push(`${mapping[k as keyof typeof mapping]} = $${idx++}`);
           values.push(k === 'bulkPrices' || k === 'comments' ? JSON.stringify(v) : v);
@@ -3872,7 +3875,7 @@ Query: "${query}"`;
     if (providerEntries.length === 0) throw new Error('No configured lead data channel is available for lead.acquire');
 
     const productsRes = await pool.query(
-      `SELECT sku, name, description FROM products WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20`,
+      `SELECT sku, name, description, sales_points FROM products WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20`,
       [userId]
     );
     const kbRes = await searchKnowledgeBase(userId, null, `${agent.name} ${objective}`, null, 8).catch(() => ({ rows: [] as any[] }));
@@ -3973,7 +3976,7 @@ Return JSON only:
     if (targetClients.length === 0) throw new Error('No eligible client or lead context found for this agent run');
 
     const productsRes = tools.includes('product.read')
-      ? await pool.query(`SELECT sku, name, description, bulk_prices FROM products WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20`, [userId])
+      ? await pool.query(`SELECT sku, name, description, sales_points, bulk_prices FROM products WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20`, [userId])
       : { rows: [] };
 
     let scanned = 0;

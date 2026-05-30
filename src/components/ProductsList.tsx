@@ -14,7 +14,8 @@ export function ProductsList() {
 
   const filteredProducts = products.filter(p => 
     p.name.toLowerCase().includes(search.toLowerCase()) || 
-    p.sku.toLowerCase().includes(search.toLowerCase())
+    p.sku.toLowerCase().includes(search.toLowerCase()) ||
+    (p.salesPoints || '').toLowerCase().includes(search.toLowerCase())
   );
 
   const handleEdit = (id: string) => {
@@ -93,6 +94,12 @@ export function ProductsList() {
                 <p className="text-sm text-slate-400 line-clamp-2 mb-4 h-10">
                   {product.description || t('noDescription')}
                 </p>
+                {product.salesPoints && (
+                  <div className="mb-4 rounded-lg border border-slate-800 bg-slate-900/70 p-2">
+                    <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-cyan-400">{t('salesPoints') || 'Sales Points'}</div>
+                    <p className="line-clamp-3 whitespace-pre-line text-xs leading-relaxed text-slate-400">{product.salesPoints}</p>
+                  </div>
+                )}
                 
                 <div className="flex flex-wrap gap-2">
                    {product.bulkPrices?.slice(0, 2).map((bp, i) => (
