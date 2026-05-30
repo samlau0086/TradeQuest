@@ -1052,6 +1052,22 @@ export function AgentHub() {
       throw new Error(data.error || 'Failed to save agent settings');
     }
   };
+  const persistAgentChatMessages = async (messages: AgentChatMessage[]) => {
+    const authToken = token || localStorage.getItem('token');
+    if (!authToken) return;
+    const response = await fetch('/api/user/settings', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authToken}`
+      },
+      body: JSON.stringify({ agentChatMessages: messages })
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || 'Failed to save chat history');
+    }
+  };
   const isExecutionIntent = (value: string) => (
     /(执行|开始|运行|获取|生成|导入|富集|分析|评分|打分|跟进|发送|起草|创建|run|execute|start|acquire|get|import|enrich|analyze|score|send|draft|create)/i.test(value)
   );
@@ -1173,13 +1189,19 @@ export function AgentHub() {
     }
   };
   const deleteChatMessage = (messageId: string) => {
-    setAgentChatMessages(messages => messages.filter(message => message.id !== messageId));
-    notify(language === 'zh' ? '聊天消息已删除。' : 'Chat message deleted.', 'success');
+    const nextMessages = useStore.getState().agentChatMessages.filter(message => message.id !== messageId);
+    setAgentChatMessages(nextMessages);
+    void persistAgentChatMessages(nextMessages)
+      .then(() => notify(language === 'zh' ? '聊天消息已删除。' : 'Chat message deleted.', 'success'))
+      .catch((error) => notify(error.message || (language === 'zh' ? '保存聊天记录失败。' : 'Failed to save chat history.'), 'error'));
   };
   const clearActiveAgentChat = () => {
     if (!activeChatAgent) return;
-    setAgentChatMessages(messages => messages.filter(message => message.agentId !== activeChatAgent.id));
-    notify(language === 'zh' ? '当前智能体聊天记录已清空。' : 'Current agent chat history cleared.', 'success');
+    const nextMessages = useStore.getState().agentChatMessages.filter(message => message.agentId !== activeChatAgent.id);
+    setAgentChatMessages(nextMessages);
+    void persistAgentChatMessages(nextMessages)
+      .then(() => notify(language === 'zh' ? '当前智能体聊天记录已清空。' : 'Current agent chat history cleared.', 'success'))
+      .catch((error) => notify(error.message || (language === 'zh' ? '保存聊天记录失败。' : 'Failed to save chat history.'), 'error'));
   };
   const saveAgent = (agent: Omit<AgentHubAgent, 'createdAt' | 'updatedAt' | 'tasksCompleted'> | Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'>) => {
     const existingAgent = 'id' in agent ? agentHubAgents.find(item => item.id === agent.id) : null;
