@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, Check, CheckCircle2, ClipboardCheck, Cpu, ListChecks, Plus, Power, RefreshCw, Save, Search, Server, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, X, XCircle, Zap } from 'lucide-react';
+import { Bot, Check, CheckCircle2, ClipboardCheck, Cpu, ListChecks, MessageSquare, Plus, Power, RefreshCw, Save, Search, Send, Server, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, X, XCircle, Zap } from 'lucide-react';
 import { AgentHubAgent, AgentHubEventScope, AgentHubEventTrigger, AgentHubGuardrail, AgentHubScheduleUnit, AgentHubStatus, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType, useStore } from '../store';
 import { cn } from '../lib/utils';
 import { GlobalAgent } from './GlobalAgent';
@@ -24,6 +24,14 @@ const ACTION_LABELS: Record<GlobalAgentActionType, string> = {
 };
 
 type AgentHubTab = 'fleet' | 'approvals' | 'runs' | 'global';
+type AgentChatMessage = {
+  id: string;
+  agentId: string;
+  agentName: string;
+  role: 'user' | 'agent';
+  content: string;
+  createdAt: string;
+};
 
 const emptyAgent = (): Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'> => ({
   name: '',
@@ -41,6 +49,8 @@ const emptyAgent = (): Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 't
   eventTriggers: [],
   eventTriggerScope: 'subject',
   contextSuggestionMode: 'manual',
+  soul: '',
+  evolutionLog: [],
   builtIn: false
 });
 
@@ -504,6 +514,12 @@ function AgentConfigPanel({
     if (agentKeyRef.current !== nextKey) {
       agentKeyRef.current = nextKey;
       setForm(agent);
+    } else if ('id' in agent) {
+      setForm(prev => ({
+        ...prev,
+        soul: agent.soul || '',
+        evolutionLog: agent.evolutionLog || []
+      }));
     }
   }, [agent]);
 
@@ -594,6 +610,56 @@ function AgentConfigPanel({
             className="mt-2 w-full min-h-28 bg-black border border-neutral-700 rounded-md px-4 py-3 text-sm text-slate-100 outline-none resize-none focus:border-blue-500"
           />
         </label>
+        <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-4 space-y-3">
+          <div>
+            <div className="text-sm text-slate-200">{language === 'zh' ? 'Agent Soul / 进化记忆' : 'Agent Soul / Evolution Memory'}</div>
+            <p className="mt-1 text-xs text-slate-500">
+              {language === 'zh'
+                ? '保存该智能体长期积累的经验、偏好、判断规则和失败教训。工具权限和审核策略仍由上方配置控制。'
+                : 'Stores durable lessons, preferences, decision rules, and failure learnings. Tool permissions and guardrails are still controlled above.'}
+            </p>
+          </div>
+          <textarea
+            value={form.soul || ''}
+            onChange={e => setForm({ ...form, soul: e.target.value })}
+            placeholder={language === 'zh' ? '记录这个智能体应该长期记住的经验...' : 'Durable lessons this agent should remember...'}
+            className="w-full min-h-24 bg-black border border-neutral-700 rounded-md px-4 py-3 text-sm text-slate-100 outline-none resize-y focus:border-blue-500"
+          />
+          {(form.evolutionLog || []).filter(item => item.status === 'proposed').length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs font-bold uppercase tracking-wide text-slate-500">{language === 'zh' ? '待处理进化建议' : 'Pending Evolution Proposals'}</div>
+              {(form.evolutionLog || []).filter(item => item.status === 'proposed').slice(0, 4).map(item => (
+                <div key={item.id} className="rounded-md border border-blue-500/20 bg-blue-500/5 p-3">
+                  <div className="text-xs font-bold text-blue-200">{item.summary || (language === 'zh' ? '进化建议' : 'Evolution proposal')}</div>
+                  <p className="mt-2 text-xs text-slate-300 whitespace-pre-wrap">{item.proposal}</p>
+                  <div className="mt-3 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setForm({
+                        ...form,
+                        evolutionLog: (form.evolutionLog || []).map(log => log.id === item.id ? { ...log, status: 'rejected' } : log)
+                      })}
+                      className="px-2.5 py-1 rounded border border-red-500/30 bg-red-500/10 text-xs font-bold text-red-200 hover:bg-red-500/20"
+                    >
+                      {language === 'zh' ? '拒绝' : 'Reject'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setForm({
+                        ...form,
+                        soul: `${form.soul || ''}${form.soul ? '\n\n' : ''}- ${item.proposal}`.trim(),
+                        evolutionLog: (form.evolutionLog || []).map(log => log.id === item.id ? { ...log, status: 'applied', appliedAt: new Date().toISOString() } : log)
+                      })}
+                      className="px-2.5 py-1 rounded border border-emerald-500/30 bg-emerald-500/10 text-xs font-bold text-emerald-200 hover:bg-emerald-500/20"
+                    >
+                      {language === 'zh' ? '吸收到 Soul' : 'Apply to Soul'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         <label className="block">
           <span className="text-sm text-slate-200">{t('Harness / Guardrails')}</span>
           <select
@@ -812,6 +878,10 @@ export function AgentHub() {
   const [schedulerSummary, setSchedulerSummary] = useState<string | null>(null);
   const [schedulerAgentDetails, setSchedulerAgentDetails] = useState<any[]>([]);
   const [logDisplayLimit, setLogDisplayLimit] = useState(30);
+  const [chatAgentId, setChatAgentId] = useState<string | null>('global_agent');
+  const [chatInput, setChatInput] = useState('');
+  const [chatMessages, setChatMessages] = useState<AgentChatMessage[]>([]);
+  const [chatSending, setChatSending] = useState(false);
 
   useEffect(() => {
     if (tab === 'fleet') return;
@@ -842,6 +912,8 @@ export function AgentHub() {
   const eventTriggeredAgents = computedAgents.filter(agent => (agent.eventTriggers || []).length > 0).length;
   const reviewRequiredCount = pendingItems.length;
   const selectedAgent = draftAgent || agentHubAgents.find(agent => agent.id === selectedAgentId) || agentHubAgents[0] || emptyAgent();
+  const globalAgent = agentHubAgents.find(agent => agent.id === 'global_agent') || agentHubAgents[0];
+  const activeChatAgent = agentHubAgents.find(agent => agent.id === chatAgentId) || globalAgent;
   const persistAgentHubState = async () => {
     const authToken = token || localStorage.getItem('token');
     if (!authToken) return;
@@ -864,6 +936,88 @@ export function AgentHub() {
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
       throw new Error(data.error || 'Failed to save agent settings');
+    }
+  };
+  const resolveMentionedAgent = (raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed.startsWith('@')) return { agent: null as AgentHubAgent | null, message: raw };
+    const normalized = trimmed.toLowerCase();
+    const matched = [...agentHubAgents]
+      .sort((a, b) => b.name.length - a.name.length)
+      .find(agent => (
+        normalized.startsWith(`@${agent.name.toLowerCase()}`) ||
+        normalized.startsWith(`@${agent.id.toLowerCase()}`) ||
+        normalized.startsWith(`@${agent.name.toLowerCase().replace(/\s+/g, '')}`)
+      ));
+    if (!matched) return { agent: null as AgentHubAgent | null, message: raw };
+    const mentionForms = [`@${matched.name}`, `@${matched.id}`, `@${matched.name.replace(/\s+/g, '')}`];
+    const usedMention = mentionForms.find(form => trimmed.toLowerCase().startsWith(form.toLowerCase())) || mentionForms[0];
+    return { agent: matched, message: trimmed.slice(usedMention.length).trim() };
+  };
+  const sendAgentChat = async () => {
+    const parsed = resolveMentionedAgent(chatInput);
+    const targetAgent = parsed.agent || activeChatAgent || globalAgent;
+    const content = (parsed.message || chatInput).trim();
+    if (!targetAgent || !content || chatSending) return;
+    if (parsed.agent) setChatAgentId(parsed.agent.id);
+    const now = new Date().toISOString();
+    const userMessage: AgentChatMessage = {
+      id: `chat_${Date.now()}_user`,
+      agentId: targetAgent.id,
+      agentName: targetAgent.name,
+      role: 'user',
+      content,
+      createdAt: now
+    };
+    setChatMessages(prev => [...prev, userMessage].slice(-30));
+    setChatInput('');
+    setChatSending(true);
+    try {
+      const response = await fetch('/api/agent-hub/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          agentId: targetAgent.id,
+          message: content,
+          history: [...chatMessages, userMessage].slice(-10).map(item => ({
+            role: item.role,
+            agentName: item.agentName,
+            content: item.content,
+            createdAt: item.createdAt
+          }))
+        })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Failed to chat with agent');
+      const reply: AgentChatMessage = {
+        id: `chat_${Date.now()}_agent`,
+        agentId: targetAgent.id,
+        agentName: targetAgent.name,
+        role: 'agent',
+        content: data.reply || (language === 'zh' ? '已记录。' : 'Noted.'),
+        createdAt: new Date().toISOString()
+      };
+      setChatMessages(prev => [...prev, reply].slice(-30));
+      if (data.soulPatch) {
+        const current = useStore.getState().agentHubAgents.find(agent => agent.id === targetAgent.id) || targetAgent;
+        updateAgentHubAgent(targetAgent.id, {
+          evolutionLog: [{
+            id: `evo_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+            source: 'chat' as const,
+            summary: data.summary || (language === 'zh' ? '来自 Agent 聊天的进化建议' : 'Evolution proposal from Agent chat'),
+            proposal: data.soulPatch,
+            status: 'proposed' as const,
+            createdAt: new Date().toISOString()
+          }, ...(current.evolutionLog || [])].slice(0, 50)
+        });
+        void persistAgentHubState();
+        notify(language === 'zh' ? '已生成进化建议，可在该 Agent 的 Soul 区块审核。' : 'Evolution proposal created. Review it in this agent Soul section.', 'info');
+      }
+    } catch (error) {
+      console.error(error);
+      notify(error instanceof Error ? error.message : (language === 'zh' ? 'Agent 聊天失败。' : 'Agent chat failed.'), 'error');
+    } finally {
+      setChatSending(false);
     }
   };
   const saveAgent = (agent: Omit<AgentHubAgent, 'createdAt' | 'updatedAt' | 'tasksCompleted'> | Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'>) => {
@@ -1140,6 +1294,76 @@ export function AgentHub() {
             </button>
           </div>
         </div>
+
+        <section className="rounded-lg border border-neutral-800 bg-neutral-900/80 p-4">
+          <div className="flex flex-col lg:flex-row lg:items-start gap-4">
+            <div className="lg:w-72 shrink-0">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400">
+                <MessageSquare className="w-4 h-4" /> {language === 'zh' ? 'Agent Chat' : 'Agent Chat'}
+              </div>
+              <p className="mt-2 text-xs text-slate-500 leading-relaxed">
+                {language === 'zh'
+                  ? '输入 @agent名 与指定智能体沟通。选中后会保持该对象，直到点叉清除；未指定时默认全局 Agent。'
+                  : 'Type @agent name to chat with a specific agent. The tag stays active until removed; without a tag, Global Agent is used.'}
+              </p>
+              {activeChatAgent && (
+                <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs text-blue-100">
+                  <Bot className="w-3.5 h-3.5" />
+                  <span className="max-w-[200px] truncate">@{activeChatAgent.name}</span>
+                  {activeChatAgent.id !== 'global_agent' && (
+                    <button
+                      type="button"
+                      onClick={() => setChatAgentId('global_agent')}
+                      className="text-slate-400 hover:text-white"
+                      title={language === 'zh' ? '清除 Agent 标签' : 'Clear agent tag'}
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="min-w-0 flex-1 space-y-3">
+              {chatMessages.length > 0 && (
+                <div className="max-h-48 overflow-y-auto rounded-md border border-neutral-800 bg-black p-3 space-y-2">
+                  {chatMessages.slice(-8).map(message => (
+                    <div key={message.id} className={cn('rounded-md px-3 py-2 text-sm', message.role === 'user' ? 'ml-auto max-w-[85%] bg-blue-600/20 text-blue-50' : 'mr-auto max-w-[85%] bg-neutral-900 text-slate-200')}>
+                      <div className="mb-1 text-[10px] uppercase tracking-wide text-slate-500">{message.role === 'user' ? (language === 'zh' ? '你' : 'You') : message.agentName}</div>
+                      <div className="whitespace-pre-wrap leading-relaxed">{message.content}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  value={chatInput}
+                  onChange={e => setChatInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      void sendAgentChat();
+                    }
+                  }}
+                  list="agent-chat-mentions"
+                  placeholder={language === 'zh' ? '@线索数据机器人 帮你记住：优先从产品 SKU 生成关键词...' : '@Lead Data Agent Remember: prioritize keywords from product SKUs...'}
+                  className="min-w-0 flex-1 rounded-md border border-neutral-700 bg-black px-4 py-2.5 text-sm text-slate-100 outline-none focus:border-blue-500"
+                />
+                <datalist id="agent-chat-mentions">
+                  {agentHubAgents.map(agent => <option key={agent.id} value={`@${agent.name}`} />)}
+                </datalist>
+                <button
+                  type="button"
+                  onClick={() => void sendAgentChat()}
+                  disabled={chatSending || !chatInput.trim()}
+                  className="inline-flex items-center justify-center gap-2 rounded-md border border-blue-500/40 bg-blue-600/20 px-4 py-2.5 text-sm font-bold text-blue-100 hover:bg-blue-600/30 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-900 disabled:text-slate-500"
+                >
+                  {chatSending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  {language === 'zh' ? '发送' : 'Send'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
 
         {tab === 'fleet' && (
           <div className="space-y-6">

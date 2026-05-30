@@ -371,6 +371,16 @@ export interface AgentHubAgent {
   eventTriggers?: AgentHubEventTrigger[];
   eventTriggerScope?: AgentHubEventScope;
   contextSuggestionMode?: AgentHubContextSuggestionMode;
+  soul?: string;
+  evolutionLog?: Array<{
+    id: string;
+    source: 'chat' | 'run_reflection' | 'manual';
+    summary: string;
+    proposal: string;
+    status: 'proposed' | 'applied' | 'rejected';
+    createdAt: string;
+    appliedAt?: string;
+  }>;
   lastRunAt?: string;
   builtIn?: boolean;
   createdAt: string;
@@ -791,6 +801,8 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     eventTriggers: ['review_required', 'execution_failed'],
     eventTriggerScope: 'global',
     contextSuggestionMode: 'manual',
+    soul: 'Business brain for CRM-wide acquisition and conversion. Use specific agents for execution and keep human review for risky customer-facing actions.',
+    evolutionLog: [],
     builtIn: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -811,6 +823,8 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     eventTriggers: ['email_received', 'whatsapp_received'],
     eventTriggerScope: 'subject',
     contextSuggestionMode: 'manual',
+    soul: 'Learns from customer replies, follow-up timing, channel preference, and objections. Avoid duplicate outreach and respect customer language.',
+    evolutionLog: [],
     builtIn: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -831,6 +845,8 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     eventTriggers: ['whatsapp_received'],
     eventTriggerScope: 'subject',
     contextSuggestionMode: 'manual',
+    soul: 'Learns WhatsApp conversation patterns, reply intent, tags, comments, and safe next actions while respecting client quota and reply quality.',
+    evolutionLog: [],
     builtIn: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -851,6 +867,8 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     eventTriggers: ['lead_created', 'client_updated'],
     eventTriggerScope: 'subject',
     contextSuggestionMode: 'auto',
+    soul: 'Learns lead scoring patterns from CRM history, product fit, customer profile, and conversion outcomes. Skip unchanged previously scored leads.',
+    evolutionLog: [],
     builtIn: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -871,6 +889,8 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     eventTriggers: ['lead_created', 'client_created'],
     eventTriggerScope: 'subject',
     contextSuggestionMode: 'auto',
+    soul: 'Learns which product keywords, industries, countries, channels, and enrichment sources produce high-quality leads.',
+    evolutionLog: [],
     builtIn: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -2468,7 +2488,9 @@ export const useStore = create<StoreState>((set, get) => ({
                   scheduleIntervalUnit: agent.scheduleIntervalUnit || 'minute',
                   scheduleRunCount: agent.scheduleRunCount || 0,
                   eventTriggers: agent.eventTriggers || [],
-                  eventTriggerScope: agent.eventTriggerScope || 'subject'
+                  eventTriggerScope: agent.eventTriggerScope || 'subject',
+                  soul: agent.soul || '',
+                  evolutionLog: agent.evolutionLog || []
                 }))
               ]
             : state.agentHubAgents,

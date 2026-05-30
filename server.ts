@@ -790,6 +790,65 @@ Return JSON only:
     }
   });
 
+  app.post("/api/agent-hub/chat", authenticateToken, async (req: any, res) => {
+    try {
+      const { agentId = 'global_agent', message = '', history = [], llmConfig } = req.body || {};
+      if (!String(message).trim()) return res.status(400).json({ error: "Missing message" });
+      const settingsRes = await pool.query('SELECT settings FROM users WHERE id = $1', [req.user.uid]);
+      const settings = settingsRes.rows[0]
+        ? (typeof settingsRes.rows[0].settings === 'string' ? JSON.parse(settingsRes.rows[0].settings || '{}') : (settingsRes.rows[0].settings || {}))
+        : {};
+      const agents = Array.isArray(settings.agentHubAgents) ? settings.agentHubAgents : [];
+      const agent = agents.find((item: any) => item.id === agentId) || agents.find((item: any) => item.id === 'global_agent') || {
+        id: 'global_agent',
+        name: 'Global Conversion Agent',
+        instructions: 'Plan and coordinate CRM-wide lead acquisition, follow-up, and conversion.',
+        tools: []
+      };
+      const prompt = `You are chatting with a CRM agent to help it evolve.
+The user may give feedback, corrections, strategy, preferences, or operating lessons.
+Do not change tool permissions, guardrails, or safety rules. Produce a controlled evolution proposal only.
+Internal-facing output language: ${settings.language === 'zh' ? 'Chinese' : 'English'}.
+
+Agent:
+${JSON.stringify({
+  id: agent.id,
+  name: agent.name,
+  instructions: agent.instructions,
+  tools: agent.tools || [],
+  guardrail: agent.guardrail,
+  soul: agent.soul || '',
+  recentEvolutionLog: (agent.evolutionLog || []).slice(0, 8)
+}, null, 2)}
+
+Recent chat:
+${JSON.stringify(Array.isArray(history) ? history.slice(-8) : [], null, 2)}
+
+User message:
+${message}
+
+Return JSON only:
+{
+  "reply": "direct response to the user as this agent, concise and useful",
+  "soulPatch": "a proposed addition or refinement for this agent's Soul. Empty string if no durable learning is needed.",
+  "summary": "short internal summary of what should be learned. Empty string if no durable learning is needed."
+}`;
+      const selectedLlmId = settings.llmMappings?.agent_harness || settings.llmMappings?.agent_instruction_generation || settings.activeLLMId;
+      const mappedConfig = selectedLlmId ? (settings.llmConfigs || []).find((config: any) => config.id === selectedLlmId) : null;
+      const text = await callAI(prompt, llmConfig || mappedConfig, true);
+      const parsed = JSON.parse(String(text || '{}'));
+      res.json({
+        agentId: agent.id,
+        reply: String(parsed.reply || '').trim(),
+        soulPatch: String(parsed.soulPatch || '').trim(),
+        summary: String(parsed.summary || '').trim()
+      });
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e?.message || "Failed to chat with agent" });
+    }
+  });
+
   // Workflow Auto-Planner
   app.post("/api/ai/plan-workflow", authenticateToken, async (req: any, res) => {
     try {
@@ -2685,6 +2744,16 @@ Return JSON only:
     }
 
     agent.tasksCompleted = (agent.tasksCompleted || 0) + acted;
+    agent.evolutionLog = [{
+      id: `evo_run_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      source: 'run_reflection',
+      summary: isZh ? '运行复盘' : 'Run reflection',
+      proposal: isZh
+        ? `本次运行结果：扫描 ${scanned} 个客户，执行 ${acted} 个，跳过 ${skipped} 个，失败 ${failed} 个。后续应保留有效幂等检查，并根据失败/跳过原因优化目标客户选择和消息策略。`
+        : `Run result: scanned ${scanned} client(s), acted on ${acted}, skipped ${skipped}, failed ${failed}. Preserve useful idempotency checks and refine targeting or messaging based on failure/skip reasons.`,
+      status: 'proposed',
+      createdAt: new Date().toISOString()
+    }, ...(agent.evolutionLog || [])].slice(0, 50);
     agent.updatedAt = new Date().toISOString();
     return { scanned, acted, skipped, failed, details };
   };
