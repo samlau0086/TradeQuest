@@ -604,6 +604,7 @@ export interface StoreState {
   deletedAgentHubAgentIds: string[];
   addAgentHubAgent: (agent: Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'> & Partial<Pick<AgentHubAgent, 'tasksCompleted'>>) => string;
   updateAgentHubAgent: (id: string, updates: Partial<AgentHubAgent>) => void;
+  resetAgentHubAgentToDefault: (id: string) => AgentHubAgent | null;
   deleteAgentHubAgent: (id: string) => void;
   agentRunRecords: AgentHubRunRecord[];
   addAgentRunRecord: (record: Omit<AgentHubRunRecord, 'id' | 'createdAt' | 'updatedAt'>) => string;
@@ -1264,6 +1265,27 @@ export const useStore = create<StoreState>((set, get) => ({
       agent.id === id ? { ...agent, ...updates, updatedAt: new Date().toISOString() } : agent
     ))
   })),
+  resetAgentHubAgentToDefault: (id) => {
+    const defaultAgent = INITIAL_AGENT_HUB_AGENTS.find(agent => agent.id === id && agent.builtIn);
+    if (!defaultAgent) return null;
+    const now = new Date().toISOString();
+    const restored: AgentHubAgent = {
+      ...defaultAgent,
+      tasksCompleted: 0,
+      scheduleRunCount: 0,
+      evolutionLog: [],
+      lastRunAt: undefined,
+      createdAt: now,
+      updatedAt: now
+    };
+    set((state) => ({
+      agentHubAgents: state.agentHubAgents.some(agent => agent.id === id)
+        ? state.agentHubAgents.map(agent => agent.id === id ? restored : agent)
+        : [restored, ...state.agentHubAgents],
+      deletedAgentHubAgentIds: (state.deletedAgentHubAgentIds || []).filter(agentId => agentId !== id)
+    }));
+    return restored;
+  },
   deleteAgentHubAgent: (id) => set((state) => {
     const agent = state.agentHubAgents.find(item => item.id === id);
     if (agent?.builtIn) return {};

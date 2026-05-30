@@ -485,10 +485,12 @@ function AgentModal({
 function AgentConfigPanel({
   agent,
   onSave,
+  onReset,
   onDelete
 }: {
   agent: Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'> | AgentHubAgent;
   onSave: (agent: Omit<AgentHubAgent, 'createdAt' | 'updatedAt' | 'tasksCompleted'> | Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'>) => void;
+  onReset?: (agent: AgentHubAgent) => AgentHubAgent | null;
   onDelete?: (agent: AgentHubAgent) => void;
 }) {
   const { language } = useStore();
@@ -498,6 +500,7 @@ function AgentConfigPanel({
   const [generatingInstructions, setGeneratingInstructions] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const isEdit = 'id' in agent;
+  const isSystemAgent = isEdit && (form as AgentHubAgent).builtIn;
   const agentKeyRef = useRef('id' in agent ? agent.id : 'new');
 
   React.useEffect(() => {
@@ -544,7 +547,20 @@ function AgentConfigPanel({
           <p className="text-xs text-slate-500 mt-1">{t('Edit the selected agent role, tools, guardrails, and schedule.')}</p>
         </div>
         <div className="flex items-center gap-2">
-          {isEdit && !(form as AgentHubAgent).builtIn && onDelete && (
+          {isSystemAgent && onReset && (
+            <button
+              type="button"
+              onClick={() => {
+                const restored = onReset(form as AgentHubAgent);
+                if (restored) setForm(restored);
+              }}
+              className="px-4 py-2 rounded-md text-sm font-bold flex items-center gap-2 border border-cyan-500/30 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/15"
+            >
+              <RefreshCw className="w-4 h-4" />
+              {language === 'zh' ? '恢复默认' : 'Restore Defaults'}
+            </button>
+          )}
+          {isEdit && !isSystemAgent && onDelete && (
             <button
               type="button"
               onClick={() => confirmDelete ? onDelete(form as AgentHubAgent) : setConfirmDelete(true)}
@@ -843,6 +859,7 @@ export function AgentHub() {
     agentHubAgents,
     addAgentHubAgent,
     updateAgentHubAgent,
+    resetAgentHubAgentToDefault,
     deleteAgentHubAgent,
     agentHarnessRuns,
     globalAgentPlans,
@@ -1091,6 +1108,20 @@ export function AgentHub() {
     void persistAgentHubState()
       .then(() => notify(language === 'zh' ? '智能体已删除。' : 'Agent deleted.', 'success'))
       .catch((error) => notify(error.message || t('Failed to save agent settings.'), 'error'));
+  };
+
+  const resetSystemAgent = (agent: AgentHubAgent) => {
+    const restored = resetAgentHubAgentToDefault(agent.id);
+    if (!restored) {
+      notify(language === 'zh' ? '未找到该系统智能体的默认配置。' : 'No default configuration found for this system agent.', 'error');
+      return null;
+    }
+    setSelectedAgentId(restored.id);
+    setDraftAgent(null);
+    void persistAgentHubState()
+      .then(() => notify(language === 'zh' ? '系统智能体已恢复默认最佳实践配置。' : 'System agent restored to the default best-practice configuration.', 'success'))
+      .catch((error) => notify(error.message || t('Failed to save agent settings.'), 'error'));
+    return restored;
   };
 
   const runAgentNow = async (agent: AgentHubAgent) => {
@@ -1572,7 +1603,12 @@ export function AgentHub() {
                 ))}
               </div>
             </section>
-            <AgentConfigPanel agent={selectedAgent} onSave={saveAgent} onDelete={'id' in selectedAgent && !selectedAgent.builtIn ? deleteSelectedAgent : undefined} />
+            <AgentConfigPanel
+              agent={selectedAgent}
+              onSave={saveAgent}
+              onReset={'id' in selectedAgent && selectedAgent.builtIn ? resetSystemAgent : undefined}
+              onDelete={'id' in selectedAgent && !selectedAgent.builtIn ? deleteSelectedAgent : undefined}
+            />
             </div>
           </div>
         )}
