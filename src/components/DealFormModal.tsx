@@ -195,6 +195,7 @@ export function DealFormModal({ onClose, dealId, initialData }: DealFormModalPro
                           <option value="telegram">Telegram</option>
                           <option value="phone">Phone</option>
                           <option value="wechat">WeChat</option>
+                          <option value="website">Website</option>
                         </select>
                         <input value={cm.value} onChange={e => updateContactMethod(idx, 'value', e.target.value)} type="text" className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500" placeholder="Value..." />
                         <button type="button" onClick={() => removeContactMethod(idx)} className="p-2 text-slate-500 hover:text-red-400 rounded-md hover:bg-slate-800 transition-colors">

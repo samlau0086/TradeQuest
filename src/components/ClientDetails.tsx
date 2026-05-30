@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useStore, ClientStatus, Client, ContactMethod, Comment } from '../store';
 import { useAuthStore } from '../authStore';
-import { X, Thermometer, Flame, Snowflake, Sparkles, Send, Loader2, Workflow, History, Mail, MessageCircle, Phone, Edit, Trash2, Paperclip, MessageSquare, Settings } from 'lucide-react';
+import { X, Thermometer, Flame, Snowflake, Sparkles, Send, Loader2, Workflow, History, Mail, MessageCircle, Phone, Edit, Trash2, Paperclip, MessageSquare, Settings, Globe2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ClientFormModal } from './ClientFormModal';
 
@@ -12,6 +12,7 @@ const CONTACT_ICONS = {
   telegram: Send,
   phone: Phone,
   wechat: MessageSquare,
+  website: Globe2,
 };
 
 import { User } from 'lucide-react';

@@ -469,6 +469,7 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
                         <option value="telegram">Telegram</option>
                         <option value="phone">Phone</option>
                         <option value="wechat">WeChat</option>
+                        <option value="website">Website</option>
                       </select>
                       <input
                         disabled={!isApplyMode && !!existingClient}

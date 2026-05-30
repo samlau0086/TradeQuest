@@ -31,7 +31,7 @@ export interface Deal {
 }
 
 export interface ContactMethod {
-  type: 'email' | 'whatsapp' | 'messenger' | 'telegram' | 'phone' | 'wechat';
+  type: 'email' | 'whatsapp' | 'messenger' | 'telegram' | 'phone' | 'wechat' | 'website';
   value: string;
 }
 
@@ -413,7 +413,6 @@ export interface AgentHubChatMessage {
   role: 'user' | 'agent';
   content: string;
   createdAt: string;
-  legacyContent?: string;
   action?: {
     type: 'approval';
     kind: 'harness' | 'global';

@@ -65,26 +65,38 @@ export function LeadCampaignModal({ onClose }: { onClose: () => void }) {
 
   const normalizeRows = (rows: any[], campaign: LeadCampaign) => {
     const leads: any[] = [];
+    const addMethod = (methods: any[], type: string, value: any) => {
+      const normalized = String(value || '').trim();
+      if (!normalized) return;
+      if (!methods.some(method => method.type === type && method.value === normalized)) {
+        methods.push({ type, value: normalized });
+      }
+    };
     for (const row of rows) {
       if (!row?.name) continue;
       const contactMethods = [];
+      for (const method of row.contactMethods || []) addMethod(contactMethods, method.type, method.value);
       if (row.emails) {
         const emails = Array.isArray(row.emails) ? row.emails : String(row.emails).split(',');
-        if (emails[0]) contactMethods.push({ type: 'email', value: String(emails[0]).trim() });
+        emails.forEach((email: any) => addMethod(contactMethods, 'email', email));
       }
       if (row.phones) {
         const phones = Array.isArray(row.phones) ? row.phones : String(row.phones).split(',');
-        if (phones[0]) contactMethods.push({ type: 'phone', value: String(phones[0]).trim() });
+        phones.forEach((phone: any) => addMethod(contactMethods, 'phone', phone));
       }
+      [row.email, row.email_address, row.email_1, row.email_2, row.email_3].filter(Boolean).forEach(email => addMethod(contactMethods, 'email', email));
+      [row.phone, row.phone_number, row.phone_1, row.phone_2, row.phone_3, row.mobile].filter(Boolean).forEach(phone => addMethod(contactMethods, 'phone', phone));
+      [row.site, row.website, row.domain, row.url, row.business_url].filter(Boolean).forEach(site => addMethod(contactMethods, 'website', site));
       leads.push({
         name: row.name,
-        company: row.name,
-        address: row.full_address || '',
-        city: row.city || '',
-        state: row.state || '',
+        company: row.company || row.companyName || row.organization_name || row.business_name || row.name,
+        address: row.address || row.full_address || row.formatted_address || '',
+        city: row.city || row.municipality || '',
+        state: row.state || row.region || row.province || '',
         country: row.country || campaign.country || 'Unknown',
-        tags: [row.type || row.category || campaign.industry, 'Campaign'].filter(Boolean),
-        contactMethods: contactMethods.length > 0 ? contactMethods : undefined
+        tags: Array.from(new Set([...(row.tags || []), row.type, row.category, campaign.industry, 'Campaign'].filter(Boolean))),
+        contactMethods: contactMethods.length > 0 ? contactMethods : undefined,
+        comments: row.comments || []
       });
     }
     return leads;

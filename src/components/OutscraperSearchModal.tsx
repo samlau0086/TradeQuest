@@ -101,23 +101,34 @@ export function OutscraperSearchModal({ onClose }: { onClose: () => void }) {
       for (const row of results) {
          if (row.name) {
            const contactMethods = [];
+           const addMethod = (type: string, value: any) => {
+             const normalized = String(value || '').trim();
+             if (normalized && !contactMethods.some((method: any) => method.type === type && method.value === normalized)) {
+               contactMethods.push({ type, value: normalized });
+             }
+           };
+           for (const method of row.contactMethods || []) addMethod(method.type, method.value);
            if (row.emails) {
              const emails = Array.isArray(row.emails) ? row.emails : row.emails.split(',');
-             if (emails[0]) contactMethods.push({ type: 'email', value: typeof emails[0] === 'string' ? emails[0].trim() : emails[0] });
+             emails.forEach((email: any) => addMethod('email', email));
            }
            if (row.phones) {
              const phones = Array.isArray(row.phones) ? row.phones : row.phones.split(',');
-             if (phones[0]) contactMethods.push({ type: 'phone', value: typeof phones[0] === 'string' ? phones[0].trim() : phones[0] });
+             phones.forEach((phone: any) => addMethod('phone', phone));
            }
+           [row.email, row.email_address, row.email_1, row.email_2, row.email_3].filter(Boolean).forEach(email => addMethod('email', email));
+           [row.phone, row.phone_number, row.phone_1, row.phone_2, row.phone_3, row.mobile].filter(Boolean).forEach(phone => addMethod('phone', phone));
+           [row.site, row.website, row.domain, row.url, row.business_url].filter(Boolean).forEach(site => addMethod('website', site));
            leads.push({
              name: row.name,
-             company: row.name,
-             address: row.full_address || '',
-             city: row.city || '',
-             state: row.state || '',
+             company: row.company || row.companyName || row.organization_name || row.business_name || row.name,
+             address: row.address || row.full_address || row.formatted_address || '',
+             city: row.city || row.municipality || '',
+             state: row.state || row.region || row.province || '',
              country: row.country || 'Unknown',
-             tags: row.type || row.category ? [row.type || row.category] : [],
-             contactMethods: contactMethods.length > 0 ? contactMethods : undefined
+             tags: Array.from(new Set([...(row.tags || []), row.type, row.category, 'Outscraper'].filter(Boolean))),
+             contactMethods: contactMethods.length > 0 ? contactMethods : undefined,
+             comments: row.comments || []
            });
          }
       }

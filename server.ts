@@ -3695,24 +3695,65 @@ Query: "${query}"`;
   });
 
   const normalizeLeadRows = (rows: any[], fallbackCountry = '', fallbackTag = '') => {
+    const pickFirst = (row: any, keys: string[]) => {
+      for (const key of keys) {
+        const value = row?.[key];
+        if (Array.isArray(value) && value.find(Boolean)) return value.find(Boolean);
+        if (value !== undefined && value !== null && String(value).trim()) return value;
+      }
+      return '';
+    };
+    const collectValues = (row: any, keys: string[]) => {
+      const values: string[] = [];
+      for (const key of keys) {
+        const value = row?.[key];
+        if (Array.isArray(value)) {
+          values.push(...value.map(item => String(item || '').trim()).filter(Boolean));
+        } else if (value !== undefined && value !== null && String(value).trim()) {
+          values.push(...String(value).split(',').map(item => item.trim()).filter(Boolean));
+        }
+      }
+      return Array.from(new Set(values));
+    };
+    const appendMethod = (methods: any[], type: string, value: any) => {
+      const normalized = String(value || '').trim();
+      if (!normalized) return;
+      if (!methods.some(method => method.type === type && method.value === normalized)) {
+        methods.push({ type, value: normalized });
+      }
+    };
+
     return rows.filter(Boolean).map((row: any) => {
-      const name = row.name || row.title || row.company || row.companyName || row.organization_name || row.business_name;
-      const emails = row.emails || row.email || row.email_address || row.emailAddresses;
-      const phones = row.phones || row.phone || row.phone_number || row.phoneNumbers;
+      const name = pickFirst(row, ['name', 'title', 'company', 'companyName', 'organization_name', 'business_name']);
+      const company = pickFirst(row, ['company', 'companyName', 'organization_name', 'business_name', 'name', 'title']);
       const contactMethods: any[] = [];
-      const emailList = Array.isArray(emails) ? emails : (emails ? String(emails).split(',') : []);
-      const phoneList = Array.isArray(phones) ? phones : (phones ? String(phones).split(',') : []);
-      if (emailList[0]) contactMethods.push({ type: 'email', value: String(emailList[0]).trim() });
-      if (phoneList[0]) contactMethods.push({ type: 'phone', value: String(phoneList[0]).trim() });
+      for (const method of row.contactMethods || []) appendMethod(contactMethods, method.type, method.value);
+      collectValues(row, ['emails', 'email', 'email_address', 'emailAddresses', 'email_1', 'email_2', 'email_3']).forEach(value => appendMethod(contactMethods, 'email', value));
+      collectValues(row, ['phones', 'phone', 'phone_number', 'phoneNumbers', 'phone_1', 'phone_2', 'phone_3', 'mobile', 'mobile_phone']).forEach(value => appendMethod(contactMethods, 'phone', value));
+      collectValues(row, ['whatsapp', 'whatsapp_number', 'whatsappNumber']).forEach(value => appendMethod(contactMethods, 'whatsapp', value));
+      collectValues(row, ['site', 'website', 'domain', 'url', 'business_url']).forEach(value => appendMethod(contactMethods, 'website', value));
+      const categoryValues = collectValues(row, ['type', 'category', 'categories', 'subtypes', 'industry']);
+      const comments = [
+        row.rating ? `Outscraper rating: ${row.rating}${row.reviews ? ` (${row.reviews} reviews)` : ''}` : '',
+        row.site || row.website ? `Website: ${row.site || row.website}` : '',
+        row.place_id || row.google_id ? `Google place id: ${row.place_id || row.google_id}` : ''
+      ].filter(Boolean).map((content, index) => ({
+        id: `import_note_${Date.now()}_${index}`,
+        author: 'Outscraper',
+        content,
+        createdAt: new Date().toISOString(),
+        replies: []
+      }));
       return {
         name,
-        company: row.company || row.companyName || row.organization_name || row.business_name || name,
-        address: row.full_address || row.address || row.formatted_address || '',
-        city: row.city || '',
-        state: row.state || row.region || '',
-        country: row.country || fallbackCountry || 'Unknown',
-        tags: [row.type || row.category || row.industry || fallbackTag].filter(Boolean),
-        contactMethods: contactMethods.length > 0 ? contactMethods : undefined
+        company: company || name,
+        address: pickFirst(row, ['full_address', 'address', 'formatted_address', 'street_address', 'location']),
+        city: pickFirst(row, ['city', 'municipality', 'locality']),
+        state: pickFirst(row, ['state', 'region', 'province']),
+        country: pickFirst(row, ['country', 'country_code']) || fallbackCountry || 'Unknown',
+        tags: Array.from(new Set([...categoryValues, fallbackTag, 'Outscraper'].filter(Boolean))),
+        contactMethods: contactMethods.length > 0 ? contactMethods : undefined,
+        comments
       };
     }).filter((lead: any) => lead.name);
   };
@@ -3809,7 +3850,7 @@ Query: "${query}"`;
       await pool.query(
         `INSERT INTO clients (id, user_id, name, company, address, state, city, country, status, tags, last_contact, is_dormant, contact_methods, contacts, primary_contact_id, comments)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
-        [id, null, lead.name, lead.company || '', lead.address || '', lead.state || '', lead.city || '', lead.country || '', 'Leads', JSON.stringify(lead.tags || []), null, false, JSON.stringify(lead.contactMethods || []), JSON.stringify(lead.contacts || []), lead.primaryContactId || null, JSON.stringify([])]
+        [id, null, lead.name, lead.company || '', lead.address || '', lead.state || '', lead.city || '', lead.country || '', 'Leads', JSON.stringify(lead.tags || []), null, false, JSON.stringify(lead.contactMethods || []), JSON.stringify(lead.contacts || []), lead.primaryContactId || null, JSON.stringify(lead.comments || [])]
       );
       addedCount += 1;
     }
@@ -4373,7 +4414,7 @@ Return JSON only:
         await pool.query(
           `INSERT INTO clients (id, user_id, name, company, address, state, city, country, status, tags, last_contact, is_dormant, contact_methods, contacts, primary_contact_id, comments)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
-          [id, null, lead.name, lead.company || '', lead.address || '', lead.state || '', lead.city || '', lead.country || '', 'Leads', JSON.stringify(lead.tags || []), null, false, JSON.stringify(lead.contactMethods || []), JSON.stringify(lead.contacts || []), lead.primaryContactId || null, JSON.stringify([])]
+          [id, null, lead.name, lead.company || '', lead.address || '', lead.state || '', lead.city || '', lead.country || '', 'Leads', JSON.stringify(lead.tags || []), null, false, JSON.stringify(lead.contactMethods || []), JSON.stringify(lead.contacts || []), lead.primaryContactId || null, JSON.stringify(lead.comments || [])]
         );
         addedCount++;
       }

@@ -1111,15 +1111,11 @@ export function AgentHub() {
             agentName: targetAgent.name,
             role: 'agent',
             content: language === 'zh' ? `任务执行完成。${executionSummary}` : `Task completed. ${executionSummary}`,
-            legacyContent: language === 'zh'
-              ? `已创建执行任务。${result?.executionResult ? `执行结果：${JSON.stringify(result.executionResult)}` : '请在智能体运行记录中查看进度。'}`
-              : `Run created. ${result?.executionResult ? `Result: ${JSON.stringify(result.executionResult)}` : 'Check Agent Run History for progress.'}`,
             createdAt: new Date().toISOString(),
             action: targetAgent.guardrail === 'auto' || !result?.runId || !result?.relatedRunType
               ? undefined
               : { type: 'approval', kind: result.relatedRunType, id: result.runId }
           };
-          statusMessage.content = language === 'zh' ? `任务执行完成。${executionSummary}` : `Task completed. ${executionSummary}`;
           setAgentChatMessages(messages => messages.map(message => message.id === loadingMessageId ? statusMessage : message));
         } catch {
           const statusMessage: AgentChatMessage = {
@@ -1522,7 +1518,6 @@ export function AgentHub() {
               <div className="mt-4 space-y-1">
                 {chatAgents.map(agent => {
                   const selected = activeChatAgent?.id === agent.id;
-                  const unreadProposals = 0;
                   return (
                     <button
                       key={agent.id}
@@ -1537,7 +1532,6 @@ export function AgentHub() {
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
                           {chatRunningAgentId === agent.id && <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-300" />}
-                          {unreadProposals > 0 && <span title={language === 'zh' ? '待审核进化建议' : 'Pending evolution proposals'} className="rounded-full bg-blue-500 px-2 py-0.5 text-[10px] font-bold text-white">{unreadProposals}</span>}
                         </div>
                       </div>
                     </button>
