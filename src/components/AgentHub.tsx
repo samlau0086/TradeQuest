@@ -912,8 +912,20 @@ export function AgentHub() {
   const eventTriggeredAgents = computedAgents.filter(agent => (agent.eventTriggers || []).length > 0).length;
   const reviewRequiredCount = pendingItems.length;
   const selectedAgent = draftAgent || agentHubAgents.find(agent => agent.id === selectedAgentId) || agentHubAgents[0] || emptyAgent();
-  const globalAgent = agentHubAgents.find(agent => agent.id === 'global_agent') || agentHubAgents[0];
+  const savedGlobalAgent = agentHubAgents.find(agent => agent.id === 'global_agent');
+  const globalAgent = savedGlobalAgent || ({
+    ...emptyAgent(),
+    id: 'global_agent',
+    name: 'Global Agent',
+    instructions: 'Coordinate CRM-wide acquisition, enrichment, follow-up, and conversion plans.',
+    status: 'active',
+    tools: ['global_agent.plan'],
+    tasksCompleted: 0,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  } as AgentHubAgent);
   const activeChatAgent = agentHubAgents.find(agent => agent.id === chatAgentId) || globalAgent;
+  const chatAgents = savedGlobalAgent ? agentHubAgents : [globalAgent, ...agentHubAgents];
   const visibleChatMessages = chatMessages.filter(message => message.agentId === activeChatAgent?.id).slice(-30);
   const persistAgentHubState = async () => {
     const authToken = token || localStorage.getItem('token');
@@ -1312,7 +1324,7 @@ export function AgentHub() {
               {activeChatAgent && (
                 <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs text-blue-100">
                   <Bot className="w-3.5 h-3.5" />
-                  <span className="max-w-[200px] truncate">@{activeChatAgent.name}</span>
+                  <span className="max-w-[200px] truncate">{chatAgentId ? `@${activeChatAgent.name}` : (language === 'zh' ? '默认：Global Agent' : 'Default: Global Agent')}</span>
                   {chatAgentId && (
                     <button
                       type="button"
@@ -1326,7 +1338,7 @@ export function AgentHub() {
                 </div>
               )}
               <div className="mt-4 space-y-1">
-                {agentHubAgents.map(agent => {
+                {chatAgents.map(agent => {
                   const selected = activeChatAgent?.id === agent.id;
                   const unreadProposals = (agent.evolutionLog || []).filter(item => item.status === 'proposed').length;
                   return (
