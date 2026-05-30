@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, Check, CheckCircle2, ClipboardCheck, Cpu, ListChecks, MessageSquare, Plus, Power, RefreshCw, Save, Search, Send, Server, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, X, XCircle, Zap } from 'lucide-react';
-import { AgentHubAgent, AgentHubEventScope, AgentHubEventTrigger, AgentHubGuardrail, AgentHubScheduleUnit, AgentHubStatus, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType, useStore } from '../store';
+import { AgentHubAgent, AgentHubChatMessage as AgentChatMessage, AgentHubEventScope, AgentHubEventTrigger, AgentHubGuardrail, AgentHubScheduleUnit, AgentHubStatus, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType, useStore } from '../store';
 import { cn } from '../lib/utils';
 import { GlobalAgent } from './GlobalAgent';
 import { useTranslation } from '../lib/i18n';
@@ -24,15 +24,6 @@ const ACTION_LABELS: Record<GlobalAgentActionType, string> = {
 };
 
 type AgentHubTab = 'fleet' | 'approvals' | 'runs' | 'chat' | 'global';
-type AgentChatMessage = {
-  id: string;
-  agentId: string;
-  agentName: string;
-  role: 'user' | 'agent';
-  content: string;
-  createdAt: string;
-};
-
 const emptyAgent = (): Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'> => ({
   name: '',
   instructions: '',
@@ -856,6 +847,8 @@ export function AgentHub() {
     agentHarnessRuns,
     globalAgentPlans,
     agentRunRecords,
+    agentChatMessages,
+    setAgentChatMessages,
     updateAgentHarnessRun,
     deleteAgentHarnessRun,
     updateGlobalAgentPlan,
@@ -880,7 +873,6 @@ export function AgentHub() {
   const [logDisplayLimit, setLogDisplayLimit] = useState(30);
   const [chatAgentId, setChatAgentId] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState('');
-  const [chatMessages, setChatMessages] = useState<AgentChatMessage[]>([]);
   const [chatSending, setChatSending] = useState(false);
 
   useEffect(() => {
@@ -926,7 +918,7 @@ export function AgentHub() {
   } as AgentHubAgent);
   const activeChatAgent = agentHubAgents.find(agent => agent.id === chatAgentId) || globalAgent;
   const chatAgents = savedGlobalAgent ? agentHubAgents : [globalAgent, ...agentHubAgents];
-  const visibleChatMessages = chatMessages.filter(message => message.agentId === activeChatAgent?.id).slice(-30);
+  const visibleChatMessages = agentChatMessages.filter(message => message.agentId === activeChatAgent?.id).slice(-30);
   const persistAgentHubState = async () => {
     const authToken = token || localStorage.getItem('token');
     if (!authToken) return;
@@ -941,6 +933,7 @@ export function AgentHub() {
         agentHubAgents: state.agentHubAgents,
         deletedAgentHubAgentIds: state.deletedAgentHubAgentIds,
         agentRunRecords: state.agentRunRecords,
+        agentChatMessages: state.agentChatMessages,
         agentIdempotencyRecords: state.agentIdempotencyRecords,
         agentHarnessRuns: state.agentHarnessRuns,
         globalAgentPlans: state.globalAgentPlans
@@ -982,7 +975,8 @@ export function AgentHub() {
       content,
       createdAt: now
     };
-    setChatMessages(prev => [...prev, userMessage].slice(-30));
+    const nextUserMessages = [...agentChatMessages, userMessage].slice(-300);
+    setAgentChatMessages(nextUserMessages);
     setChatInput('');
     setChatSending(true);
     try {
@@ -992,7 +986,7 @@ export function AgentHub() {
         body: JSON.stringify({
           agentId: targetAgent.id,
           message: content,
-          history: [...chatMessages, userMessage].slice(-10).map(item => ({
+          history: nextUserMessages.filter(item => item.agentId === targetAgent.id).slice(-10).map(item => ({
             role: item.role,
             agentName: item.agentName,
             content: item.content,
@@ -1010,7 +1004,8 @@ export function AgentHub() {
         content: data.reply || (language === 'zh' ? '已记录。' : 'Noted.'),
         createdAt: new Date().toISOString()
       };
-      setChatMessages(prev => [...prev, reply].slice(-30));
+      const nextMessages = [...useStore.getState().agentChatMessages, reply].slice(-300);
+      setAgentChatMessages(nextMessages);
       if (data.soulPatch) {
         const current = useStore.getState().agentHubAgents.find(agent => agent.id === targetAgent.id) || targetAgent;
         updateAgentHubAgent(targetAgent.id, {

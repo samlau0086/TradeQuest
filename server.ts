@@ -808,6 +808,8 @@ Return JSON only:
       const prompt = `You are chatting with a CRM agent to help it evolve.
 The user may give feedback, corrections, strategy, preferences, or operating lessons.
 Do not change tool permissions, guardrails, or safety rules. Produce a controlled evolution proposal only.
+If the user asks about this agent's configuration, answer from the Agent JSON below exactly. Do not infer missing configuration.
+For Event Trigger questions, use agent.eventTriggers and agent.eventTriggerScope exactly.
 Internal-facing output language: ${settings.language === 'zh' ? 'Chinese' : 'English'}.
 
 Agent:
@@ -817,6 +819,15 @@ ${JSON.stringify({
   instructions: agent.instructions,
   tools: agent.tools || [],
   guardrail: agent.guardrail,
+  status: agent.status,
+  scheduleEnabled: !!agent.scheduleEnabled,
+  scheduleIntervalValue: agent.scheduleIntervalValue,
+  scheduleIntervalUnit: agent.scheduleIntervalUnit,
+  scheduleMaxRuns: agent.scheduleMaxRuns,
+  scheduleRunCount: agent.scheduleRunCount,
+  eventTriggers: Array.isArray(agent.eventTriggers) ? agent.eventTriggers : [],
+  eventTriggerScope: agent.eventTriggerScope || 'subject',
+  contextSuggestionMode: agent.contextSuggestionMode || 'manual',
   soul: agent.soul || '',
   recentEvolutionLog: (agent.evolutionLog || []).slice(0, 8)
 }, null, 2)}
@@ -1123,6 +1134,7 @@ No markdown wrappers, just valid JSON.`;
     ]));
     const deletedAgentHubAgentIdSet = new Set(deletedAgentHubAgentIds);
     merged.agentRunRecords = mergeSettingsArrayById(existing.agentRunRecords || [], incoming.agentRunRecords || []).slice(0, 200);
+    merged.agentChatMessages = mergeSettingsArrayById(existing.agentChatMessages || [], incoming.agentChatMessages || []).slice(-300);
     merged.agentHarnessRuns = mergeSettingsArrayById(existing.agentHarnessRuns || [], incoming.agentHarnessRuns || []);
     merged.globalAgentPlans = mergeSettingsArrayById(existing.globalAgentPlans || [], incoming.globalAgentPlans || []);
     merged.deletedAgentHubAgentIds = deletedAgentHubAgentIds;

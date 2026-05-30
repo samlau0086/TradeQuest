@@ -406,6 +406,15 @@ export interface AgentHubRunRecord {
   completedAt?: string;
 }
 
+export interface AgentHubChatMessage {
+  id: string;
+  agentId: string;
+  agentName: string;
+  role: 'user' | 'agent';
+  content: string;
+  createdAt: string;
+}
+
 export type { AgentIdempotencyRecord };
 
 export interface ClientEditRequest {
@@ -600,6 +609,8 @@ export interface StoreState {
   addAgentRunRecord: (record: Omit<AgentHubRunRecord, 'id' | 'createdAt' | 'updatedAt'>) => string;
   updateAgentRunRecord: (id: string, updates: Partial<AgentHubRunRecord>) => void;
   deleteAgentRunRecord: (id: string) => void;
+  agentChatMessages: AgentHubChatMessage[];
+  setAgentChatMessages: (messages: AgentHubChatMessage[] | ((messages: AgentHubChatMessage[]) => AgentHubChatMessage[])) => void;
   agentIdempotencyRecords: AgentIdempotencyRecord[];
   findAgentIdempotencyRecord: (input: { agentId: string; tool: string; targetType: string; targetId: string; inputSignature: string }) => AgentIdempotencyRecord | undefined;
   recordAgentIdempotency: (input: { agentId: string; tool: string; targetType: string; targetId: string; inputSignature: string; status: AgentIdempotencyStatus; resultRef?: string; expiresAt?: string | null }) => string;
@@ -1164,6 +1175,10 @@ export const useStore = create<StoreState>((set, get) => ({
   })),
   deleteAgentRunRecord: (id) => set((state) => ({
     agentRunRecords: state.agentRunRecords.filter(record => record.id !== id)
+  })),
+  agentChatMessages: [],
+  setAgentChatMessages: (messages) => set((state) => ({
+    agentChatMessages: (typeof messages === 'function' ? messages(state.agentChatMessages) : messages).slice(-300)
   })),
   agentIdempotencyRecords: [],
   findAgentIdempotencyRecord: (input) => {
@@ -2495,6 +2510,7 @@ export const useStore = create<StoreState>((set, get) => ({
               ]
             : state.agentHubAgents,
           agentRunRecords: settings.agentRunRecords ?? state.agentRunRecords,
+          agentChatMessages: settings.agentChatMessages ?? state.agentChatMessages,
           agentIdempotencyRecords: settings.agentIdempotencyRecords ?? state.agentIdempotencyRecords,
           leadCampaigns: settings.leadCampaigns ?? state.leadCampaigns,
           globalAgentPlans: settings.globalAgentPlans ?? state.globalAgentPlans,
@@ -2595,6 +2611,7 @@ useStore.subscribe((state, prevState) => {
     state.agentHubAgents !== prevState.agentHubAgents ||
     state.deletedAgentHubAgentIds !== prevState.deletedAgentHubAgentIds ||
     state.agentRunRecords !== prevState.agentRunRecords ||
+    state.agentChatMessages !== prevState.agentChatMessages ||
     state.agentIdempotencyRecords !== prevState.agentIdempotencyRecords ||
     state.leadCampaigns !== prevState.leadCampaigns ||
     state.globalAgentPlans !== prevState.globalAgentPlans ||
@@ -2633,6 +2650,7 @@ useStore.subscribe((state, prevState) => {
             agentHubAgents: state.agentHubAgents,
             deletedAgentHubAgentIds: state.deletedAgentHubAgentIds,
             agentRunRecords: state.agentRunRecords,
+            agentChatMessages: state.agentChatMessages,
             agentIdempotencyRecords: state.agentIdempotencyRecords,
             leadCampaigns: state.leadCampaigns,
             globalAgentPlans: state.globalAgentPlans,
