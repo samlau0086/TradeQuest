@@ -557,6 +557,34 @@ export function Settings() {
               </div>
 
               <h2 className="text-xl font-bold flex items-center gap-2 mt-8 border-t border-slate-800 pt-8">
+                <Landmark className="w-5 h-5 text-cyan-400" /> Point Consumption Rules
+              </h2>
+              <div className="bg-slate-900 border border-slate-700/50 rounded-xl p-4 md:p-6 mb-8 shadow-sm">
+                <p className="text-sm text-slate-500 mb-5">
+                  Configure how many user points are consumed by paid CRM actions.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {[
+                    { id: 'claim_lead', label: 'Claim Public Lead', default: 10, desc: 'Deducted when a user claims one lead from the public pool.' }
+                  ].map((event) => (
+                    <div key={event.id}>
+                      <label className="text-sm font-bold text-slate-300 block mb-2 opacity-80">
+                        {event.label}
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={globalSettings[`point_cost_${event.id}`] ?? event.default}
+                        onChange={e => handleSaveGlobalSetting(`point_cost_${event.id}`, Number(e.target.value))}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                      />
+                      <p className="mt-2 text-xs text-slate-500">{event.desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <h2 className="text-xl font-bold flex items-center gap-2 mt-8 border-t border-slate-800 pt-8">
                 <Trophy className="w-5 h-5 text-amber-400" /> Achievement EXP Rewards
               </h2>
               <div className="bg-slate-900 border border-slate-700/50 rounded-xl p-4 md:p-6 mb-8 shadow-sm">

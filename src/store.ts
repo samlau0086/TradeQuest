@@ -787,6 +787,7 @@ export interface StoreState {
   setOutscraperApiKey: (key: string) => void;
 
   expConfig: Record<string, number>;
+  pointCostConfig: Record<string, number>;
   loadExpConfig: () => Promise<void>;
 
   fetchUserSettings: () => Promise<void>;
@@ -2579,6 +2580,7 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   expConfig: {},
+  pointCostConfig: {},
   loadExpConfig: async () => {
     const token = localStorage.getItem('token');
     if (!token) return;
@@ -2587,12 +2589,16 @@ export const useStore = create<StoreState>((set, get) => ({
       if (res.ok) {
         const settings = await res.json();
         const expConfig: Record<string, number> = {};
+        const pointCostConfig: Record<string, number> = {};
         for(const key in settings) {
           if (key.startsWith('exp_')) {
             expConfig[key.replace('exp_', '')] = Number(settings[key]);
           }
+          if (key.startsWith('point_cost_')) {
+            pointCostConfig[key.replace('point_cost_', '')] = Number(settings[key]);
+          }
         }
-        set({ expConfig });
+        set({ expConfig, pointCostConfig });
         
         // update achievements and quests
         set((state) => ({

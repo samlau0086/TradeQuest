@@ -4346,10 +4346,12 @@ Return JSON only:
     try {
       const { id } = req.params;
       
-      const CLAIM_COST = 10;
+      const claimCostRes = await pool.query('SELECT value FROM global_settings WHERE key = $1', ['point_cost_claim_lead']);
+      const parsedClaimCost = Number(claimCostRes.rows[0]?.value ?? 10);
+      const CLAIM_COST = Number.isFinite(parsedClaimCost) ? Math.max(0, parsedClaimCost) : 10;
       const userRes = await pool.query('SELECT points FROM users WHERE id = $1', [req.user.uid]);
       if (userRes.rows.length === 0 || userRes.rows[0].points < CLAIM_COST) {
-        return res.status(400).json({ error: 'Not enough points to claim a public lead (cost: 10 points)' });
+        return res.status(400).json({ error: `Not enough points to claim a public lead (cost: ${CLAIM_COST} points)` });
       }
 
       const result = await pool.query(
@@ -4764,7 +4766,7 @@ No markdown wrappers, just valid JSON.`;
   // Public Settings
   app.get('/api/settings/public', authenticateToken, async (req: any, res) => {
     try {
-      const result = await pool.query('SELECT * FROM global_settings WHERE key LIKE \'exp_%\' OR key IN (\'agent_polling_interval_seconds\', \'agent_polling_interval_hours\')');
+      const result = await pool.query('SELECT * FROM global_settings WHERE key LIKE \'exp_%\' OR key LIKE \'point_cost_%\' OR key IN (\'agent_polling_interval_seconds\', \'agent_polling_interval_hours\')');
       const settings = result.rows.reduce((acc, row) => ({ ...acc, [row.key]: typeof row.value === 'string' ? JSON.parse(row.value) : row.value }), {});
       res.json(settings);
     } catch (e) {
