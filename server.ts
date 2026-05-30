@@ -1049,6 +1049,7 @@ No markdown wrappers, just valid JSON.`;
         scheduleDayOfMonth: agent.scheduleDayOfMonth,
         scheduleMaxRuns: agent.scheduleMaxRuns,
         eventTriggers: Array.isArray(agent.eventTriggers) ? agent.eventTriggers : existing.eventTriggers,
+        eventTriggerScope: agent.eventTriggerScope || existing.eventTriggerScope || 'subject',
         updatedAt: new Date(Math.max(existingTime, incomingTime) || Date.now()).toISOString()
       });
     });
@@ -2422,21 +2423,61 @@ No markdown wrappers, just valid JSON.`;
     const sender = outbox.fromEmail || 'AutoAgent';
     const senderName = outbox.fromName || agent.name || 'AutoAgent';
     const batchLimit = Math.max(1, Math.min(10, Number(agent.batchSize || 5)));
-    const clientsRes = await pool.query(
-      `SELECT *
-       FROM clients
-       WHERE user_id = $1
-         AND COALESCE(status, '') <> 'Closed Won'
-       ORDER BY updated_at DESC NULLS LAST, last_contact NULLS FIRST
-       LIMIT 30`,
-      [userId]
-    );
+    const eventPayload = firstStep.payload?.eventPayload || {};
+    const eventScope = firstStep.payload?.eventScope || agent.eventTriggerScope || 'subject';
+    const subjectClientIds = new Set<string>();
+    const directClientId = eventPayload.clientId || eventPayload.client?.id || eventPayload.customerId || eventPayload.customer?.id;
+    if (directClientId) subjectClientIds.add(String(directClientId));
+    const leadId = eventPayload.leadId || eventPayload.lead?.id || eventPayload.dealId || eventPayload.deal?.id;
+    if (leadId) {
+      const leadClientRes = await pool.query(
+        `SELECT client_id FROM deals WHERE id = $1 AND user_id = $2 AND client_id IS NOT NULL`,
+        [String(leadId), userId]
+      );
+      leadClientRes.rows.forEach((row: any) => row.client_id && subjectClientIds.add(String(row.client_id)));
+    }
+    const emailIds = Array.isArray(eventPayload.emailIds) ? eventPayload.emailIds : [];
+    if (emailIds.length > 0) {
+      const emailClientRes = await pool.query(
+        `SELECT DISTINCT client_id FROM emails WHERE user_id = $1 AND id = ANY($2::text[]) AND client_id IS NOT NULL`,
+        [userId, emailIds.map((id: any) => String(id))]
+      );
+      emailClientRes.rows.forEach((row: any) => row.client_id && subjectClientIds.add(String(row.client_id)));
+    }
+    const subjectOnly = eventScope !== 'global';
+    const clientsRes = subjectOnly && subjectClientIds.size > 0
+      ? await pool.query(
+        `SELECT *
+         FROM clients
+         WHERE user_id = $1
+           AND id = ANY($2::text[])
+           AND COALESCE(status, '') <> 'Closed Won'
+         ORDER BY updated_at DESC NULLS LAST, last_contact NULLS FIRST
+         LIMIT 30`,
+        [userId, Array.from(subjectClientIds)]
+      )
+      : subjectOnly
+        ? { rows: [] }
+        : await pool.query(
+          `SELECT *
+           FROM clients
+           WHERE user_id = $1
+             AND COALESCE(status, '') <> 'Closed Won'
+           ORDER BY updated_at DESC NULLS LAST, last_contact NULLS FIRST
+           LIMIT 30`,
+          [userId]
+        );
 
     let scanned = 0;
     let acted = 0;
     let skipped = 0;
     let failed = 0;
     const details: string[] = [];
+    if (subjectOnly && subjectClientIds.size === 0) {
+      details.push(isZh
+        ? '事件主体模式：未找到事件关联的客户/线索主体，已跳过全局扫描。'
+        : 'Event subject mode: no related client/lead subject was found, so global scanning was skipped.');
+    }
 
     for (const client of clientsRes.rows) {
       if (acted >= batchLimit) break;
@@ -2666,6 +2707,7 @@ Return JSON only:
 
     for (const agent of matchedAgents) {
       const reviewStatus = agent.guardrail === 'auto' ? 'approved' : 'pending_review';
+      const eventScope = agent.eventTriggerScope || 'subject';
       const objective = isZh
         ? `事件触发运行：${agent.name}\n触发事件：${event}\n事件上下文：${JSON.stringify(payload, null, 2)}\n\n${agent.instructions || ''}`
         : `Event-triggered run: ${agent.name}\nEvent: ${event}\nEvent context: ${JSON.stringify(payload, null, 2)}\n\n${agent.instructions || ''}`;
@@ -2698,7 +2740,7 @@ Return JSON only:
             description: agent.instructions || '',
             actionType: 'review_pipeline',
             status: 'pending',
-            payload: { source: 'agent-hub-event', event, eventPayload: payload, agentId: agent.id, tools: agent.tools || [] }
+            payload: { source: 'agent-hub-event', event, eventPayload: payload, eventScope, agentId: agent.id, tools: agent.tools || [] }
           }],
           createdAt: nowIso,
           updatedAt: nowIso
@@ -2717,7 +2759,7 @@ Return JSON only:
             tool: (agent.tools || [])[0] || 'agent.run',
             risk: agent.guardrail === 'auto' ? 'low' : 'medium',
             status: reviewStatus === 'approved' ? 'approved' : 'pending',
-            payload: { source: 'agent-hub-event', event, eventPayload: payload, agentId: agent.id, tools: agent.tools || [] }
+            payload: { source: 'agent-hub-event', event, eventPayload: payload, eventScope, agentId: agent.id, tools: agent.tools || [] }
           }],
           createdAt: nowIso,
           updatedAt: nowIso

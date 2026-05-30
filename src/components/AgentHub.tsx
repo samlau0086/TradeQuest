@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, Check, CheckCircle2, ClipboardCheck, Cpu, ListChecks, Plus, Power, RefreshCw, Save, Search, Server, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, X, XCircle, Zap } from 'lucide-react';
-import { AgentHubAgent, AgentHubEventTrigger, AgentHubGuardrail, AgentHubScheduleUnit, AgentHubStatus, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType, useStore } from '../store';
+import { AgentHubAgent, AgentHubEventScope, AgentHubEventTrigger, AgentHubGuardrail, AgentHubScheduleUnit, AgentHubStatus, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType, useStore } from '../store';
 import { cn } from '../lib/utils';
 import { AgentHarness } from './AgentHarness';
 import { GlobalAgent } from './GlobalAgent';
@@ -40,6 +40,7 @@ const emptyAgent = (): Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 't
   scheduleMaxRuns: null,
   scheduleRunCount: 0,
   eventTriggers: [],
+  eventTriggerScope: 'subject',
   contextSuggestionMode: 'manual',
   builtIn: false
 });
@@ -628,6 +629,22 @@ function AgentConfigPanel({
             <div className="text-sm text-slate-200">{language === 'zh' ? 'Event Trigger / 事件触发' : 'Event Trigger'}</div>
             <p className="mt-1 text-xs text-slate-500">{language === 'zh' ? '当系统事件发生时自动创建该智能体运行。是否直接执行仍由 Harness / Guardrails 控制。' : 'Create an agent run automatically when selected system events happen. Execution is still controlled by Harness / Guardrails.'}</p>
           </div>
+          <label className="block">
+            <span className="text-xs font-bold uppercase tracking-wide text-slate-400">{language === 'zh' ? '事件作用范围' : 'Event Scope'}</span>
+            <select
+              value={form.eventTriggerScope || 'subject'}
+              onChange={e => setForm({ ...form, eventTriggerScope: e.target.value as AgentHubEventScope })}
+              className="mt-2 w-full bg-black border border-neutral-700 rounded-md px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-blue-500"
+            >
+              <option value="subject">{language === 'zh' ? '仅针对事件发生主体（默认）' : 'Event subject only (default)'}</option>
+              <option value="global">{language === 'zh' ? '全局运行' : 'Global run'}</option>
+            </select>
+            <p className="mt-2 text-xs text-slate-500">
+              {language === 'zh'
+                ? '事件主体模式只处理触发事件关联的客户/线索/消息；全局模式会按该智能体的配置扫描所有可处理对象。'
+                : 'Subject mode only handles the client, lead, or message related to the event. Global mode scans all eligible records according to this agent configuration.'}
+            </p>
+          </label>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {AGENT_EVENT_TRIGGER_OPTIONS.map(option => {
               const selected = (form.eventTriggers || []).includes(option.id);
