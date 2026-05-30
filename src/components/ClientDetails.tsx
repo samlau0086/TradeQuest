@@ -581,6 +581,15 @@ export function ClientDetails() {
           leadScoringSignature: buildLeadScoringSignature(client, leadLogs, emails),
           leadScoringAnalyzedAt: new Date().toISOString()
         });
+        editClient(client.id, {
+          leadScore: score,
+          leadSummary: analyzedLeadSummary,
+          leadNextStep: analyzedLeadNextStep,
+          agentSummary: analyzedLeadSummary || client.agentSummary,
+          agentNextStep: analyzedLeadNextStep || client.agentNextStep,
+          leadScoringSignature: buildLeadScoringSignature(client, leadLogs, emails),
+          leadScoringAnalyzedAt: new Date().toISOString()
+        });
       } else {
         useStore.getState().editClient(client.id, {
           leadScore: score,
