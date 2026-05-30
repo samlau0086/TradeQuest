@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, Check, CheckCircle2, ClipboardCheck, Cpu, ListChecks, Plus, Power, RefreshCw, Save, Search, Server, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, X, XCircle, Zap } from 'lucide-react';
 import { AgentHubAgent, AgentHubEventScope, AgentHubEventTrigger, AgentHubGuardrail, AgentHubScheduleUnit, AgentHubStatus, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType, useStore } from '../store';
 import { cn } from '../lib/utils';
-import { AgentHarness } from './AgentHarness';
 import { GlobalAgent } from './GlobalAgent';
 import { useTranslation } from '../lib/i18n';
 import { AGENT_TOOL_REGISTRY, getAgentToolDefinition, inferAgentToolsFromPrompt } from '../lib/agentTools';
@@ -24,7 +23,7 @@ const ACTION_LABELS: Record<GlobalAgentActionType, string> = {
   review_pipeline: 'Review Pipeline'
 };
 
-type AgentHubTab = 'fleet' | 'approvals' | 'runs' | 'harness' | 'global';
+type AgentHubTab = 'fleet' | 'approvals' | 'runs' | 'global';
 
 const emptyAgent = (): Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'> => ({
   name: '',
@@ -823,12 +822,12 @@ export function AgentHub() {
   }, [fetchUserSettings, tab]);
 
   const pendingItems = useMemo(() => [
-    ...agentHarnessRuns.filter(run => run.status === 'pending_review').map(run => ({ kind: 'harness' as const, id: run.id, title: run.summary, agent: 'Agent Harness', body: run.objective, createdAt: run.createdAt })),
+    ...agentHarnessRuns.filter(run => run.status === 'pending_review').map(run => ({ kind: 'harness' as const, id: run.id, title: run.summary, agent: 'Execution Harness', body: run.objective, createdAt: run.createdAt })),
     ...globalAgentPlans.filter(plan => plan.status === 'pending_review').map(plan => ({ kind: 'global' as const, id: plan.id, title: plan.summary, agent: 'Global Agent', body: plan.objective, createdAt: plan.createdAt }))
   ], [agentHarnessRuns, globalAgentPlans]);
 
   const runLogs = useMemo(() => [
-    ...agentHarnessRuns.map(run => ({ kind: 'harness' as const, id: run.id, title: run.summary, agent: 'Agent Harness', status: run.status, steps: run.steps.map(step => `${step.tool}: ${step.status}`), createdAt: run.createdAt })),
+    ...agentHarnessRuns.map(run => ({ kind: 'harness' as const, id: run.id, title: run.summary, agent: 'Execution Harness', status: run.status, steps: run.steps.map(step => `${step.tool}: ${step.status}`), createdAt: run.createdAt })),
     ...globalAgentPlans.map(plan => ({ kind: 'global' as const, id: plan.id, title: plan.summary, agent: 'Global Agent', status: plan.status, steps: plan.steps.map(step => `${step.actionType}: ${step.status}`), createdAt: plan.createdAt }))
   ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [agentHarnessRuns, globalAgentPlans]);
   const visibleRunLogs = runLogs.slice(0, logDisplayLimit);
@@ -838,6 +837,10 @@ export function AgentHub() {
     ...agent,
     tasksCompleted: agent.tasksCompleted + runLogs.filter(run => run.agent.toLowerCase().includes(agent.name.split(' ')[0].toLowerCase()) && run.status === 'completed').length
   }));
+  const activeAgents = computedAgents.filter(agent => agent.status === 'active').length;
+  const scheduledAgents = computedAgents.filter(agent => agent.scheduleEnabled).length;
+  const eventTriggeredAgents = computedAgents.filter(agent => (agent.eventTriggers || []).length > 0).length;
+  const reviewRequiredCount = pendingItems.length;
   const selectedAgent = draftAgent || agentHubAgents.find(agent => agent.id === selectedAgentId) || agentHubAgents[0] || emptyAgent();
   const persistAgentHubState = async () => {
     const authToken = token || localStorage.getItem('token');
@@ -1128,7 +1131,7 @@ export function AgentHub() {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <div className="bg-neutral-900 border border-neutral-700 rounded-md p-1 flex flex-wrap">
-              {tabButton('approvals', 'Harness & Approvals', <ShieldCheck className="w-4 h-4" />)}
+              {tabButton('approvals', language === 'zh' ? '编排与审核' : 'Approvals & Policy', <ShieldCheck className="w-4 h-4" />)}
               {tabButton('runs', 'Agent Run History', <ListChecks className="w-4 h-4" />)}
               {tabButton('fleet', 'Agent Fleet', <Server className="w-4 h-4" />)}
             </div>
@@ -1139,7 +1142,24 @@ export function AgentHub() {
         </div>
 
         {tab === 'fleet' && (
-          <div className="grid grid-cols-1 xl:grid-cols-[minmax(360px,0.85fr)_minmax(0,1.15fr)] gap-8">
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              {[
+                { label: language === 'zh' ? '已启用智能体' : 'Active agents', value: activeAgents, icon: <Power className="w-4 h-4 text-emerald-300" /> },
+                { label: language === 'zh' ? '定期运行' : 'Scheduled', value: scheduledAgents, icon: <RefreshCw className="w-4 h-4 text-blue-300" /> },
+                { label: language === 'zh' ? '事件触发' : 'Event triggers', value: eventTriggeredAgents, icon: <Zap className="w-4 h-4 text-cyan-300" /> },
+                { label: language === 'zh' ? '待审核' : 'Pending review', value: reviewRequiredCount, icon: <ShieldCheck className="w-4 h-4 text-amber-300" /> }
+              ].map(item => (
+                <div key={item.label} className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs text-slate-500">{item.label}</span>
+                    {item.icon}
+                  </div>
+                  <div className="mt-3 text-2xl font-bold text-slate-100">{item.value}</div>
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 xl:grid-cols-[minmax(360px,0.85fr)_minmax(0,1.15fr)] gap-8">
             <section className="bg-neutral-900/80 border border-neutral-700 rounded-lg p-6">
               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400 mb-6">
                 <Server className="w-4 h-4" /> {t('Agent Runtime Status')}
@@ -1206,6 +1226,7 @@ export function AgentHub() {
               </div>
             </section>
             <AgentConfigPanel agent={selectedAgent} onSave={saveAgent} onDelete={'id' in selectedAgent ? deleteSelectedAgent : undefined} />
+            </div>
           </div>
         )}
 
@@ -1245,13 +1266,17 @@ export function AgentHub() {
 
             <section className="bg-neutral-900/80 border border-neutral-700 rounded-lg p-6">
               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">
-                <ShieldCheck className="w-4 h-4" /> {t('Harness Strategy')}
+                <ShieldCheck className="w-4 h-4" /> {language === 'zh' ? '执行底座与策略' : 'Execution Layer & Policy'}
               </div>
               <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-                <button onClick={() => setTab('harness')} className="bg-black border border-neutral-800 rounded-md p-4 text-left hover:border-blue-500/50 transition-colors">
-                  <div className="flex items-center gap-2 text-sm font-bold text-slate-100"><Cpu className="w-4 h-4 text-blue-300" /> {t('Agent Harness')}</div>
-                  <p className="mt-2 text-xs text-slate-500">{t('Plan multi-step agent runs, tools, risks, and approvals.')}</p>
-                </button>
+                <div className="bg-black border border-neutral-800 rounded-md p-4">
+                  <div className="flex items-center gap-2 text-sm font-bold text-slate-100"><Cpu className="w-4 h-4 text-blue-300" /> {language === 'zh' ? 'Execution Harness' : 'Execution Harness'}</div>
+                  <p className="mt-2 text-xs text-slate-500">
+                    {language === 'zh'
+                      ? 'Harness 现在作为执行与审核底座：检查工具权限、应用执行策略、创建审核项并记录 trace，不再作为独立业务智能体规划任务。'
+                      : 'Harness now acts as the execution and approval layer: it checks tool permissions, applies policy, creates review items, and records traces instead of acting as a standalone business planner.'}
+                  </p>
+                </div>
                 <button onClick={() => setTab('global')} className="bg-black border border-neutral-800 rounded-md p-4 text-left hover:border-blue-500/50 transition-colors">
                   <div className="flex items-center gap-2 text-sm font-bold text-slate-100"><Bot className="w-4 h-4 text-blue-300" /> {t('Global Agent')}</div>
                   <p className="mt-2 text-xs text-slate-500">{t('Coordinate CRM-wide acquisition, enrichment, follow-up, and conversion plans.')}</p>
@@ -1298,7 +1323,7 @@ export function AgentHub() {
                   >
                     {[10, 30, 50, 100].map(count => <option key={count} value={count}>{count}</option>)}
                   </select>
-                  <button onClick={() => setTab('harness')} className="text-xs text-blue-300 hover:text-blue-200">{t('Open Harness')}</button>
+                  <button onClick={() => setTab('approvals')} className="text-xs text-blue-300 hover:text-blue-200">{language === 'zh' ? '打开审核策略' : 'Open policy'}</button>
                   <button
                     onClick={clearTraceLogs}
                     disabled={runLogs.length === 0}
@@ -1450,12 +1475,6 @@ export function AgentHub() {
                 ))}
               </div>
             </section>
-          </div>
-        )}
-
-        {tab === 'harness' && (
-          <div className="rounded-lg border border-neutral-800 overflow-hidden bg-slate-950">
-            <AgentHarness />
           </div>
         )}
 
