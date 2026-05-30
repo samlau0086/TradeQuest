@@ -19,27 +19,118 @@ const COUNTRY_COORDS: Record<string, [number, number]> = {
   'Australia': [133.7751, -25.2744],
 };
 
+const COUNTRY_ALIASES: Record<string, string> = {
+  'usa': 'United States',
+  'us': 'United States',
+  'united states': 'United States',
+  'united states of america': 'United States',
+  'america': 'United States',
+  'uk': 'United Kingdom',
+  'u.k.': 'United Kingdom',
+  'great britain': 'United Kingdom',
+  'britain': 'United Kingdom',
+  'england': 'United Kingdom',
+  'china': 'China',
+  'cn': 'China',
+  'prc': 'China',
+  '中国': 'China',
+  '中华人民共和国': 'China',
+  'japan': 'Japan',
+  'jp': 'Japan',
+  '日本': 'Japan',
+  'germany': 'Germany',
+  'de': 'Germany',
+  '德国': 'Germany',
+  'brazil': 'Brazil',
+  'br': 'Brazil',
+  '巴西': 'Brazil',
+  'india': 'India',
+  'in': 'India',
+  '印度': 'India',
+  'australia': 'Australia',
+  'au': 'Australia',
+  '澳大利亚': 'Australia',
+};
+
+const COUNTRY_TO_CONTINENT: Record<string, 'na' | 'sa' | 'eu' | 'as' | 'af' | 'oc'> = {
+  'United States': 'na',
+  'Canada': 'na',
+  'Mexico': 'na',
+  'Brazil': 'sa',
+  'Argentina': 'sa',
+  'Chile': 'sa',
+  'Colombia': 'sa',
+  'Germany': 'eu',
+  'United Kingdom': 'eu',
+  'France': 'eu',
+  'Italy': 'eu',
+  'Spain': 'eu',
+  'Netherlands': 'eu',
+  'China': 'as',
+  'Japan': 'as',
+  'India': 'as',
+  'South Korea': 'as',
+  'Singapore': 'as',
+  'Thailand': 'as',
+  'Vietnam': 'as',
+  'Malaysia': 'as',
+  'Indonesia': 'as',
+  'United Arab Emirates': 'as',
+  'Saudi Arabia': 'as',
+  'South Africa': 'af',
+  'Nigeria': 'af',
+  'Egypt': 'af',
+  'Kenya': 'af',
+  'Australia': 'oc',
+  'New Zealand': 'oc',
+};
+
+const REGION_META = [
+  { id: 'na' as const, name: 'North America' },
+  { id: 'sa' as const, name: 'South America' },
+  { id: 'eu' as const, name: 'Europe' },
+  { id: 'as' as const, name: 'Asia' },
+  { id: 'af' as const, name: 'Africa' },
+  { id: 'oc' as const, name: 'Oceania' },
+];
+
+function normalizeCountry(country?: string) {
+  const raw = country?.trim();
+  if (!raw) return '';
+  return COUNTRY_ALIASES[raw.toLowerCase()] || raw;
+}
+
 // Simplified representation of "Fog of War" Map using abstract territory cards
 export function WorldMap({ onCountryClick }: { onCountryClick?: (country: string) => void }) {
   const { clients, selectClient } = useStore();
 
-  const regions = [
-    { id: 'na', name: 'North America', status: 'active', clients: clients.filter(c => c.country === 'USA').length },
-    { id: 'sa', name: 'South America', status: 'active', clients: clients.filter(c => c.country === 'Brazil').length },
-    { id: 'eu', name: 'Europe', status: 'active', clients: clients.filter(c => c.country === 'Germany').length },
-    { id: 'as', name: 'Asia', status: 'active', clients: clients.filter(c => c.country === 'Japan').length },
-    { id: 'af', name: 'Africa', status: 'unlocked', clients: 0 },
-    { id: 'oc', name: 'Oceania', status: 'locked', clients: 0 },
-  ];
+  const regions = useMemo(() => {
+    const counts = REGION_META.reduce((acc, region) => {
+      acc[region.id] = 0;
+      return acc;
+    }, {} as Record<(typeof REGION_META)[number]['id'], number>);
+
+    clients.forEach(client => {
+      if (client.isDormant) return;
+      const country = normalizeCountry(client.country);
+      const regionId = COUNTRY_TO_CONTINENT[country];
+      if (regionId) counts[regionId] += 1;
+    });
+
+    return REGION_META.map(region => ({
+      ...region,
+      status: counts[region.id] > 0 ? 'active' : 'unlocked',
+      clients: counts[region.id],
+    }));
+  }, [clients]);
 
   const countryCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     clients.forEach(client => {
       if (!client.country) return;
-      let stdName = client.country;
-      if (stdName === 'USA' || stdName === 'United States') stdName = 'United States of America';
-      if (stdName === 'UK') stdName = 'United Kingdom';
-      counts[stdName] = (counts[stdName] || 0) + 1;
+      const stdName = normalizeCountry(client.country);
+      const geoName = stdName === 'United States' ? 'United States of America' : stdName;
+      counts[geoName] = (counts[geoName] || 0) + 1;
     });
     return counts;
   }, [clients]);
@@ -58,16 +149,17 @@ export function WorldMap({ onCountryClick }: { onCountryClick?: (country: string
   const countryMarkers = useMemo(() => {
     const groups: Record<string, { count: number; active: number; dormant: number; coordinates: [number, number] }> = {};
     clients.forEach(client => {
-      const coordinates = COUNTRY_COORDS[client.country];
+      const country = normalizeCountry(client.country);
+      const coordinates = COUNTRY_COORDS[country];
       if (coordinates) {
-        if (!groups[client.country]) {
-          groups[client.country] = { count: 0, active: 0, dormant: 0, coordinates };
+        if (!groups[country]) {
+          groups[country] = { count: 0, active: 0, dormant: 0, coordinates };
         }
-        groups[client.country].count++;
+        groups[country].count++;
         if (client.isDormant) {
-          groups[client.country].dormant++;
+          groups[country].dormant++;
         } else {
-          groups[client.country].active++;
+          groups[country].active++;
         }
       }
     });
