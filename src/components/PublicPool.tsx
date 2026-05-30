@@ -31,7 +31,7 @@ import { OutscraperSearchModal } from './OutscraperSearchModal';
 import { LeadCampaignModal } from './LeadCampaignModal';
 
 export function PublicPool() {
-  const { publicClients, fetchPublicClients, claimClient, importPublicLeads, language } = useStore();
+  const { publicClients, fetchPublicClients, claimClient, deletePublicLead, importPublicLeads, language } = useStore();
   const { profile } = useAuthStore();
   const t = useTranslation(language);
   const [search, setSearch] = useState('');
@@ -80,9 +80,9 @@ export function PublicPool() {
     }
   };
 
-  const executeAdminDelete = () => {
+  const executeAdminDelete = async () => {
     if (confirmDeleteId) {
-      handleAdminAction(confirmDeleteId, 'delete');
+      await deletePublicLead(confirmDeleteId);
       setConfirmDeleteId(null);
     }
   };
@@ -214,6 +214,13 @@ export function PublicPool() {
               {claimingId === client.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
               {t('claim')}
             </button>
+            <button
+              onClick={() => setConfirmDeleteId(client.id)}
+              className="p-2 bg-slate-800 hover:bg-rose-600 text-white rounded-lg transition-colors"
+              title={t('deleteClientButton')}
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
             {profile?.role === 'superadmin' && client.deletedBy && (
               <>
                <button
@@ -222,13 +229,6 @@ export function PublicPool() {
                  title="Restore"
                >
                  <ArrowUpFromLine className="w-4 h-4" />
-               </button>
-               <button
-                 onClick={() => setConfirmDeleteId(client.id)}
-                 className="p-2 bg-slate-800 hover:bg-red-600 text-white rounded-lg transition-colors"
-                 title="Permanent Delete"
-               >
-                 <Trash2 className="w-4 h-4" />
                </button>
               </>
             )}
@@ -275,11 +275,11 @@ export function PublicPool() {
                    <button onClick={() => handleAdminAction(client.id, 'restore')} className="p-1.5 bg-slate-800 hover:bg-green-600 text-white rounded transition-colors" title="Restore">
                      <ArrowUpFromLine className="w-4 h-4" />
                    </button>
-                   <button onClick={() => setConfirmDeleteId(client.id)} className="p-1.5 bg-slate-800 hover:bg-red-600 text-white rounded transition-colors" title="Permanent Delete">
-                     <Trash2 className="w-4 h-4" />
-                   </button>
                   </>
                 )}
+                <button onClick={() => setConfirmDeleteId(client.id)} className="p-1.5 bg-slate-800 hover:bg-rose-600 text-white rounded transition-colors" title={t('deleteClientButton')}>
+                  <Trash2 className="w-4 h-4" />
+                </button>
                 <button
                   onClick={() => setConfirmClaimId(client.id)}
                   disabled={claimingId === client.id}
@@ -392,6 +392,13 @@ export function PublicPool() {
                   className="w-full mt-3 py-1.5 text-xs bg-slate-900 hover:bg-cyan-600 rounded text-slate-300 hover:text-white transition-colors cursor-pointer"
                 >
                   {claimingId === client.id ? '...' : t('claim')}
+                </button>
+                <button
+                  onClick={() => setConfirmDeleteId(client.id)}
+                  className="w-full mt-2 py-1.5 text-xs bg-slate-900 hover:bg-rose-600 rounded text-slate-300 hover:text-white transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  {t('deleteClientButton')}
                 </button>
               </div>
             ))}

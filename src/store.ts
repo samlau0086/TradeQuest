@@ -702,6 +702,7 @@ export interface StoreState {
   publicClients: Client[];
   fetchPublicClients: () => void;
   claimClient: (id: string) => void;
+  deletePublicLead: (id: string) => Promise<void>;
   importPublicLeads: (leads: any[]) => Promise<void>;
   
   addComment: (clientId: string, content: string, attachments?: Attachment[]) => void;
@@ -1918,6 +1919,28 @@ export const useStore = create<StoreState>((set, get) => ({
       } finally {
         set({ globalLoading: false });
       }
+    }
+  },
+  deletePublicLead: async (id) => {
+    const previousPublicClients = get().publicClients;
+    set((state) => ({ publicClients: state.publicClients.filter(client => client.id !== id) }));
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const res = await fetch(`/api/clients/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || 'Failed to delete public lead');
+      }
+      get().notify('Public lead deleted.', 'success');
+      get().fetchPublicClients();
+    } catch (error) {
+      console.error(error);
+      set({ publicClients: previousPublicClients });
+      get().notify(error instanceof Error ? error.message : 'Failed to delete public lead.', 'error');
     }
   },
   importPublicLeads: async (leads) => {

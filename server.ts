@@ -4108,6 +4108,15 @@ No markdown wrappers, just valid JSON.`;
         return res.json({ success: true, permanent: true });
       }
 
+      const publicLeadRes = await pool.query(
+        `DELETE FROM clients WHERE id = $1 AND user_id IS NULL AND deleted_by IS NULL RETURNING id`,
+        [id]
+      );
+      if (publicLeadRes.rows.length > 0) {
+        await pool.query('DELETE FROM deals WHERE client_id = $1', [id]);
+        return res.json({ success: true, permanent: true, publicLead: true });
+      }
+
       const result = await pool.query(
         `UPDATE clients SET user_id = NULL, deleted_by = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND user_id = $1 RETURNING id`,
         [req.user.uid, id]
