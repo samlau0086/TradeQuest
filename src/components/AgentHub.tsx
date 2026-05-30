@@ -23,7 +23,7 @@ const ACTION_LABELS: Record<GlobalAgentActionType, string> = {
   review_pipeline: 'Review Pipeline'
 };
 
-type AgentHubTab = 'fleet' | 'approvals' | 'runs' | 'global';
+type AgentHubTab = 'fleet' | 'approvals' | 'runs' | 'chat' | 'global';
 type AgentChatMessage = {
   id: string;
   agentId: string;
@@ -878,7 +878,7 @@ export function AgentHub() {
   const [schedulerSummary, setSchedulerSummary] = useState<string | null>(null);
   const [schedulerAgentDetails, setSchedulerAgentDetails] = useState<any[]>([]);
   const [logDisplayLimit, setLogDisplayLimit] = useState(30);
-  const [chatAgentId, setChatAgentId] = useState<string | null>('global_agent');
+  const [chatAgentId, setChatAgentId] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<AgentChatMessage[]>([]);
   const [chatSending, setChatSending] = useState(false);
@@ -914,6 +914,7 @@ export function AgentHub() {
   const selectedAgent = draftAgent || agentHubAgents.find(agent => agent.id === selectedAgentId) || agentHubAgents[0] || emptyAgent();
   const globalAgent = agentHubAgents.find(agent => agent.id === 'global_agent') || agentHubAgents[0];
   const activeChatAgent = agentHubAgents.find(agent => agent.id === chatAgentId) || globalAgent;
+  const visibleChatMessages = chatMessages.filter(message => message.agentId === activeChatAgent?.id).slice(-30);
   const persistAgentHubState = async () => {
     const authToken = token || localStorage.getItem('token');
     if (!authToken) return;
@@ -1287,6 +1288,7 @@ export function AgentHub() {
             <div className="bg-neutral-900 border border-neutral-700 rounded-md p-1 flex flex-wrap">
               {tabButton('approvals', language === 'zh' ? '编排与审核' : 'Approvals & Policy', <ShieldCheck className="w-4 h-4" />)}
               {tabButton('runs', 'Agent Run History', <ListChecks className="w-4 h-4" />)}
+              {tabButton('chat', 'Agent Chat', <MessageSquare className="w-4 h-4" />)}
               {tabButton('fleet', 'Agent Fleet', <Server className="w-4 h-4" />)}
             </div>
             <button onClick={() => { setDraftAgent(emptyAgent()); setSelectedAgentId(null); setTab('fleet'); }} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-md text-sm font-bold text-white flex items-center gap-2">
@@ -1295,9 +1297,10 @@ export function AgentHub() {
           </div>
         </div>
 
-        <section className="rounded-lg border border-neutral-800 bg-neutral-900/80 p-4">
-          <div className="flex flex-col lg:flex-row lg:items-start gap-4">
-            <div className="lg:w-72 shrink-0">
+        {tab === 'chat' && (
+        <section className="min-h-[calc(100vh-220px)] overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950">
+          <div className="grid min-h-[calc(100vh-220px)] grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)]">
+            <div className="border-b border-neutral-800 bg-neutral-900/80 p-4 lg:border-b-0 lg:border-r">
               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400">
                 <MessageSquare className="w-4 h-4" /> {language === 'zh' ? 'Agent Chat' : 'Agent Chat'}
               </div>
@@ -1310,10 +1313,10 @@ export function AgentHub() {
                 <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs text-blue-100">
                   <Bot className="w-3.5 h-3.5" />
                   <span className="max-w-[200px] truncate">@{activeChatAgent.name}</span>
-                  {activeChatAgent.id !== 'global_agent' && (
+                  {chatAgentId && (
                     <button
                       type="button"
-                      onClick={() => setChatAgentId('global_agent')}
+                      onClick={() => setChatAgentId(null)}
                       className="text-slate-400 hover:text-white"
                       title={language === 'zh' ? '清除 Agent 标签' : 'Clear agent tag'}
                     >
@@ -1322,18 +1325,57 @@ export function AgentHub() {
                   )}
                 </div>
               )}
+              <div className="mt-4 space-y-1">
+                {agentHubAgents.map(agent => {
+                  const selected = activeChatAgent?.id === agent.id;
+                  const unreadProposals = (agent.evolutionLog || []).filter(item => item.status === 'proposed').length;
+                  return (
+                    <button
+                      key={agent.id}
+                      type="button"
+                      onClick={() => setChatAgentId(agent.id)}
+                      className={cn('w-full rounded-md border px-3 py-2.5 text-left transition-colors', selected ? 'border-blue-500/40 bg-blue-500/10' : 'border-transparent hover:border-neutral-800 hover:bg-black/40')}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-bold text-slate-100">{agent.name}</div>
+                          <div className="mt-1 truncate text-[11px] text-slate-500">{agent.status} · {(agent.tools || []).length} tools</div>
+                        </div>
+                        {unreadProposals > 0 && <span className="shrink-0 rounded-full bg-blue-500 px-2 py-0.5 text-[10px] font-bold text-white">{unreadProposals}</span>}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            <div className="min-w-0 flex-1 space-y-3">
-              {chatMessages.length > 0 && (
-                <div className="max-h-48 overflow-y-auto rounded-md border border-neutral-800 bg-black p-3 space-y-2">
-                  {chatMessages.slice(-8).map(message => (
+            <div className="flex min-h-[540px] min-w-0 flex-col bg-black">
+              <div className="flex items-center justify-between gap-3 border-b border-neutral-800 bg-neutral-950 px-5 py-4">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-bold text-slate-100">{activeChatAgent?.name || 'Global Agent'}</div>
+                  <div className="mt-1 text-xs text-slate-500">{language === 'zh' ? '通过对话帮助智能体积累可审核的进化建议' : 'Chat to create reviewable evolution proposals'}</div>
+                </div>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(circle_at_top,_rgba(30,64,175,0.12),transparent_34%)] p-5">
+                {visibleChatMessages.length > 0 ? (
+                <div className="space-y-3">
+                  {visibleChatMessages.map(message => (
                     <div key={message.id} className={cn('rounded-md px-3 py-2 text-sm', message.role === 'user' ? 'ml-auto max-w-[85%] bg-blue-600/20 text-blue-50' : 'mr-auto max-w-[85%] bg-neutral-900 text-slate-200')}>
                       <div className="mb-1 text-[10px] uppercase tracking-wide text-slate-500">{message.role === 'user' ? (language === 'zh' ? '你' : 'You') : message.agentName}</div>
                       <div className="whitespace-pre-wrap leading-relaxed">{message.content}</div>
                     </div>
                   ))}
                 </div>
-              )}
+                ) : (
+                  <div className="flex h-full min-h-80 items-center justify-center text-center">
+                    <div className="max-w-sm">
+                      <MessageSquare className="mx-auto h-10 w-10 text-slate-700" />
+                      <div className="mt-3 text-sm font-bold text-slate-300">{language === 'zh' ? '开始与智能体对话' : 'Start an agent conversation'}</div>
+                      <p className="mt-2 text-xs leading-relaxed text-slate-600">{language === 'zh' ? '使用 @agent 名称切换对象，或直接发送消息给全局 Agent。' : 'Use @agent name to switch target, or send directly to Global Agent.'}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="border-t border-neutral-800 bg-neutral-950 p-4">
               <div className="flex flex-col sm:flex-row gap-2">
                 <input
                   value={chatInput}
@@ -1361,9 +1403,11 @@ export function AgentHub() {
                   {language === 'zh' ? '发送' : 'Send'}
                 </button>
               </div>
+              </div>
             </div>
           </div>
         </section>
+        )}
 
         {tab === 'fleet' && (
           <div className="space-y-6">
