@@ -1787,6 +1787,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
   const [purpose, setPurpose] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingPurpose, setLoadingPurpose] = useState(false);
+  const [loadingSubject, setLoadingSubject] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [scheduleDateTime, setScheduleDateTime] = useState('');
   const [attachments, setAttachments] = useState<File[]>([]);
@@ -2066,6 +2067,61 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
     }
   };
 
+  const handleOptimizeSubject = async () => {
+    if (!subject.trim() && !emailHtmlHasContent(body) && !purpose.trim()) {
+      notify(language === 'zh' ? '请先输入主题、正文或邮件目的。' : 'Please enter a subject, body, or email purpose first.', 'warning');
+      return;
+    }
+    setLoadingSubject(true);
+    try {
+      const res = await fetch('/api/chat/magic', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${useAuthStore.getState().token}`
+        },
+        body: JSON.stringify({
+          command: `Generate or improve one concise outbound email subject.
+Rules:
+- Return only the subject line, no quotes, no markdown, no labels.
+- Keep it natural, specific, and professional.
+- Do not add misleading urgency, discounts, promises, or claims that are not supported by the context.
+- Customer-facing output language: ${outboundLanguage}.`,
+          context: {
+            currentSubject: subject,
+            emailPurpose: purpose,
+            bodyPreview: emailHtmlToText(stripTrailingConfiguredSignature(body)).slice(0, 1600),
+            originalEmailPreview: emailHtmlToText(originalEmailBody).slice(0, 1000),
+            client: matchedClient ? {
+              id: matchedClient.id,
+              name: matchedClient.name,
+              company: matchedClient.company,
+              country: matchedClient.country,
+              preferredLanguage: matchedClient.preferredLanguage,
+              tags: matchedClient.tags,
+              leadSummary: matchedClient.leadSummary,
+              leadNextStep: matchedClient.leadNextStep
+            } : null,
+            outboundLanguage
+          },
+          llmConfig: getLLMConfig('drafting')
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to generate subject.');
+      const nextSubject = String(data.result || '').replace(/^["']|["']$/g, '').replace(/^(Subject|主题)\s*:\s*/i, '').trim();
+      if (nextSubject) {
+        setSubject(nextSubject);
+        incrementAgentHubTaskCount('email_draft_agent');
+      }
+    } catch (error) {
+      console.error(error);
+      notify(error instanceof Error ? error.message : (language === 'zh' ? '生成邮件主题失败。' : 'Failed to generate email subject.'), 'error');
+    } finally {
+      setLoadingSubject(false);
+    }
+  };
+
   const handleInlineAICommand = async (prompt: string, currentHtml: string) => {
     setLoading(true);
     try {
@@ -2267,6 +2323,15 @@ Customer-facing output language: ${outboundLanguage}. This language was resolved
             className="flex-1 bg-transparent text-sm text-slate-200 focus:outline-none placeholder:text-slate-600 font-medium pb-1" 
             placeholder="Enter subject here..." 
           />
+          <button
+            type="button"
+            onClick={handleOptimizeSubject}
+            disabled={loadingSubject}
+            className="rounded-md border border-blue-500/30 bg-blue-500/10 p-1.5 text-blue-300 transition-colors hover:bg-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+            title={language === 'zh' ? 'AI 生成/优化主题' : 'Generate or improve subject with AI'}
+          >
+            {loadingSubject ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+          </button>
         </div>
       </div>
       

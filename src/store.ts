@@ -68,6 +68,8 @@ export interface Comment {
   createdAt: string;
   attachments?: Attachment[];
   replies?: Comment[];
+  pendingDelete?: boolean;
+  pendingDeleteRequestedAt?: string;
 }
 
 export interface Product {

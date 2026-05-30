@@ -1020,6 +1020,43 @@ export function AgentHub() {
     const clientLines = mentionedClients.map(client => `${client.name}${client.company ? ` / ${client.company}` : ''} (${client.id})`).join('; ');
     return `${content}\n\nTarget client context: ${clientLines}. Operate only on the referenced client(s) unless the user explicitly asks for a global run.`;
   };
+  const buildAgentChatUsage = (agent: AgentHubAgent) => {
+    const tools = agent.tools || [];
+    const canAcquire = tools.some(tool => tool.startsWith('lead.acquire') || tool === 'public_pool.import');
+    const canAnalyze = tools.some(tool => ['lead.analyze', 'lead.score', 'client.summarize', 'next_step.recommend', 'knowledge.search', 'product.read'].includes(tool));
+    const canEmail = tools.some(tool => tool.startsWith('email.'));
+    const canWhatsApp = tools.some(tool => tool.startsWith('whatsapp.'));
+    const canWriteCrm = tools.some(tool => /^(client|lead)\.(update|comment|log|tag|stage|create)/.test(tool));
+    const canPlan = tools.some(tool => tool.includes('plan') || tool.includes('global_agent'));
+    const modes = [
+      canAcquire && (language === 'zh' ? '获取/导入线索' : 'acquire or import leads'),
+      canAnalyze && (language === 'zh' ? '分析客户、评分和推荐下一步' : 'analyze accounts, score leads, and recommend next steps'),
+      canEmail && (language === 'zh' ? '起草/安排/发送邮件（高风险动作会进入审批）' : 'draft, schedule, or send email, with risky actions routed to approval'),
+      canWhatsApp && (language === 'zh' ? '起草/发送 WhatsApp 消息（遵循账号与额度策略）' : 'draft or send WhatsApp messages while respecting account and quota rules'),
+      canWriteCrm && (language === 'zh' ? '更新 CRM 记录、备注、标签和日志' : 'update CRM records, comments, tags, and logs'),
+      canPlan && (language === 'zh' ? '拆解跨模块计划并生成可审核执行项' : 'break work into cross-module plans and reviewable execution items')
+    ].filter(Boolean);
+    const mentionHint = language === 'zh'
+      ? '在聊天框输入 @客户名 可引用客户资料；不引用客户时，我会按当前 Agent 的职责判断是否执行全局任务。'
+      : 'Type @client name to reference a customer; without a customer mention, I will decide whether the request should run globally based on this agent role.';
+    const executionHint = agent.guardrail === 'auto'
+      ? (language === 'zh' ? '该 Agent 当前允许自动执行低风险授权工具；需要审批的动作会在聊天窗口显示确认按钮。' : 'This agent can auto-run authorized low-risk tools; approval-required actions will show confirmation buttons in chat.')
+      : (language === 'zh' ? '该 Agent 当前以人工审核为主；会先生成计划或待审批动作，再由你确认。' : 'This agent is review-first; it will prepare plans or approval items before execution.');
+    const examples = [
+      canAcquire && (language === 'zh' ? '例如：帮我基于产品和知识库获取 10 条太阳能运维客户线索' : 'Example: find 10 solar operations leads based on our products and knowledge base'),
+      canAnalyze && (language === 'zh' ? '例如：分析 @客户名 的成交概率和最佳下一步' : 'Example: analyze @Client Name conversion probability and best next step'),
+      canEmail && (language === 'zh' ? '例如：为 @客户名 起草一封首次跟进邮件' : 'Example: draft a first follow-up email for @Client Name'),
+      canWhatsApp && (language === 'zh' ? '例如：给 @客户名 生成一条 WhatsApp 破冰消息' : 'Example: create a WhatsApp ice-breaking message for @Client Name')
+    ].filter(Boolean).slice(0, 2);
+    return [
+      modes.length
+        ? (language === 'zh' ? `你可以让我${modes.join('、')}。` : `Use this agent to ${modes.join(', ')}.`)
+        : (language === 'zh' ? '你可以把业务目标直接告诉这个 Agent，它会根据已授权工具判断可执行范围。' : 'Tell this agent the business goal; it will decide what it can do from its authorized tools.'),
+      mentionHint,
+      executionHint,
+      ...examples
+    ].join(' ');
+  };
   useEffect(() => {
     if (draftAgent || tab !== 'fleet') return;
     const selectedVisible = visibleQueueAgents.some(agent => agent.id === selectedAgentId);
@@ -1653,7 +1690,7 @@ export function AgentHub() {
                     <Bot className="h-3.5 w-3.5" />
                     {language === 'zh' ? '使用方法' : 'How to use this agent'}
                   </div>
-                  <p className="text-xs leading-relaxed text-slate-400">{activeChatAgent.instructions || (language === 'zh' ? '这个智能体暂未配置说明。' : 'No instructions configured for this agent.')}</p>
+                  <p className="text-xs leading-relaxed text-slate-400">{buildAgentChatUsage(activeChatAgent)}</p>
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {(activeChatAgent.tools || []).slice(0, 8).map(tool => (
                       <span key={tool} className="rounded border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-[10px] text-slate-500">{tool}</span>

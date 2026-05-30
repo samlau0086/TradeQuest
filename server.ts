@@ -119,6 +119,24 @@ const buildLanguagePolicy = (input: { systemLanguage?: string; customerLanguage?
   ].join('\n');
 };
 
+const removeCommentById = (comments: any[] = [], commentId: string): any[] => comments
+  .filter(comment => comment?.id !== commentId)
+  .map(comment => ({
+    ...comment,
+    replies: Array.isArray(comment.replies) ? removeCommentById(comment.replies, commentId) : comment.replies
+  }));
+
+const clearCommentPendingDelete = (comments: any[] = [], commentId: string): any[] => comments.map(comment => {
+  if (comment?.id === commentId) {
+    const { pendingDelete, pendingDeleteRequestedAt, ...rest } = comment;
+    return rest;
+  }
+  return {
+    ...comment,
+    replies: Array.isArray(comment.replies) ? clearCommentPendingDelete(comment.replies, commentId) : comment.replies
+  };
+});
+
 const countryNameFromCode = (code?: string) => {
   if (!code) return '';
   try {
@@ -4716,6 +4734,9 @@ No markdown wrappers, just valid JSON.`;
       );
 
       await pool.query(`UPDATE clients SET pending_edit_request = TRUE WHERE id = $1`, [id]);
+      if (requestedData?.action === 'delete_deal_comment' && requestedData?.deal_id) {
+        await pool.query(`UPDATE deals SET pending_edit_request = TRUE WHERE id = $1 AND user_id = $2`, [requestedData.deal_id, req.user.uid]);
+      }
       
       // Award points for enrichment via edit request
       await pool.query(`UPDATE users SET points = points + 5 WHERE id = $1`, [req.user.uid]);
@@ -4871,6 +4892,33 @@ No markdown wrappers, just valid JSON.`;
          return;
        }
 
+       if (updates.action === 'delete_client_comment') {
+         const commentId = String(updates.comment_id || '');
+         const clientData = typeof editReq.original_data === 'string' ? JSON.parse(editReq.original_data) : editReq.original_data;
+         const currentRes = await pool.query(`SELECT comments FROM clients WHERE id = $1 AND user_id = $2`, [editReq.client_id, editReq.user_id]);
+         const currentComments = currentRes.rows[0]?.comments || clientData.comments || [];
+         await pool.query(
+           `UPDATE clients SET comments = $2, pending_edit_request = FALSE, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND user_id = $3`,
+           [editReq.client_id, JSON.stringify(removeCommentById(currentComments, commentId)), editReq.user_id]
+         );
+         res.json({ success: true });
+         return;
+       }
+
+       if (updates.action === 'delete_deal_comment') {
+         const commentId = String(updates.comment_id || '');
+         const dealId = String(updates.deal_id || '');
+         const dealRes = await pool.query(`SELECT comments FROM deals WHERE id = $1 AND user_id = $2`, [dealId, editReq.user_id]);
+         const currentComments = dealRes.rows[0]?.comments || [];
+         await pool.query(
+           `UPDATE deals SET comments = $2, pending_edit_request = FALSE, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND user_id = $3`,
+           [dealId, JSON.stringify(removeCommentById(currentComments, commentId)), editReq.user_id]
+         );
+         await pool.query(`UPDATE clients SET pending_edit_request = FALSE WHERE id = $1 AND user_id = $2`, [editReq.client_id, editReq.user_id]);
+         res.json({ success: true });
+         return;
+       }
+
        const mapping: Record<string, string> = {
          name: 'name', company: 'company', country: 'country', status: 'status',
          address: 'address', state: 'state', city: 'city',
@@ -4920,6 +4968,24 @@ No markdown wrappers, just valid JSON.`;
          await pool.query(`UPDATE emails SET pending_delete = FALSE WHERE id = $1`, [updates.email_id]);
        } else if (updates.action === 'delete_deal') {
          await pool.query(`UPDATE deals SET pending_delete = FALSE WHERE id = $1`, [updates.deal_id]);
+       } else if (updates.action === 'delete_client_comment') {
+         const commentId = String(updates.comment_id || '');
+         const currentRes = await pool.query(`SELECT comments FROM clients WHERE id = $1`, [editReq.client_id]);
+         const currentComments = currentRes.rows[0]?.comments || [];
+         await pool.query(
+           `UPDATE clients SET comments = $2, pending_edit_request = FALSE WHERE id = $1`,
+           [editReq.client_id, JSON.stringify(clearCommentPendingDelete(currentComments, commentId))]
+         );
+       } else if (updates.action === 'delete_deal_comment') {
+         const commentId = String(updates.comment_id || '');
+         const dealId = String(updates.deal_id || '');
+         const dealRes = await pool.query(`SELECT comments FROM deals WHERE id = $1`, [dealId]);
+         const currentComments = dealRes.rows[0]?.comments || [];
+         await pool.query(
+           `UPDATE deals SET comments = $2, pending_edit_request = FALSE WHERE id = $1`,
+           [dealId, JSON.stringify(clearCommentPendingDelete(currentComments, commentId))]
+         );
+         await pool.query(`UPDATE clients SET pending_edit_request = FALSE WHERE id = $1`, [editReq.client_id]);
        } else {
          await pool.query(`UPDATE clients SET pending_edit_request = FALSE WHERE id = $1`, [editReq.client_id]);
        }

@@ -204,9 +204,15 @@ export function EditRequests() {
                       </button>
                       <div>
                         <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                          {next.action === 'delete_deal' ? `Deal: ${next.name || prev.name}` : req.current_client_name || 'Unknown Client'}
+                          {next.action === 'delete_deal'
+                            ? `Deal: ${next.name || prev.name}`
+                            : next.action === 'delete_deal_comment'
+                              ? `Lead Comment: ${next.lead_name || next.deal_id}`
+                              : next.action === 'delete_client_comment'
+                                ? `Client Comment: ${req.current_client_name || 'Unknown Client'}`
+                                : req.current_client_name || 'Unknown Client'}
                           <span className="text-sm font-normal text-slate-500">
-                            {next.action === 'delete_deal' ? `Deal ID: ${next.deal_id}` : `ID: ${req.client_id}`}
+                            {next.action === 'delete_deal' || next.action === 'delete_deal_comment' ? `Deal ID: ${next.deal_id}` : `ID: ${req.client_id}`}
                           </span>
                         </h3>
                         <p className="text-xs text-slate-400 mt-1">{t('requestedBy') || 'Requested by'} <span className="font-medium text-slate-300">{req.requester_name}</span> at {new Date(req.created_at).toLocaleString()}</p>
@@ -237,6 +243,11 @@ export function EditRequests() {
                           name: prev.name,
                           value: prev.value,
                           status: prev.status
+                        }, null, 2) : next.action === 'delete_client_comment' || next.action === 'delete_deal_comment' ? JSON.stringify({
+                          target: next.action === 'delete_deal_comment' ? 'lead comment' : 'client comment',
+                          comment_id: next.comment_id,
+                          client_id: req.client_id,
+                          deal_id: next.deal_id
                         }, null, 2) : JSON.stringify({ 
                            name: prev.name, 
                            company: prev.company, 
@@ -256,6 +267,9 @@ export function EditRequests() {
                           action: 'DELETE EMAIL PERMANENTLY'
                         }, null, 2) : next.action === 'delete_deal' ? JSON.stringify({
                           action: 'DELETE DEAL PERMANENTLY'
+                        }, null, 2) : next.action === 'delete_client_comment' || next.action === 'delete_deal_comment' ? JSON.stringify({
+                          action: 'DELETE COMMENT AFTER APPROVAL',
+                          comment_id: next.comment_id
                         }, null, 2) : JSON.stringify({ 
                            name: next.name, 
                            company: next.company, 

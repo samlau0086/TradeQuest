@@ -441,7 +441,7 @@ function AgentSettingsModal({ client, onClose }: { client: Client, onClose: () =
 }
 
 export function ClientDetails() {
-  const { clients, deals, selectedClientId, selectedDealId, selectClient, selectDeal, updateClientStatus, updateDeal, deleteClient, addComment, addReply, deleteLog, llmConfigs, activeLLMId, llmMappings, setView, selectEmail, logs, emails, incrementAgentHubTaskCount } = useStore();
+  const { clients, deals, selectedClientId, selectedDealId, selectClient, selectDeal, updateClientStatus, updateDeal, deleteClient, editClient, addComment, addReply, deleteLog, llmConfigs, activeLLMId, llmMappings, setView, selectEmail, logs, emails, incrementAgentHubTaskCount, notify } = useStore();
   
   const getLLMConfig = (module: string) => {
     const id = llmMappings[module] || activeLLMId;
@@ -664,6 +664,43 @@ export function ClientDetails() {
         : comment;
     });
     updateDeal(leadRecord.id, { comments: addReplyRecursive(leadRecord.comments || []) });
+  };
+
+  const markCommentPendingDelete = (comments: Comment[], commentId: string): Comment[] => comments.map(comment => {
+    if (comment.id === commentId) {
+      return { ...comment, pendingDelete: true, pendingDeleteRequestedAt: new Date().toISOString() };
+    }
+    return comment.replies?.length
+      ? { ...comment, replies: markCommentPendingDelete(comment.replies, commentId) }
+      : comment;
+  });
+
+  const handleRequestCommentDelete = async (commentId: string) => {
+    const token = useAuthStore.getState().token || localStorage.getItem('token');
+    if (!token) return;
+    try {
+      if (leadRecord) {
+        const nextComments = markCommentPendingDelete(leadRecord.comments || [], commentId);
+        updateDeal(leadRecord.id, { comments: nextComments });
+        await fetch(`/api/clients/${client.id}/edit-requests`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ action: 'delete_deal_comment', deal_id: leadRecord.id, comment_id: commentId, lead_name: leadRecord.name })
+        });
+      } else {
+        const nextComments = markCommentPendingDelete(client.comments || [], commentId);
+        editClient(client.id, { comments: nextComments });
+        await fetch(`/api/clients/${client.id}/edit-requests`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ action: 'delete_client_comment', comment_id: commentId })
+        });
+      }
+      notify(useStore.getState().language === 'zh' ? '评论删除请求已提交，等待审批。' : 'Comment delete request submitted for approval.', 'success');
+    } catch (error) {
+      console.error(error);
+      notify(useStore.getState().language === 'zh' ? '提交评论删除请求失败。' : 'Failed to request comment deletion.', 'error');
+    }
   };
 
   return (
@@ -1148,7 +1185,7 @@ export function ClientDetails() {
           
           <div className="space-y-4 mb-6">
             {leadComments.map((comment) => (
-              <CommentItem key={comment.id} comment={comment} onReply={handleAddLeadReply} />
+              <CommentItem key={comment.id} comment={comment} onReply={handleAddLeadReply} onDelete={handleRequestCommentDelete} />
             ))}
             {leadComments.length === 0 && (
               <div className="text-center text-xs text-slate-500 py-4 italic">No comments yet.</div>
