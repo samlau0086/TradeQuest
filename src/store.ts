@@ -1178,7 +1178,9 @@ export const useStore = create<StoreState>((set, get) => ({
   })),
   agentChatMessages: [],
   setAgentChatMessages: (messages) => set((state) => ({
-    agentChatMessages: (typeof messages === 'function' ? messages(state.agentChatMessages) : messages).slice(-300)
+    agentChatMessages: (typeof messages === 'function' ? messages(state.agentChatMessages) : messages)
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      .slice(-300)
   })),
   agentIdempotencyRecords: [],
   findAgentIdempotencyRecord: (input) => {

@@ -918,7 +918,10 @@ export function AgentHub() {
   } as AgentHubAgent);
   const activeChatAgent = agentHubAgents.find(agent => agent.id === chatAgentId) || globalAgent;
   const chatAgents = savedGlobalAgent ? agentHubAgents : [globalAgent, ...agentHubAgents];
-  const visibleChatMessages = agentChatMessages.filter(message => message.agentId === activeChatAgent?.id).slice(-30);
+  const visibleChatMessages = agentChatMessages
+    .filter(message => message.agentId === activeChatAgent?.id)
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+    .slice(-30);
   const persistAgentHubState = async () => {
     const authToken = token || localStorage.getItem('token');
     if (!authToken) return;
@@ -975,7 +978,9 @@ export function AgentHub() {
       content,
       createdAt: now
     };
-    const nextUserMessages = [...agentChatMessages, userMessage].slice(-300);
+    const nextUserMessages = [...agentChatMessages, userMessage]
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      .slice(-300);
     setAgentChatMessages(nextUserMessages);
     setChatInput('');
     setChatSending(true);
@@ -1004,7 +1009,9 @@ export function AgentHub() {
         content: data.reply || (language === 'zh' ? '已记录。' : 'Noted.'),
         createdAt: new Date().toISOString()
       };
-      const nextMessages = [...useStore.getState().agentChatMessages, reply].slice(-300);
+      const nextMessages = [...useStore.getState().agentChatMessages, reply]
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+        .slice(-300);
       setAgentChatMessages(nextMessages);
       if (data.soulPatch) {
         const current = useStore.getState().agentHubAgents.find(agent => agent.id === targetAgent.id) || targetAgent;

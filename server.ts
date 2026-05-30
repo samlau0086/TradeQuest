@@ -1134,7 +1134,9 @@ No markdown wrappers, just valid JSON.`;
     ]));
     const deletedAgentHubAgentIdSet = new Set(deletedAgentHubAgentIds);
     merged.agentRunRecords = mergeSettingsArrayById(existing.agentRunRecords || [], incoming.agentRunRecords || []).slice(0, 200);
-    merged.agentChatMessages = mergeSettingsArrayById(existing.agentChatMessages || [], incoming.agentChatMessages || []).slice(-300);
+    merged.agentChatMessages = mergeSettingsArrayById(existing.agentChatMessages || [], incoming.agentChatMessages || [])
+      .sort((a: any, b: any) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime())
+      .slice(-300);
     merged.agentHarnessRuns = mergeSettingsArrayById(existing.agentHarnessRuns || [], incoming.agentHarnessRuns || []);
     merged.globalAgentPlans = mergeSettingsArrayById(existing.globalAgentPlans || [], incoming.globalAgentPlans || []);
     merged.deletedAgentHubAgentIds = deletedAgentHubAgentIds;
