@@ -795,7 +795,7 @@ Return JSON only:
 
   app.post("/api/agent-hub/chat", authenticateToken, async (req: any, res) => {
     try {
-      const { agentId = 'global_agent', agent: requestAgent = null, message = '', history = [], llmConfig } = req.body || {};
+      const { agentId = 'global_agent', agent: requestAgent = null, message = '', history = [], contextClients = [], llmConfig } = req.body || {};
       if (!String(message).trim()) return res.status(400).json({ error: "Missing message" });
       const settingsRes = await pool.query('SELECT settings FROM users WHERE id = $1', [req.user.uid]);
       const settings = settingsRes.rows[0]
@@ -814,6 +814,7 @@ Do not change tool permissions, guardrails, or safety rules. Produce a controlle
 If the user asks about this agent's configuration, answer from the Agent JSON below exactly. Do not infer missing configuration.
 For Event Trigger questions, use agent.eventTriggers and agent.eventTriggerScope exactly.
 If the user asks this agent to perform work now, set shouldRun true and include a concrete runObjective. Do not claim the work has already been executed in reply; say that you will create an Agent Hub run.
+If contextClients are provided, treat them as the referenced CRM customers from @mentions. Use their exact IDs/names in replies and runObjective. If the user asks for an action on a referenced customer, scope the runObjective to those customers unless the user explicitly asks for a global action.
 Internal-facing output language: ${settings.language === 'zh' ? 'Chinese' : 'English'}.
 
 Agent:
@@ -838,6 +839,9 @@ ${JSON.stringify({
 
 Recent chat:
 ${JSON.stringify(Array.isArray(history) ? history.slice(-8) : [], null, 2)}
+
+Referenced CRM customers:
+${JSON.stringify(Array.isArray(contextClients) ? contextClients.slice(0, 5) : [], null, 2)}
 
 User message:
 ${message}

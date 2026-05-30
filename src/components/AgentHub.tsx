@@ -894,6 +894,7 @@ export function AgentHub() {
     agentRunRecords,
     agentChatMessages,
     setAgentChatMessages,
+    clients,
     updateAgentHarnessRun,
     deleteAgentHarnessRun,
     updateGlobalAgentPlan,
@@ -986,6 +987,39 @@ export function AgentHub() {
     .filter(message => message.agentId === activeChatAgent?.id)
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
     .slice(-30);
+  const resolveMentionedClients = (raw: string) => {
+    const lower = raw.toLowerCase();
+    return clients
+      .filter(client => {
+        const labels = [client.name, client.company, client.id]
+          .filter(Boolean)
+          .map(value => String(value).toLowerCase());
+        return labels.some(label => label && lower.includes(`@${label}`));
+      })
+      .slice(0, 5);
+  };
+  const formatMentionedClientContext = (mentionedClients: typeof clients) => (
+    mentionedClients.map(client => ({
+      id: client.id,
+      name: client.name,
+      company: client.company,
+      status: client.status,
+      country: client.country,
+      preferredLanguage: client.preferredLanguage,
+      tags: client.tags || [],
+      contactMethods: client.contactMethods || [],
+      leadScore: client.leadScore,
+      leadSummary: client.leadSummary,
+      leadNextStep: client.leadNextStep,
+      agentSummary: client.agentSummary,
+      agentNextStep: client.agentNextStep
+    }))
+  );
+  const buildClientAwareObjective = (content: string, mentionedClients: typeof clients) => {
+    if (mentionedClients.length === 0) return content;
+    const clientLines = mentionedClients.map(client => `${client.name}${client.company ? ` / ${client.company}` : ''} (${client.id})`).join('; ');
+    return `${content}\n\nTarget client context: ${clientLines}. Operate only on the referenced client(s) unless the user explicitly asks for a global run.`;
+  };
   useEffect(() => {
     if (draftAgent || tab !== 'fleet') return;
     const selectedVisible = visibleQueueAgents.some(agent => agent.id === selectedAgentId);
@@ -1018,31 +1052,15 @@ export function AgentHub() {
       throw new Error(data.error || 'Failed to save agent settings');
     }
   };
-  const resolveMentionedAgent = (raw: string) => {
-    const trimmed = raw.trim();
-    if (!trimmed.startsWith('@')) return { agent: null as AgentHubAgent | null, message: raw };
-    const normalized = trimmed.toLowerCase();
-    const matched = [...agentHubAgents]
-      .sort((a, b) => b.name.length - a.name.length)
-      .find(agent => (
-        normalized.startsWith(`@${agent.name.toLowerCase()}`) ||
-        normalized.startsWith(`@${agent.id.toLowerCase()}`) ||
-        normalized.startsWith(`@${agent.name.toLowerCase().replace(/\s+/g, '')}`)
-      ));
-    if (!matched) return { agent: null as AgentHubAgent | null, message: raw };
-    const mentionForms = [`@${matched.name}`, `@${matched.id}`, `@${matched.name.replace(/\s+/g, '')}`];
-    const usedMention = mentionForms.find(form => trimmed.toLowerCase().startsWith(form.toLowerCase())) || mentionForms[0];
-    return { agent: matched, message: trimmed.slice(usedMention.length).trim() };
-  };
   const isExecutionIntent = (value: string) => (
     /(执行|开始|运行|获取|生成|导入|富集|分析|评分|打分|跟进|发送|起草|创建|run|execute|start|acquire|get|import|enrich|analyze|score|send|draft|create)/i.test(value)
   );
   const sendAgentChat = async () => {
-    const parsed = resolveMentionedAgent(chatInput);
-    const targetAgent = parsed.agent || activeChatAgent || globalAgent;
-    const content = (parsed.message || chatInput).trim();
+    const targetAgent = activeChatAgent || globalAgent;
+    const content = chatInput.trim();
+    const mentionedClients = resolveMentionedClients(content);
+    const clientContext = formatMentionedClientContext(mentionedClients);
     if (!targetAgent || !content || chatSending) return;
-    if (parsed.agent) setChatAgentId(parsed.agent.id);
     const now = new Date().toISOString();
     const userMessage: AgentChatMessage = {
       id: `chat_${Date.now()}_user`,
@@ -1066,6 +1084,7 @@ export function AgentHub() {
           agentId: targetAgent.id,
           agent: targetAgent,
           message: content,
+          contextClients: clientContext,
           history: nextUserMessages.filter(item => item.agentId === targetAgent.id).slice(-10).map(item => ({
             role: item.role,
             agentName: item.agentName,
@@ -1103,7 +1122,7 @@ export function AgentHub() {
         setChatRunningAgentId(targetAgent.id);
         setAgentChatMessages(messages => [...messages, loadingMessage]);
         try {
-          const result = await runAgentNow(targetAgent, data.runObjective || content, { preserveTab: true, skipRefresh: true });
+          const result = await runAgentNow(targetAgent, data.runObjective || buildClientAwareObjective(content, mentionedClients), { preserveTab: true, skipRefresh: true });
           const executionSummary = formatChatRunResult(result, language);
           const statusMessage: AgentChatMessage = {
             id: loadingMessageId,
@@ -1152,6 +1171,15 @@ export function AgentHub() {
     } finally {
       setChatSending(false);
     }
+  };
+  const deleteChatMessage = (messageId: string) => {
+    setAgentChatMessages(messages => messages.filter(message => message.id !== messageId));
+    notify(language === 'zh' ? '聊天消息已删除。' : 'Chat message deleted.', 'success');
+  };
+  const clearActiveAgentChat = () => {
+    if (!activeChatAgent) return;
+    setAgentChatMessages(messages => messages.filter(message => message.agentId !== activeChatAgent.id));
+    notify(language === 'zh' ? '当前智能体聊天记录已清空。' : 'Current agent chat history cleared.', 'success');
   };
   const saveAgent = (agent: Omit<AgentHubAgent, 'createdAt' | 'updatedAt' | 'tasksCompleted'> | Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'>) => {
     const existingAgent = 'id' in agent ? agentHubAgents.find(item => item.id === agent.id) : null;
@@ -1496,23 +1524,13 @@ export function AgentHub() {
               </div>
               <p className="mt-2 text-xs text-slate-500 leading-relaxed">
                 {language === 'zh'
-                  ? '输入 @agent名 与指定智能体沟通。选中后会保持该对象，直到点叉清除；未指定时默认全局 Agent。'
-                  : 'Type @agent name to chat with a specific agent. The tag stays active until removed; without a tag, Global Agent is used.'}
+                  ? '从左侧选择智能体进行对话。输入框中使用 @客户名 引用客户，让智能体基于该客户资料执行或回复。'
+                  : 'Select an agent on the left. Use @client name in the input to reference a customer for client-specific work.'}
               </p>
               {activeChatAgent && (
                 <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs text-blue-100">
                   <Bot className="w-3.5 h-3.5" />
-                  <span className="max-w-[200px] truncate">{chatAgentId ? `@${activeChatAgent.name}` : (language === 'zh' ? '默认：Global Agent' : 'Default: Global Agent')}</span>
-                  {chatAgentId && (
-                    <button
-                      type="button"
-                      onClick={() => setChatAgentId(null)}
-                      className="text-slate-400 hover:text-white"
-                      title={language === 'zh' ? '清除 Agent 标签' : 'Clear agent tag'}
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
+                  <span className="max-w-[200px] truncate">{activeChatAgent.name}</span>
                 </div>
               )}
               <div className="mt-4 space-y-1">
@@ -1543,14 +1561,31 @@ export function AgentHub() {
               <div className="flex items-center justify-between gap-3 border-b border-neutral-800 bg-neutral-950 px-5 py-4">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-bold text-slate-100">{activeChatAgent?.name || 'Global Agent'}</div>
-                  <div className="mt-1 text-xs text-slate-500">{language === 'zh' ? '通过对话帮助智能体积累可审核的进化建议' : 'Chat to create reviewable evolution proposals'}</div>
+                  <div className="mt-1 text-xs text-slate-500">{language === 'zh' ? '通过对话执行任务、引用客户、沉淀可审核的进化建议' : 'Chat to run tasks, reference clients, and create reviewable evolution proposals'}</div>
                 </div>
+                <button
+                  type="button"
+                  onClick={clearActiveAgentChat}
+                  disabled={visibleChatMessages.length === 0}
+                  className="inline-flex items-center gap-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs font-bold text-red-200 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  {language === 'zh' ? '清空' : 'Clear'}
+                </button>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(circle_at_top,_rgba(30,64,175,0.12),transparent_34%)] p-5">
                 {visibleChatMessages.length > 0 ? (
                 <div className="space-y-3">
                   {visibleChatMessages.map(message => (
-                    <div key={message.id} className={cn('rounded-md px-3 py-2 text-sm', message.role === 'user' ? 'ml-auto max-w-[85%] bg-blue-600/20 text-blue-50' : 'mr-auto max-w-[85%] bg-neutral-900 text-slate-200')}>
+                    <div key={message.id} className={cn('group relative rounded-md px-3 py-2 pr-9 text-sm', message.role === 'user' ? 'ml-auto max-w-[85%] bg-blue-600/20 text-blue-50' : 'mr-auto max-w-[85%] bg-neutral-900 text-slate-200')}>
+                      <button
+                        type="button"
+                        onClick={() => deleteChatMessage(message.id)}
+                        className="absolute right-2 top-2 rounded p-1 text-slate-600 opacity-0 transition-opacity hover:bg-black/30 hover:text-red-300 group-hover:opacity-100"
+                        title={language === 'zh' ? '删除这条消息' : 'Delete this message'}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                       <div className="mb-1 text-[10px] uppercase tracking-wide text-slate-500">{message.role === 'user' ? (language === 'zh' ? '你' : 'You') : message.agentName}</div>
                       <div className="flex items-start gap-2 whitespace-pre-wrap leading-relaxed">
                         {message.content === 'Running task...' || message.content === '正在执行任务...' ? <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-blue-300" /> : null}
@@ -1584,12 +1619,27 @@ export function AgentHub() {
                     <div className="max-w-sm">
                       <MessageSquare className="mx-auto h-10 w-10 text-slate-700" />
                       <div className="mt-3 text-sm font-bold text-slate-300">{language === 'zh' ? '开始与智能体对话' : 'Start an agent conversation'}</div>
-                      <p className="mt-2 text-xs leading-relaxed text-slate-600">{language === 'zh' ? '使用 @agent 名称切换对象，或直接发送消息给全局 Agent。' : 'Use @agent name to switch target, or send directly to Global Agent.'}</p>
+                      <p className="mt-2 text-xs leading-relaxed text-slate-600">{language === 'zh' ? '先在左侧选择智能体；输入 @客户名 可引用客户资料。' : 'Choose an agent on the left; type @client name to reference a customer.'}</p>
                     </div>
                   </div>
                 )}
               </div>
               <div className="border-t border-neutral-800 bg-neutral-950 p-4">
+              {activeChatAgent && (
+                <div className="mb-3 rounded-md border border-neutral-800 bg-black/50 p-3">
+                  <div className="mb-1 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-blue-300">
+                    <Bot className="h-3.5 w-3.5" />
+                    {language === 'zh' ? '使用方法' : 'How to use this agent'}
+                  </div>
+                  <p className="text-xs leading-relaxed text-slate-400">{activeChatAgent.instructions || (language === 'zh' ? '这个智能体暂未配置说明。' : 'No instructions configured for this agent.')}</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {(activeChatAgent.tools || []).slice(0, 8).map(tool => (
+                      <span key={tool} className="rounded border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-[10px] text-slate-500">{tool}</span>
+                    ))}
+                    {(activeChatAgent.tools || []).length > 8 && <span className="rounded border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-[10px] text-slate-500">+{(activeChatAgent.tools || []).length - 8}</span>}
+                  </div>
+                </div>
+              )}
               <div className="flex flex-col sm:flex-row gap-2">
                 <input
                   value={chatInput}
@@ -1600,12 +1650,12 @@ export function AgentHub() {
                       void sendAgentChat();
                     }
                   }}
-                  list="agent-chat-mentions"
-                  placeholder={language === 'zh' ? '@线索数据机器人 帮你记住：优先从产品 SKU 生成关键词...' : '@Lead Data Agent Remember: prioritize keywords from product SKUs...'}
+                  list="agent-chat-client-mentions"
+                  placeholder={language === 'zh' ? '例如：帮我分析 @客户名 的下一步跟进策略' : 'Example: Analyze next follow-up strategy for @Client Name'}
                   className="min-w-0 flex-1 rounded-md border border-neutral-700 bg-black px-4 py-2.5 text-sm text-slate-100 outline-none focus:border-blue-500"
                 />
-                <datalist id="agent-chat-mentions">
-                  {agentHubAgents.map(agent => <option key={agent.id} value={`@${agent.name}`} />)}
+                <datalist id="agent-chat-client-mentions">
+                  {clients.map(client => <option key={client.id} value={`@${client.name}`} label={[client.company, client.country].filter(Boolean).join(' · ')} />)}
                 </datalist>
                 <button
                   type="button"
