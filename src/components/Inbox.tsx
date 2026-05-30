@@ -27,8 +27,79 @@ interface InboxWhatsAppConversation {
   lastHubClientId?: string;
 }
 
+function decodeHtmlEntities(value: string) {
+  const textarea = document.createElement('textarea');
+  textarea.innerHTML = value;
+  return textarea.value;
+}
+
+function htmlEmailToText(html: string) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html || '', 'text/html');
+  doc.querySelectorAll([
+    'script',
+    'style',
+    'meta',
+    'link',
+    'img[src*="/api/track/open/"]',
+    'blockquote',
+    '.gmail_quote',
+    '.gmail_attr',
+    '.yahoo_quoted',
+    '.moz-cite-prefix',
+    '.protonmail_quote',
+    '.OutlookMessageHeader',
+    '[type="cite"]'
+  ].join(',')).forEach(node => node.remove());
+  const htmlWithBreaks = doc.body.innerHTML
+    .replace(/<\s*br\s*\/?>/gi, '\n')
+    .replace(/<\/\s*(p|div|li|tr|h[1-6])\s*>/gi, '\n')
+    .replace(/<\s*li[^>]*>/gi, '\n- ');
+  return decodeHtmlEntities(htmlWithBreaks.replace(/<[^>]+>/g, ' '))
+    .replace(/\r/g, '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function extractLatestEmailText(htmlOrText: string) {
+  const text = htmlEmailToText(htmlOrText);
+  const separators = [
+    /\n\s*On\s.+?\bwrote:\s*\n/i,
+    /\n\s*-{2,}\s*Original Message\s*-{2,}\s*\n/i,
+    /\n\s*From:\s.+\n\s*(Sent|Date):\s.+\n/i,
+    /\n\s*发件人[:：]\s.+\n/i,
+    /\n\s*发送时间[:：]\s.+\n/i,
+    /\n\s*De\s*:\s.+\n\s*Envoyé\s*:\s.+\n/i,
+    /\n\s*Von:\s.+\n\s*Gesendet:\s.+\n/i,
+    /\n\s*_{6,}\s*\n/
+  ];
+  const cutAt = separators
+    .map(pattern => {
+      const match = pattern.exec(text);
+      return match?.index ?? -1;
+    })
+    .filter(index => index > 0)
+    .sort((a, b) => a - b)[0];
+  const latest = cutAt ? text.slice(0, cutAt) : text;
+  return latest
+    .split('\n')
+    .filter(line => !line.trim().startsWith('>'))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function fallbackEmailKnowledgeSummary(text: string) {
+  const compact = text.replace(/\s+/g, ' ').trim();
+  return compact.length > 1200 ? `${compact.slice(0, 1200)}...` : compact;
+}
+
 export function Inbox() {
-  const { emails, markEmailRead, clients, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail, notify } = useStore();
+  const { emails, markEmailRead, clients, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail, notify, language, llmConfigs, activeLLMId, llmMappings } = useStore();
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'inbox-layout' });
   const [filter, setFilter] = useState<'inbox' | 'sent' | 'scheduled' | 'drafts'>('inbox');
   const [emailListMode, setEmailListMode] = useState<'list' | 'conversation'>('list');
@@ -418,19 +489,70 @@ export function Inbox() {
     setIsAddingTag(false);
   };
 
-  const handleAddToRag = () => {
+  const handleAddToRag = async () => {
     if (!selectedEmail || !selectedEmail.clientId) return;
     setAddingToRag(true);
-    addKnowledgeItem({
-      clientId: selectedEmail.clientId,
-      title: `Email: ${selectedEmail.subject}`,
-      content: `Date: ${new Date(selectedEmail.date).toLocaleString()}\nFrom: ${selectedEmail.sender}\nTo: ${selectedEmail.recipient}\n\n${selectedEmail.body}`
-    });
-    setTimeout(() => {
-      setAddingToRag(false);
+    try {
+      const latestText = extractLatestEmailText(selectedEmail.body || '');
+      if (!latestText) {
+        notify('No readable email text found to add to the knowledge base.', 'warning');
+        return;
+      }
+
+      let summary = '';
+      const llmId = llmMappings.analysis || llmMappings.agent_context_suggestions || activeLLMId;
+      const llmConfig = llmId ? llmConfigs.find(config => config.id === llmId) : null;
+      if (llmConfig) {
+        try {
+          const res = await fetch('/api/chat/magic', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${useAuthStore.getState().token}`
+            },
+            body: JSON.stringify({
+              command: `Summarize the latest email message into a concise CRM knowledge-base note. Use ${language === 'zh' ? 'Chinese' : 'English'} for internal users. Extract only stable facts, customer needs, objections, preferences, requirements, deadlines, quoted terms, and recommended follow-up context. Do not include HTML, quoted previous emails, signatures, greetings, tracking text, or markdown fences.`,
+              context: {
+                clientId: selectedEmail.clientId,
+                systemLanguage: language,
+                subject: selectedEmail.subject,
+                sender: selectedEmail.sender,
+                recipient: selectedEmail.recipient,
+                latestEmailText: latestText
+              },
+              llmConfig,
+              skipKnowledgeBase: true
+            })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok && data.result) summary = String(data.result).trim();
+        } catch (error) {
+          console.warn('Email knowledge summarization failed, using cleaned text fallback.', error);
+        }
+      }
+
+      const content = [
+        `Date: ${new Date(selectedEmail.date).toLocaleString()}`,
+        `From: ${selectedEmail.sender}`,
+        `To: ${selectedEmail.recipient}`,
+        '',
+        summary || fallbackEmailKnowledgeSummary(latestText)
+      ].join('\n');
+
+      addKnowledgeItem({
+        clientId: selectedEmail.clientId,
+        title: `Email Summary: ${selectedEmail.subject}`,
+        content
+      });
       setAddedToRagId(selectedEmail.id);
       setTimeout(() => setAddedToRagId(null), 2000);
-    }, 500);
+      notify(language === 'zh' ? '已将邮件摘要添加到知识库。' : 'Email summary added to knowledge base.', 'success');
+    } catch (error) {
+      console.error(error);
+      notify(error instanceof Error ? error.message : 'Failed to add email to knowledge base.', 'error');
+    } finally {
+      setAddingToRag(false);
+    }
   };
 
   return (
