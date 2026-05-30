@@ -59,7 +59,7 @@ const dataUrlToFile = async (dataUrl: string, name: string, mimeType: string) =>
 };
 
 export function WhatsAppChatModal({ client, phone, conversation: initialConversation, initialMessage = '', embedded = false, onClose }: Props) {
-  const { notify, addLog, selectClient, language, llmConfigs, activeLLMId, llmMappings, logs, emails } = useStore();
+  const { notify, addLog, selectClient, language, llmConfigs, activeLLMId, llmMappings, logs, emails, incrementAgentHubTaskCount } = useStore();
   const t = useTranslation(language);
   const [hubClients, setHubClients] = useState<WhatsAppHubClient[]>([]);
   const [messages, setMessages] = useState<WhatsAppHubMessage[]>([]);
@@ -313,6 +313,7 @@ Write in a WhatsApp style: concise, natural, conversational, easy to reply to, a
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to generate WhatsApp message');
       setBody((data.result || '').trim());
+      incrementAgentHubTaskCount('whatsapp_draft_agent');
       notify('WhatsApp message drafted with AI.', 'success');
     } catch (error: any) {
       notify(error.message || 'Failed to generate WhatsApp message.', 'error');

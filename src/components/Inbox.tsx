@@ -1619,7 +1619,7 @@ function EmailRichTextEditor({
 }
 
 export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = '', initialBody = '', originalEmailBody = '', draftId, replyToEmailId, initialOutboxId, className = '' }: { onClose: () => void, initialRecipient?: string, initialSubject?: string, initialBody?: string, originalEmailBody?: string, draftId?: string, replyToEmailId?: string, initialOutboxId?: string, className?: string }) {
-  const { clients, emails, logs, addEmail, editEmail, deleteEmails, addLog, outboxConfigs, inboxConfigs, emailServerMappings, signatures, timezone, notify } = useStore();
+  const { clients, emails, logs, addEmail, editEmail, deleteEmails, addLog, outboxConfigs, inboxConfigs, emailServerMappings, signatures, timezone, notify, incrementAgentHubTaskCount } = useStore();
   const resolvePreferredOutboxId = () => {
     if (initialOutboxId && outboxConfigs.some(config => config.id === initialOutboxId)) return initialOutboxId;
     if (draftId) {
@@ -1728,6 +1728,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
         })
       });
       const data = await res.json();
+      if (data.result) incrementAgentHubTaskCount('follow_up_agent');
       setPurpose(data.result.replace(/["']/g, '').trim());
     } catch(err) {
       console.error(err);
@@ -1932,6 +1933,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
       });
       const data = await res.json();
       if (data.result) {
+        incrementAgentHubTaskCount('email_draft_agent');
         setBody(normalizeEmailEditorHtml(stripTrailingConfiguredSignature(data.result)));
       }
     } catch (e) {
@@ -1962,6 +1964,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
         })
       });
       const data = await res.json();
+      if (data.result) incrementAgentHubTaskCount('email_draft_agent');
       return stripTrailingConfiguredSignature(data.result || '');
     } catch(err) {
       console.error(err);
@@ -2039,6 +2042,7 @@ Customer-facing output language: ${outboundLanguage}. This language was resolved
         })
       });
       const data = await res.json();
+      if (data.result) incrementAgentHubTaskCount('email_draft_agent');
       const draft = parseAiEmailDraft(data.result || '');
       if (draft.subject) setSubject(draft.subject);
       else if (!subject) setSubject('Follow up');

@@ -312,7 +312,7 @@ export default function App() {
               lastRunAt: new Date(now).toISOString(),
               scheduleRunCount: nextRunCount,
               scheduleEnabled: agent.scheduleMaxRuns != null && nextRunCount >= agent.scheduleMaxRuns ? false : agent.scheduleEnabled,
-              tasksCompleted: agent.tasksCompleted + (agent.guardrail === 'auto' ? 1 : 0)
+              tasksCompleted: agent.tasksCompleted + 1
             });
             state.notify(`${agent.name} scheduled run created.`, 'info');
           } catch (error) {

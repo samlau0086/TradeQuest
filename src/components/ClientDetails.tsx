@@ -32,7 +32,7 @@ function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { met
   const [loadingPurpose, setLoadingPurpose] = useState(false);
   const [activeTab, setActiveTab] = useState<'compose' | 'history'>('compose');
   const [showWhatsAppChat, setShowWhatsAppChat] = useState(false);
-  const { addLog, logs, emails, userTitle, outboxConfigs, addEmail, llmConfigs, activeLLMId, llmMappings, language, setView, selectEmail, notify } = useStore();
+  const { addLog, logs, emails, userTitle, outboxConfigs, addEmail, llmConfigs, activeLLMId, llmMappings, language, setView, selectEmail, notify, incrementAgentHubTaskCount } = useStore();
   const [selectedOutboxId, setSelectedOutboxId] = useState<string>(outboxConfigs?.[0]?.id || '');
 
   const getLLMConfig = (module: string) => {
@@ -71,6 +71,7 @@ function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { met
         })
       });
       const data = await res.json();
+      if (data.result) incrementAgentHubTaskCount('follow_up_agent');
       setPurpose(data.result.replace(/["']/g, '').trim());
     } catch(err) {
       console.error(err);
@@ -96,6 +97,7 @@ function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { met
         })
       });
       const data = await res.json();
+      if (data.result) incrementAgentHubTaskCount(method.type === 'whatsapp' ? 'whatsapp_draft_agent' : method.type === 'email' ? 'email_draft_agent' : 'follow_up_agent');
       setDraft(data.result);
     } catch(err) {
       console.error(err);
@@ -438,7 +440,7 @@ function AgentSettingsModal({ client, onClose }: { client: Client, onClose: () =
 }
 
 export function ClientDetails() {
-  const { clients, deals, selectedClientId, selectedDealId, selectClient, selectDeal, updateClientStatus, updateDeal, deleteClient, addComment, addReply, deleteLog, llmConfigs, activeLLMId, llmMappings, setView, selectEmail, logs, emails } = useStore();
+  const { clients, deals, selectedClientId, selectedDealId, selectClient, selectDeal, updateClientStatus, updateDeal, deleteClient, addComment, addReply, deleteLog, llmConfigs, activeLLMId, llmMappings, setView, selectEmail, logs, emails, incrementAgentHubTaskCount } = useStore();
   
   const getLLMConfig = (module: string) => {
     const id = llmMappings[module] || activeLLMId;
@@ -596,6 +598,7 @@ export function ClientDetails() {
         'general',
         { source: 'lead_scoring_agent', score, summary: analyzedLeadSummary, leadId: leadRecord?.id, dealId: leadRecord?.id }
       );
+      incrementAgentHubTaskCount('lead_scoring_agent');
     } catch(err) {
       console.error(err);
     } finally {

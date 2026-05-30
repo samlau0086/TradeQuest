@@ -168,7 +168,8 @@ export function GlobalAgent() {
     notify,
     sendExternalNotification,
     findAgentIdempotencyRecord,
-    recordAgentIdempotency
+    recordAgentIdempotency,
+    incrementAgentHubTaskCount
   } = useStore();
   const { token } = useAuthStore();
   const defaultObjective = DEFAULT_OBJECTIVES[language];
@@ -336,6 +337,7 @@ ${objective}`;
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || 'AI planner request failed');
+      incrementAgentHubTaskCount('global_agent');
       const text = data?.result || data?.response || '';
       const plan = parsePlan(text);
       const planId = addGlobalAgentPlan(plan);

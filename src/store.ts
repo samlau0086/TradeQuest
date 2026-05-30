@@ -604,6 +604,7 @@ export interface StoreState {
   deletedAgentHubAgentIds: string[];
   addAgentHubAgent: (agent: Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'> & Partial<Pick<AgentHubAgent, 'tasksCompleted'>>) => string;
   updateAgentHubAgent: (id: string, updates: Partial<AgentHubAgent>) => void;
+  incrementAgentHubTaskCount: (id: string, amount?: number) => void;
   resetAgentHubAgentToDefault: (id: string) => AgentHubAgent | null;
   deleteAgentHubAgent: (id: string) => void;
   agentRunRecords: AgentHubRunRecord[];
@@ -1263,6 +1264,18 @@ export const useStore = create<StoreState>((set, get) => ({
   updateAgentHubAgent: (id, updates) => set((state) => ({
     agentHubAgents: state.agentHubAgents.map(agent => (
       agent.id === id ? { ...agent, ...updates, updatedAt: new Date().toISOString() } : agent
+    ))
+  })),
+  incrementAgentHubTaskCount: (id, amount = 1) => set((state) => ({
+    agentHubAgents: state.agentHubAgents.map(agent => (
+      agent.id === id
+        ? {
+            ...agent,
+            tasksCompleted: (agent.tasksCompleted || 0) + Math.max(1, amount),
+            lastRunAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }
+        : agent
     ))
   })),
   resetAgentHubAgentToDefault: (id) => {

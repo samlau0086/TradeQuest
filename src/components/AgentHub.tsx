@@ -241,6 +241,7 @@ async function generateAgentInstructions(
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || 'Failed to generate agent instructions');
+  state.incrementAgentHubTaskCount('agent_prompt_builder_agent');
   return String(data.instructions || '').trim();
 }
 
@@ -263,6 +264,7 @@ async function selectAgentToolsWithAI(
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || 'Failed to select tools');
+  state.incrementAgentHubTaskCount('agent_tool_selection_agent');
   return Array.isArray(data.tools) ? data.tools : [];
 }
 
@@ -860,6 +862,7 @@ export function AgentHub() {
     addAgentHubAgent,
     updateAgentHubAgent,
     resetAgentHubAgentToDefault,
+    incrementAgentHubTaskCount,
     deleteAgentHubAgent,
     agentHarnessRuns,
     globalAgentPlans,
@@ -1044,6 +1047,7 @@ export function AgentHub() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Failed to chat with agent');
+      incrementAgentHubTaskCount(targetAgent.id);
       const reply: AgentChatMessage = {
         id: `chat_${Date.now()}_agent`,
         agentId: targetAgent.id,

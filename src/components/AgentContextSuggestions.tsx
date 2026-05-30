@@ -80,7 +80,8 @@ export function AgentContextSuggestions({
     llmMappings,
     activeLLMId,
     agentContextAnalysisConfig,
-    updateAgentContextAnalysisConfig
+    updateAgentContextAnalysisConfig,
+    incrementAgentHubTaskCount
   } = useStore();
   const t = useTranslation(language);
   const [aiInsight, setAiInsight] = useState<{ intent: string; customerContext: string; knowledgeContext: string } | null>(null);
@@ -164,6 +165,7 @@ ${body || 'N/A'}`,
         };
         await onSaveAnalysis?.(cacheKey, insight);
         setAiInsight(insight);
+        incrementAgentHubTaskCount('context_suggestion_agent');
       })
       .catch(error => {
         if (error?.name !== 'AbortError') setAiInsight(null);
@@ -191,6 +193,7 @@ ${body || 'N/A'}`,
 
   const recordOption = (label: string, run: () => void) => {
     if (agent) {
+      incrementAgentHubTaskCount(agent.id);
       addAgentRunRecord({
         agentId: agent.id,
         agentName: agent.name,

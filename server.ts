@@ -2392,7 +2392,7 @@ No markdown wrappers, just valid JSON.`;
             agent.lastRunAt = new Date(now).toISOString();
             agent.scheduleRunCount = nextRunCount;
             agent.scheduleEnabled = agent.scheduleMaxRuns != null && nextRunCount >= agent.scheduleMaxRuns ? false : agent.scheduleEnabled;
-            agent.tasksCompleted = (agent.tasksCompleted || 0) + (agent.guardrail === 'auto' ? 1 : 0);
+            agent.tasksCompleted = (agent.tasksCompleted || 0) + 1;
             agent.updatedAt = new Date().toISOString();
           } catch (error: any) {
             summary.errors += 1;
@@ -2770,7 +2770,7 @@ Return JSON only:
       record.updatedAt = new Date().toISOString();
     }
 
-    agent.tasksCompleted = (agent.tasksCompleted || 0) + acted;
+    agent.tasksCompleted = (agent.tasksCompleted || 0) + Math.max(1, acted);
     agent.evolutionLog = [{
       id: `evo_run_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       source: 'run_reflection',
