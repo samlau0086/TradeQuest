@@ -131,6 +131,7 @@ function ToolSelector({
     } catch (error) {
       console.error(error);
       onChange(inferredTools);
+      throw error;
     } finally {
       setAutoSelecting(false);
     }
@@ -1017,6 +1018,9 @@ export function AgentHub() {
     const usedMention = mentionForms.find(form => trimmed.toLowerCase().startsWith(form.toLowerCase())) || mentionForms[0];
     return { agent: matched, message: trimmed.slice(usedMention.length).trim() };
   };
+  const isExecutionIntent = (value: string) => (
+    /(执行|开始|运行|获取|生成|导入|富集|分析|评分|打分|跟进|发送|起草|创建|run|execute|start|acquire|get|import|enrich|analyze|score|send|draft|create)/i.test(value)
+  );
   const sendAgentChat = async () => {
     const parsed = resolveMentionedAgent(chatInput);
     const targetAgent = parsed.agent || activeChatAgent || globalAgent;
@@ -1069,6 +1073,25 @@ export function AgentHub() {
         .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
         .slice(-300);
       setAgentChatMessages(nextMessages);
+      const shouldRunFromChat = !!data.shouldRun || isExecutionIntent(content);
+      if (shouldRunFromChat) {
+        try {
+          const result = await runAgentNow(targetAgent, data.runObjective || content);
+          const statusMessage: AgentChatMessage = {
+            id: `chat_${Date.now()}_run`,
+            agentId: targetAgent.id,
+            agentName: targetAgent.name,
+            role: 'agent',
+            content: language === 'zh'
+              ? `已创建执行任务。${result?.executionResult ? `执行结果：${JSON.stringify(result.executionResult)}` : '请在智能体运行记录中查看进度。'}`
+              : `Run created. ${result?.executionResult ? `Result: ${JSON.stringify(result.executionResult)}` : 'Check Agent Run History for progress.'}`,
+            createdAt: new Date().toISOString()
+          };
+          setAgentChatMessages(messages => [...messages, statusMessage]);
+        } catch {
+          // runAgentNow already shows a notification with the error.
+        }
+      }
       if (data.soulPatch) {
         const current = useStore.getState().agentHubAgents.find(agent => agent.id === targetAgent.id) || targetAgent;
         updateAgentHubAgent(targetAgent.id, {
@@ -1139,12 +1162,13 @@ export function AgentHub() {
     return restored;
   };
 
-  const runAgentNow = async (agent: AgentHubAgent) => {
+  const runAgentNow = async (agent: AgentHubAgent, objective?: string) => {
     setRunningAgentId(agent.id);
     try {
       const response = await fetch(`/api/agent-hub/agents/${encodeURIComponent(agent.id)}/run`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ objective })
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Failed to run agent');
@@ -1155,6 +1179,7 @@ export function AgentHub() {
         'success'
       );
       setTab(agent.guardrail === 'auto' ? 'runs' : 'approvals');
+      return data;
     } catch (error) {
       console.error(error);
       notify(error instanceof Error ? error.message : (language === 'zh' ? '智能体执行失败。' : 'Failed to run agent.'), 'error');

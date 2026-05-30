@@ -810,6 +810,7 @@ The user may give feedback, corrections, strategy, preferences, or operating les
 Do not change tool permissions, guardrails, or safety rules. Produce a controlled evolution proposal only.
 If the user asks about this agent's configuration, answer from the Agent JSON below exactly. Do not infer missing configuration.
 For Event Trigger questions, use agent.eventTriggers and agent.eventTriggerScope exactly.
+If the user asks this agent to perform work now, set shouldRun true and include a concrete runObjective. Do not claim the work has already been executed in reply; say that you will create an Agent Hub run.
 Internal-facing output language: ${settings.language === 'zh' ? 'Chinese' : 'English'}.
 
 Agent:
@@ -842,7 +843,9 @@ Return JSON only:
 {
   "reply": "direct response to the user as this agent, concise and useful",
   "soulPatch": "a proposed addition or refinement for this agent's Soul. Empty string if no durable learning is needed.",
-  "summary": "short internal summary of what should be learned. Empty string if no durable learning is needed."
+  "summary": "short internal summary of what should be learned. Empty string if no durable learning is needed.",
+  "shouldRun": false,
+  "runObjective": "specific execution objective if shouldRun is true, otherwise empty string"
 }`;
       const selectedLlmId = settings.llmMappings?.agent_harness || settings.llmMappings?.agent_instruction_generation || settings.activeLLMId;
       const mappedConfig = selectedLlmId ? (settings.llmConfigs || []).find((config: any) => config.id === selectedLlmId) : null;
@@ -852,7 +855,9 @@ Return JSON only:
         agentId: agent.id,
         reply: String(parsed.reply || '').trim(),
         soulPatch: String(parsed.soulPatch || '').trim(),
-        summary: String(parsed.summary || '').trim()
+        summary: String(parsed.summary || '').trim(),
+        shouldRun: !!parsed.shouldRun,
+        runObjective: String(parsed.runObjective || '').trim()
       });
     } catch (e: any) {
       console.error(e);
@@ -2494,10 +2499,17 @@ No markdown wrappers, just valid JSON.`;
     if (!agent) throw new Error('Agent configuration not found');
 
     const tools = Array.isArray(agent.tools) ? agent.tools : [];
+    if (tools.includes('lead.acquire')) {
+      return executeLeadAcquisitionAgentRun(userId, settings, run, agent);
+    }
     const canSendEmail = tools.includes('email.send');
     const canSendWhatsApp = tools.includes('whatsapp.send');
     const canLog = tools.includes('client.log') || tools.includes('lead.log');
     const canUpdateClient = tools.includes('client.update') || tools.includes('lead.update');
+    const canAnalyze = tools.some((tool: string) => ['lead.analyze', 'lead.score', 'client.summarize', 'next_step.recommend', 'product.read', 'knowledge.search', 'knowledge.read'].includes(tool));
+    if (!canSendEmail && !canSendWhatsApp && !canLog && !canUpdateClient && canAnalyze) {
+      return executeInsightAgentRun(userId, settings, run, agent);
+    }
     if (!canSendEmail && !canSendWhatsApp && !canLog && !canUpdateClient) {
       throw new Error('Agent has no executable tools configured');
     }
@@ -2804,7 +2816,7 @@ Return JSON only:
     for (const agent of matchedAgents) {
       const reviewStatus = agent.guardrail === 'auto' ? 'approved' : 'pending_review';
       const eventScope = agent.eventTriggerScope || 'subject';
-      const objective = isZh
+      let objective = isZh
         ? `事件触发运行：${agent.name}\n触发事件：${event}\n事件上下文：${JSON.stringify(payload, null, 2)}\n\n${agent.instructions || ''}`
         : `Event-triggered run: ${agent.name}\nEvent: ${event}\nEvent context: ${JSON.stringify(payload, null, 2)}\n\n${agent.instructions || ''}`;
       const expectedResult = isZh
@@ -2911,6 +2923,7 @@ Return JSON only:
   app.post('/api/agent-hub/agents/:agentId/run', authenticateToken, async (req: any, res) => {
     try {
       const { agentId } = req.params;
+      const requestedObjective = String(req.body?.objective || '').trim();
       const userRes = await pool.query('SELECT settings FROM users WHERE id = $1', [req.user.uid]);
       if (userRes.rows.length === 0) return res.status(404).json({ error: 'User not found' });
       const settings = typeof userRes.rows[0].settings === 'string' ? JSON.parse(userRes.rows[0].settings || '{}') : (userRes.rows[0].settings || {});
@@ -2922,9 +2935,10 @@ Return JSON only:
       const isZh = settings.language === 'zh';
       const reviewStatus = agent.guardrail === 'auto' ? 'approved' : 'pending_review';
       const nowIso = new Date().toISOString();
-      const objective = isZh
+      let objective = isZh
         ? `手动执行智能体：${agent.name}\n\n${agent.instructions || ''}`
         : `Manual agent run: ${agent.name}\n\n${agent.instructions || ''}`;
+      if (requestedObjective) objective = `${requestedObjective}\n\n${objective}`;
       const expectedResult = isZh
         ? `1. 读取该智能体可处理的上下文。\n2. 检查工具权限、幂等性和审核策略。\n3. 按配置执行工具：${(agent.tools || []).join(', ') || 'agent tools'}。\n4. 输出实际执行结果并写入运行记录。`
         : `1. Read context eligible for this agent.\n2. Check tool permissions, idempotency, and guardrail policy.\n3. Execute configured tools: ${(agent.tools || []).join(', ') || 'agent tools'}.\n4. Output actual execution result and write the run record.`;
@@ -3712,6 +3726,343 @@ Query: "${query}"`;
     if (Array.isArray(data?.items)) return data.items;
     if (provider === 'apify' && Array.isArray(data?.defaultDatasetItems)) return data.defaultDatasetItems;
     return [];
+  };
+
+  const searchLeadDataProvider = async (
+    provider: string,
+    config: any,
+    input: { query: string; keywords: string; industry: string; country: string; limit: number }
+  ) => {
+    if (!config?.apiKey) throw new Error(`${provider} data channel is not configured`);
+    const { query, keywords, industry, country, limit } = input;
+
+    if (provider === 'outscraper') {
+      const url = `https://api.outscraper.com/maps/search-v2?query=${encodeURIComponent(query)}&limit=${limit || 10}&async=false`;
+      const outRes = await fetch(url, { headers: { 'X-API-KEY': config.apiKey } });
+      if (!outRes.ok) throw new Error(`Outscraper API error: ${await readLeadChannelResponseMessage(outRes)}`);
+      const data = await outRes.json();
+      return normalizeLeadRows(pickLeadRows(provider, data), country, industry);
+    }
+
+    if (provider === 'apify' && config.actorId) {
+      const actorId = String(config.actorId).replace('/', '~');
+      const runRes = await fetch(`https://api.apify.com/v2/acts/${encodeURIComponent(actorId)}/run-sync-get-dataset-items?token=${encodeURIComponent(config.apiKey)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, keywords, industry, country, limit })
+      });
+      if (!runRes.ok) throw new Error(`Apify actor failed: ${await readLeadChannelResponseMessage(runRes)}`);
+      const data = await runRes.json();
+      return normalizeLeadRows(pickLeadRows(provider, data), country, industry);
+    }
+
+    if (provider === 'phantombuster' && config.agentId) {
+      const launchRes = await fetch('https://api.phantombuster.com/api/v2/agents/launch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Phantombuster-Key': config.apiKey },
+        body: JSON.stringify({ id: config.agentId, argument: { query, keywords, industry, country, limit } })
+      });
+      if (!launchRes.ok) throw new Error(`PhantomBuster agent failed: ${await readLeadChannelResponseMessage(launchRes)}`);
+      const data = await launchRes.json();
+      return normalizeLeadRows(pickLeadRows(provider, data), country, industry);
+    }
+
+    if (!config.searchEndpoint) throw new Error(`${provider} search endpoint is not configured`);
+    const genericRes = await fetch(config.searchEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.apiKey}`,
+        'X-API-Key': config.apiKey
+      },
+      body: JSON.stringify({ query, keywords, industry, country, limit })
+    });
+    if (!genericRes.ok) throw new Error(`${provider} search failed: ${await readLeadChannelResponseMessage(genericRes)}`);
+    const data = await genericRes.json();
+    return normalizeLeadRows(pickLeadRows(provider, data), country, industry);
+  };
+
+  const importLeadsToPublicPool = async (leads: any[]) => {
+    let addedCount = 0;
+    for (const lead of leads) {
+      const incomingMethods = [
+        ...(lead.contactMethods || []),
+        ...(lead.contacts || []).flatMap((contact: any) => contact.contactMethods || [])
+      ].filter((cm: any) => cm.value).map((cm: any) => cm.value);
+      if (incomingMethods.length > 0) {
+        const checkRes = await pool.query(`
+          SELECT id FROM clients
+          WHERE EXISTS (
+            SELECT 1 FROM jsonb_array_elements(contact_methods) as cm
+            WHERE cm->>'value' = ANY($1::text[])
+          ) OR EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(COALESCE(contacts, '[]'::jsonb)) as contact,
+                 jsonb_array_elements(COALESCE(contact->'contactMethods', '[]'::jsonb)) as cm
+            WHERE cm->>'value' = ANY($1::text[])
+          ) LIMIT 1
+        `, [incomingMethods]);
+        if (checkRes.rows.length > 0) continue;
+      }
+
+      const id = `c${Date.now()}${Math.floor(Math.random() * 1000)}`;
+      await pool.query(
+        `INSERT INTO clients (id, user_id, name, company, address, state, city, country, status, tags, last_contact, is_dormant, contact_methods, contacts, primary_contact_id, comments)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+        [id, null, lead.name, lead.company || '', lead.address || '', lead.state || '', lead.city || '', lead.country || '', 'Leads', JSON.stringify(lead.tags || []), null, false, JSON.stringify(lead.contactMethods || []), JSON.stringify(lead.contacts || []), lead.primaryContactId || null, JSON.stringify([])]
+      );
+      addedCount += 1;
+    }
+    return addedCount;
+  };
+
+  const executeLeadAcquisitionAgentRun = async (userId: string, settings: any, run: any, agent: any) => {
+    const isZh = settings.language === 'zh';
+    const firstStep = run.steps?.[0] || {};
+    const objective = `${run.objective || ''}\n${firstStep.description || ''}`;
+    const limitMatch = objective.match(/(\d+)\s*(?:条|个|leads?|线索)/i);
+    const limit = Math.max(1, Math.min(50, Number(limitMatch?.[1] || 10)));
+    const channelConfigs = settings.leadDataChannelConfigs || {};
+    const providerEntries = Object.entries(channelConfigs).filter(([provider, config]: any) => {
+      if (!config?.enabled || !config?.apiKey) return false;
+      if (provider === 'clay') return !!config.searchEndpoint;
+      return provider === 'outscraper' || provider === 'apify' || provider === 'phantombuster' || !!config.searchEndpoint;
+    });
+    if (providerEntries.length === 0) throw new Error('No configured lead data channel is available for lead.acquire');
+
+    const productsRes = await pool.query(
+      `SELECT sku, name, description FROM products WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20`,
+      [userId]
+    );
+    const kbRes = await searchKnowledgeBase(userId, null, `${agent.name} ${objective}`, null, 8).catch(() => ({ rows: [] as any[] }));
+    const llmId = settings.llmMappings?.agent_harness || settings.llmMappings?.agent_instruction_generation || settings.activeLLMId;
+    const llmConfig = llmId ? (settings.llmConfigs || []).find((config: any) => config.id === llmId) : null;
+    const prompt = `Create lead acquisition search parameters for this CRM agent.
+Agent instructions:
+${agent.instructions || ''}
+
+User objective:
+${objective}
+
+Products:
+${JSON.stringify(productsRes.rows, null, 2)}
+
+Knowledge:
+${(kbRes.rows || []).map((kb: any) => `[${kb.title}]\n${kb.content}`).join('\n\n')}
+
+Return JSON only:
+{
+  "industry": "target industry",
+  "customerRoles": ["buyer role"],
+  "keywords": ["keyword"],
+  "country": "target country or empty string",
+  "query": "provider search query"
+}`;
+    let params: any = {};
+    try {
+      params = stripAgentJson(await callAI(prompt, llmConfig, true));
+    } catch {
+      params = {};
+    }
+    const industry = String(params.industry || 'Solar energy').trim();
+    const country = String(params.country || '').trim();
+    const keywords = Array.isArray(params.keywords) ? params.keywords.join(', ') : String(params.keywords || 'solar monitoring, PV plant management, energy optimization');
+    const roles = Array.isArray(params.customerRoles) ? params.customerRoles.join(', ') : 'project manager, procurement manager, operations manager';
+    const query = String(params.query || `${keywords} ${roles} ${industry} ${country}`.trim());
+
+    let foundLeads: any[] = [];
+    let providerUsed = '';
+    const errors: string[] = [];
+    for (const [provider, config] of providerEntries as any[]) {
+      try {
+        foundLeads = await searchLeadDataProvider(provider, config, { query, keywords, industry, country, limit });
+        providerUsed = provider;
+        if (foundLeads.length > 0) break;
+      } catch (error: any) {
+        errors.push(`${provider}: ${error?.message || 'failed'}`);
+      }
+    }
+    if (foundLeads.length === 0) {
+      throw new Error(errors.length ? `No leads acquired. ${errors.join('; ')}` : 'No leads acquired from configured channels');
+    }
+
+    const imported = await importLeadsToPublicPool(foundLeads.slice(0, limit));
+    const resultText = isZh
+      ? `线索获取已完成：渠道 ${providerUsed}，查询 "${query}"，获取 ${foundLeads.length} 条，导入公海 ${imported} 条。`
+      : `Lead acquisition completed: provider ${providerUsed}, query "${query}", acquired ${foundLeads.length}, imported ${imported} to public pool.`;
+    run.status = 'completed';
+    run.completedAt = new Date().toISOString();
+    run.steps = (run.steps || []).map((step: any) => ({ ...step, status: 'completed', result: resultText }));
+    const record = (settings.agentRunRecords || []).find((item: any) => item.relatedRunId === run.id && item.relatedRunType === 'harness');
+    if (record) {
+      record.status = 'completed';
+      record.actualResult = resultText;
+      record.completedAt = new Date().toISOString();
+      record.updatedAt = new Date().toISOString();
+    }
+    agent.tasksCompleted = (agent.tasksCompleted || 0) + 1;
+    agent.lastRunAt = new Date().toISOString();
+    agent.updatedAt = new Date().toISOString();
+    return { scanned: foundLeads.length, acted: imported, skipped: Math.max(0, foundLeads.length - imported), failed: 0, details: [resultText] };
+  };
+
+  const executeInsightAgentRun = async (userId: string, settings: any, run: any, agent: any) => {
+    const isZh = settings.language === 'zh';
+    const tools = Array.isArray(agent.tools) ? agent.tools : [];
+    const firstStep = run.steps?.[0] || {};
+    const eventPayload = firstStep.payload?.eventPayload || {};
+    const objective = `${run.objective || ''}\n${firstStep.description || ''}`;
+    const subjectClientId = eventPayload.clientId || eventPayload.client?.id || eventPayload.customerId || eventPayload.customer?.id;
+    const subjectLeadId = eventPayload.leadId || eventPayload.lead?.id || eventPayload.dealId || eventPayload.deal?.id;
+
+    let clientsQuery;
+    let clientsParams: any[];
+    if (subjectClientId) {
+      clientsQuery = `SELECT * FROM clients WHERE user_id = $1 AND id = $2 LIMIT 1`;
+      clientsParams = [userId, String(subjectClientId)];
+    } else if (subjectLeadId) {
+      clientsQuery = `SELECT c.* FROM clients c JOIN deals d ON d.client_id = c.id WHERE c.user_id = $1 AND d.id = $2 LIMIT 1`;
+      clientsParams = [userId, String(subjectLeadId)];
+    } else {
+      clientsQuery = `SELECT * FROM clients WHERE user_id = $1 ORDER BY updated_at DESC NULLS LAST, last_contact NULLS FIRST LIMIT 10`;
+      clientsParams = [userId];
+    }
+    const clientsRes = await pool.query(clientsQuery, clientsParams);
+    const targetClients: any[] = clientsRes.rows as any[];
+    if (targetClients.length === 0) throw new Error('No eligible client or lead context found for this agent run');
+
+    const productsRes = tools.includes('product.read')
+      ? await pool.query(`SELECT sku, name, description, bulk_prices FROM products WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20`, [userId])
+      : { rows: [] };
+
+    let scanned = 0;
+    let acted = 0;
+    let failed = 0;
+    const details: string[] = [];
+    const llmId = settings.llmMappings?.agent_harness || settings.llmMappings?.analysis || settings.activeLLMId;
+    const llmConfig = llmId ? (settings.llmConfigs || []).find((config: any) => config.id === llmId) : null;
+
+    for (const client of targetClients) {
+      scanned += 1;
+      try {
+        const emailsRes = tools.includes('email.read')
+          ? await pool.query(`SELECT sender, recipient, subject, body, date, type FROM emails WHERE client_id = $1 AND user_id = $2 ORDER BY date DESC LIMIT 10`, [client.id, userId])
+          : { rows: [] };
+        const logsRes = await pool.query(`SELECT date, content, type FROM logs WHERE client_id = $1 ORDER BY date DESC LIMIT 10`, [client.id]);
+        const dealsRes = await pool.query(`SELECT id, name, value, status, comments, lead_score, lead_summary, lead_next_step FROM deals WHERE user_id = $1 AND client_id = $2 ORDER BY updated_at DESC NULLS LAST LIMIT 5`, [userId, client.id]);
+        const kbRes = (tools.includes('knowledge.search') || tools.includes('knowledge.read'))
+          ? await searchKnowledgeBase(userId, client.id, `${agent.name} ${objective} ${client.company || client.name || ''}`, llmConfig, 8).catch(() => ({ rows: [] as any[] }))
+          : { rows: [] };
+
+        const prompt = `Execute this CRM insight agent using only its allowed tools.
+Agent name: ${agent.name}
+Allowed tools: ${tools.join(', ')}
+Agent instructions:
+${agent.instructions || ''}
+
+Run objective:
+${objective}
+
+Client:
+${JSON.stringify({
+  id: client.id,
+  name: client.name,
+  company: client.company,
+  country: client.country,
+  status: client.status,
+  tags: parseJsonArray(client.tags),
+  preferredLanguage: client.preferred_language,
+  contactMethods: parseJsonArray(client.contact_methods),
+  contacts: parseJsonArray(client.contacts)
+}, null, 2)}
+
+Deals/leads:
+${JSON.stringify(dealsRes.rows, null, 2)}
+
+Recent emails:
+${JSON.stringify(emailsRes.rows, null, 2)}
+
+Recent logs:
+${JSON.stringify(logsRes.rows, null, 2)}
+
+Products:
+${JSON.stringify(productsRes.rows, null, 2)}
+
+Knowledge:
+${(kbRes.rows || []).map((kb: any) => `[${kb.title}]\n${kb.content}`).join('\n\n')}
+
+Rules:
+${buildLanguagePolicy({ systemLanguage: settings.language })}
+- Internal output fields must use the system language.
+- If lead.score is allowed, produce a numeric score 0-100.
+- If client.summarize or lead.analyze is allowed, produce a useful internal summary.
+- If next_step.recommend is allowed, produce a concrete next action.
+- If client.comment, lead.comment, client.log, or lead.log is not allowed, do not ask to write notes.
+
+Return JSON only:
+{
+  "score": 0,
+  "summary": "internal client or lead summary",
+  "nextStep": "recommended next action",
+  "comment": "optional internal comment/log text",
+  "status": "optional CRM status"
+}`;
+        const parsed = stripAgentJson(await callAI(prompt, llmConfig, true));
+        const score = Number(parsed.score ?? client.lead_score ?? 0);
+        const summary = String(parsed.summary || '').trim();
+        const nextStep = String(parsed.nextStep || '').trim();
+        const comment = String(parsed.comment || summary || nextStep || '').trim();
+
+        if ((tools.includes('lead.score') || tools.includes('lead.update')) && dealsRes.rows[0]) {
+          await pool.query(
+            `UPDATE deals SET lead_score = $1, lead_summary = $2, lead_next_step = $3, lead_scoring_analyzed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $4 AND user_id = $5`,
+            [Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : null, summary || null, nextStep || null, dealsRes.rows[0].id, userId]
+          );
+        }
+        if (tools.includes('client.summarize') || tools.includes('client.update')) {
+          await pool.query(
+            `UPDATE clients SET agent_summary = COALESCE($1, agent_summary), agent_next_step = COALESCE($2, agent_next_step), lead_score = COALESCE($3, lead_score), lead_summary = COALESCE($1, lead_summary), lead_next_step = COALESCE($2, lead_next_step), updated_at = CURRENT_TIMESTAMP WHERE id = $4 AND user_id = $5`,
+            [summary || null, nextStep || null, Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : null, client.id, userId]
+          );
+        }
+        if (comment && (tools.includes('client.comment') || tools.includes('lead.comment') || tools.includes('client.log') || tools.includes('lead.log'))) {
+          await pool.query(
+            `INSERT INTO logs (id, client_id, date, content, type, metadata) VALUES ($1, $2, $3, $4, $5, $6)`,
+            [`l${Date.now()}${Math.floor(Math.random() * 1000)}`, client.id, new Date().toISOString(), `Agent ${agent.id}: ${comment}`, 'general', JSON.stringify({ agentId: agent.id, score, summary, nextStep })]
+          );
+        }
+        acted += 1;
+        details.push(isZh
+          ? `${client.id}：已分析${Number.isFinite(score) ? `，评分 ${score}/100` : ''}。${nextStep || summary}`
+          : `${client.id}: analyzed${Number.isFinite(score) ? `, score ${score}/100` : ''}. ${nextStep || summary}`);
+      } catch (error: any) {
+        failed += 1;
+        details.push(isZh ? `${client.id}：失败 - ${error?.message || '未知错误'}` : `${client.id}: failed - ${error?.message || 'unknown error'}`);
+      }
+    }
+
+    const resultText = isZh
+      ? `洞察型智能体执行完成：扫描 ${scanned} 个客户/线索，处理 ${acted} 个，失败 ${failed} 个。${details.slice(0, 8).join(' ')}`
+      : `Insight agent completed: scanned ${scanned} client/lead record(s), processed ${acted}, failed ${failed}. ${details.slice(0, 8).join(' ')}`;
+    run.status = failed > 0 && acted === 0 ? 'failed' : 'completed';
+    run.completedAt = new Date().toISOString();
+    run.steps = (run.steps || []).map((step: any) => ({
+      ...step,
+      status: run.status === 'failed' ? 'failed' : 'completed',
+      result: resultText,
+      error: run.status === 'failed' ? resultText : undefined
+    }));
+    const record = (settings.agentRunRecords || []).find((item: any) => item.relatedRunId === run.id && item.relatedRunType === 'harness');
+    if (record) {
+      record.status = run.status;
+      record.actualResult = resultText;
+      record.completedAt = new Date().toISOString();
+      record.updatedAt = new Date().toISOString();
+    }
+    agent.tasksCompleted = (agent.tasksCompleted || 0) + Math.max(1, acted);
+    agent.lastRunAt = new Date().toISOString();
+    agent.updatedAt = new Date().toISOString();
+    return { scanned, acted, skipped: 0, failed, details };
   };
 
   const readLeadChannelResponseMessage = async (response: Response) => {
