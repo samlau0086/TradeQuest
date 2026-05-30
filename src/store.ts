@@ -413,6 +413,7 @@ export interface AgentHubChatMessage {
   role: 'user' | 'agent';
   content: string;
   createdAt: string;
+  legacyContent?: string;
   action?: {
     type: 'approval';
     kind: 'harness' | 'global';

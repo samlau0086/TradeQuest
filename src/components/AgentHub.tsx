@@ -45,6 +45,21 @@ const emptyAgent = (): Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 't
   builtIn: false
 });
 
+function formatChatRunResult(result: any, language: string) {
+  const execution = result?.executionResult || result?.result || result;
+  if (!execution) return language === 'zh' ? '已创建执行任务。' : 'Run created.';
+  const details = Array.isArray(execution.details) ? execution.details.filter(Boolean).slice(0, 3).join(' ') : '';
+  const counts = [
+    typeof execution.scanned === 'number' ? `${language === 'zh' ? '扫描' : 'scanned'} ${execution.scanned}` : '',
+    typeof execution.acted === 'number' ? `${language === 'zh' ? '处理' : 'acted'} ${execution.acted}` : '',
+    typeof execution.skipped === 'number' ? `${language === 'zh' ? '跳过' : 'skipped'} ${execution.skipped}` : '',
+    typeof execution.failed === 'number' ? `${language === 'zh' ? '失败' : 'failed'} ${execution.failed}` : ''
+  ].filter(Boolean).join(', ');
+  if (counts || details) return [counts, details].filter(Boolean).join('. ');
+  if (typeof execution === 'string') return execution;
+  return JSON.stringify(execution);
+}
+
 const AGENT_EVENT_TRIGGER_OPTIONS: { id: AgentHubEventTrigger; label: string; description: string }[] = [
   { id: 'email_received', label: 'Email received', description: 'Run when new inbound email is synced.' },
   { id: 'whatsapp_received', label: 'WhatsApp received', description: 'Run when a WhatsApp inbound message is saved.' },
@@ -1088,13 +1103,15 @@ export function AgentHub() {
         setChatRunningAgentId(targetAgent.id);
         setAgentChatMessages(messages => [...messages, loadingMessage]);
         try {
-          const result = await runAgentNow(targetAgent, data.runObjective || content, { preserveTab: true });
+          const result = await runAgentNow(targetAgent, data.runObjective || content, { preserveTab: true, skipRefresh: true });
+          const executionSummary = formatChatRunResult(result, language);
           const statusMessage: AgentChatMessage = {
             id: loadingMessageId,
             agentId: targetAgent.id,
             agentName: targetAgent.name,
             role: 'agent',
-            content: language === 'zh'
+            content: language === 'zh' ? `任务执行完成。${executionSummary}` : `Task completed. ${executionSummary}`,
+            legacyContent: language === 'zh'
               ? `已创建执行任务。${result?.executionResult ? `执行结果：${JSON.stringify(result.executionResult)}` : '请在智能体运行记录中查看进度。'}`
               : `Run created. ${result?.executionResult ? `Result: ${JSON.stringify(result.executionResult)}` : 'Check Agent Run History for progress.'}`,
             createdAt: new Date().toISOString(),
@@ -1102,6 +1119,7 @@ export function AgentHub() {
               ? undefined
               : { type: 'approval', kind: result.relatedRunType, id: result.runId }
           };
+          statusMessage.content = language === 'zh' ? `任务执行完成。${executionSummary}` : `Task completed. ${executionSummary}`;
           setAgentChatMessages(messages => messages.map(message => message.id === loadingMessageId ? statusMessage : message));
         } catch {
           const statusMessage: AgentChatMessage = {
@@ -1187,7 +1205,7 @@ export function AgentHub() {
     return restored;
   };
 
-  const runAgentNow = async (agent: AgentHubAgent, objective?: string, options?: { preserveTab?: boolean }) => {
+  const runAgentNow = async (agent: AgentHubAgent, objective?: string, options?: { preserveTab?: boolean; skipRefresh?: boolean }) => {
     setRunningAgentId(agent.id);
     try {
       const response = await fetch(`/api/agent-hub/agents/${encodeURIComponent(agent.id)}/run`, {
@@ -1197,7 +1215,9 @@ export function AgentHub() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Failed to run agent');
-      await fetchUserSettings();
+      if (!options?.skipRefresh) {
+        await fetchUserSettings();
+      }
       notify(agent.guardrail === 'auto'
         ? (language === 'zh' ? '智能体已开始执行。' : 'Agent run started.')
         : (language === 'zh' ? '已创建待审核的智能体运行。' : 'Agent run created for review.'),
@@ -1502,7 +1522,7 @@ export function AgentHub() {
               <div className="mt-4 space-y-1">
                 {chatAgents.map(agent => {
                   const selected = activeChatAgent?.id === agent.id;
-                  const unreadProposals = (agent.evolutionLog || []).filter(item => item.status === 'proposed' && !item.appliedAt).length;
+                  const unreadProposals = 0;
                   return (
                     <button
                       key={agent.id}
