@@ -76,7 +76,10 @@ const getOutboundLanguage = (preferredLanguage?: string, country?: string) => {
   return COUNTRY_LANGUAGE_OVERRIDES[normalizedCountry] || 'English';
 };
 
-const getSystemLanguageName = (language?: string) => language === 'zh' ? 'Chinese' : 'English';
+const getSystemLanguageName = (language?: string) => {
+  const normalized = String(language || '').trim().toLowerCase();
+  return ['zh', 'zh-cn', 'cn', 'chinese', '中文', '简体中文'].includes(normalized) ? 'Chinese' : 'English';
+};
 
 const inferCommunicationLanguage = (text?: string | null) => {
   const sample = (text || '').trim();

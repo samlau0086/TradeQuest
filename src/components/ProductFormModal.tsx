@@ -23,6 +23,7 @@ export function ProductFormModal({ onClose, productId, initialData, onSave }: Pr
   const [salesPoints, setSalesPoints] = useState(existingProduct?.salesPoints || initialData?.salesPoints || '');
   const [imageUrl, setImageUrl] = useState(existingProduct?.imageUrl || initialData?.imageUrl || '');
   const [showMediaSelector, setShowMediaSelector] = useState(false);
+  const [generatingDescription, setGeneratingDescription] = useState(false);
   const [generatingSalesPoints, setGeneratingSalesPoints] = useState(false);
   const [bulkPrices, setBulkPrices] = useState<{minQuantity: number, price: number}[]>(
     existingProduct?.bulkPrices || initialData?.bulkPrices || [{ minQuantity: 1, price: 0 }]
@@ -71,13 +72,68 @@ export function ProductFormModal({ onClose, productId, initialData, onSave }: Pr
     setBulkPrices(newPrices);
   };
 
+  const getProductAiConfig = () => {
+    const llmId = llmMappings.agent_context_suggestions || llmMappings.drafting || activeLLMId;
+    return llmId ? llmConfigs.find(config => config.id === llmId) : null;
+  };
+
+  const handleGenerateDescription = async () => {
+    if (!name.trim() && !description.trim() && !salesPoints.trim()) {
+      notify(language === 'zh' ? '请先填写产品名称、描述或卖点。' : 'Please enter a product name, description, or sales points first.', 'warning');
+      return;
+    }
+    const llmConfig = getProductAiConfig();
+    if (!llmConfig) {
+      notify(language === 'zh' ? '请先在 AI & Integrations 配置可用模型。' : 'Please configure an AI model in AI & Integrations first.', 'warning');
+      return;
+    }
+
+    setGeneratingDescription(true);
+    try {
+      const res = await fetch('/api/chat/magic', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${useAuthStore.getState().token}`
+        },
+        body: JSON.stringify({
+          command: `Expand and improve the product description for "${name || sku || 'this product'}". Output language: ${language === 'zh' ? 'Chinese' : 'English'}.
+Rules:
+- Use the provided product facts and relevant knowledge base context.
+- Do not invent certifications, exact technical specs, prices, delivery promises, warranty terms, or performance claims that are not provided.
+- Write a clear catalog-ready description with practical use cases, buyer value, and differentiation.
+- Keep it concise: 1-3 short paragraphs. Do not include markdown headings.`,
+          context: {
+            systemLanguage: language,
+            product: {
+              sku,
+              name,
+              currentDescription: description,
+              salesPoints,
+              bulkPrices
+            }
+          },
+          llmConfig
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to generate product description.');
+      setDescription(String(data.result || '').trim());
+      incrementAgentHubTaskCount('context_suggestion_agent');
+    } catch (error) {
+      console.error(error);
+      notify(error instanceof Error ? error.message : 'Failed to generate product description.', 'error');
+    } finally {
+      setGeneratingDescription(false);
+    }
+  };
+
   const handleGenerateSalesPoints = async () => {
     if (!name.trim() && !description.trim()) {
       notify(language === 'zh' ? '请先填写产品名称或描述。' : 'Please enter a product name or description first.', 'warning');
       return;
     }
-    const llmId = llmMappings.agent_context_suggestions || llmMappings.drafting || activeLLMId;
-    const llmConfig = llmId ? llmConfigs.find(config => config.id === llmId) : null;
+    const llmConfig = getProductAiConfig();
     if (!llmConfig) {
       notify(language === 'zh' ? '请先在 AI & Integrations 配置可用模型。' : 'Please configure an AI model in AI & Integrations first.', 'warning');
       return;
@@ -150,7 +206,18 @@ Rules:
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-400 uppercase">{t('description')}</label>
+            <div className="flex items-center justify-between gap-3">
+              <label className="text-xs font-bold text-slate-400 uppercase">{t('description')}</label>
+              <button
+                type="button"
+                onClick={handleGenerateDescription}
+                disabled={generatingDescription}
+                className="flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1.5 text-xs font-bold text-cyan-300 transition-colors hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {generatingDescription ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                {t('aiGenerate') || 'AI Generate'}
+              </button>
+            </div>
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500" placeholder="Product details..."></textarea>
           </div>
 

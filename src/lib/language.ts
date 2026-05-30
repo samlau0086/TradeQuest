@@ -51,7 +51,8 @@ const COUNTRY_LANGUAGE_OVERRIDES: Record<string, string> = {
 };
 
 export function getSystemLanguageName(language?: 'en' | 'zh' | string) {
-  return language === 'zh' ? 'Chinese' : 'English';
+  const normalized = String(language || '').trim().toLowerCase();
+  return ['zh', 'zh-cn', 'cn', 'chinese', '中文', '简体中文'].includes(normalized) ? 'Chinese' : 'English';
 }
 
 export function inferCommunicationLanguage(text?: string | null) {
