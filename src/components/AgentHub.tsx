@@ -1097,7 +1097,10 @@ export function AgentHub() {
             content: language === 'zh'
               ? `已创建执行任务。${result?.executionResult ? `执行结果：${JSON.stringify(result.executionResult)}` : '请在智能体运行记录中查看进度。'}`
               : `Run created. ${result?.executionResult ? `Result: ${JSON.stringify(result.executionResult)}` : 'Check Agent Run History for progress.'}`,
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
+            action: targetAgent.guardrail === 'auto' || !result?.runId || !result?.relatedRunType
+              ? undefined
+              : { type: 'approval', kind: result.relatedRunType, id: result.runId }
           };
           setAgentChatMessages(messages => messages.map(message => message.id === loadingMessageId ? statusMessage : message));
         } catch {
@@ -1262,6 +1265,38 @@ export function AgentHub() {
         actualResult: 'Human rejected the planned agent run.',
         completedAt: new Date().toISOString()
       });
+    }
+  };
+
+  const handleChatApproval = async (message: AgentChatMessage, approve: boolean) => {
+    if (!message.action || message.action.type !== 'approval') return;
+    const item = pendingItems.find(entry => entry.kind === message.action?.kind && entry.id === message.action?.id);
+    if (!item) {
+      setAgentChatMessages(messages => messages.map(entry => entry.id === message.id ? {
+        ...entry,
+        action: undefined,
+        content: language === 'zh' ? '该审核任务已处理或不存在。' : 'This review item has already been handled or no longer exists.'
+      } : entry));
+      return;
+    }
+    if (approve) {
+      setAgentChatMessages(messages => messages.map(entry => entry.id === message.id ? {
+        ...entry,
+        content: language === 'zh' ? '已批准，正在执行任务...' : 'Approved. Running task...'
+      } : entry));
+      await approveItem(item);
+      setAgentChatMessages(messages => messages.map(entry => entry.id === message.id ? {
+        ...entry,
+        action: undefined,
+        content: language === 'zh' ? '已批准并执行完成。请查看上方通知或运行记录中的详细结果。' : 'Approved and executed. Check the notification or run history for details.'
+      } : entry));
+    } else {
+      rejectItem(item);
+      setAgentChatMessages(messages => messages.map(entry => entry.id === message.id ? {
+        ...entry,
+        action: undefined,
+        content: language === 'zh' ? '已拒绝该执行任务。' : 'Execution rejected.'
+      } : entry));
     }
   };
 
@@ -1507,6 +1542,26 @@ export function AgentHub() {
                         {message.content === 'Running task...' || message.content === '正在执行任务...' ? <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-blue-300" /> : null}
                         <span>{message.content}</span>
                       </div>
+                      {message.action?.type === 'approval' && pendingItems.some(item => item.kind === message.action?.kind && item.id === message.action?.id) && (
+                        <div className="mt-3 flex flex-wrap justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void handleChatApproval(message, false)}
+                            className="inline-flex items-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-bold text-red-200 hover:bg-red-500/20"
+                          >
+                            <XCircle className="h-3.5 w-3.5" />
+                            {language === 'zh' ? '拒绝' : 'Reject'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleChatApproval(message, true)}
+                            className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/15 px-3 py-1.5 text-xs font-bold text-emerald-100 hover:bg-emerald-500/25"
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            {language === 'zh' ? '批准并执行' : 'Approve & Execute'}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

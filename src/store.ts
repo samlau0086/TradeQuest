@@ -413,6 +413,11 @@ export interface AgentHubChatMessage {
   role: 'user' | 'agent';
   content: string;
   createdAt: string;
+  action?: {
+    type: 'approval';
+    kind: 'harness' | 'global';
+    id: string;
+  };
 }
 
 export type { AgentIdempotencyRecord };
