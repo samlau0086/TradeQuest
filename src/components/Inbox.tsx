@@ -120,6 +120,7 @@ export function Inbox() {
   const [syncError, setSyncError] = useState<string | null>(null);
   const syncInFlightRef = useRef(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [expandedTrackingEmailIds, setExpandedTrackingEmailIds] = useState<Set<string>>(new Set());
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [todoModalEmail, setTodoModalEmail] = useState<string | null>(null);
   const [todoAt, setTodoAt] = useState('');
@@ -387,6 +388,17 @@ export function Inbox() {
   }, []);
 
   const selectedEmail = emails.find(e => e.id === selectedEmailId);
+  const selectedTrackingEvents = selectedEmail?.trackingEvents || [];
+  const isTrackingExpanded = selectedEmail ? expandedTrackingEmailIds.has(selectedEmail.id) : false;
+  const visibleTrackingEvents = isTrackingExpanded ? selectedTrackingEvents : selectedTrackingEvents.slice(0, 3);
+  const toggleTrackingExpanded = (emailId: string) => {
+    setExpandedTrackingEmailIds(prev => {
+      const next = new Set(prev);
+      if (next.has(emailId)) next.delete(emailId);
+      else next.add(emailId);
+      return next;
+    });
+  };
   const matchWhatsAppClient = (phone: string) => clients.find(client => client.contactMethods?.some(method => (
     ['whatsapp', 'phone'].includes(method.type) && method.value.replace(/[^0-9]/g, '').endsWith(phone.slice(-8))
   )));
@@ -1166,38 +1178,49 @@ export function Inbox() {
                    <div className="flex items-center gap-2 text-xs font-bold text-slate-400 mb-3 uppercase tracking-wider">
                      <Radar className="w-4 h-4 text-emerald-400" /> Interaction Tracking Activity
                    </div>
-                   {(!selectedEmail.trackingEvents || selectedEmail.trackingEvents.length === 0) ? (
+                   {selectedTrackingEvents.length === 0 ? (
                      <div className="text-sm text-slate-500 py-2">No tracking events have been recorded yet.</div>
                    ) : (
-                   <div className="space-y-3">
-                     {selectedEmail.trackingEvents.map((evt: any, i: number) => (
-                       <div key={i} className="flex flex-wrap items-center gap-4 text-sm bg-slate-900/50 p-2.5 rounded-lg border border-slate-800/50">
-                         <div className="flex items-center gap-2 min-w-[100px]">
-                            {evt.type === 'open' ? <Eye className="w-4 h-4 text-cyan-500" /> : <MousePointerClick className="w-4 h-4 text-fuchsia-500" />}
-                            <span className="text-white font-medium capitalize">{evt.type}</span>
-                         </div>
-                         <div className="flex items-center gap-2 text-slate-400 text-xs min-w-[140px]">
-                           <Clock className="w-3.5 h-3.5" />
-                           {new Date(evt.created_at).toLocaleString()}
-                         </div>
-                         {(evt.location?.country || evt.location?.city) && (
-                           <div className="flex items-center gap-1.5 text-slate-300 text-xs">
-                             <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/50"></div>
-                             {evt.location.city ? `${evt.location.city}, ` : ''}{evt.location.region ? `${evt.location.region}, ` : ''}{evt.location.country}
+                     <div className="space-y-3">
+                       {visibleTrackingEvents.map((evt: any, i: number) => (
+                         <div key={`${evt.created_at || i}-${evt.type || 'event'}`} className="flex flex-wrap items-center gap-4 text-sm bg-slate-900/50 p-2.5 rounded-lg border border-slate-800/50">
+                           <div className="flex items-center gap-2 min-w-[100px]">
+                              {evt.type === 'open' ? <Eye className="w-4 h-4 text-cyan-500" /> : <MousePointerClick className="w-4 h-4 text-fuchsia-500" />}
+                              <span className="text-white font-medium capitalize">{evt.type}</span>
                            </div>
-                         )}
-                         <div className="text-slate-500 text-xs ml-auto font-mono bg-slate-800 px-2 py-0.5 rounded" title={evt.user_agent}>
-                           {evt.ip_address}
-                         </div>
-                         {evt.type === 'click' && evt.url && (
-                           <div className="w-full mt-1.5 text-xs">
-                             <span className="text-slate-500 mr-2">Link Clicked:</span>
-                             <a href={evt.url} target="_blank" rel="noopener noreferrer" className="text-fuchsia-400 hover:text-fuchsia-300 underline break-all">{evt.url}</a>
+                           <div className="flex items-center gap-2 text-slate-400 text-xs min-w-[140px]">
+                             <Clock className="w-3.5 h-3.5" />
+                             {new Date(evt.created_at).toLocaleString()}
                            </div>
-                         )}
-                       </div>
-                     ))}
-                   </div>
+                           {(evt.location?.country || evt.location?.city) && (
+                             <div className="flex items-center gap-1.5 text-slate-300 text-xs">
+                               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/50"></div>
+                               {evt.location.city ? `${evt.location.city}, ` : ''}{evt.location.region ? `${evt.location.region}, ` : ''}{evt.location.country}
+                             </div>
+                           )}
+                           <div className="text-slate-500 text-xs ml-auto font-mono bg-slate-800 px-2 py-0.5 rounded" title={evt.user_agent}>
+                             {evt.ip_address}
+                           </div>
+                           {evt.type === 'click' && evt.url && (
+                             <div className="w-full mt-1.5 text-xs">
+                               <span className="text-slate-500 mr-2">Link Clicked:</span>
+                               <a href={evt.url} target="_blank" rel="noopener noreferrer" className="text-fuchsia-400 hover:text-fuchsia-300 underline break-all">{evt.url}</a>
+                             </div>
+                           )}
+                         </div>
+                       ))}
+                       {selectedTrackingEvents.length > 3 && (
+                         <button
+                           type="button"
+                           onClick={() => toggleTrackingExpanded(selectedEmail.id)}
+                           className="text-xs font-bold text-emerald-300 hover:text-emerald-200 transition-colors"
+                         >
+                           {isTrackingExpanded
+                             ? (language === 'zh' ? '收起' : 'Show Less')
+                             : (language === 'zh' ? `显示全部 ${selectedTrackingEvents.length} 条记录` : `Show More (${selectedTrackingEvents.length})`)}
+                         </button>
+                       )}
+                     </div>
                    )}
                  </div>
                )}
