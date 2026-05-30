@@ -4430,6 +4430,31 @@ Return JSON only:
     }
   });
 
+  app.post('/api/public-leads/bulk-delete', authenticateToken, requireSuperadmin, async (req: any, res) => {
+    try {
+      const ids = Array.isArray(req.body?.ids)
+        ? Array.from(new Set(req.body.ids.map((id: any) => String(id || '').trim()).filter(Boolean)))
+        : [];
+      if (ids.length === 0) return res.status(400).json({ error: 'No public lead IDs provided' });
+
+      const deletedRes = await pool.query(
+        `DELETE FROM clients
+         WHERE user_id IS NULL AND id = ANY($1::text[])
+         RETURNING id`,
+        [ids]
+      );
+      const deletedIds = deletedRes.rows.map((row: any) => row.id);
+      if (deletedIds.length > 0) {
+        await pool.query('DELETE FROM deals WHERE client_id = ANY($1::text[])', [deletedIds]);
+      }
+
+      res.json({ success: true, count: deletedIds.length, ids: deletedIds });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to bulk delete public leads' });
+    }
+  });
+
   app.post('/api/clients', authenticateToken, async (req: any, res) => {
     try {
       const { id, name, company, country, status, tags, lastContact, isDormant, contactMethods, contacts, primaryContactId, comments } = req.body;

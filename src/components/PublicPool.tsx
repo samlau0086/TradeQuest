@@ -31,22 +31,30 @@ import { OutscraperSearchModal } from './OutscraperSearchModal';
 import { LeadCampaignModal } from './LeadCampaignModal';
 
 export function PublicPool() {
-  const { publicClients, fetchPublicClients, claimClient, deletePublicLead, importPublicLeads, language } = useStore();
+  const { publicClients, fetchPublicClients, claimClient, deletePublicLead, importPublicLeads, language, notify } = useStore();
   const { profile } = useAuthStore();
   const t = useTranslation(language);
   const [search, setSearch] = useState('');
   const [claimingId, setClaimingId] = useState<string | null>(null);
   const [confirmClaimId, setConfirmClaimId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showOutscraperModal, setShowOutscraperModal] = useState(false);
   const [showCampaignModal, setShowCampaignModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const isSuperadmin = profile?.role === 'superadmin';
 
   useEffect(() => {
     fetchPublicClients();
   }, [fetchPublicClients]);
+
+  useEffect(() => {
+    setSelectedLeadIds(ids => ids.filter(id => publicClients.some(client => client.id === id)));
+  }, [publicClients]);
 
   const handleAdminAction = async (id: string, action: 'restore' | 'delete') => {
     try {
@@ -70,6 +78,20 @@ export function PublicPool() {
     
     return `${c.name} ${c.company} ${c.country} ${c.tags.join(' ')}`.toLowerCase().includes(term);
   });
+  const filteredIds = useMemo(() => filtered.map(client => client.id), [filtered]);
+  const selectedVisibleCount = selectedLeadIds.filter(id => filteredIds.includes(id)).length;
+  const allVisibleSelected = filteredIds.length > 0 && selectedVisibleCount === filteredIds.length;
+
+  const toggleLeadSelection = (id: string) => {
+    setSelectedLeadIds(ids => ids.includes(id) ? ids.filter(item => item !== id) : [...ids, id]);
+  };
+
+  const toggleVisibleSelection = () => {
+    setSelectedLeadIds(ids => {
+      if (allVisibleSelected) return ids.filter(id => !filteredIds.includes(id));
+      return Array.from(new Set([...ids, ...filteredIds]));
+    });
+  };
 
   const executeClaim = async () => {
     if (confirmClaimId) {
@@ -84,6 +106,30 @@ export function PublicPool() {
     if (confirmDeleteId) {
       await deletePublicLead(confirmDeleteId);
       setConfirmDeleteId(null);
+    }
+  };
+
+  const executeBulkDelete = async () => {
+    if (selectedLeadIds.length === 0) return;
+    setBulkDeleting(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('/api/public-leads/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ ids: selectedLeadIds })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Failed to bulk delete public leads');
+      notify(language === 'zh' ? `已删除 ${data.count || 0} 条公海线索。` : `Deleted ${data.count || 0} public leads.`, 'success');
+      setSelectedLeadIds([]);
+      setConfirmBulkDelete(false);
+      fetchPublicClients();
+    } catch (error) {
+      console.error(error);
+      notify(error instanceof Error ? error.message : 'Failed to bulk delete public leads.', 'error');
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -174,13 +220,24 @@ export function PublicPool() {
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {filtered.map(client => (
         <div key={client.id} className="bg-slate-900 border border-slate-700/80 rounded-xl p-5 flex flex-col gap-4 relative group hover:border-cyan-500/50 transition-colors">
+          {isSuperadmin && (
+            <label className="absolute left-4 top-4 flex h-5 w-5 cursor-pointer items-center justify-center rounded border border-slate-600 bg-slate-950/90">
+              <input
+                type="checkbox"
+                checked={selectedLeadIds.includes(client.id)}
+                onChange={() => toggleLeadSelection(client.id)}
+                className="h-3.5 w-3.5 accent-cyan-500"
+                aria-label={`Select ${client.name}`}
+              />
+            </label>
+          )}
           <div className="absolute top-4 right-4 text-xs font-bold bg-slate-800 px-2 py-1 rounded text-slate-400 flex items-center gap-1">
              <Clock className="w-3 h-3" />
              {new Date(client.lastContact || new Date()).toLocaleDateString()}
           </div>
           
           <div>
-            <h3 className="font-bold text-lg text-white mb-1 truncate pr-16">{client.name}</h3>
+            <h3 className={cn("font-bold text-lg text-white mb-1 truncate pr-16", isSuperadmin && "pl-7")}>{client.name}</h3>
             <p className="text-sm text-slate-400 flex items-center gap-2 truncate">
               {client.company} <span className="opacity-50">· {[client.city, client.state, client.country].filter(Boolean).join(', ') || '-'}</span>
             </p>
@@ -243,6 +300,17 @@ export function PublicPool() {
       <table className="w-full text-left text-sm whitespace-nowrap">
         <thead className="bg-slate-900/80 text-slate-400">
           <tr>
+            {isSuperadmin && (
+              <th className="px-4 py-3 font-medium">
+                <input
+                  type="checkbox"
+                  checked={allVisibleSelected}
+                  onChange={toggleVisibleSelection}
+                  className="h-4 w-4 accent-cyan-500"
+                  aria-label="Select all visible leads"
+                />
+              </th>
+            )}
             <th className="px-4 py-3 font-medium">Name</th>
             <th className="px-4 py-3 font-medium">Company</th>
             <th className="px-4 py-3 font-medium">Location</th>
@@ -254,6 +322,17 @@ export function PublicPool() {
         <tbody className="divide-y divide-slate-800/50 bg-slate-900/30">
           {filtered.map(client => (
             <tr key={client.id} className="hover:bg-slate-800/50">
+              {isSuperadmin && (
+                <td className="px-4 py-4">
+                  <input
+                    type="checkbox"
+                    checked={selectedLeadIds.includes(client.id)}
+                    onChange={() => toggleLeadSelection(client.id)}
+                    className="h-4 w-4 accent-cyan-500"
+                    aria-label={`Select ${client.name}`}
+                  />
+                </td>
+              )}
               <td className="px-4 py-4 text-white font-medium">
                 {client.name}
                 {client.deletedBy && <span className="ml-2 px-1.5 py-0.5 rounded bg-red-950/50 text-red-400 text-[10px] font-bold">Discarded</span>}
@@ -384,8 +463,21 @@ export function PublicPool() {
           <div className="p-4 overflow-y-auto flex flex-col gap-3">
             {clients.map(client => (
               <div key={client.id} className="bg-slate-800 p-4 rounded border border-slate-700/50 hover:border-cyan-500/30">
-                <div className="font-medium text-slate-200">{client.name}</div>
-                <div className="text-xs text-slate-400 mt-1">{client.company}</div>
+                <div className="flex items-start gap-2">
+                  {isSuperadmin && (
+                    <input
+                      type="checkbox"
+                      checked={selectedLeadIds.includes(client.id)}
+                      onChange={() => toggleLeadSelection(client.id)}
+                      className="mt-0.5 h-4 w-4 accent-cyan-500"
+                      aria-label={`Select ${client.name}`}
+                    />
+                  )}
+                  <div className="min-w-0">
+                    <div className="font-medium text-slate-200 truncate">{client.name}</div>
+                    <div className="text-xs text-slate-400 mt-1 truncate">{client.company}</div>
+                  </div>
+                </div>
                 <button
                   onClick={() => setConfirmClaimId(client.id)}
                   disabled={claimingId === client.id}
@@ -466,19 +558,42 @@ export function PublicPool() {
               />
             </div>
             
-            <div className="flex items-center bg-slate-950 border border-slate-700 rounded-lg p-1">
-              {(['grid', 'list', 'map', 'tags'] as const).map(mode => (
-                <button
-                  key={mode}
-                  onClick={() => setViewMode(mode)}
-                  className={cn("p-1.5 rounded-md transition-colors cursor-pointer text-slate-400 hover:text-white capitalize", viewMode === mode && "bg-slate-800 text-cyan-400")}
-                  title={`View as ${mode}`}
-                >
-                  {mode === 'grid' ? <LayoutGrid className="w-4 h-4" /> : 
-                   mode === 'list' ? <ListIcon className="w-4 h-4" /> : 
-                   mode === 'map' ? <MapIcon className="w-4 h-4" /> : <TagsIcon className="w-4 h-4" />}
-                </button>
-              ))}
+            <div className="flex items-center gap-3">
+              {isSuperadmin && (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={toggleVisibleSelection}
+                    disabled={filteredIds.length === 0}
+                    className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-bold text-slate-300 transition-colors hover:border-cyan-500/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {allVisibleSelected ? 'Clear Visible' : 'Select Visible'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmBulkDelete(true)}
+                    disabled={selectedLeadIds.length === 0 || bulkDeleting}
+                    className="flex items-center gap-2 rounded-lg bg-rose-600 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {bulkDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                    Delete Selected ({selectedLeadIds.length})
+                  </button>
+                </div>
+              )}
+              <div className="flex items-center bg-slate-950 border border-slate-700 rounded-lg p-1">
+                {(['grid', 'list', 'map', 'tags'] as const).map(mode => (
+                  <button
+                    key={mode}
+                    onClick={() => setViewMode(mode)}
+                    className={cn("p-1.5 rounded-md transition-colors cursor-pointer text-slate-400 hover:text-white capitalize", viewMode === mode && "bg-slate-800 text-cyan-400")}
+                    title={`View as ${mode}`}
+                  >
+                    {mode === 'grid' ? <LayoutGrid className="w-4 h-4" /> : 
+                     mode === 'list' ? <ListIcon className="w-4 h-4" /> : 
+                     mode === 'map' ? <MapIcon className="w-4 h-4" /> : <TagsIcon className="w-4 h-4" />}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -523,6 +638,34 @@ export function PublicPool() {
             <div className="flex justify-end gap-3">
               <button onClick={() => setConfirmDeleteId(null)} className="px-4 py-2 text-slate-300 hover:text-white transition-colors">Cancel</button>
               <button onClick={executeAdminDelete} className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg shadow font-medium transition-colors">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmBulkDelete && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-xl max-w-sm w-full">
+            <h3 className="text-lg font-bold text-white mb-2">Bulk Delete Public Leads?</h3>
+            <p className="text-slate-400 mb-6 text-sm">
+              This will permanently delete {selectedLeadIds.length} selected public lead{selectedLeadIds.length === 1 ? '' : 's'}. This cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setConfirmBulkDelete(false)}
+                disabled={bulkDeleting}
+                className="px-4 py-2 text-slate-300 hover:text-white transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={executeBulkDelete}
+                disabled={bulkDeleting}
+                className="flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg shadow font-medium transition-colors disabled:opacity-50"
+              >
+                {bulkDeleting && <Loader2 className="h-4 w-4 animate-spin" />}
+                Delete Selected
+              </button>
             </div>
           </div>
         </div>
