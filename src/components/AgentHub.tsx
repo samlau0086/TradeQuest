@@ -903,6 +903,7 @@ export function AgentHub() {
   const [logDisplayLimit, setLogDisplayLimit] = useState(30);
   const [agentQueueFilter, setAgentQueueFilter] = useState<'system' | 'custom'>('system');
   const [chatAgentId, setChatAgentId] = useState<string | null>(null);
+  const [chatRunningAgentId, setChatRunningAgentId] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState('');
   const [chatSending, setChatSending] = useState(false);
 
@@ -1075,10 +1076,21 @@ export function AgentHub() {
       setAgentChatMessages(nextMessages);
       const shouldRunFromChat = !!data.shouldRun || isExecutionIntent(content);
       if (shouldRunFromChat) {
+        const loadingMessageId = `chat_${Date.now()}_running`;
+        const loadingMessage: AgentChatMessage = {
+          id: loadingMessageId,
+          agentId: targetAgent.id,
+          agentName: targetAgent.name,
+          role: 'agent',
+          content: language === 'zh' ? '正在执行任务...' : 'Running task...',
+          createdAt: new Date().toISOString()
+        };
+        setChatRunningAgentId(targetAgent.id);
+        setAgentChatMessages(messages => [...messages, loadingMessage]);
         try {
-          const result = await runAgentNow(targetAgent, data.runObjective || content);
+          const result = await runAgentNow(targetAgent, data.runObjective || content, { preserveTab: true });
           const statusMessage: AgentChatMessage = {
-            id: `chat_${Date.now()}_run`,
+            id: loadingMessageId,
             agentId: targetAgent.id,
             agentName: targetAgent.name,
             role: 'agent',
@@ -1087,9 +1099,19 @@ export function AgentHub() {
               : `Run created. ${result?.executionResult ? `Result: ${JSON.stringify(result.executionResult)}` : 'Check Agent Run History for progress.'}`,
             createdAt: new Date().toISOString()
           };
-          setAgentChatMessages(messages => [...messages, statusMessage]);
+          setAgentChatMessages(messages => messages.map(message => message.id === loadingMessageId ? statusMessage : message));
         } catch {
-          // runAgentNow already shows a notification with the error.
+          const statusMessage: AgentChatMessage = {
+            id: loadingMessageId,
+            agentId: targetAgent.id,
+            agentName: targetAgent.name,
+            role: 'agent',
+            content: language === 'zh' ? '任务执行失败，请查看通知或运行记录。' : 'Task execution failed. Check the notification or run history.',
+            createdAt: new Date().toISOString()
+          };
+          setAgentChatMessages(messages => messages.map(message => message.id === loadingMessageId ? statusMessage : message));
+        } finally {
+          setChatRunningAgentId(null);
         }
       }
       if (data.soulPatch) {
@@ -1162,7 +1184,7 @@ export function AgentHub() {
     return restored;
   };
 
-  const runAgentNow = async (agent: AgentHubAgent, objective?: string) => {
+  const runAgentNow = async (agent: AgentHubAgent, objective?: string, options?: { preserveTab?: boolean }) => {
     setRunningAgentId(agent.id);
     try {
       const response = await fetch(`/api/agent-hub/agents/${encodeURIComponent(agent.id)}/run`, {
@@ -1178,7 +1200,9 @@ export function AgentHub() {
         : (language === 'zh' ? '已创建待审核的智能体运行。' : 'Agent run created for review.'),
         'success'
       );
-      setTab(agent.guardrail === 'auto' ? 'runs' : 'approvals');
+      if (!options?.preserveTab) {
+        setTab(agent.guardrail === 'auto' ? 'runs' : 'approvals');
+      }
       return data;
     } catch (error) {
       console.error(error);
@@ -1443,7 +1467,7 @@ export function AgentHub() {
               <div className="mt-4 space-y-1">
                 {chatAgents.map(agent => {
                   const selected = activeChatAgent?.id === agent.id;
-                  const unreadProposals = (agent.evolutionLog || []).filter(item => item.status === 'proposed').length;
+                  const unreadProposals = (agent.evolutionLog || []).filter(item => item.status === 'proposed' && !item.appliedAt).length;
                   return (
                     <button
                       key={agent.id}
@@ -1456,7 +1480,10 @@ export function AgentHub() {
                           <div className="truncate text-sm font-bold text-slate-100">{agent.name}</div>
                           <div className="mt-1 truncate text-[11px] text-slate-500">{agent.status} · {(agent.tools || []).length} tools</div>
                         </div>
-                        {unreadProposals > 0 && <span className="shrink-0 rounded-full bg-blue-500 px-2 py-0.5 text-[10px] font-bold text-white">{unreadProposals}</span>}
+                        <div className="flex shrink-0 items-center gap-2">
+                          {chatRunningAgentId === agent.id && <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-300" />}
+                          {unreadProposals > 0 && <span title={language === 'zh' ? '待审核进化建议' : 'Pending evolution proposals'} className="rounded-full bg-blue-500 px-2 py-0.5 text-[10px] font-bold text-white">{unreadProposals}</span>}
+                        </div>
                       </div>
                     </button>
                   );
@@ -1476,7 +1503,10 @@ export function AgentHub() {
                   {visibleChatMessages.map(message => (
                     <div key={message.id} className={cn('rounded-md px-3 py-2 text-sm', message.role === 'user' ? 'ml-auto max-w-[85%] bg-blue-600/20 text-blue-50' : 'mr-auto max-w-[85%] bg-neutral-900 text-slate-200')}>
                       <div className="mb-1 text-[10px] uppercase tracking-wide text-slate-500">{message.role === 'user' ? (language === 'zh' ? '你' : 'You') : message.agentName}</div>
-                      <div className="whitespace-pre-wrap leading-relaxed">{message.content}</div>
+                      <div className="flex items-start gap-2 whitespace-pre-wrap leading-relaxed">
+                        {message.content === 'Running task...' || message.content === '正在执行任务...' ? <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-blue-300" /> : null}
+                        <span>{message.content}</span>
+                      </div>
                     </div>
                   ))}
                 </div>
