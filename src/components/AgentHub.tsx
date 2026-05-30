@@ -594,10 +594,19 @@ function AgentConfigPanel({
           <span className="text-sm text-slate-200">{t('Agent Name')}</span>
           <input
             value={form.name}
-            onChange={e => setForm({ ...form, name: e.target.value })}
+            onChange={e => {
+              if (isSystemAgent) return;
+              setForm({ ...form, name: e.target.value });
+            }}
+            disabled={isSystemAgent}
             placeholder={t('e.g. Objections Handler Agent')}
-            className="mt-2 w-full bg-black border border-neutral-700 rounded-md px-4 py-2.5 text-sm text-slate-100 outline-none focus:border-blue-500"
+            className="mt-2 w-full bg-black border border-neutral-700 rounded-md px-4 py-2.5 text-sm text-slate-100 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-neutral-950 disabled:text-slate-500"
           />
+          {isSystemAgent && (
+            <p className="mt-2 text-xs text-slate-500">
+              {language === 'zh' ? '系统级智能体名称代表固定角色定位，不能修改。' : 'System agent names represent fixed roles and cannot be changed.'}
+            </p>
+          )}
         </label>
         <label className="block">
           <div className="flex items-center justify-between gap-3">
@@ -1083,8 +1092,10 @@ export function AgentHub() {
     }
   };
   const saveAgent = (agent: Omit<AgentHubAgent, 'createdAt' | 'updatedAt' | 'tasksCompleted'> | Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'>) => {
+    const existingAgent = 'id' in agent ? agentHubAgents.find(item => item.id === agent.id) : null;
     const normalizedAgent = {
       ...agent,
+      name: existingAgent?.builtIn ? existingAgent.name : agent.name,
       status: agent.scheduleEnabled && agent.status === 'idle' ? 'active' as AgentHubStatus : agent.status
     };
     if ('id' in agent) {
