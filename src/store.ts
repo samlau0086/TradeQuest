@@ -2454,24 +2454,14 @@ export const useStore = create<StoreState>((set, get) => ({
           agentHubAgents: settings.agentHubAgents
             ? [
                 ...INITIAL_AGENT_HUB_AGENTS.filter(defaultAgent => !(settings.deletedAgentHubAgentIds || []).includes(defaultAgent.id) && !settings.agentHubAgents.some((agent: AgentHubAgent) => agent.id === defaultAgent.id)),
-                ...settings.agentHubAgents.map((agent: AgentHubAgent) => agent.id === 'lead_data_agent'
-                  ? {
-                      ...agent,
-                      contextSuggestionMode: agent.contextSuggestionMode || 'manual',
-                      scheduleIntervalValue: agent.scheduleIntervalValue || agent.scheduleIntervalMinutes || 1440,
-                      scheduleIntervalUnit: agent.scheduleIntervalUnit || 'minute',
-                      scheduleRunCount: agent.scheduleRunCount || 0,
-                      instructions: 'Acquire, create, import, enrich, deduplicate, and normalize lead data across configured data channels.',
-                      tools: ['lead.acquire', 'lead.read', 'lead.create', 'lead.update', 'lead.enrich', 'lead.tag', 'lead.comment', 'lead.log', 'public_pool.import', 'client.dedupe', 'data.normalize']
-                    }
-                  : {
-                      ...agent,
-                      contextSuggestionMode: agent.contextSuggestionMode || 'manual',
-                      scheduleIntervalValue: agent.scheduleIntervalValue || agent.scheduleIntervalMinutes || 1440,
-                      scheduleIntervalUnit: agent.scheduleIntervalUnit || 'minute',
-                      scheduleRunCount: agent.scheduleRunCount || 0
-                    }
-                )
+                ...settings.agentHubAgents.map((agent: AgentHubAgent) => ({
+                  ...agent,
+                  contextSuggestionMode: agent.contextSuggestionMode || 'manual',
+                  scheduleIntervalValue: agent.scheduleIntervalValue || agent.scheduleIntervalMinutes || 1440,
+                  scheduleIntervalUnit: agent.scheduleIntervalUnit || 'minute',
+                  scheduleRunCount: agent.scheduleRunCount || 0,
+                  eventTriggers: agent.eventTriggers || []
+                }))
               ]
             : state.agentHubAgents,
           agentRunRecords: settings.agentRunRecords ?? state.agentRunRecords,

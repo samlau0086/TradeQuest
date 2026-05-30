@@ -1042,7 +1042,7 @@ No markdown wrappers, just valid JSON.`;
         scheduleDayOfMonth: agent.scheduleDayOfMonth,
         scheduleMaxRuns: agent.scheduleMaxRuns,
         eventTriggers: Array.isArray(agent.eventTriggers) ? agent.eventTriggers : existing.eventTriggers,
-        updatedAt: new Date(Math.max(existingTime, incomingTime, Date.now())).toISOString()
+        updatedAt: new Date(Math.max(existingTime, incomingTime) || Date.now()).toISOString()
       });
     });
     return Array.from(byId.values()).sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());

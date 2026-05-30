@@ -822,6 +822,30 @@ export function AgentHub() {
     tasksCompleted: agent.tasksCompleted + runLogs.filter(run => run.agent.toLowerCase().includes(agent.name.split(' ')[0].toLowerCase()) && run.status === 'completed').length
   }));
   const selectedAgent = draftAgent || agentHubAgents.find(agent => agent.id === selectedAgentId) || agentHubAgents[0] || emptyAgent();
+  const persistAgentHubState = async () => {
+    const authToken = token || localStorage.getItem('token');
+    if (!authToken) return;
+    const state = useStore.getState();
+    const response = await fetch('/api/user/settings', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authToken}`
+      },
+      body: JSON.stringify({
+        agentHubAgents: state.agentHubAgents,
+        deletedAgentHubAgentIds: state.deletedAgentHubAgentIds,
+        agentRunRecords: state.agentRunRecords,
+        agentIdempotencyRecords: state.agentIdempotencyRecords,
+        agentHarnessRuns: state.agentHarnessRuns,
+        globalAgentPlans: state.globalAgentPlans
+      })
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || 'Failed to save agent settings');
+    }
+  };
   const saveAgent = (agent: Omit<AgentHubAgent, 'createdAt' | 'updatedAt' | 'tasksCompleted'> | Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'>) => {
     const normalizedAgent = {
       ...agent,
@@ -830,13 +854,14 @@ export function AgentHub() {
     if ('id' in agent) {
       updateAgentHubAgent(agent.id, normalizedAgent as AgentHubAgent);
       setSelectedAgentId(agent.id);
-      notify(t('Agent configuration saved.'), 'success');
     } else {
       const id = addAgentHubAgent(normalizedAgent);
       setSelectedAgentId(id);
-      notify(t('Agent created.'), 'success');
     }
     setDraftAgent(null);
+    void persistAgentHubState()
+      .then(() => notify('id' in agent ? t('Agent configuration saved.') : t('Agent created.'), 'success'))
+      .catch((error) => notify(error.message || t('Failed to save agent settings.'), 'error'));
   };
 
   const deleteSelectedAgent = (agent: AgentHubAgent) => {
@@ -844,7 +869,9 @@ export function AgentHub() {
     const nextAgent = agentHubAgents.find(item => item.id !== agent.id) || null;
     setSelectedAgentId(nextAgent?.id || null);
     setDraftAgent(null);
-    notify(language === 'zh' ? '智能体已删除。' : 'Agent deleted.', 'success');
+    void persistAgentHubState()
+      .then(() => notify(language === 'zh' ? '智能体已删除。' : 'Agent deleted.', 'success'))
+      .catch((error) => notify(error.message || t('Failed to save agent settings.'), 'error'));
   };
 
   const runAgentNow = async (agent: AgentHubAgent) => {
