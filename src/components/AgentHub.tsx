@@ -869,7 +869,7 @@ export function AgentHub() {
   } = useStore();
   const { token } = useAuthStore();
   const t = useTranslation(language);
-  const [tab, setTab] = useState<AgentHubTab>('fleet');
+  const [tab, setTab] = useState<AgentHubTab>('chat');
   const [modalAgent, setModalAgent] = useState<AgentHubAgent | ReturnType<typeof emptyAgent> | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(agentHubAgents[0]?.id || null);
   const [draftAgent, setDraftAgent] = useState<ReturnType<typeof emptyAgent> | null>(null);
