@@ -225,15 +225,13 @@ async function generateAgentInstructions(
   const state = useStore.getState();
   const llmId = state.llmMappings.agent_instruction_generation || state.activeLLMId;
   const llmConfig = llmId ? state.llmConfigs.find(config => config.id === llmId) : null;
-  const inferredTools = inferAgentToolsFromPrompt(`${form.name} ${form.instructions}`);
-  const selectedTools = Array.from(new Set([...(form.tools || []), ...inferredTools]));
   const response = await fetch('/api/agent-instructions/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({
       agentName: form.name,
       currentInstructions: form.instructions,
-      selectedTools,
+      selectedTools: form.tools || [],
       availableTools: AGENT_TOOL_REGISTRY,
       guardrail: form.guardrail,
       systemLanguage: language === 'zh' ? 'Chinese' : 'English',
@@ -288,11 +286,13 @@ function AgentModal({
   const handleGenerateInstructions = async () => {
     setGeneratingInstructions(true);
     try {
-      const instructions = await generateAgentInstructions(form, token, language);
+      const aiTools = await selectAgentToolsWithAI(form, token).catch(() => []);
+      const selectedTools = aiTools.length > 0
+        ? aiTools
+        : Array.from(new Set([...(form.tools || []), ...inferAgentToolsFromPrompt(`${form.name} ${form.instructions}`)]));
+      const instructions = await generateAgentInstructions({ ...form, tools: selectedTools }, token, language);
       if (instructions) {
-        const fallbackTools = Array.from(new Set([...(form.tools || []), ...inferAgentToolsFromPrompt(`${form.name} ${form.instructions} ${instructions}`)]));
-        const aiTools = await selectAgentToolsWithAI({ name: form.name, instructions }, token).catch(() => []);
-        setForm({ ...form, instructions, tools: aiTools.length > 0 ? aiTools : fallbackTools });
+        setForm({ ...form, instructions, tools: selectedTools });
       }
     } catch (error) {
       console.error(error);
@@ -513,11 +513,13 @@ function AgentConfigPanel({
   const handleGenerateInstructions = async () => {
     setGeneratingInstructions(true);
     try {
-      const instructions = await generateAgentInstructions(form, token, language);
+      const aiTools = await selectAgentToolsWithAI(form, token).catch(() => []);
+      const selectedTools = aiTools.length > 0
+        ? aiTools
+        : Array.from(new Set([...(form.tools || []), ...inferAgentToolsFromPrompt(`${form.name} ${form.instructions}`)]));
+      const instructions = await generateAgentInstructions({ ...form, tools: selectedTools }, token, language);
       if (instructions) {
-        const fallbackTools = Array.from(new Set([...(form.tools || []), ...inferAgentToolsFromPrompt(`${form.name} ${form.instructions} ${instructions}`)]));
-        const aiTools = await selectAgentToolsWithAI({ name: form.name, instructions }, token).catch(() => []);
-        setForm({ ...form, instructions, tools: aiTools.length > 0 ? aiTools : fallbackTools });
+        setForm({ ...form, instructions, tools: selectedTools });
       }
     } catch (error) {
       console.error(error);

@@ -547,6 +547,7 @@ async function callAI(prompt: string, llmConfig: any, isJson: boolean = false) {
         model: llmConfig.model || 'gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
         response_format: isJson ? { type: 'json_object' } : undefined,
+        temperature: 0,
       });
       return response.choices[0].message.content || '';
     } else if (llmConfig.provider === 'gemini') {
@@ -554,7 +555,7 @@ async function callAI(prompt: string, llmConfig: any, isJson: boolean = false) {
       const response = await gemini.models.generateContent({
         model: llmConfig.model || 'gemini-2.5-flash',
         contents: prompt,
-        config: isJson ? { responseMimeType: 'application/json' } : undefined,
+        config: isJson ? { responseMimeType: 'application/json', temperature: 0 } : { temperature: 0 },
       });
       return response.text;
     }
@@ -567,7 +568,7 @@ async function callAI(prompt: string, llmConfig: any, isJson: boolean = false) {
   const response = await defaultAi.models.generateContent({
     model: "gemini-2.5-flash",
     contents: prompt,
-    config: isJson ? { responseMimeType: 'application/json' } : undefined,
+    config: isJson ? { responseMimeType: 'application/json', temperature: 0 } : { temperature: 0 },
   });
   return response.text;
 }
@@ -639,7 +640,13 @@ Respond only with the draft or the direct output of the action requested. Do not
       const prompt = `You are configuring an AI agent inside a foreign trade CRM.
 Choose the tools this agent should be allowed to use based on its name and prompt.
 Select only tools from the provided registry. Do not invent tool IDs.
-Prefer the smallest sufficient tool set. Include outbound tools only if the prompt clearly needs sending messages, quotes, or follow-up execution.
+Choose a complete executable tool set, not just the final action tool.
+Include read/context tools needed to make the action reliable.
+Include product.read when the prompt says the agent should use company products, catalog, SKUs, pricing, product materials, product-market fit, or product-led targeting.
+Include knowledge.search and knowledge.read when the prompt says the agent should use RAG, knowledge base, documents, company materials, ICP, historical closed-won customers, or customer profiles.
+Include lead.acquire plus lead.create/public_pool.import/lead.enrich/client.dedupe/data.normalize when the prompt asks to discover, acquire, import, enrich, or build potential leads.
+Include outbound tools only if the prompt clearly needs sending messages, quotes, or follow-up execution.
+Do not over-minimize. Select all tools that the configured agent would need during a normal run.
 
 Agent name:
 ${agentName}
