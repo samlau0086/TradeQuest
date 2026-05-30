@@ -456,15 +456,9 @@ export default function App() {
            <Dashboard />}
         </Panel>
         
-        {selectedClientId && (
-          <>
-            <PanelResizeHandle className="w-1 bg-slate-800 hover:bg-cyan-500 cursor-col-resize transition-colors" />
-            <Panel id="client-details" defaultSize={384} minSize={300} maxSize={600}>
-              <ClientDetails />
-            </Panel>
-          </>
-        )}
       </PanelGroup>
+
+      {selectedClientId && <ClientDetails />}
 
       {globalLoading && (
         <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-sm z-[9999] flex flex-col items-center justify-center text-slate-200">

@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useStore, ClientStatus, Client, ContactMethod, Comment } from '../store';
 import { useAuthStore } from '../authStore';
-import { X, Thermometer, Flame, Snowflake, Sparkles, Send, Loader2, Workflow, History, Mail, MessageCircle, Phone, Edit, Trash2, Paperclip, MessageSquare, Settings, Globe2 } from 'lucide-react';
+import { X, Thermometer, Flame, Snowflake, Sparkles, Send, Loader2, Workflow, History, Mail, MessageCircle, Phone, Edit, Trash2, Paperclip, MessageSquare, Settings, Globe2, ArrowLeft, Building2, MapPin, BadgeDollarSign, Tag, Clock3, CheckCircle2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ClientFormModal } from './ClientFormModal';
 
@@ -667,30 +667,160 @@ export function ClientDetails() {
   };
 
   return (
-    <div className="w-full h-full bg-slate-900 border-l border-slate-800 flex flex-col shrink-0 shadow-2xl transition-transform">
+    <div className="fixed inset-0 z-50 bg-[#05070b] text-slate-100 overflow-hidden pointer-events-auto">
       {/* Header */}
-      <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/50">
-        <div className="flex-1 min-w-0 mr-4">
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            {client.name}
-            <button onClick={() => setShowEditModal(true)} className="text-slate-500 hover:text-cyan-400 p-1 rounded transition-colors inline-block shrink-0"><Edit className="w-4 h-4" /></button>
-            <LocalTime country={client.country} />
-          </h2>
-          <p className="text-xs text-slate-400 truncate mt-1">
-            {client.company} · {[client.city, client.state, client.country].filter(Boolean).join(', ')}
-          </p>
-        </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <button onClick={() => setConfirmDeleteTarget(true)} className="p-2 text-slate-500 hover:text-red-400 rounded-lg hover:bg-slate-800 transition-colors">
-            <Trash2 className="w-4 h-4" />
-          </button>
-          <button onClick={closeDetails} className="p-2 text-slate-500 hover:text-white rounded-lg hover:bg-slate-800 transition-colors">
-            <X className="w-5 h-5" />
-          </button>
+      <div className="px-5 py-5 lg:px-8 border-b border-slate-900/80 bg-black/40">
+        <div className="mx-auto max-w-[1800px] flex items-start justify-between gap-4">
+          <div className="flex items-start gap-4 min-w-0">
+            <button onClick={closeDetails} className="mt-1 p-2 rounded-lg border border-slate-800 bg-slate-950/80 text-slate-400 hover:text-white hover:border-slate-600 transition-colors">
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div className="min-w-0">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h2 className="text-2xl font-bold text-white truncate">{leadRecord?.name || client.name}</h2>
+                <span className="text-[11px] font-bold px-2.5 py-1 rounded bg-purple-500/20 text-purple-200 border border-purple-500/30">
+                  {leadRecord ? 'Lead' : 'Client'}
+                </span>
+                <span className="text-[11px] font-bold px-2.5 py-1 rounded bg-cyan-500/10 text-cyan-200 border border-cyan-500/20">
+                  {leadRecord?.status || client.status}
+                </span>
+              </div>
+              <div className="mt-2 flex items-center gap-4 text-xs text-slate-500 flex-wrap">
+                <span className="inline-flex items-center gap-1.5"><Building2 className="w-3.5 h-3.5" />{client.company || 'No company'}</span>
+                <span className="inline-flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" />{[client.city, client.state, client.country].filter(Boolean).join(', ') || 'No location'}</span>
+                <LocalTime country={client.country} />
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button onClick={() => setShowEditModal(true)} className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800 hover:text-white transition-colors">
+              <Edit className="w-4 h-4" /> Edit Info
+            </button>
+            <button onClick={() => setConfirmDeleteTarget(true)} className="p-2.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-red-500/10 transition-colors">
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-6">
+      <div className="h-[calc(100dvh-93px)] overflow-y-auto px-5 py-6 lg:px-8">
+        <div className="mx-auto max-w-[1800px] space-y-6">
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,2fr)_minmax(360px,0.85fr)] gap-6">
+            <div className="space-y-6 min-w-0">
+              <div className="rounded-xl border border-blue-500/20 bg-blue-950/20 p-5 shadow-[0_0_40px_rgba(14,165,233,0.05)]">
+                <div className="text-xs font-bold text-cyan-300 uppercase tracking-wider flex items-center gap-2 mb-3">
+                  <Sparkles className="w-4 h-4" /> AI Customer Summary
+                </div>
+                <p className="text-sm lg:text-base text-slate-200 leading-relaxed">
+                  {leadSummary || client.agentSummary || 'No AI summary has been generated yet. Run AI Radar to analyze this customer or lead.'}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-emerald-500/20 bg-emerald-950/15 p-5">
+                <div className="text-xs font-bold text-emerald-300 uppercase tracking-wider flex items-center gap-2 mb-3">
+                  <CheckCircle2 className="w-4 h-4" /> Best Next Step
+                </div>
+                <p className="text-lg text-white leading-relaxed">
+                  {leadNextStep || client.agentNextStep || 'Review recent activity and choose the next follow-up action.'}
+                </p>
+                <div className="mt-5 flex items-center gap-3">
+                  <button
+                    onClick={handleAnalyze}
+                    disabled={loading}
+                    className="flex-1 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-sm font-bold text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50 transition-colors"
+                  >
+                    {loading ? 'Analyzing...' : 'Generate AI Recommendation'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
+                <div className="flex items-center justify-between gap-3 mb-5">
+                  <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+                    <History className="w-4 h-4" /> Event Timeline
+                  </h3>
+                  <span className="text-xs text-slate-500">{leadLogs.length} events</span>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {leadLogs.slice(0, 4).map(log => (
+                    <div key={log.id} className="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
+                      <div className="flex items-center gap-2 text-[11px] text-slate-500 mb-2">
+                        <Clock3 className="w-3.5 h-3.5" />
+                        {new Date(log.date).toLocaleString()}
+                      </div>
+                      <p className="text-sm text-slate-200 leading-relaxed">{log.content}</p>
+                    </div>
+                  ))}
+                  {leadLogs.length === 0 && (
+                    <div className="md:col-span-2 rounded-lg border border-slate-800 bg-slate-900/50 p-6 text-center text-sm text-slate-500">
+                      No timeline events yet.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-6 min-w-0">
+              <div className="rounded-xl border border-amber-500/20 bg-amber-950/10 p-5">
+                <div className="text-xs font-bold text-amber-300 uppercase tracking-wider mb-3">Pending Approval</div>
+                {client.pendingEditRequest ? (
+                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100">
+                    Client profile update is waiting for review.
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-500">
+                    No pending approval items.
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
+                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Profile Notes</h3>
+                <div className="divide-y divide-slate-800">
+                  <div className="py-3 flex gap-3">
+                    <Building2 className="w-4 h-4 text-slate-500 mt-0.5" />
+                    <div>
+                      <div className="text-[11px] text-slate-500 uppercase">Company</div>
+                      <div className="text-sm text-slate-200">{client.company || 'Not set'}</div>
+                    </div>
+                  </div>
+                  <div className="py-3 flex gap-3">
+                    <BadgeDollarSign className="w-4 h-4 text-slate-500 mt-0.5" />
+                    <div>
+                      <div className="text-[11px] text-slate-500 uppercase">Potential Value</div>
+                      <div className="text-sm text-slate-200">{leadRecord ? `$${leadRecord.value.toLocaleString()}` : 'Not set'}</div>
+                    </div>
+                  </div>
+                  <div className="py-3 flex gap-3">
+                    <MapPin className="w-4 h-4 text-slate-500 mt-0.5" />
+                    <div>
+                      <div className="text-[11px] text-slate-500 uppercase">Address</div>
+                      <div className="text-sm text-slate-200">{[client.address, client.city, client.state, client.country].filter(Boolean).join(', ') || 'Not set'}</div>
+                    </div>
+                  </div>
+                  <div className="py-3 flex gap-3">
+                    <MessageSquare className="w-4 h-4 text-slate-500 mt-0.5" />
+                    <div>
+                      <div className="text-[11px] text-slate-500 uppercase">Description</div>
+                      <div className="text-sm text-slate-300 leading-relaxed">{client.agentContext || leadSummary || 'No description yet.'}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
+                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+                  <Tag className="w-4 h-4" /> Conversation Notes
+                </h3>
+                <div className="flex flex-wrap gap-2">
+                  {(client.tags || []).map(tag => (
+                    <span key={tag} className="rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs text-slate-300">{tag}</span>
+                  ))}
+                  {(!client.tags || client.tags.length === 0) && <span className="text-sm text-slate-500">No tags yet.</span>}
+                </div>
+              </div>
+            </div>
+          </div>
         
         {/* Status Pipeline change */}
         <div>
@@ -1053,6 +1183,7 @@ export function ClientDetails() {
         </div>
 
       </div>
+        </div>
       {showEditModal && <ClientFormModal clientId={client.id} onClose={() => setShowEditModal(false)} />}
       
       {agentSettingsOpen && <AgentSettingsModal client={client} onClose={() => setAgentSettingsOpen(false)} />}
