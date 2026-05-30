@@ -871,6 +871,7 @@ export function AgentHub() {
   const [schedulerSummary, setSchedulerSummary] = useState<string | null>(null);
   const [schedulerAgentDetails, setSchedulerAgentDetails] = useState<any[]>([]);
   const [logDisplayLimit, setLogDisplayLimit] = useState(30);
+  const [agentQueueFilter, setAgentQueueFilter] = useState<'system' | 'custom'>('system');
   const [chatAgentId, setChatAgentId] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState('');
   const [chatSending, setChatSending] = useState(false);
@@ -899,29 +900,28 @@ export function AgentHub() {
     ...agent,
     tasksCompleted: agent.tasksCompleted + runLogs.filter(run => run.agent.toLowerCase().includes(agent.name.split(' ')[0].toLowerCase()) && run.status === 'completed').length
   }));
-  const agentSections = [
-    {
-      id: 'system',
-      title: language === 'zh' ? '系统级智能体' : 'System Agents',
-      description: language === 'zh'
-        ? '内置 AI 能力与核心业务智能体，不可删除，可配置权限、策略与运行周期。'
-        : 'Built-in AI operations and core business agents. They cannot be deleted, but permissions, policy, and schedules can be configured.',
-      agents: computedAgents.filter(agent => agent.builtIn)
-    },
-    {
-      id: 'custom',
-      title: language === 'zh' ? '自定义智能体' : 'Custom Agents',
-      description: language === 'zh'
-        ? '你为具体业务流程创建的智能体，可自由新增、配置和删除。'
-        : 'Agents created for your own workflows. They can be added, configured, and deleted.',
-      agents: computedAgents.filter(agent => !agent.builtIn)
-    }
-  ].filter(section => section.agents.length > 0);
+  const systemAgents = computedAgents.filter(agent => agent.builtIn);
+  const customAgents = computedAgents.filter(agent => !agent.builtIn);
+  const visibleQueueAgents = agentQueueFilter === 'system' ? systemAgents : customAgents;
+  const activeQueueMeta = agentQueueFilter === 'system'
+    ? {
+        title: language === 'zh' ? '系统级智能体' : 'System Agents',
+        description: language === 'zh'
+          ? '内置 AI 能力与核心业务智能体，不可删除，可配置权限、策略与运行周期。'
+          : 'Built-in AI operations and core business agents. They cannot be deleted, but permissions, policy, and schedules can be configured.'
+      }
+    : {
+        title: language === 'zh' ? '自定义智能体' : 'Custom Agents',
+        description: language === 'zh'
+          ? '你为具体业务流程创建的智能体，可自由新增、配置和删除。'
+          : 'Agents created for your own workflows. They can be added, configured, and deleted.'
+      };
   const activeAgents = computedAgents.filter(agent => agent.status === 'active').length;
   const scheduledAgents = computedAgents.filter(agent => agent.scheduleEnabled).length;
   const eventTriggeredAgents = computedAgents.filter(agent => (agent.eventTriggers || []).length > 0).length;
   const reviewRequiredCount = pendingItems.length;
-  const selectedAgent = draftAgent || agentHubAgents.find(agent => agent.id === selectedAgentId) || agentHubAgents[0] || emptyAgent();
+  const selectedVisibleAgent = visibleQueueAgents.find(agent => agent.id === selectedAgentId);
+  const selectedAgent = draftAgent || selectedVisibleAgent || visibleQueueAgents[0] || emptyAgent();
   const savedGlobalAgent = agentHubAgents.find(agent => agent.id === 'global_agent');
   const globalAgent = savedGlobalAgent || ({
     ...emptyAgent(),
@@ -940,6 +940,13 @@ export function AgentHub() {
     .filter(message => message.agentId === activeChatAgent?.id)
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
     .slice(-30);
+  useEffect(() => {
+    if (draftAgent || tab !== 'fleet') return;
+    const selectedVisible = visibleQueueAgents.some(agent => agent.id === selectedAgentId);
+    if (!selectedVisible) {
+      setSelectedAgentId(visibleQueueAgents[0]?.id || null);
+    }
+  }, [draftAgent, selectedAgentId, tab, visibleQueueAgents]);
   const persistAgentHubState = async () => {
     const authToken = token || localStorage.getItem('token');
     if (!authToken) return;
@@ -1328,7 +1335,7 @@ export function AgentHub() {
               {tabButton('chat', 'Agent Chat', <MessageSquare className="w-4 h-4" />)}
               {tabButton('fleet', 'Agent Fleet', <Server className="w-4 h-4" />)}
             </div>
-            <button onClick={() => { setDraftAgent(emptyAgent()); setSelectedAgentId(null); setTab('fleet'); }} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-md text-sm font-bold text-white flex items-center gap-2">
+            <button onClick={() => { setDraftAgent(emptyAgent()); setSelectedAgentId(null); setAgentQueueFilter('custom'); setTab('fleet'); }} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-md text-sm font-bold text-white flex items-center gap-2">
               <Plus className="w-4 h-4" /> {t('Create Agent')}
             </button>
           </div>
@@ -1466,20 +1473,45 @@ export function AgentHub() {
             </div>
             <div className="grid grid-cols-1 xl:grid-cols-[minmax(360px,0.85fr)_minmax(0,1.15fr)] gap-8">
             <section className="bg-neutral-900/80 border border-neutral-700 rounded-lg p-6">
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400 mb-6">
-                <Server className="w-4 h-4" /> {t('Agent Runtime Status')}
+              <div className="mb-6 space-y-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400">
+                      <Server className="w-4 h-4" /> {t('Agent Runtime Status')}
+                    </div>
+                    <div className="mt-3 text-sm font-bold text-slate-100">{activeQueueMeta.title}</div>
+                    <p className="mt-1 text-xs leading-relaxed text-slate-500">{activeQueueMeta.description}</p>
+                  </div>
+                  <div className="inline-flex shrink-0 rounded-md border border-neutral-700 bg-black p-1">
+                    {[
+                      { id: 'system' as const, label: language === 'zh' ? '系统 Agent' : 'System', count: systemAgents.length },
+                      { id: 'custom' as const, label: language === 'zh' ? '自定义 Agent' : 'Custom', count: customAgents.length }
+                    ].map(option => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => { setAgentQueueFilter(option.id); setDraftAgent(null); }}
+                        className={cn(
+                          'rounded px-3 py-1.5 text-xs font-bold transition-colors',
+                          agentQueueFilter === option.id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-neutral-900 hover:text-slate-100'
+                        )}
+                      >
+                        {option.label}
+                        <span className="ml-2 text-[10px] opacity-70">{option.count}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
               <div className="space-y-4">
-                {agentSections.map(section => (
-                  <div key={section.id} className="space-y-3">
-                    <div className="flex items-end justify-between gap-3 border-b border-neutral-800 pb-2">
-                      <div>
-                        <div className="text-sm font-bold text-slate-100">{section.title}</div>
-                        <p className="mt-1 text-xs text-slate-500">{section.description}</p>
-                      </div>
-                      <span className="shrink-0 rounded border border-neutral-800 bg-black px-2 py-1 text-[10px] text-slate-400">{section.agents.length}</span>
-                    </div>
-                    {section.agents.map(agent => (
+                {visibleQueueAgents.length === 0 && (
+                  <div className="rounded-lg border border-dashed border-neutral-800 bg-black/40 px-4 py-10 text-center text-sm text-slate-500">
+                    {agentQueueFilter === 'custom'
+                      ? (language === 'zh' ? '还没有自定义智能体。点击右上角 Create Agent 开始创建。' : 'No custom agents yet. Use Create Agent to add one.')
+                      : (language === 'zh' ? '暂无系统级智能体。' : 'No system agents available.')}
+                  </div>
+                )}
+                {visibleQueueAgents.map(agent => (
                   <div
                     key={agent.id}
                     onClick={() => { setSelectedAgentId(agent.id); setDraftAgent(null); }}
@@ -1536,8 +1568,6 @@ export function AgentHub() {
                       {language === 'zh' ? '执行' : 'Run'}
                     </button>
                   </div>
-                  </div>
-                    ))}
                   </div>
                 ))}
               </div>
