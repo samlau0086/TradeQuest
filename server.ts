@@ -792,14 +792,14 @@ Return JSON only:
 
   app.post("/api/agent-hub/chat", authenticateToken, async (req: any, res) => {
     try {
-      const { agentId = 'global_agent', message = '', history = [], llmConfig } = req.body || {};
+      const { agentId = 'global_agent', agent: requestAgent = null, message = '', history = [], llmConfig } = req.body || {};
       if (!String(message).trim()) return res.status(400).json({ error: "Missing message" });
       const settingsRes = await pool.query('SELECT settings FROM users WHERE id = $1', [req.user.uid]);
       const settings = settingsRes.rows[0]
         ? (typeof settingsRes.rows[0].settings === 'string' ? JSON.parse(settingsRes.rows[0].settings || '{}') : (settingsRes.rows[0].settings || {}))
         : {};
       const agents = Array.isArray(settings.agentHubAgents) ? settings.agentHubAgents : [];
-      const agent = agents.find((item: any) => item.id === agentId) || agents.find((item: any) => item.id === 'global_agent') || {
+      const agent = agents.find((item: any) => item.id === agentId) || (requestAgent?.id === agentId ? requestAgent : null) || agents.find((item: any) => item.id === 'global_agent') || {
         id: 'global_agent',
         name: 'Global Conversion Agent',
         instructions: 'Plan and coordinate CRM-wide lead acquisition, follow-up, and conversion.',
@@ -1126,12 +1126,25 @@ No markdown wrappers, just valid JSON.`;
     return Array.from(byId.values()).sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
   };
 
+  const SYSTEM_AGENT_IDS = new Set([
+    'global_agent',
+    'follow_up_agent',
+    'whatsapp_agent',
+    'lead_scoring_agent',
+    'lead_data_agent',
+    'email_draft_agent',
+    'whatsapp_draft_agent',
+    'context_suggestion_agent',
+    'agent_prompt_builder_agent',
+    'agent_tool_selection_agent'
+  ]);
+
   const mergeUserSettings = (existing: any = {}, incoming: any = {}) => {
     const merged = { ...existing, ...incoming };
     const deletedAgentHubAgentIds = Array.from(new Set([
       ...((existing.deletedAgentHubAgentIds || []) as string[]),
       ...((incoming.deletedAgentHubAgentIds || []) as string[])
-    ]));
+    ])).filter(id => !SYSTEM_AGENT_IDS.has(id));
     const deletedAgentHubAgentIdSet = new Set(deletedAgentHubAgentIds);
     merged.agentRunRecords = mergeSettingsArrayById(existing.agentRunRecords || [], incoming.agentRunRecords || []).slice(0, 200);
     merged.agentChatMessages = mergeSettingsArrayById(existing.agentChatMessages || [], incoming.agentChatMessages || [])
@@ -1141,8 +1154,8 @@ No markdown wrappers, just valid JSON.`;
     merged.globalAgentPlans = mergeSettingsArrayById(existing.globalAgentPlans || [], incoming.globalAgentPlans || []);
     merged.deletedAgentHubAgentIds = deletedAgentHubAgentIds;
     merged.agentHubAgents = mergeAgentHubAgents(
-      (existing.agentHubAgents || []).filter((agent: any) => !deletedAgentHubAgentIdSet.has(agent.id)),
-      (incoming.agentHubAgents || []).filter((agent: any) => !deletedAgentHubAgentIdSet.has(agent.id))
+      (existing.agentHubAgents || []).filter((agent: any) => agent?.builtIn || SYSTEM_AGENT_IDS.has(agent.id) || !deletedAgentHubAgentIdSet.has(agent.id)),
+      (incoming.agentHubAgents || []).filter((agent: any) => agent?.builtIn || SYSTEM_AGENT_IDS.has(agent.id) || !deletedAgentHubAgentIdSet.has(agent.id))
     );
     return merged;
   };

@@ -544,7 +544,7 @@ function AgentConfigPanel({
           <p className="text-xs text-slate-500 mt-1">{t('Edit the selected agent role, tools, guardrails, and schedule.')}</p>
         </div>
         <div className="flex items-center gap-2">
-          {isEdit && onDelete && (
+          {isEdit && !(form as AgentHubAgent).builtIn && onDelete && (
             <button
               type="button"
               onClick={() => confirmDelete ? onDelete(form as AgentHubAgent) : setConfirmDelete(true)}
@@ -899,6 +899,24 @@ export function AgentHub() {
     ...agent,
     tasksCompleted: agent.tasksCompleted + runLogs.filter(run => run.agent.toLowerCase().includes(agent.name.split(' ')[0].toLowerCase()) && run.status === 'completed').length
   }));
+  const agentSections = [
+    {
+      id: 'system',
+      title: language === 'zh' ? '系统级智能体' : 'System Agents',
+      description: language === 'zh'
+        ? '内置 AI 能力与核心业务智能体，不可删除，可配置权限、策略与运行周期。'
+        : 'Built-in AI operations and core business agents. They cannot be deleted, but permissions, policy, and schedules can be configured.',
+      agents: computedAgents.filter(agent => agent.builtIn)
+    },
+    {
+      id: 'custom',
+      title: language === 'zh' ? '自定义智能体' : 'Custom Agents',
+      description: language === 'zh'
+        ? '你为具体业务流程创建的智能体，可自由新增、配置和删除。'
+        : 'Agents created for your own workflows. They can be added, configured, and deleted.',
+      agents: computedAgents.filter(agent => !agent.builtIn)
+    }
+  ].filter(section => section.agents.length > 0);
   const activeAgents = computedAgents.filter(agent => agent.status === 'active').length;
   const scheduledAgents = computedAgents.filter(agent => agent.scheduleEnabled).length;
   const eventTriggeredAgents = computedAgents.filter(agent => (agent.eventTriggers || []).length > 0).length;
@@ -990,6 +1008,7 @@ export function AgentHub() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           agentId: targetAgent.id,
+          agent: targetAgent,
           message: content,
           history: nextUserMessages.filter(item => item.agentId === targetAgent.id).slice(-10).map(item => ({
             role: item.role,
@@ -1054,6 +1073,10 @@ export function AgentHub() {
   };
 
   const deleteSelectedAgent = (agent: AgentHubAgent) => {
+    if (agent.builtIn) {
+      notify(language === 'zh' ? '系统级智能体不可删除。' : 'System agents cannot be deleted.', 'warning');
+      return;
+    }
     deleteAgentHubAgent(agent.id);
     const nextAgent = agentHubAgents.find(item => item.id !== agent.id) || null;
     setSelectedAgentId(nextAgent?.id || null);
@@ -1447,7 +1470,16 @@ export function AgentHub() {
                 <Server className="w-4 h-4" /> {t('Agent Runtime Status')}
               </div>
               <div className="space-y-4">
-                {computedAgents.map(agent => (
+                {agentSections.map(section => (
+                  <div key={section.id} className="space-y-3">
+                    <div className="flex items-end justify-between gap-3 border-b border-neutral-800 pb-2">
+                      <div>
+                        <div className="text-sm font-bold text-slate-100">{section.title}</div>
+                        <p className="mt-1 text-xs text-slate-500">{section.description}</p>
+                      </div>
+                      <span className="shrink-0 rounded border border-neutral-800 bg-black px-2 py-1 text-[10px] text-slate-400">{section.agents.length}</span>
+                    </div>
+                    {section.agents.map(agent => (
                   <div
                     key={agent.id}
                     onClick={() => { setSelectedAgentId(agent.id); setDraftAgent(null); }}
@@ -1464,6 +1496,7 @@ export function AgentHub() {
                       <p className="text-sm text-slate-400 mt-3 max-w-2xl">{agent.instructions}</p>
                     </div>
                     <div className="flex items-center gap-2">
+                      {agent.builtIn && <span className="px-2 py-1 rounded border border-cyan-500/30 bg-cyan-500/10 text-[10px] font-bold uppercase text-cyan-200">{language === 'zh' ? '系统' : 'System'}</span>}
                       <span className={cn('px-3 py-1 rounded border text-[10px] font-bold uppercase', statusClass(agent.status))}>{t(agent.status)}</span>
                       <SlidersHorizontal className="w-4 h-4 text-slate-500" />
                     </div>
@@ -1504,10 +1537,12 @@ export function AgentHub() {
                     </button>
                   </div>
                   </div>
+                    ))}
+                  </div>
                 ))}
               </div>
             </section>
-            <AgentConfigPanel agent={selectedAgent} onSave={saveAgent} onDelete={'id' in selectedAgent ? deleteSelectedAgent : undefined} />
+            <AgentConfigPanel agent={selectedAgent} onSave={saveAgent} onDelete={'id' in selectedAgent && !selectedAgent.builtIn ? deleteSelectedAgent : undefined} />
             </div>
           </div>
         )}

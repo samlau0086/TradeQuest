@@ -905,6 +905,116 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     builtIn: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'email_draft_agent',
+    name: 'Email Draft Agent',
+    instructions: 'Draft and improve outbound emails and replies using CRM context, customer language policy, product data, knowledge base snippets, prior messages, and signature rules. Never include the signature in generated draft content and never send without the sending layer.',
+    guardrail: 'auto',
+    status: 'active',
+    tools: ['email.read', 'email.draft', 'email.reply', 'knowledge.search', 'knowledge.read', 'product.read', 'client.read', 'lead.read'],
+    tasksCompleted: 0,
+    scheduleEnabled: false,
+    scheduleIntervalMinutes: 1440,
+    scheduleIntervalValue: 1,
+    scheduleIntervalUnit: 'day',
+    scheduleRunCount: 0,
+    eventTriggers: ['email_received'],
+    eventTriggerScope: 'subject',
+    contextSuggestionMode: 'manual',
+    soul: 'System drafting agent for email compose, reply, and AI Draft Full Email actions. Internal reasoning follows the system language; customer-facing drafts follow the customer communication language policy.',
+    evolutionLog: [],
+    builtIn: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'whatsapp_draft_agent',
+    name: 'WhatsApp Draft Agent',
+    instructions: 'Draft WhatsApp-style short messages, replies, scheduled messages, emoji-aware text, and media captions using customer context, WhatsApp history, product data, RAG, and client quota constraints. Sending must respect WhatsApp client assignment and guardrails.',
+    guardrail: 'human_loop',
+    status: 'active',
+    tools: ['whatsapp.read', 'whatsapp.send', 'knowledge.search', 'knowledge.read', 'product.read', 'client.read', 'lead.read', 'conversation.comment'],
+    tasksCompleted: 0,
+    scheduleEnabled: false,
+    scheduleIntervalMinutes: 1440,
+    scheduleIntervalValue: 1,
+    scheduleIntervalUnit: 'day',
+    scheduleRunCount: 0,
+    eventTriggers: ['whatsapp_received'],
+    eventTriggerScope: 'subject',
+    contextSuggestionMode: 'manual',
+    soul: 'System drafting agent for WhatsApp compose, reply, media-message copy, and WhatsApp follow-up suggestions. Keep wording concise and natural for chat.',
+    evolutionLog: [],
+    builtIn: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'context_suggestion_agent',
+    name: 'Context Suggestion Agent',
+    instructions: 'Analyze a single email or WhatsApp conversation once, persist the analysis, classify intent, retrieve relevant knowledge and products, and produce operator-facing next-step options that can be manually executed or automation-ready depending on policy.',
+    guardrail: 'auto',
+    status: 'active',
+    tools: ['email.read', 'whatsapp.read', 'lead.analyze', 'next_step.recommend', 'knowledge.search', 'knowledge.read', 'product.read', 'client.read', 'lead.read', 'email.draft'],
+    tasksCompleted: 0,
+    scheduleEnabled: false,
+    scheduleIntervalMinutes: 1440,
+    scheduleIntervalValue: 1,
+    scheduleIntervalUnit: 'day',
+    scheduleRunCount: 0,
+    eventTriggers: ['email_received', 'whatsapp_received'],
+    eventTriggerScope: 'subject',
+    contextSuggestionMode: 'auto',
+    soul: 'System agent behind Agent Context & Suggestions. Cache and persist analysis by message/conversation key unless a human explicitly re-analyzes.',
+    evolutionLog: [],
+    builtIn: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'agent_prompt_builder_agent',
+    name: 'Agent Prompt Builder Agent',
+    instructions: 'Generate and refine agent instructions from a short user prompt by reading product data, knowledge base, historical customer profile patterns, available tool registry, language policy, guardrails, idempotency rules, and expected run output format.',
+    guardrail: 'auto',
+    status: 'active',
+    tools: ['product.read', 'knowledge.search', 'knowledge.read', 'client.read', 'lead.read'],
+    tasksCompleted: 0,
+    scheduleEnabled: false,
+    scheduleIntervalMinutes: 1440,
+    scheduleIntervalValue: 1,
+    scheduleIntervalUnit: 'day',
+    scheduleRunCount: 0,
+    eventTriggers: [],
+    eventTriggerScope: 'subject',
+    contextSuggestionMode: 'manual',
+    soul: 'System agent behind Prompt / Instructions AI Generate. It should produce company-specific, tool-aware prompts instead of generic role text.',
+    evolutionLog: [],
+    builtIn: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'agent_tool_selection_agent',
+    name: 'Agent Tool Selection Agent',
+    instructions: 'Select the smallest safe set of tools for an agent from the registered tool catalog based on the agent name, prompt, intended workflow, risk profile, and available system modules. Prefer exact tool IDs from the catalog and explain omitted high-risk tools when useful.',
+    guardrail: 'auto',
+    status: 'active',
+    tools: ['knowledge.search', 'knowledge.read', 'product.read', 'client.read', 'lead.read'],
+    tasksCompleted: 0,
+    scheduleEnabled: false,
+    scheduleIntervalMinutes: 1440,
+    scheduleIntervalValue: 1,
+    scheduleIntervalUnit: 'day',
+    scheduleRunCount: 0,
+    eventTriggers: [],
+    eventTriggerScope: 'subject',
+    contextSuggestionMode: 'manual',
+    soul: 'System agent behind AI tool auto-selection. Tool choices must be based on the same prompt-generation context to avoid inconsistent selections.',
+    evolutionLog: [],
+    builtIn: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   }
 ];
 
@@ -1154,11 +1264,15 @@ export const useStore = create<StoreState>((set, get) => ({
       agent.id === id ? { ...agent, ...updates, updatedAt: new Date().toISOString() } : agent
     ))
   })),
-  deleteAgentHubAgent: (id) => set((state) => ({
-    agentHubAgents: state.agentHubAgents.filter(agent => agent.id !== id),
-    deletedAgentHubAgentIds: Array.from(new Set([...(state.deletedAgentHubAgentIds || []), id])),
-    agentRunRecords: state.agentRunRecords.filter(record => record.agentId !== id)
-  })),
+  deleteAgentHubAgent: (id) => set((state) => {
+    const agent = state.agentHubAgents.find(item => item.id === id);
+    if (agent?.builtIn) return {};
+    return {
+      agentHubAgents: state.agentHubAgents.filter(item => item.id !== id),
+      deletedAgentHubAgentIds: Array.from(new Set([...(state.deletedAgentHubAgentIds || []), id])),
+      agentRunRecords: state.agentRunRecords.filter(record => record.agentId !== id)
+    };
+  }),
   agentRunRecords: [],
   addAgentRunRecord: (record) => {
     const id = `agent_run_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
@@ -2497,7 +2611,7 @@ export const useStore = create<StoreState>((set, get) => ({
           deletedAgentHubAgentIds: settings.deletedAgentHubAgentIds ?? state.deletedAgentHubAgentIds,
           agentHubAgents: settings.agentHubAgents
             ? [
-                ...INITIAL_AGENT_HUB_AGENTS.filter(defaultAgent => !(settings.deletedAgentHubAgentIds || []).includes(defaultAgent.id) && !settings.agentHubAgents.some((agent: AgentHubAgent) => agent.id === defaultAgent.id)),
+                ...INITIAL_AGENT_HUB_AGENTS.filter(defaultAgent => (defaultAgent.builtIn || !(settings.deletedAgentHubAgentIds || []).includes(defaultAgent.id)) && !settings.agentHubAgents.some((agent: AgentHubAgent) => agent.id === defaultAgent.id)),
                 ...settings.agentHubAgents.map((agent: AgentHubAgent) => ({
                   ...agent,
                   contextSuggestionMode: agent.contextSuggestionMode || 'manual',
