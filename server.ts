@@ -675,10 +675,60 @@ Return JSON only:
       const selectedToolDefinitions = (Array.isArray(availableTools) ? availableTools : [])
         .filter((tool: any) => Array.isArray(selectedTools) && selectedTools.includes(tool.id));
       const selectedToolIds = new Set((Array.isArray(selectedTools) ? selectedTools : []).map((tool: any) => String(tool)));
-      const isProductLedLeadAgent = selectedToolIds.has('lead.acquire') && (
-        selectedToolIds.has('product.read') ||
-        /product|catalog|sku|\u4ea7\u54c1|\u4ea7\u54c1\u8d44\u6599|\u6211\u53f8\u4ea7\u54c1/i.test(`${agentName} ${currentInstructions}`)
-      );
+      const shouldUseAcquisitionContextRules = selectedToolIds.has('lead.acquire');
+      const shouldLoadEnterpriseContext = shouldUseAcquisitionContextRules
+        || selectedToolIds.has('product.read')
+        || selectedToolIds.has('knowledge.search')
+        || selectedToolIds.has('knowledge.read')
+        || /product|catalog|sku|knowledge|rag|\u4ea7\u54c1|\u77e5\u8bc6\u5e93|\u5386\u53f2\u6210\u4ea4|\u5ba2\u6237\u753b\u50cf/i.test(`${agentName} ${currentInstructions}`);
+      let enterpriseContext = 'No enterprise product/RAG/customer context loaded.';
+      if (shouldLoadEnterpriseContext) {
+        const [productsRes, knowledgeRes, wonClientsRes] = await Promise.all([
+          pool.query(
+            `SELECT sku, name, description, bulk_prices
+             FROM products
+             WHERE user_id = $1
+             ORDER BY updated_at DESC
+             LIMIT 12`,
+            [req.user.uid]
+          ),
+          pool.query(
+            `SELECT title, content
+             FROM knowledge_base
+             WHERE user_id = $1 AND client_id IS NULL
+             ORDER BY updated_at DESC
+             LIMIT 10`,
+            [req.user.uid]
+          ),
+          pool.query(
+            `SELECT name, company, country, tags, contact_methods
+             FROM clients
+             WHERE user_id = $1 AND status = 'Closed Won'
+             ORDER BY updated_at DESC
+             LIMIT 12`,
+            [req.user.uid]
+          )
+        ]);
+        enterpriseContext = JSON.stringify({
+          products: productsRes.rows.map((product: any) => ({
+            sku: product.sku,
+            name: product.name,
+            description: String(product.description || '').slice(0, 700),
+            bulkPrices: product.bulk_prices || []
+          })),
+          knowledgeBase: knowledgeRes.rows.map((item: any) => ({
+            title: item.title,
+            content: String(item.content || '').slice(0, 900)
+          })),
+          historicalClosedWonCustomers: wonClientsRes.rows.map((client: any) => ({
+            name: client.name,
+            company: client.company,
+            country: client.country,
+            tags: client.tags || [],
+            contactMethodTypes: parseJsonArray(client.contact_methods).map((method: any) => method.type).filter(Boolean)
+          }))
+        }, null, 2);
+      }
       const prompt = `You are configuring an AI agent inside a foreign trade CRM.
 Generate a clear, operational "Prompt / Instructions" block for this agent.
 
@@ -699,14 +749,17 @@ ${guardrail}
 Selected tools:
 ${JSON.stringify(selectedToolDefinitions.length > 0 ? selectedToolDefinitions : selectedTools, null, 2)}
 
-Special template rules:
-${isProductLedLeadAgent ? `- This is a product-led lead acquisition agent. The generated instructions MUST explicitly include product.read before lead.acquire.
-- It MUST read product catalog details, product names, SKUs, descriptions, pricing/bulk rules, use cases, target industries, and target countries before acquiring leads.
-- It MUST use knowledge.search / knowledge.read when available to pull product-market fit, ICP, and historical customer context.
-- It MUST generate lead acquisition keywords from product names, synonyms, use cases, industries, buyer roles, and target markets.
-- It MUST explain for every imported lead which product/use case it matches and why.
-- It MUST default imported leads into the public pool when public_pool.import is available.
-- It MUST not say lead.acquire works independently from product context when product.read is available.` : '- No extra specialized template.'}
+Enterprise context available to personalize this agent:
+${enterpriseContext}
+
+Enterprise-context rules:
+- When enterprise context is available, use it to make the generated instructions specific to this company. Mention concrete product categories, product keyword strategy, target industries, target countries, ICP patterns, and RAG usage where supported by the context.
+- Do not invent product facts that are not present in the enterprise context. If context is sparse, instruct the agent to read product.read and knowledge.search first.
+${shouldUseAcquisitionContextRules ? `- Because this agent can acquire leads, the generated instructions MUST explain how lead acquisition should use available enterprise context.
+- If product.read is selected, instruct the agent to read product catalog details before lead.acquire and derive acquisition keywords from product names, SKUs, use cases, industries, buyer roles, and target markets.
+- If knowledge.search or knowledge.read is selected, instruct the agent to use RAG for product-market fit, ICP, historical customer patterns, and qualification criteria.
+- For each imported lead, require an internal note explaining the matching product/use case and why the lead is relevant.
+- If public_pool.import is selected, imported leads should default into the public pool.` : '- No acquisition-specific context rules required for this agent.'}
 
 Write instructions that define:
 - Role and primary objective.
