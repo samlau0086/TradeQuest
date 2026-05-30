@@ -245,6 +245,28 @@ async function generateAgentInstructions(
   return String(data.instructions || '').trim();
 }
 
+async function selectAgentToolsWithAI(
+  form: Pick<AgentHubAgent, 'name' | 'instructions'>,
+  token: string | null
+) {
+  const state = useStore.getState();
+  const llmId = state.llmMappings.agent_tool_selection || state.activeLLMId;
+  const llmConfig = llmId ? state.llmConfigs.find(config => config.id === llmId) : null;
+  const response = await fetch('/api/agent-tools/select', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      agentName: form.name,
+      instructions: form.instructions,
+      availableTools: AGENT_TOOL_REGISTRY,
+      llmConfig
+    })
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || 'Failed to select tools');
+  return Array.isArray(data.tools) ? data.tools : [];
+}
+
 function AgentModal({
   agent,
   onClose,
@@ -261,29 +283,17 @@ function AgentModal({
   const [generatingInstructions, setGeneratingInstructions] = useState(false);
   const isEdit = 'id' in agent;
   const selectToolsWithAI = async () => {
-    const state = useStore.getState();
-    const llmId = state.llmMappings.agent_tool_selection || state.activeLLMId;
-    const llmConfig = llmId ? state.llmConfigs.find(config => config.id === llmId) : null;
-    const response = await fetch('/api/agent-tools/select', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        agentName: form.name,
-        instructions: form.instructions,
-        availableTools: AGENT_TOOL_REGISTRY,
-        llmConfig
-      })
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || 'Failed to select tools');
-    return Array.isArray(data.tools) ? data.tools : [];
+    return selectAgentToolsWithAI(form, token);
   };
   const handleGenerateInstructions = async () => {
     setGeneratingInstructions(true);
     try {
       const instructions = await generateAgentInstructions(form, token, language);
-      const inferredTools = inferAgentToolsFromPrompt(`${form.name} ${form.instructions} ${instructions}`);
-      if (instructions) setForm({ ...form, instructions, tools: Array.from(new Set([...(form.tools || []), ...inferredTools])) });
+      if (instructions) {
+        const fallbackTools = Array.from(new Set([...(form.tools || []), ...inferAgentToolsFromPrompt(`${form.name} ${form.instructions} ${instructions}`)]));
+        const aiTools = await selectAgentToolsWithAI({ name: form.name, instructions }, token).catch(() => []);
+        setForm({ ...form, instructions, tools: aiTools.length > 0 ? aiTools : fallbackTools });
+      }
     } catch (error) {
       console.error(error);
     } finally {
@@ -498,29 +508,17 @@ function AgentConfigPanel({
   }, [agent]);
 
   const selectToolsWithAI = async () => {
-    const state = useStore.getState();
-    const llmId = state.llmMappings.agent_tool_selection || state.activeLLMId;
-    const llmConfig = llmId ? state.llmConfigs.find(config => config.id === llmId) : null;
-    const response = await fetch('/api/agent-tools/select', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        agentName: form.name,
-        instructions: form.instructions,
-        availableTools: AGENT_TOOL_REGISTRY,
-        llmConfig
-      })
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || 'Failed to select tools');
-    return Array.isArray(data.tools) ? data.tools : [];
+    return selectAgentToolsWithAI(form, token);
   };
   const handleGenerateInstructions = async () => {
     setGeneratingInstructions(true);
     try {
       const instructions = await generateAgentInstructions(form, token, language);
-      const inferredTools = inferAgentToolsFromPrompt(`${form.name} ${form.instructions} ${instructions}`);
-      if (instructions) setForm({ ...form, instructions, tools: Array.from(new Set([...(form.tools || []), ...inferredTools])) });
+      if (instructions) {
+        const fallbackTools = Array.from(new Set([...(form.tools || []), ...inferAgentToolsFromPrompt(`${form.name} ${form.instructions} ${instructions}`)]));
+        const aiTools = await selectAgentToolsWithAI({ name: form.name, instructions }, token).catch(() => []);
+        setForm({ ...form, instructions, tools: aiTools.length > 0 ? aiTools : fallbackTools });
+      }
     } catch (error) {
       console.error(error);
       useStore.getState().notify(t('Failed to generate agent instructions.'), 'error');
