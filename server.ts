@@ -1183,7 +1183,9 @@ No markdown wrappers, just valid JSON.`;
     ])).filter(id => !SYSTEM_AGENT_IDS.has(id));
     const deletedAgentHubAgentIdSet = new Set(deletedAgentHubAgentIds);
     merged.agentRunRecords = mergeSettingsArrayById(existing.agentRunRecords || [], incoming.agentRunRecords || []).slice(0, 200);
-    merged.agentOpportunities = mergeSettingsArrayById(existing.agentOpportunities || [], incoming.agentOpportunities || []).slice(0, 300);
+    merged.agentOpportunities = Array.isArray(incoming.agentOpportunities)
+      ? incoming.agentOpportunities.filter((opportunity: any) => opportunity?.id).slice(0, 300)
+      : (existing.agentOpportunities || []);
     merged.agentOpportunityRoutingPolicy = {
       enabled: true,
       autoExecuteLowRisk: true,
