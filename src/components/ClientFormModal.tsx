@@ -8,6 +8,46 @@ export const COUNTRIES = [
   "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan", "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin", "Bhutan", "Bolivia", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria", "Burkina Faso", "Burundi", "Côte d'Ivoire", "Cabo Verde", "Cambodia", "Cameroon", "Canada", "Central African Republic", "Chad", "Chile", "China", "Colombia", "Comoros", "Congo (Congo-Brazzaville)", "Costa Rica", "Croatia", "Cuba", "Cyprus", "Czechia (Czech Republic)", "Democratic Republic of the Congo", "Denmark", "Djibouti", "Dominica", "Dominican Republic", "Ecuador", "Egypt", "El Salvador", "Equatorial Guinea", "Eritrea", "Estonia", "Eswatini", "Ethiopia", "Fiji", "Finland", "France", "Gabon", "Gambia", "Georgia", "Germany", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea", "Guinea-Bissau", "Guyana", "Haiti", "Holy See", "Honduras", "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel", "Italy", "Jamaica", "Japan", "Jordan", "Kazakhstan", "Kenya", "Kiribati", "Kuwait", "Kyrgyzstan", "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg", "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta", "Marshall Islands", "Mauritania", "Mauritius", "Mexico", "Micronesia", "Moldova", "Monaco", "Mongolia", "Montenegro", "Morocco", "Mozambique", "Myanmar (formerly Burma)", "Namibia", "Nauru", "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Niger", "Nigeria", "North Korea", "North Macedonia", "Norway", "Oman", "Pakistan", "Palau", "Palestine State", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal", "Qatar", "Romania", "Russia", "Rwanda", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent and the Grenadines", "Samoa", "San Marino", "Sao Tome and Principe", "Saudi Arabia", "Senegal", "Serbia", "Seychelles", "Sierra Leone", "Singapore", "Slovakia", "Slovenia", "Solomon Islands", "Somalia", "South Africa", "South Korea", "South Sudan", "Spain", "Sri Lanka", "Sudan", "Suriname", "Sweden", "Switzerland", "Syria", "Tajikistan", "Tanzania", "Thailand", "Timor-Leste", "Togo", "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", "Turkmenistan", "Tuvalu", "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States", "Uruguay", "Uzbekistan", "Vanuatu", "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe"
 ].sort();
 
+const PREFERRED_LANGUAGES = [
+  { name: 'English', nativeName: 'English', code: 'en' },
+  { name: 'Chinese', nativeName: '中文', code: 'zh' },
+  { name: 'Spanish', nativeName: 'Español', code: 'es' },
+  { name: 'French', nativeName: 'Français', code: 'fr' },
+  { name: 'German', nativeName: 'Deutsch', code: 'de' },
+  { name: 'Portuguese', nativeName: 'Português', code: 'pt' },
+  { name: 'Italian', nativeName: 'Italiano', code: 'it' },
+  { name: 'Dutch', nativeName: 'Nederlands', code: 'nl' },
+  { name: 'Russian', nativeName: 'Русский', code: 'ru' },
+  { name: 'Arabic', nativeName: 'العربية', code: 'ar' },
+  { name: 'Japanese', nativeName: '日本語', code: 'ja' },
+  { name: 'Korean', nativeName: '한국어', code: 'ko' },
+  { name: 'Hindi', nativeName: 'हिन्दी', code: 'hi' },
+  { name: 'Bengali', nativeName: 'বাংলা', code: 'bn' },
+  { name: 'Urdu', nativeName: 'اردو', code: 'ur' },
+  { name: 'Turkish', nativeName: 'Türkçe', code: 'tr' },
+  { name: 'Vietnamese', nativeName: 'Tiếng Việt', code: 'vi' },
+  { name: 'Thai', nativeName: 'ไทย', code: 'th' },
+  { name: 'Indonesian', nativeName: 'Bahasa Indonesia', code: 'id' },
+  { name: 'Malay', nativeName: 'Bahasa Melayu', code: 'ms' },
+  { name: 'Filipino', nativeName: 'Filipino', code: 'fil' },
+  { name: 'Polish', nativeName: 'Polski', code: 'pl' },
+  { name: 'Czech', nativeName: 'Čeština', code: 'cs' },
+  { name: 'Slovak', nativeName: 'Slovenčina', code: 'sk' },
+  { name: 'Hungarian', nativeName: 'Magyar', code: 'hu' },
+  { name: 'Romanian', nativeName: 'Română', code: 'ro' },
+  { name: 'Greek', nativeName: 'Ελληνικά', code: 'el' },
+  { name: 'Hebrew', nativeName: 'עברית', code: 'he' },
+  { name: 'Persian', nativeName: 'فارسی', code: 'fa' },
+  { name: 'Swedish', nativeName: 'Svenska', code: 'sv' },
+  { name: 'Norwegian', nativeName: 'Norsk', code: 'no' },
+  { name: 'Danish', nativeName: 'Dansk', code: 'da' },
+  { name: 'Finnish', nativeName: 'Suomi', code: 'fi' },
+  { name: 'Ukrainian', nativeName: 'Українська', code: 'uk' },
+  { name: 'Serbian', nativeName: 'Српски', code: 'sr' },
+  { name: 'Croatian', nativeName: 'Hrvatski', code: 'hr' },
+  { name: 'Bulgarian', nativeName: 'Български', code: 'bg' }
+].sort((a, b) => a.name.localeCompare(b.name));
+
 interface ClientFormModalProps {
   onClose: () => void;
   clientId?: string; // If provided, we are editing
@@ -35,6 +75,10 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
   const [status, setStatus] = useState<ClientStatus>(existingClient?.status || initialData?.status || 'Leads');
   const [tags, setTags] = useState<string>(existingClient?.tags.join(', ') || initialData?.tags?.join(', ') || '');
   const [preferredLanguage, setPreferredLanguage] = useState(existingClient?.preferredLanguage || initialData?.preferredLanguage || '');
+  const [isLanguageOpen, setIsLanguageOpen] = useState(false);
+  const [languageSearch, setLanguageSearch] = useState('');
+  const languageControlRef = useRef<HTMLDivElement>(null);
+  const [languageDropdownRect, setLanguageDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const [preferredTimeRange, setPreferredTimeRange] = useState(existingClient?.preferredTimeRange || initialData?.preferredTimeRange || '');
   const [contactMethods, setContactMethods] = useState<ContactMethod[]>(existingClient?.contactMethods || initialData?.contactMethods || [{ type: 'email', value: '' }]);
   const buildInitialContacts = (): ClientContact[] => {
@@ -77,9 +121,12 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
     });
   }, [name]);
 
-  // Close country dropdown when clicking outside
+  // Close fixed-position dropdowns when clicking outside.
   useEffect(() => {
-    const handleClick = () => setIsCountryOpen(false);
+    const handleClick = () => {
+      setIsCountryOpen(false);
+      setIsLanguageOpen(false);
+    };
     window.addEventListener('click', handleClick);
     return () => window.removeEventListener('click', handleClick);
   }, []);
@@ -103,6 +150,26 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
       window.removeEventListener('scroll', updatePosition, true);
     };
   }, [isCountryOpen]);
+
+  useEffect(() => {
+    if (!isLanguageOpen) return;
+    const updatePosition = () => {
+      const rect = languageControlRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setLanguageDropdownRect({
+        top: rect.bottom + 6,
+        left: rect.left,
+        width: rect.width
+      });
+    };
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [isLanguageOpen]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -212,6 +279,12 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
   const removeContactMethodFromContact = (contactId: string, methodIndex: number) => {
     setContacts(prev => prev.map(contact => contact.id === contactId ? { ...contact, contactMethods: (contact.contactMethods || []).filter((_, index) => index !== methodIndex) } : contact));
   };
+
+  const filteredLanguages = PREFERRED_LANGUAGES.filter(item => {
+    const query = languageSearch.toLowerCase().trim();
+    if (!query) return true;
+    return [item.name, item.nativeName, item.code].some(value => value.toLowerCase().includes(query));
+  });
 
   return (
     <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -380,9 +453,74 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
               <label className="text-xs font-bold text-slate-400 uppercase">{t('tagsLabel')}</label>
               <input value={tags} onChange={e => setTags(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500" placeholder="#HighValue, #CantonFair" />
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1 relative" onClick={e => e.stopPropagation()}>
               <label className="text-xs font-bold text-slate-400 uppercase">Preferred Language {isLocked(existingClient?.preferredLanguage) && <span className="text-[10px] text-slate-500 ml-1">(Locked)</span>}</label>
-              <input disabled={isLocked(existingClient?.preferredLanguage)} value={preferredLanguage} onChange={e => setPreferredLanguage(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 disabled:opacity-50" placeholder="e.g. Spanish" />
+              <div
+                ref={languageControlRef}
+                className={cn(
+                  "w-full bg-slate-950 border rounded-lg px-3 py-2 text-sm text-slate-200 flex items-center justify-between",
+                  isLanguageOpen ? "border-cyan-500 ring-1 ring-cyan-500" : "border-slate-700",
+                  isLocked(existingClient?.preferredLanguage) ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
+                )}
+                onClick={() => {
+                  if (isLocked(existingClient?.preferredLanguage)) return;
+                  if (!isLanguageOpen) setLanguageSearch('');
+                  setIsLanguageOpen(!isLanguageOpen);
+                }}
+              >
+                <input
+                  disabled={isLocked(existingClient?.preferredLanguage)}
+                  type="text"
+                  className="bg-transparent border-none outline-none w-full cursor-pointer placeholder-slate-500 disabled:cursor-not-allowed"
+                  value={isLanguageOpen ? languageSearch : preferredLanguage}
+                  onChange={(e) => {
+                    setLanguageSearch(e.target.value);
+                    if (!isLanguageOpen) setIsLanguageOpen(true);
+                  }}
+                  placeholder={isLanguageOpen ? 'Search language...' : 'Select language'}
+                />
+                <ChevronDown className="w-4 h-4 text-slate-500 shrink-0" />
+              </div>
+
+              {isLanguageOpen && (
+                <div
+                  className="fixed max-h-56 overflow-y-auto bg-slate-800 border border-slate-700 rounded-lg shadow-2xl z-[80] py-1"
+                  style={{
+                    top: languageDropdownRect?.top ?? 0,
+                    left: languageDropdownRect?.left ?? 0,
+                    width: languageDropdownRect?.width ?? 240
+                  }}
+                  onClick={e => e.stopPropagation()}
+                >
+                  {filteredLanguages.map(item => (
+                    <button
+                      key={item.code}
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-700 text-slate-200"
+                      onClick={() => {
+                        setPreferredLanguage(item.name);
+                        setLanguageSearch('');
+                        setIsLanguageOpen(false);
+                      }}
+                    >
+                      <span className="font-medium">{item.name}</span>
+                      {item.nativeName !== item.name && <span className="ml-2 text-xs text-slate-400">{item.nativeName}</span>}
+                    </button>
+                  ))}
+                  {languageSearch && !PREFERRED_LANGUAGES.some(item => item.name.toLowerCase() === languageSearch.toLowerCase()) && (
+                    <button
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-cyan-900/40 text-cyan-400 border-t border-slate-700/50 mt-1"
+                      onClick={() => {
+                        setPreferredLanguage(languageSearch.trim());
+                        setIsLanguageOpen(false);
+                      }}
+                    >
+                      {t('useCustom')}"{languageSearch}"
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
             <div className="space-y-1">
               <label className="text-xs font-bold text-slate-400 uppercase">Pref. Comm. Time {isLocked(existingClient?.preferredTimeRange) && <span className="text-[10px] text-slate-500 ml-1">(Locked)</span>}</label>
