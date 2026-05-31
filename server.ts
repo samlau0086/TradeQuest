@@ -2470,6 +2470,18 @@ No markdown wrappers, just valid JSON.`;
 
   const activeOpportunityDispatches = new Set<string>();
   const activeHarnessExecutions = new Set<string>();
+  let agentHubSchedulerRunning = false;
+  const AGENT_HUB_SCHEDULER_LOCK_KEY = 178020531;
+
+  const findActiveRunForOpportunity = (settings: any, opportunityId: string) => {
+    const isActive = (status: string) => !['completed', 'failed', 'rejected'].includes(status);
+    const hasOpportunityStep = (steps: any[]) => (steps || []).some((step: any) => step?.payload?.opportunityId === opportunityId);
+    const harnessRun = (settings.agentHarnessRuns || []).find((run: any) => isActive(run.status) && hasOpportunityStep(run.steps));
+    if (harnessRun) return { relatedRunId: harnessRun.id, relatedRunType: 'harness' as const };
+    const globalPlan = (settings.globalAgentPlans || []).find((plan: any) => isActive(plan.status) && hasOpportunityStep(plan.steps));
+    if (globalPlan) return { relatedRunId: globalPlan.id, relatedRunType: 'global' as const };
+    return null;
+  };
 
   const dispatchAgentOpportunityForUser = async (userId: string, settings: any, opportunityId: string, dispatchMode: 'manual' | 'auto' = 'manual') => {
     const dispatchLockKey = `${userId}:${opportunityId}`;
@@ -2484,6 +2496,16 @@ No markdown wrappers, just valid JSON.`;
     if (['completed', 'ignored'].includes(opportunity.status)) throw new Error('Agent opportunity is already closed');
     if (opportunity.relatedRunId || !['open', 'failed'].includes(opportunity.status || 'open')) {
       throw new Error(settings.language === 'zh' ? '该机会任务已派发或正在处理中。' : 'This opportunity has already been dispatched or is already in progress.');
+    }
+    const existingRun = findActiveRunForOpportunity(settings, opportunityId);
+    if (existingRun) {
+      updateAgentOpportunityInSettings(settings, opportunityId, {
+        status: 'pending_review',
+        relatedRunId: existingRun.relatedRunId,
+        relatedRunType: existingRun.relatedRunType,
+        resultSummary: settings.language === 'zh' ? '该机会任务已有待处理的智能体运行，已复用现有审核项。' : 'This opportunity already has an active agent run; reusing the existing review item.'
+      });
+      throw new Error(settings.language === 'zh' ? '该机会任务已有待处理的智能体运行。' : 'This opportunity already has an active agent run.');
     }
 
     const agents = Array.isArray(settings.agentHubAgents) ? settings.agentHubAgents : [];
@@ -2655,9 +2677,17 @@ No markdown wrappers, just valid JSON.`;
 
   const runAgentHubScheduler = async () => {
     const summary: any = { users: 0, configuredAgents: 0, dueAgents: 0, recordsCreated: 0, opportunitiesCreated: 0, opportunitiesRouted: 0, opportunitiesExecuted: 0, opportunitiesReview: 0, errors: 0, agents: [] };
+    let schedulerLockClient: any = null;
+    let schedulerLockAcquired = false;
+    if (agentHubSchedulerRunning) return summary;
+    agentHubSchedulerRunning = true;
     try {
       if (!pool) return;
-      const usersRes = await pool.query(`
+      schedulerLockClient = await pool.connect();
+      const lockRes = await schedulerLockClient.query('SELECT pg_try_advisory_lock($1) AS locked', [AGENT_HUB_SCHEDULER_LOCK_KEY]);
+      schedulerLockAcquired = Boolean(lockRes.rows[0]?.locked);
+      if (!schedulerLockAcquired) return summary;
+      const usersRes = await schedulerLockClient.query(`
         SELECT id, settings
         FROM users
         WHERE settings IS NOT NULL
@@ -2902,7 +2932,7 @@ No markdown wrappers, just valid JSON.`;
         }
 
         if (changed) {
-          await pool.query(
+          await schedulerLockClient.query(
             'UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
             [JSON.stringify(settings), user.id]
           );
@@ -2911,6 +2941,14 @@ No markdown wrappers, just valid JSON.`;
     } catch (e) {
       summary.errors += 1;
       console.error('Failed to run Agent Hub scheduler:', e);
+    } finally {
+      if (schedulerLockClient) {
+        if (schedulerLockAcquired) {
+          await schedulerLockClient.query('SELECT pg_advisory_unlock($1)', [AGENT_HUB_SCHEDULER_LOCK_KEY]).catch(() => undefined);
+        }
+        schedulerLockClient.release();
+      }
+      agentHubSchedulerRunning = false;
     }
     return summary;
   };
@@ -3536,22 +3574,32 @@ Return JSON only:
   });
 
   app.post('/api/agent-hub/opportunities/:opportunityId/dispatch', authenticateToken, async (req: any, res) => {
+    let client: any = null;
     try {
       const { opportunityId } = req.params;
-      const userRes = await pool.query('SELECT settings FROM users WHERE id = $1', [req.user.uid]);
-      if (userRes.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+      client = await pool.connect();
+      await client.query('BEGIN');
+      const userRes = await client.query('SELECT settings FROM users WHERE id = $1 FOR UPDATE', [req.user.uid]);
+      if (userRes.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'User not found' });
+      }
       const settings = typeof userRes.rows[0].settings === 'string' ? JSON.parse(userRes.rows[0].settings || '{}') : (userRes.rows[0].settings || {});
       const result = await dispatchAgentOpportunityForUser(req.user.uid, settings, opportunityId, 'manual');
-      const updated = await pool.query(
+      const updated = await client.query(
         'UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING settings',
         [JSON.stringify(settings), req.user.uid]
       );
+      await client.query('COMMIT');
       res.json({ success: true, result, settings: updated.rows[0]?.settings || settings });
     } catch (e: any) {
+      if (client) await client.query('ROLLBACK').catch(() => undefined);
       console.error('Failed to dispatch Agent Hub opportunity', e);
       const message = e.message || 'Failed to dispatch opportunity';
       const isConflict = message.includes('already') || message.includes('正在') || message.includes('已派发') || message.includes('处理中');
       res.status(isConflict ? 409 : 500).json({ error: message });
+    } finally {
+      if (client) client.release();
     }
   });
 
