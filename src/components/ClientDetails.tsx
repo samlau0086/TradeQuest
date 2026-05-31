@@ -485,9 +485,9 @@ export function ClientDetails() {
     if (!leadRecord) return true;
     return log.metadata?.leadId === leadRecord.id || log.metadata?.dealId === leadRecord.id;
   });
-  const leadScore = leadRecord ? leadRecord.leadScore : client?.leadScore;
-  const leadSummary = leadRecord ? leadRecord.leadSummary : client?.leadSummary;
-  const leadNextStep = leadRecord ? leadRecord.leadNextStep : client?.leadNextStep;
+  const leadScore = leadRecord?.leadScore ?? client?.leadScore;
+  const leadSummary = client?.leadSummary || leadRecord?.leadSummary;
+  const leadNextStep = client?.leadNextStep || client?.agentNextStep || leadRecord?.leadNextStep;
 
   if (!client) return null;
   const displayContacts = (client.contacts && client.contacts.length > 0)

@@ -5046,6 +5046,29 @@ Return JSON only:
       if (setClauses.length > 0) {
         setClauses.push(`updated_at = CURRENT_TIMESTAMP`);
         await pool.query(`UPDATE clients SET ${setClauses.join(', ')} WHERE id = $1 AND user_id = $2`, values);
+        if (updates.leadScore !== undefined || updates.leadSummary !== undefined || updates.leadNextStep !== undefined || updates.leadScoringSignature !== undefined || updates.leadScoringAnalyzedAt !== undefined) {
+          const dealSetClauses: string[] = [];
+          const dealValues: any[] = [id, req.user.uid];
+          let dealValIdx = 3;
+          const dealLeadMapping: Record<string, string> = {
+            leadScore: 'lead_score',
+            leadSummary: 'lead_summary',
+            leadNextStep: 'lead_next_step',
+            leadScoringSignature: 'lead_scoring_signature',
+            leadScoringAnalyzedAt: 'lead_scoring_analyzed_at'
+          };
+          for (const [key, column] of Object.entries(dealLeadMapping)) {
+            if (updates[key] !== undefined) {
+              dealSetClauses.push(`${column} = $${dealValIdx}`);
+              dealValues.push(updates[key]);
+              dealValIdx++;
+            }
+          }
+          if (dealSetClauses.length > 0) {
+            dealSetClauses.push(`updated_at = CURRENT_TIMESTAMP`);
+            await pool.query(`UPDATE deals SET ${dealSetClauses.join(', ')} WHERE client_id = $1 AND user_id = $2`, dealValues);
+          }
+        }
         
         if (pointsToAward > 0) {
             await pool.query(`UPDATE users SET points = points + $1 WHERE id = $2`, [pointsToAward, req.user.uid]);
