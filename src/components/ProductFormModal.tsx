@@ -25,6 +25,7 @@ export function ProductFormModal({ onClose, productId, initialData, onSave }: Pr
   const [showMediaSelector, setShowMediaSelector] = useState(false);
   const [generatingDescription, setGeneratingDescription] = useState(false);
   const [generatingSalesPoints, setGeneratingSalesPoints] = useState(false);
+  const [generatingBulkPricing, setGeneratingBulkPricing] = useState(false);
   const [bulkPrices, setBulkPrices] = useState<{minQuantity: number, price: number}[]>(
     existingProduct?.bulkPrices || initialData?.bulkPrices || [{ minQuantity: 1, price: 0 }]
   );
@@ -70,6 +71,21 @@ export function ProductFormModal({ onClose, productId, initialData, onSave }: Pr
     const newPrices = [...bulkPrices];
     newPrices.splice(index, 1);
     setBulkPrices(newPrices);
+  };
+
+  const parseBulkPricingResult = (raw: string) => {
+    const cleaned = String(raw || '').replace(/```json|```/g, '').trim();
+    const start = cleaned.indexOf('[');
+    const end = cleaned.lastIndexOf(']');
+    const parsed = JSON.parse(start >= 0 && end > start ? cleaned.slice(start, end + 1) : cleaned);
+    if (!Array.isArray(parsed)) throw new Error('AI response is not a price tier array.');
+    return parsed
+      .map(item => ({
+        minQuantity: Math.max(1, Math.round(Number(item.minQuantity ?? item.minQty ?? item.quantity ?? 0))),
+        price: Math.max(0, Number(item.price ?? item.unitPrice ?? 0))
+      }))
+      .filter(item => item.minQuantity > 0 && item.price > 0)
+      .sort((a, b) => a.minQuantity - b.minQuantity);
   };
 
   const getProductAiConfig = () => {
@@ -178,6 +194,68 @@ Rules:
     }
   };
 
+  const handleGenerateBulkPricing = async () => {
+    if (!name.trim() && !description.trim() && !salesPoints.trim()) {
+      notify(language === 'zh' ? '请先填写产品名称、描述或卖点。' : 'Please enter a product name, description, or sales points first.', 'warning');
+      return;
+    }
+    const llmConfig = getProductAiConfig();
+    if (!llmConfig) {
+      notify(language === 'zh' ? '请先在 AI & Integrations 配置可用模型。' : 'Please configure an AI model in AI & Integrations first.', 'warning');
+      return;
+    }
+
+    setGeneratingBulkPricing(true);
+    try {
+      const res = await fetch('/api/chat/magic', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${useAuthStore.getState().token}`
+        },
+        body: JSON.stringify({
+          command: `Generate commercially optimized bulk price tiers for this product. Output language for reasoning is ${language === 'zh' ? 'Chinese' : 'English'}, but return ONLY valid JSON.
+Return format:
+[
+  {"minQuantity": 1, "price": 0},
+  {"minQuantity": 10, "price": 0},
+  {"minQuantity": 50, "price": 0}
+]
+Rules:
+- Return 3-5 tiers sorted by minQuantity.
+- Use the current tiers as anchors if they contain non-zero prices.
+- If no reliable current price exists, estimate conservative relative tiers from product positioning, but do not invent currency labels or extra fields.
+- Price should generally decrease as quantity increases, while preserving commercial value and avoiding overly aggressive discounts.
+- Consider perceived value, likely MOQ behavior, B2B negotiation room, and conversion incentives.
+- Do not include explanations, markdown, comments, currency symbols, or text outside JSON.`,
+          context: {
+            systemLanguage: language,
+            product: {
+              sku,
+              name,
+              description,
+              salesPoints,
+              currentBulkPrices: bulkPrices
+            }
+          },
+          llmConfig,
+          skipKnowledgeBase: true
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to generate bulk pricing.');
+      const nextPrices = parseBulkPricingResult(String(data.result || ''));
+      if (nextPrices.length === 0) throw new Error('AI did not return usable price tiers.');
+      setBulkPrices(nextPrices);
+      incrementAgentHubTaskCount('context_suggestion_agent');
+    } catch (error) {
+      console.error(error);
+      notify(error instanceof Error ? error.message : 'Failed to generate bulk pricing.', 'error');
+    } finally {
+      setGeneratingBulkPricing(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
       <div 
@@ -272,7 +350,18 @@ Rules:
           </div>
 
           <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-400 uppercase">{t('bulkPricing')}</label>
+            <div className="flex items-center justify-between gap-3">
+              <label className="text-xs font-bold text-slate-400 uppercase">{t('bulkPricing')}</label>
+              <button
+                type="button"
+                onClick={handleGenerateBulkPricing}
+                disabled={generatingBulkPricing}
+                className="flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1.5 text-xs font-bold text-cyan-300 transition-colors hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {generatingBulkPricing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                {language === 'zh' ? 'AI 生成阶梯价格' : 'AI Generate Pricing'}
+              </button>
+            </div>
             {bulkPrices.map((bp, idx) => (
               <div key={idx} className="flex items-center gap-2">
                 <div className="flex-1 bg-slate-950 border border-slate-700 rounded-lg flex items-center px-3">
