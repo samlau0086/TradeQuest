@@ -953,6 +953,7 @@ export function AgentHub() {
   const [schedulerSummary, setSchedulerSummary] = useState<string | null>(null);
   const [schedulerAgentDetails, setSchedulerAgentDetails] = useState<any[]>([]);
   const [logDisplayLimit, setLogDisplayLimit] = useState(30);
+  const [expandedTraceRunIds, setExpandedTraceRunIds] = useState<string[]>([]);
   const [agentQueueFilter, setAgentQueueFilter] = useState<'system' | 'custom'>('system');
   const [chatAgentId, setChatAgentId] = useState<string | null>(null);
   const [chatRunningAgentId, setChatRunningAgentId] = useState<string | null>(null);
@@ -1539,6 +1540,7 @@ export function AgentHub() {
   const deleteRunLog = (run: typeof runLogs[number]) => {
     if (run.kind === 'harness') deleteAgentHarnessRun(run.id);
     if (run.kind === 'global') deleteGlobalAgentPlan(run.id);
+    setExpandedTraceRunIds(ids => ids.filter(id => id !== run.id));
   };
 
   const clearTraceLogs = async () => {
@@ -2277,7 +2279,11 @@ export function AgentHub() {
               </div>
               <div className="space-y-4 max-h-[calc(100vh-260px)] overflow-y-auto pr-1">
                 {runLogs.length === 0 && <div className="text-sm text-slate-500 py-8 text-center">{t('No agent runs yet.')}</div>}
-                {visibleRunLogs.map(run => (
+                {visibleRunLogs.map(run => {
+                  const isExpanded = expandedTraceRunIds.includes(run.id);
+                  const visibleSteps = isExpanded ? run.steps : run.steps.slice(0, 5);
+                  const hiddenStepCount = run.steps.length - visibleSteps.length;
+                  return (
                   <div key={run.id} className="bg-black border border-neutral-800 rounded-lg p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div>
@@ -2300,7 +2306,7 @@ export function AgentHub() {
                       </div>
                     </div>
                     <ol className="mt-4 space-y-2 text-xs text-slate-300">
-                      {run.steps.slice(0, 8).map((step, index) => (
+                      {visibleSteps.map((step, index) => (
                         <li key={`${run.id}-${step.tool}-${index}`} className="rounded border border-neutral-800 bg-neutral-950/60 px-3 py-2">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="text-slate-500">{index + 1}.</span>
@@ -2319,12 +2325,25 @@ export function AgentHub() {
                           {step.result && <div className="mt-2 text-slate-500 leading-relaxed">{step.result}</div>}
                         </li>
                       ))}
-                      {run.steps.length > 8 && (
-                        <li className="text-slate-500">{language === 'zh' ? `还有 ${run.steps.length - 8} 个步骤未显示` : `${run.steps.length - 8} more step(s) hidden`}</li>
+                      {run.steps.length > 5 && (
+                        <li>
+                          <button
+                            type="button"
+                            onClick={() => setExpandedTraceRunIds(ids => (
+                              ids.includes(run.id) ? ids.filter(id => id !== run.id) : [...ids, run.id]
+                            ))}
+                            className="mt-1 inline-flex items-center rounded border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs font-bold text-blue-300 hover:bg-blue-500/20"
+                          >
+                            {isExpanded
+                              ? (language === 'zh' ? '收起步骤' : 'Collapse steps')
+                              : (language === 'zh' ? `显示全部步骤（还有 ${hiddenStepCount} 个）` : `Show all steps (${hiddenStepCount} more)`)}
+                          </button>
+                        </li>
                       )}
                     </ol>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </section>
 
