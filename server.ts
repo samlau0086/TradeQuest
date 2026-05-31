@@ -2334,6 +2334,25 @@ No markdown wrappers, just valid JSON.`;
     return nextOpportunity;
   };
 
+  const normalizeEmailThreadSubject = (subject: string) => {
+    const normalized = String(subject || '')
+      .toLowerCase()
+      .replace(/^\s*((re|fw|fwd|答复|回复|转发)\s*[:：]\s*)+/i, '')
+      .replace(/\[[^\]]+\]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return normalized || 'no-subject';
+  };
+
+  const getEmailOpportunityThreadKey = (email: any) => {
+    const participantKey = email.client_id || [email.sender, email.recipient]
+      .filter(Boolean)
+      .map((value: string) => value.toLowerCase().trim())
+      .sort()
+      .join('|') || 'unknown-contact';
+    return `${participantKey}:${normalizeEmailThreadSubject(email.subject)}`;
+  };
+
   const scanAgentOpportunitiesForUser = async (userId: string, settings: any) => {
     const isZh = settings.language === 'zh';
     const created: any[] = [];
@@ -2428,21 +2447,43 @@ No markdown wrappers, just valid JSON.`;
       });
     });
 
-    emailsRes.rows.filter((email: any) => ['sent', 'outbound'].includes(email.type) && Array.isArray(email.tracking_events) && email.tracking_events.length >= 3).slice(0, 25).forEach((email: any) => {
+    const trackedEmailThreads = new Map<string, { representative: any; emails: any[]; trackingCount: number }>();
+    emailsRes.rows.filter((email: any) => ['sent', 'outbound'].includes(email.type) && Array.isArray(email.tracking_events) && email.tracking_events.length >= 3).forEach((email: any) => {
+      const threadKey = getEmailOpportunityThreadKey(email);
+      const current = trackedEmailThreads.get(threadKey);
+      const emailTime = new Date(email.date || 0).getTime();
+      const representativeTime = current ? new Date(current.representative.date || 0).getTime() : -1;
+      trackedEmailThreads.set(threadKey, {
+        representative: !current || emailTime >= representativeTime ? email : current.representative,
+        emails: [...(current?.emails || []), email],
+        trackingCount: (current?.trackingCount || 0) + (email.tracking_events?.length || 0)
+      });
+    });
+
+    Array.from(trackedEmailThreads.entries()).slice(0, 25).forEach(([threadKey, thread]) => {
+      const email = thread.representative;
       const client = email.client_id ? clientsById.get(email.client_id) : null;
+      const relatedEmailIds = thread.emails.map((item: any) => item.id);
+      const baseSubject = normalizeEmailThreadSubject(email.subject);
       add({
         title: isZh ? `邮件多次互动未跟进：${email.subject || email.id}` : `Tracked email has repeated activity: ${email.subject || email.id}`,
-        description: isZh ? `该邮件已有多次打开/点击记录，建议尽快跟进。` : `This email has multiple open/click events. A timely follow-up may improve conversion.`,
+        description: isZh ? `该邮件会话已有 ${thread.trackingCount} 次打开/点击记录，涉及 ${thread.emails.length} 封相关已发送邮件，建议合并为一次及时跟进。` : `This email thread has ${thread.trackingCount} open/click event(s) across ${thread.emails.length} related sent email(s). A timely follow-up may improve conversion.`,
         recommendedAgentId: 'follow_up_agent',
         recommendedAgentName: 'AI Follow-Up Agent',
         objective: isZh
-          ? `基于邮件 ${email.id}${client ? ` 和客户 ${client.id}` : ''} 的互动记录，生成跟进建议或草稿。`
-          : `Use tracking activity from email ${email.id}${client ? ` and client ${client.id}` : ''} to prepare a follow-up recommendation or draft.`,
+          ? `基于邮件会话“${baseSubject}”（代表邮件 ${email.id}${client ? `，客户 ${client.id}` : ''}，相关邮件：${relatedEmailIds.join(', ')}）的互动记录，生成一条合并后的跟进建议或草稿。`
+          : `Use tracking activity from email thread "${baseSubject}" represented by ${email.id}${client ? ` and client ${client.id}` : ''}. Related emails: ${relatedEmailIds.join(', ')}. Prepare one consolidated follow-up recommendation or draft.`,
         risk: 'medium',
         targetType: 'email',
         targetId: email.id,
         source: 'signal_scanner',
-        dedupeKey: `tracking_activity:email:${email.id}`
+        dedupeKey: `tracking_activity:thread:${threadKey}`,
+        metadata: {
+          threadKey,
+          normalizedSubject: baseSubject,
+          relatedEmailIds,
+          trackingCount: thread.trackingCount
+        }
       });
     });
 
