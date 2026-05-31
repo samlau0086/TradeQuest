@@ -72,7 +72,14 @@ async function executeLeadScoringAgentRun(agent: AgentHubAgent) {
   const nowIso = new Date().toISOString();
 
   for (const client of candidates) {
-    const signature = buildLeadScoringSignature(client, state.logs, state.emails);
+    const relatedLead = state.deals
+      .filter(deal => deal.clientId === client.id)
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0] || null;
+    const signature = buildLeadScoringSignature(client, state.logs, state.emails, {
+      lead: relatedLead,
+      workflows: state.agentWorkflows,
+      now: nowIso
+    });
     if (hasLeadScoringResult(client) && (client.leadScoringSignature === signature || !client.leadScoringSignature)) {
       skipped += 1;
       if (!client.leadScoringSignature) {

@@ -583,7 +583,10 @@ export function ClientDetails() {
           leadScore: score,
           leadSummary: analyzedLeadSummary,
           leadNextStep: analyzedLeadNextStep,
-          leadScoringSignature: buildLeadScoringSignature(client, leadLogs, emails),
+          leadScoringSignature: buildLeadScoringSignature(client, leadLogs, emails, {
+            lead: leadRecord,
+            workflows: useStore.getState().agentWorkflows
+          }),
           leadScoringAnalyzedAt: new Date().toISOString()
         });
       } else {
@@ -591,7 +594,12 @@ export function ClientDetails() {
           leadScore: score,
           agentSummary: analyzedLeadSummary,
           agentNextStep: analyzedLeadNextStep,
-          leadScoringSignature: buildLeadScoringSignature(client, logs, emails),
+          leadScoringSignature: buildLeadScoringSignature(client, logs, emails, {
+            lead: deals
+              .filter(deal => deal.clientId === client.id)
+              .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0] || null,
+            workflows: useStore.getState().agentWorkflows
+          }),
           leadScoringAnalyzedAt: new Date().toISOString()
         });
       }
