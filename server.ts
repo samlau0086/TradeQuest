@@ -1160,6 +1160,7 @@ No markdown wrappers, just valid JSON.`;
   };
 
   const SYSTEM_AGENT_IDS = new Set([
+    'signal_scanner_agent',
     'global_agent',
     'follow_up_agent',
     'whatsapp_agent',
@@ -1180,6 +1181,16 @@ No markdown wrappers, just valid JSON.`;
     ])).filter(id => !SYSTEM_AGENT_IDS.has(id));
     const deletedAgentHubAgentIdSet = new Set(deletedAgentHubAgentIds);
     merged.agentRunRecords = mergeSettingsArrayById(existing.agentRunRecords || [], incoming.agentRunRecords || []).slice(0, 200);
+    merged.agentOpportunities = mergeSettingsArrayById(existing.agentOpportunities || [], incoming.agentOpportunities || []).slice(0, 300);
+    merged.agentOpportunityRoutingPolicy = {
+      enabled: true,
+      autoExecuteLowRisk: true,
+      routeMediumRiskToReview: true,
+      routeHighRiskToReview: false,
+      maxAutoDispatchPerRun: 10,
+      ...(existing.agentOpportunityRoutingPolicy || {}),
+      ...(incoming.agentOpportunityRoutingPolicy || {})
+    };
     merged.agentChatMessages = Array.isArray(incoming.agentChatMessages)
       ? incoming.agentChatMessages
         .filter((message: any) => message?.id)
@@ -2303,8 +2314,312 @@ No markdown wrappers, just valid JSON.`;
     ));
   };
 
+  const addAgentOpportunityToSettings = (settings: any, opportunity: any) => {
+    const now = new Date().toISOString();
+    const existing = Array.isArray(settings.agentOpportunities) ? settings.agentOpportunities : [];
+    if (existing.some((item: any) => item.dedupeKey === opportunity.dedupeKey && ['open', 'running'].includes(item.status))) {
+      return null;
+    }
+    const nextOpportunity = {
+      ...opportunity,
+      id: `opp_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      status: opportunity.status || 'open',
+      createdAt: now,
+      updatedAt: now
+    };
+    settings.agentOpportunities = [nextOpportunity, ...existing].slice(0, 300);
+    return nextOpportunity;
+  };
+
+  const scanAgentOpportunitiesForUser = async (userId: string, settings: any) => {
+    const isZh = settings.language === 'zh';
+    const created: any[] = [];
+    const add = (opportunity: any) => {
+      const item = addAgentOpportunityToSettings(settings, opportunity);
+      if (item) created.push(item);
+    };
+    const [clientsRes, dealsRes, emailsRes] = await Promise.all([
+      pool.query(`SELECT id, name, company, country, status, last_contact, lead_score, lead_summary, lead_next_step, agent_next_step, updated_at FROM clients WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 200`, [userId]),
+      pool.query(`SELECT id, client_id, name, status, value, lead_score, lead_summary, lead_next_step, updated_at FROM deals WHERE user_id = $1 AND pending_delete = FALSE ORDER BY updated_at DESC LIMIT 200`, [userId]),
+      pool.query(`SELECT id, client_id, sender, recipient, subject, body, date, read, type, tracking_events FROM emails WHERE user_id = $1 AND pending_delete = FALSE ORDER BY date DESC LIMIT 300`, [userId])
+    ]);
+    const clientsById = new Map(clientsRes.rows.map((client: any) => [client.id, client]));
+    const inboundEmails = emailsRes.rows.filter((email: any) => ['inbox', 'inbound'].includes(email.type));
+
+    inboundEmails.filter((email: any) => !email.read).slice(0, 20).forEach((email: any) => {
+      add({
+        title: isZh ? `未处理入站邮件：${email.subject || '(无主题)'}` : `Unread inbound email: ${email.subject || '(no subject)'}`,
+        description: isZh ? `客户来信尚未读取或处理，建议生成上下文建议并准备回复。` : `A customer email is unread or unprocessed. Generate context suggestions and prepare a reply.`,
+        recommendedAgentId: 'context_suggestion_agent',
+        recommendedAgentName: 'Context Suggestion Agent',
+        objective: isZh
+          ? `分析邮件 ${email.id} 的意图、客户上下文和知识库相关内容，并给出下一步建议。`
+          : `Analyze email ${email.id} intent, CRM context, and relevant knowledge, then recommend the next step.`,
+        risk: 'low',
+        targetType: 'email',
+        targetId: email.id,
+        source: 'signal_scanner',
+        dedupeKey: `unread_email:${email.id}`
+      });
+    });
+
+    clientsRes.rows.filter((client: any) => !client.lead_next_step && !client.agent_next_step).slice(0, 30).forEach((client: any) => {
+      add({
+        title: isZh ? `缺少最佳下一步：${client.name}` : `Missing best next step: ${client.name}`,
+        description: isZh ? `该客户没有明确的下一步建议，可能导致跟进停滞。` : `This customer has no clear next-step recommendation, which can stall follow-up.`,
+        recommendedAgentId: 'lead_scoring_agent',
+        recommendedAgentName: 'Lead Scoring Agent',
+        objective: isZh
+          ? `分析客户 ${client.id}，生成线索评分、客户摘要和最佳下一步，并保存到 CRM。`
+          : `Analyze client ${client.id}, generate lead score, summary, and best next step, then save it to CRM.`,
+        risk: 'low',
+        targetType: 'client',
+        targetId: client.id,
+        source: 'signal_scanner',
+        dedupeKey: `missing_next_step:client:${client.id}`
+      });
+    });
+
+    dealsRes.rows.filter((deal: any) => !deal.lead_next_step || deal.lead_score == null).slice(0, 30).forEach((deal: any) => {
+      add({
+        title: isZh ? `线索待分析：${deal.name}` : `Lead needs analysis: ${deal.name}`,
+        description: isZh ? `该线索缺少评分、摘要或最佳下一步。` : `This lead is missing score, summary, or a best next step.`,
+        recommendedAgentId: 'lead_scoring_agent',
+        recommendedAgentName: 'Lead Scoring Agent',
+        objective: isZh
+          ? `分析线索 ${deal.id}，生成评分、摘要和最佳下一步，并避免重复评分。`
+          : `Analyze lead ${deal.id}, generate score, summary, and best next step while avoiding duplicate scoring.`,
+        risk: 'low',
+        targetType: 'lead',
+        targetId: deal.id,
+        source: 'signal_scanner',
+        dedupeKey: `missing_score:lead:${deal.id}`
+      });
+    });
+
+    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    clientsRes.rows.filter((client: any) => {
+      const lastContact = client.last_contact ? new Date(client.last_contact).getTime() : new Date(client.updated_at || 0).getTime();
+      return lastContact > 0 && lastContact < thirtyDaysAgo && !['Closed Won'].includes(client.status);
+    }).slice(0, 25).forEach((client: any) => {
+      add({
+        title: isZh ? `超过 30 天未跟进：${client.name}` : `No follow-up for 30+ days: ${client.name}`,
+        description: isZh ? `该客户长期没有新的沟通记录，建议检查是否需要重新激活。` : `This customer has had no recent contact. Check whether reactivation is needed.`,
+        recommendedAgentId: 'follow_up_agent',
+        recommendedAgentName: 'AI Follow-Up Agent',
+        objective: isZh
+          ? `读取客户 ${client.id} 的历史记录，判断是否需要重新激活，并生成内部建议或跟进草稿。`
+          : `Read client ${client.id} history, decide whether reactivation is needed, and draft an internal recommendation or follow-up.`,
+        risk: 'medium',
+        targetType: 'client',
+        targetId: client.id,
+        source: 'signal_scanner',
+        dedupeKey: `inactive_30d:client:${client.id}`
+      });
+    });
+
+    emailsRes.rows.filter((email: any) => ['sent', 'outbound'].includes(email.type) && Array.isArray(email.tracking_events) && email.tracking_events.length >= 3).slice(0, 25).forEach((email: any) => {
+      const client = email.client_id ? clientsById.get(email.client_id) : null;
+      add({
+        title: isZh ? `邮件多次互动未跟进：${email.subject || email.id}` : `Tracked email has repeated activity: ${email.subject || email.id}`,
+        description: isZh ? `该邮件已有多次打开/点击记录，建议尽快跟进。` : `This email has multiple open/click events. A timely follow-up may improve conversion.`,
+        recommendedAgentId: 'follow_up_agent',
+        recommendedAgentName: 'AI Follow-Up Agent',
+        objective: isZh
+          ? `基于邮件 ${email.id}${client ? ` 和客户 ${client.id}` : ''} 的互动记录，生成跟进建议或草稿。`
+          : `Use tracking activity from email ${email.id}${client ? ` and client ${client.id}` : ''} to prepare a follow-up recommendation or draft.`,
+        risk: 'medium',
+        targetType: 'email',
+        targetId: email.id,
+        source: 'signal_scanner',
+        dedupeKey: `tracking_activity:email:${email.id}`
+      });
+    });
+
+    return created;
+  };
+
+  const summarizeAgentExecutionResult = (result: any, isZh: boolean) => {
+    if (!result) return isZh ? '已创建运行。' : 'Run created.';
+    const details = Array.isArray(result.details) ? result.details.filter(Boolean).slice(0, 5).join(' ') : '';
+    const parts = [
+      typeof result.scanned === 'number' ? `${isZh ? '扫描' : 'scanned'} ${result.scanned}` : '',
+      typeof result.acted === 'number' ? `${isZh ? '处理' : 'acted'} ${result.acted}` : '',
+      typeof result.skipped === 'number' ? `${isZh ? '跳过' : 'skipped'} ${result.skipped}` : '',
+      typeof result.failed === 'number' ? `${isZh ? '失败' : 'failed'} ${result.failed}` : ''
+    ].filter(Boolean);
+    return `${parts.join(' · ')}${details ? ` · ${details}` : ''}` || (typeof result === 'string' ? result : JSON.stringify(result));
+  };
+
+  const updateAgentOpportunityInSettings = (settings: any, opportunityId: string, updates: any) => {
+    const nowIso = new Date().toISOString();
+    settings.agentOpportunities = (Array.isArray(settings.agentOpportunities) ? settings.agentOpportunities : []).map((opportunity: any) => (
+      opportunity.id === opportunityId ? { ...opportunity, ...updates, updatedAt: nowIso } : opportunity
+    ));
+  };
+
+  const dispatchAgentOpportunityForUser = async (userId: string, settings: any, opportunityId: string, dispatchMode: 'manual' | 'auto' = 'manual') => {
+    const opportunities = Array.isArray(settings.agentOpportunities) ? settings.agentOpportunities : [];
+    const opportunity = opportunities.find((item: any) => item.id === opportunityId);
+    if (!opportunity) throw new Error('Agent opportunity not found');
+    if (['completed', 'ignored'].includes(opportunity.status)) throw new Error('Agent opportunity is already closed');
+
+    const agents = Array.isArray(settings.agentHubAgents) ? settings.agentHubAgents : [];
+    const agent = agents.find((item: any) => item.id === opportunity.recommendedAgentId);
+    if (!agent) throw new Error('Recommended agent was not found');
+    if (agent.status === 'paused') throw new Error('Recommended agent is paused');
+
+    const isZh = settings.language === 'zh';
+    const nowIso = new Date().toISOString();
+    const reviewStatus = agent.guardrail === 'auto' ? 'approved' : 'pending_review';
+    const relatedRunType: 'global' | 'harness' = agent.id === 'global_agent' ? 'global' : 'harness';
+    const relatedRunId = relatedRunType === 'global'
+      ? `gplan_opp_${Date.now()}_${Math.floor(Math.random() * 1000)}`
+      : `harness_opp_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const objective = `${opportunity.objective}\n\n${isZh ? '来源机会任务' : 'Source opportunity'}: ${opportunity.title}\n${agent.instructions || ''}`;
+    const expectedResult = isZh
+      ? `1. 读取机会任务和目标主体上下文。\n2. 确认推荐 Agent、工具权限和护栏策略。\n3. 创建可追踪的执行/审核项。\n4. 若策略允许自动执行，则运行授权工具并回写机会任务结果。\n5. 若需要审核，则保持机会任务为待审核状态，等待人工确认。`
+      : `1. Read the opportunity and target context.\n2. Confirm the recommended agent, tool permissions, and guardrail policy.\n3. Create a traceable execution or review item.\n4. If policy allows auto execution, run authorized tools and write the result back to the opportunity.\n5. If approval is required, keep the opportunity in pending review until a human confirms it.`;
+    const actualResult = reviewStatus === 'approved'
+      ? (isZh ? '机会任务已派发，并根据 Agent 护栏策略自动进入执行。' : 'Opportunity dispatched and auto-approved by the agent guardrail policy.')
+      : (isZh ? '机会任务已派发，并创建待审核执行项。' : 'Opportunity dispatched and a review-gated execution item was created.');
+
+    updateAgentOpportunityInSettings(settings, opportunityId, {
+      status: reviewStatus === 'approved' && relatedRunType === 'harness' ? 'running' : 'pending_review',
+      relatedRunId,
+      relatedRunType,
+      dispatchMode,
+      dispatchedAt: nowIso,
+      resultSummary: actualResult
+    });
+
+    if (relatedRunType === 'global') {
+      settings.globalAgentPlans = [{
+        id: relatedRunId,
+        objective,
+        summary: isZh ? `机会任务派发：${agent.name}` : `Opportunity dispatch: ${agent.name}`,
+        status: reviewStatus,
+        steps: [{
+          id: `step_opp_${Date.now()}_${agent.id}`,
+          title: opportunity.title,
+          description: opportunity.description || agent.instructions || '',
+          actionType: 'review_pipeline',
+          status: 'pending',
+          payload: { source: 'agent-opportunity', opportunityId, agentId: agent.id, tools: agent.tools || [], targetType: opportunity.targetType, targetId: opportunity.targetId }
+        }],
+        createdAt: nowIso,
+        updatedAt: nowIso
+      }, ...(settings.globalAgentPlans || [])];
+    } else {
+      settings.agentHarnessRuns = [{
+        id: relatedRunId,
+        objective,
+        summary: isZh ? `机会任务派发：${agent.name}` : `Opportunity dispatch: ${agent.name}`,
+        status: reviewStatus,
+        steps: [{
+          id: `hstep_opp_${Date.now()}_${agent.id}`,
+          agentId: agent.id,
+          title: opportunity.title,
+          description: opportunity.description || agent.instructions || '',
+          tool: (agent.tools || [])[0] || 'agent.run',
+          risk: opportunity.risk || (agent.guardrail === 'auto' ? 'low' : 'medium'),
+          status: reviewStatus === 'approved' ? 'approved' : 'pending',
+          payload: { source: 'agent-opportunity', opportunityId, agentId: agent.id, tools: agent.tools || [], targetType: opportunity.targetType, targetId: opportunity.targetId }
+        }],
+        createdAt: nowIso,
+        updatedAt: nowIso
+      }, ...(settings.agentHarnessRuns || [])];
+    }
+
+    const record = addAgentHubRunRecordToSettings(settings, {
+      agentId: agent.id,
+      agentName: agent.name,
+      trigger: dispatchMode === 'auto' ? 'system' : 'manual',
+      status: reviewStatus,
+      plan: objective,
+      expectedResult,
+      actualResult,
+      relatedRunId,
+      relatedRunType,
+      completedAt: reviewStatus === 'pending_review' ? nowIso : undefined
+    });
+
+    let executionResult = null;
+    if (reviewStatus === 'approved' && relatedRunType === 'harness') {
+      try {
+        executionResult = await executeAgentHubHarnessRun(userId, settings, relatedRunId);
+        const resultSummary = summarizeAgentExecutionResult(executionResult, isZh);
+        updateAgentOpportunityInSettings(settings, opportunityId, {
+          status: executionResult?.failed > 0 && !executionResult?.acted ? 'failed' : 'completed',
+          resultSummary,
+          completedAt: new Date().toISOString()
+        });
+      } catch (error: any) {
+        updateAgentHubRunRecordInSettings(settings, record.id, {
+          status: 'failed',
+          actualResult: error?.message || 'Opportunity execution failed.',
+          completedAt: new Date().toISOString()
+        });
+        updateAgentOpportunityInSettings(settings, opportunityId, {
+          status: 'failed',
+          resultSummary: error?.message || 'Opportunity execution failed.',
+          completedAt: new Date().toISOString()
+        });
+        throw error;
+      }
+    }
+
+    return { opportunityId, relatedRunId, relatedRunType, reviewStatus, executionResult };
+  };
+
+  const getOpportunityRoutingPolicy = (settings: any) => ({
+    enabled: true,
+    autoExecuteLowRisk: true,
+    routeMediumRiskToReview: true,
+    routeHighRiskToReview: false,
+    maxAutoDispatchPerRun: 10,
+    ...(settings.agentOpportunityRoutingPolicy || {})
+  });
+
+  const shouldAutoRouteOpportunity = (opportunity: any, agent: any, policy: any) => {
+    if (!policy.enabled || !agent || agent.status === 'paused') return false;
+    if (!['open', 'failed'].includes(opportunity.status || 'open')) return false;
+    const risk = opportunity.risk || 'medium';
+    if (risk === 'low') return policy.autoExecuteLowRisk && agent.guardrail === 'auto';
+    if (risk === 'medium') return !!policy.routeMediumRiskToReview && agent.guardrail !== 'auto';
+    if (risk === 'high') return !!policy.routeHighRiskToReview && agent.guardrail !== 'auto';
+    return false;
+  };
+
+  const routeAgentOpportunitiesForUser = async (userId: string, settings: any) => {
+    const policy = getOpportunityRoutingPolicy(settings);
+    if (!policy.enabled) return { routed: 0, executed: 0, review: 0, failed: 0, details: [] as string[] };
+    const agents = Array.isArray(settings.agentHubAgents) ? settings.agentHubAgents : [];
+    const opportunities = (Array.isArray(settings.agentOpportunities) ? settings.agentOpportunities : [])
+      .filter((opportunity: any) => ['open', 'failed'].includes(opportunity.status || 'open'));
+    const max = Math.max(0, Number(policy.maxAutoDispatchPerRun || 10));
+    const result = { routed: 0, executed: 0, review: 0, failed: 0, details: [] as string[] };
+
+    for (const opportunity of opportunities) {
+      if (result.routed >= max) break;
+      const agent = agents.find((item: any) => item.id === opportunity.recommendedAgentId);
+      if (!shouldAutoRouteOpportunity(opportunity, agent, policy)) continue;
+      try {
+        const dispatch = await dispatchAgentOpportunityForUser(userId, settings, opportunity.id, 'auto');
+        result.routed += 1;
+        if (dispatch.reviewStatus === 'pending_review') result.review += 1;
+        if (dispatch.executionResult) result.executed += 1;
+        result.details.push(`${opportunity.id}: ${dispatch.reviewStatus}`);
+      } catch (error: any) {
+        result.failed += 1;
+        result.details.push(`${opportunity.id}: ${error?.message || 'failed'}`);
+      }
+    }
+    return result;
+  };
+
   const runAgentHubScheduler = async () => {
-    const summary: any = { users: 0, configuredAgents: 0, dueAgents: 0, recordsCreated: 0, errors: 0, agents: [] };
+    const summary: any = { users: 0, configuredAgents: 0, dueAgents: 0, recordsCreated: 0, opportunitiesCreated: 0, opportunitiesRouted: 0, opportunitiesExecuted: 0, opportunitiesReview: 0, errors: 0, agents: [] };
     try {
       if (!pool) return;
       const usersRes = await pool.query(`
@@ -2349,6 +2664,49 @@ No markdown wrappers, just valid JSON.`;
 
           const reviewStatus = agent.guardrail === 'auto' ? 'approved' : 'pending_review';
           const isZh = settings.language === 'zh';
+          if (agent.id === 'signal_scanner_agent') {
+            const startedRecord = addAgentHubRunRecordToSettings(settings, {
+              agentId: agent.id,
+              agentName: agent.name,
+              trigger: 'scheduled',
+              status: 'running',
+              plan: isZh ? '扫描 CRM 信号并生成智能体机会任务。' : 'Scan CRM signals and generate agent opportunity tasks.',
+              expectedResult: isZh ? '生成去重后的可执行任务，并推荐负责智能体。' : 'Create deduplicated actionable tasks and recommend the responsible agent.',
+              actualResult: isZh ? 'Signal Scanner 已开始扫描。' : 'Signal Scanner started.'
+            });
+            summary.recordsCreated += 1;
+            try {
+              const opportunities = await scanAgentOpportunitiesForUser(user.id, settings);
+              const routed = await routeAgentOpportunitiesForUser(user.id, settings);
+              summary.opportunitiesCreated += opportunities.length;
+              summary.opportunitiesRouted += routed.routed;
+              summary.opportunitiesExecuted += routed.executed;
+              summary.opportunitiesReview += routed.review;
+              summary.errors += routed.failed;
+              updateAgentHubRunRecordInSettings(settings, startedRecord.id, {
+                status: 'completed',
+                actualResult: isZh
+                  ? `扫描完成，新增 ${opportunities.length} 个机会任务。`
+                  : `Scan completed. Created ${opportunities.length} opportunity task(s).`,
+                completedAt: new Date().toISOString()
+              });
+              const nextRunCount = (agent.scheduleRunCount || 0) + 1;
+              agent.lastRunAt = new Date(now).toISOString();
+              agent.scheduleRunCount = nextRunCount;
+              agent.scheduleEnabled = agent.scheduleMaxRuns != null && nextRunCount >= agent.scheduleMaxRuns ? false : agent.scheduleEnabled;
+              agent.tasksCompleted = (agent.tasksCompleted || 0) + opportunities.length;
+              agent.updatedAt = new Date().toISOString();
+            } catch (error: any) {
+              summary.errors += 1;
+              updateAgentHubRunRecordInSettings(settings, startedRecord.id, {
+                status: 'failed',
+                actualResult: error?.message || 'Signal Scanner failed.',
+                completedAt: new Date().toISOString()
+              });
+            }
+            changed = true;
+            continue;
+          }
           const objective = agent.id === 'follow_up_agent'
             ? `Scheduled run for ${agent.name}: ${agent.instructions}. Use Lead Scoring Agent outputs when available and do not repeat lead scoring or lead summaries.`
             : `Scheduled run for ${agent.name}: ${agent.instructions || ''}`;
@@ -3056,6 +3414,24 @@ Return JSON only:
     }
   });
 
+  app.post('/api/agent-hub/opportunities/:opportunityId/dispatch', authenticateToken, async (req: any, res) => {
+    try {
+      const { opportunityId } = req.params;
+      const userRes = await pool.query('SELECT settings FROM users WHERE id = $1', [req.user.uid]);
+      if (userRes.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+      const settings = typeof userRes.rows[0].settings === 'string' ? JSON.parse(userRes.rows[0].settings || '{}') : (userRes.rows[0].settings || {});
+      const result = await dispatchAgentOpportunityForUser(req.user.uid, settings, opportunityId, 'manual');
+      const updated = await pool.query(
+        'UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING settings',
+        [JSON.stringify(settings), req.user.uid]
+      );
+      res.json({ success: true, result, settings: updated.rows[0]?.settings || settings });
+    } catch (e: any) {
+      console.error('Failed to dispatch Agent Hub opportunity', e);
+      res.status(500).json({ error: e.message || 'Failed to dispatch opportunity' });
+    }
+  });
+
   app.post('/api/agent-hub/harness-runs/:runId/execute', authenticateToken, async (req: any, res) => {
     try {
       const { runId } = req.params;
@@ -3077,6 +3453,15 @@ Return JSON only:
       } : record);
 
       const result = await executeAgentHubHarnessRun(req.user.uid, settings, runId);
+      const executedRun = (settings.agentHarnessRuns || []).find((run: any) => run.id === runId);
+      const opportunityId = executedRun?.steps?.[0]?.payload?.opportunityId;
+      if (opportunityId) {
+        updateAgentOpportunityInSettings(settings, opportunityId, {
+          status: result?.failed > 0 && !result?.acted ? 'failed' : 'completed',
+          resultSummary: summarizeAgentExecutionResult(result, settings.language === 'zh'),
+          completedAt: new Date().toISOString()
+        });
+      }
       await pool.query('UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [JSON.stringify(settings), req.user.uid]);
       res.json({ success: true, result });
     } catch (e: any) {

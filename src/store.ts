@@ -392,6 +392,39 @@ export interface AgentHubAgent {
 
 export type AgentHubRunStatus = 'planned' | 'pending_review' | 'approved' | 'running' | 'completed' | 'failed' | 'rejected';
 export type AgentHubRunTrigger = 'scheduled' | 'manual' | 'approval' | 'system' | 'event';
+export type AgentOpportunityStatus = 'open' | 'queued' | 'pending_review' | 'running' | 'completed' | 'failed' | 'ignored';
+export type AgentOpportunityRisk = 'low' | 'medium' | 'high';
+
+export interface AgentOpportunity {
+  id: string;
+  title: string;
+  description: string;
+  recommendedAgentId: string;
+  recommendedAgentName: string;
+  objective: string;
+  risk: AgentOpportunityRisk;
+  status: AgentOpportunityStatus;
+  targetType?: 'client' | 'lead' | 'email' | 'whatsapp' | 'system';
+  targetId?: string;
+  source: string;
+  dedupeKey: string;
+  relatedRunId?: string;
+  relatedRunType?: 'harness' | 'global';
+  dispatchMode?: 'manual' | 'auto';
+  resultSummary?: string;
+  createdAt: string;
+  updatedAt: string;
+  dispatchedAt?: string;
+  completedAt?: string;
+}
+
+export interface AgentOpportunityRoutingPolicy {
+  enabled: boolean;
+  autoExecuteLowRisk: boolean;
+  routeMediumRiskToReview: boolean;
+  routeHighRiskToReview: boolean;
+  maxAutoDispatchPerRun: number;
+}
 
 export interface AgentHubRunRecord {
   id: string;
@@ -619,6 +652,12 @@ export interface StoreState {
   addAgentRunRecord: (record: Omit<AgentHubRunRecord, 'id' | 'createdAt' | 'updatedAt'>) => string;
   updateAgentRunRecord: (id: string, updates: Partial<AgentHubRunRecord>) => void;
   deleteAgentRunRecord: (id: string) => void;
+  agentOpportunities: AgentOpportunity[];
+  agentOpportunityRoutingPolicy: AgentOpportunityRoutingPolicy;
+  updateAgentOpportunityRoutingPolicy: (updates: Partial<AgentOpportunityRoutingPolicy>) => void;
+  addAgentOpportunity: (opportunity: Omit<AgentOpportunity, 'id' | 'createdAt' | 'updatedAt'>) => string;
+  updateAgentOpportunity: (id: string, updates: Partial<AgentOpportunity>) => void;
+  deleteAgentOpportunity: (id: string) => void;
   agentChatMessages: AgentHubChatMessage[];
   setAgentChatMessages: (messages: AgentHubChatMessage[] | ((messages: AgentHubChatMessage[]) => AgentHubChatMessage[])) => void;
   agentIdempotencyRecords: AgentIdempotencyRecord[];
@@ -807,6 +846,28 @@ const INITIAL_LOGS: Log[] = [];
 const INITIAL_EMAILS: EmailMessage[] = [];
 
 const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
+  {
+    id: 'signal_scanner_agent',
+    name: 'Signal Scanner Agent',
+    instructions: 'Continuously scan CRM signals, stalled records, unread inbound messages, tracking activity, missing next steps, failed executions, and overdue follow-ups. Create actionable opportunity tasks and route them to the best agent without sending customer-facing messages directly.',
+    guardrail: 'auto',
+    status: 'active',
+    tools: ['client.read', 'lead.read', 'email.read', 'whatsapp.read', 'lead.analyze', 'next_step.recommend'],
+    tasksCompleted: 0,
+    scheduleEnabled: true,
+    scheduleIntervalMinutes: 60,
+    scheduleIntervalValue: 1,
+    scheduleIntervalUnit: 'hour',
+    scheduleRunCount: 0,
+    eventTriggers: ['email_received', 'whatsapp_received', 'execution_failed', 'lead_created', 'client_updated'],
+    eventTriggerScope: 'global',
+    contextSuggestionMode: 'auto',
+    soul: 'System radar for proactive CRM work. It discovers tasks, deduplicates signals, recommends the responsible agent, and respects execution policy by leaving risky actions for review.',
+    evolutionLog: [],
+    builtIn: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
   {
     id: 'global_agent',
     name: 'Global Conversion Agent',
@@ -1084,6 +1145,14 @@ export const INITIAL_AGENT_EXECUTION_POLICY: AgentExecutionPolicy = {
   review_pipeline: { mode: 'auto', risk: 'low' }
 };
 
+export const INITIAL_AGENT_OPPORTUNITY_ROUTING_POLICY: AgentOpportunityRoutingPolicy = {
+  enabled: true,
+  autoExecuteLowRisk: true,
+  routeMediumRiskToReview: true,
+  routeHighRiskToReview: false,
+  maxAutoDispatchPerRun: 10
+};
+
 export const GLOBAL_AGENT_ACTION_TYPES = Object.keys(INITIAL_AGENT_EXECUTION_POLICY) as GlobalAgentActionType[];
 
 const INITIAL_ACHIEVEMENTS: Achievement[] = [
@@ -1333,6 +1402,30 @@ export const useStore = create<StoreState>((set, get) => ({
   })),
   deleteAgentRunRecord: (id) => set((state) => ({
     agentRunRecords: state.agentRunRecords.filter(record => record.id !== id)
+  })),
+  agentOpportunities: [],
+  agentOpportunityRoutingPolicy: INITIAL_AGENT_OPPORTUNITY_ROUTING_POLICY,
+  updateAgentOpportunityRoutingPolicy: (updates) => set((state) => ({
+    agentOpportunityRoutingPolicy: {
+      ...state.agentOpportunityRoutingPolicy,
+      ...updates
+    }
+  })),
+  addAgentOpportunity: (opportunity) => {
+    const id = `opp_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const now = new Date().toISOString();
+    set((state) => ({
+      agentOpportunities: [{ ...opportunity, id, createdAt: now, updatedAt: now }, ...state.agentOpportunities].slice(0, 300)
+    }));
+    return id;
+  },
+  updateAgentOpportunity: (id, updates) => set((state) => ({
+    agentOpportunities: state.agentOpportunities.map(opportunity => (
+      opportunity.id === id ? { ...opportunity, ...updates, updatedAt: new Date().toISOString() } : opportunity
+    ))
+  })),
+  deleteAgentOpportunity: (id) => set((state) => ({
+    agentOpportunities: state.agentOpportunities.filter(opportunity => opportunity.id !== id)
   })),
   agentChatMessages: [],
   setAgentChatMessages: (messages) => set((state) => ({
@@ -2675,6 +2768,10 @@ export const useStore = create<StoreState>((set, get) => ({
               ]
             : state.agentHubAgents,
           agentRunRecords: settings.agentRunRecords ?? state.agentRunRecords,
+          agentOpportunities: settings.agentOpportunities ?? state.agentOpportunities,
+          agentOpportunityRoutingPolicy: settings.agentOpportunityRoutingPolicy
+            ? { ...INITIAL_AGENT_OPPORTUNITY_ROUTING_POLICY, ...settings.agentOpportunityRoutingPolicy }
+            : state.agentOpportunityRoutingPolicy,
           agentChatMessages: settings.agentChatMessages ?? state.agentChatMessages,
           agentIdempotencyRecords: settings.agentIdempotencyRecords ?? state.agentIdempotencyRecords,
           leadCampaigns: settings.leadCampaigns ?? state.leadCampaigns,
@@ -2776,6 +2873,8 @@ useStore.subscribe((state, prevState) => {
     state.agentHubAgents !== prevState.agentHubAgents ||
     state.deletedAgentHubAgentIds !== prevState.deletedAgentHubAgentIds ||
     state.agentRunRecords !== prevState.agentRunRecords ||
+    state.agentOpportunities !== prevState.agentOpportunities ||
+    state.agentOpportunityRoutingPolicy !== prevState.agentOpportunityRoutingPolicy ||
     state.agentChatMessages !== prevState.agentChatMessages ||
     state.agentIdempotencyRecords !== prevState.agentIdempotencyRecords ||
     state.leadCampaigns !== prevState.leadCampaigns ||
@@ -2815,6 +2914,8 @@ useStore.subscribe((state, prevState) => {
             agentHubAgents: state.agentHubAgents,
             deletedAgentHubAgentIds: state.deletedAgentHubAgentIds,
             agentRunRecords: state.agentRunRecords,
+            agentOpportunities: state.agentOpportunities,
+            agentOpportunityRoutingPolicy: state.agentOpportunityRoutingPolicy,
             agentChatMessages: state.agentChatMessages,
             agentIdempotencyRecords: state.agentIdempotencyRecords,
             leadCampaigns: state.leadCampaigns,

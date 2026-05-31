@@ -23,7 +23,7 @@ const ACTION_LABELS: Record<GlobalAgentActionType, string> = {
   review_pipeline: 'Review Pipeline'
 };
 
-type AgentHubTab = 'fleet' | 'approvals' | 'runs' | 'chat' | 'global';
+type AgentHubTab = 'fleet' | 'approvals' | 'opportunities' | 'runs' | 'chat' | 'global';
 const emptyAgent = (): Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'> => ({
   name: '',
   instructions: '',
@@ -108,6 +108,36 @@ function riskClass(risk: string) {
   if (risk === 'high') return 'border-red-500/40 bg-red-500/10 text-red-300';
   if (risk === 'medium') return 'border-amber-500/40 bg-amber-500/10 text-amber-300';
   return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300';
+}
+
+function opportunityStatusLabel(status: string, language: string) {
+  const zh: Record<string, string> = {
+    open: '待派发',
+    queued: '已入队',
+    pending_review: '待审核',
+    running: '执行中',
+    completed: '已完成',
+    failed: '失败',
+    ignored: '已忽略'
+  };
+  const en: Record<string, string> = {
+    open: 'Open',
+    queued: 'Queued',
+    pending_review: 'Pending review',
+    running: 'Running',
+    completed: 'Completed',
+    failed: 'Failed',
+    ignored: 'Ignored'
+  };
+  return language === 'zh' ? (zh[status] || status) : (en[status] || status);
+}
+
+function opportunityStatusClass(status: string) {
+  if (status === 'completed') return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300';
+  if (status === 'failed') return 'border-red-500/40 bg-red-500/10 text-red-300';
+  if (status === 'pending_review') return 'border-blue-500/40 bg-blue-500/10 text-blue-300';
+  if (status === 'running' || status === 'queued') return 'border-amber-500/40 bg-amber-500/10 text-amber-300';
+  return 'border-neutral-700 bg-neutral-900 text-slate-300';
 }
 
 function ToolSelector({
@@ -892,6 +922,11 @@ export function AgentHub() {
     agentHarnessRuns,
     globalAgentPlans,
     agentRunRecords,
+    agentOpportunities,
+    agentOpportunityRoutingPolicy,
+    updateAgentOpportunityRoutingPolicy,
+    updateAgentOpportunity,
+    deleteAgentOpportunity,
     agentChatMessages,
     setAgentChatMessages,
     clients,
@@ -914,6 +949,7 @@ export function AgentHub() {
   const [draftAgent, setDraftAgent] = useState<ReturnType<typeof emptyAgent> | null>(null);
   const [schedulerRunning, setSchedulerRunning] = useState(false);
   const [runningAgentId, setRunningAgentId] = useState<string | null>(null);
+  const [dispatchingOpportunityId, setDispatchingOpportunityId] = useState<string | null>(null);
   const [schedulerSummary, setSchedulerSummary] = useState<string | null>(null);
   const [schedulerAgentDetails, setSchedulerAgentDetails] = useState<any[]>([]);
   const [logDisplayLimit, setLogDisplayLimit] = useState(30);
@@ -942,6 +978,10 @@ export function AgentHub() {
   ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [agentHarnessRuns, globalAgentPlans]);
   const visibleRunLogs = runLogs.slice(0, logDisplayLimit);
   const visibleAgentRunRecords = agentRunRecords.slice(0, logDisplayLimit);
+  const visibleOpportunities = agentOpportunities
+    .filter(opportunity => opportunity.status !== 'ignored')
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const dispatchableOpportunities = visibleOpportunities.filter(opportunity => ['open', 'failed'].includes(opportunity.status));
 
   const computedAgents = agentHubAgents.map(agent => ({
     ...agent,
@@ -1318,6 +1358,58 @@ export function AgentHub() {
     }
   };
 
+  const runOpportunity = async (opportunity: typeof agentOpportunities[number]) => {
+    const agent = agentHubAgents.find(item => item.id === opportunity.recommendedAgentId);
+    if (!agent) {
+      notify(language === 'zh' ? '未找到推荐智能体。' : 'Recommended agent was not found.', 'error');
+      return;
+    }
+    updateAgentOpportunity(opportunity.id, { status: 'running' });
+    const result = await runAgentNow(agent, opportunity.objective, { preserveTab: true });
+    updateAgentOpportunity(opportunity.id, {
+      status: result ? 'completed' : 'open',
+      completedAt: result ? new Date().toISOString() : undefined
+    });
+  };
+
+  const dispatchOpportunity = async (opportunity: typeof agentOpportunities[number]) => {
+    setDispatchingOpportunityId(opportunity.id);
+    updateAgentOpportunity(opportunity.id, { status: 'queued' });
+    try {
+      const response = await fetch(`/api/agent-hub/opportunities/${encodeURIComponent(opportunity.id)}/dispatch`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Failed to dispatch opportunity');
+      await fetchUserSettings();
+      const reviewStatus = data.result?.reviewStatus;
+      notify(
+        reviewStatus === 'pending_review'
+          ? (language === 'zh' ? '机会任务已派发，等待人工审核。' : 'Opportunity dispatched and waiting for approval.')
+          : (language === 'zh' ? '机会任务已派发并执行。' : 'Opportunity dispatched and executed.'),
+        'success'
+      );
+    } catch (error) {
+      console.error(error);
+      updateAgentOpportunity(opportunity.id, {
+        status: 'failed',
+        resultSummary: error instanceof Error ? error.message : 'Failed to dispatch opportunity.',
+        completedAt: new Date().toISOString()
+      });
+      notify(error instanceof Error ? error.message : (language === 'zh' ? '机会任务派发失败。' : 'Failed to dispatch opportunity.'), 'error');
+    } finally {
+      setDispatchingOpportunityId(null);
+    }
+  };
+
+  const runAllDispatchableOpportunities = async () => {
+    for (const opportunity of dispatchableOpportunities.slice(0, 20)) {
+      // eslint-disable-next-line no-await-in-loop
+      await dispatchOpportunity(opportunity);
+    }
+  };
+
   const approveItem = async (item: typeof pendingItems[number]) => {
     if (item.kind === 'harness') updateAgentHarnessRun(item.id, { status: 'running', approvedAt: new Date().toISOString() });
     if (item.kind === 'global') updateGlobalAgentPlan(item.id, { status: 'approved', approvedAt: new Date().toISOString() });
@@ -1361,6 +1453,14 @@ export function AgentHub() {
   const rejectItem = (item: typeof pendingItems[number]) => {
     if (item.kind === 'harness') updateAgentHarnessRun(item.id, { status: 'rejected', rejectedAt: new Date().toISOString(), rejectedReason: 'Rejected from Agent Hub' });
     if (item.kind === 'global') updateGlobalAgentPlan(item.id, { status: 'rejected', rejectedAt: new Date().toISOString(), rejectedReason: 'Rejected from Agent Hub' });
+    const linkedOpportunity = agentOpportunities.find(opportunity => opportunity.relatedRunId === item.id && opportunity.relatedRunType === item.kind);
+    if (linkedOpportunity) {
+      updateAgentOpportunity(linkedOpportunity.id, {
+        status: 'failed',
+        resultSummary: language === 'zh' ? '人工已拒绝该机会任务派发。' : 'Human rejected this opportunity dispatch.',
+        completedAt: new Date().toISOString()
+      });
+    }
     const linkedRecord = agentRunRecords.find(record => record.relatedRunId === item.id && record.relatedRunType === item.kind);
     if (linkedRecord) {
       updateAgentRunRecord(linkedRecord.id, {
@@ -1451,7 +1551,7 @@ export function AgentHub() {
       if (!response.ok) throw new Error(data.error || 'Failed to run scheduler');
       const summary = data.summary || {};
       setSchedulerSummary(
-        `${t('Users')}: ${summary.users || 0} · ${t('Agents')}: ${summary.configuredAgents || 0} · ${t('Due')}: ${summary.dueAgents || 0} · ${t('Records')}: ${summary.recordsCreated || 0}`
+        `${t('Users')}: ${summary.users || 0} · ${t('Agents')}: ${summary.configuredAgents || 0} · ${t('Due')}: ${summary.dueAgents || 0} · ${t('Records')}: ${summary.recordsCreated || 0} · ${language === 'zh' ? '机会任务' : 'Opportunities'}: ${summary.opportunitiesCreated || 0} · ${language === 'zh' ? '已路由' : 'Routed'}: ${summary.opportunitiesRouted || 0}`
       );
       setSchedulerAgentDetails(Array.isArray(summary.agents) ? summary.agents : []);
       await fetchUserSettings();
@@ -1564,6 +1664,7 @@ export function AgentHub() {
           <div className="flex flex-wrap items-center gap-3">
             <div className="bg-neutral-900 border border-neutral-700 rounded-md p-1 flex flex-wrap">
               {tabButton('approvals', language === 'zh' ? '编排与审核' : 'Approvals & Policy', <ShieldCheck className="w-4 h-4" />)}
+              {tabButton('opportunities', language === 'zh' ? '机会任务' : 'Opportunity Inbox', <Zap className="w-4 h-4" />)}
               {tabButton('runs', 'Agent Run History', <ListChecks className="w-4 h-4" />)}
               {tabButton('chat', 'Agent Chat', <MessageSquare className="w-4 h-4" />)}
               {tabButton('fleet', 'Agent Fleet', <Server className="w-4 h-4" />)}
@@ -1859,6 +1960,153 @@ export function AgentHub() {
             />
             </div>
           </div>
+        )}
+
+        {tab === 'opportunities' && (
+          <section className="rounded-lg border border-neutral-800 bg-neutral-950 p-6">
+            <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400">
+                  <Zap className="h-4 w-4 text-blue-300" /> {language === 'zh' ? '智能体机会任务收件箱' : 'Agent Opportunity Inbox'}
+                </div>
+                <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                  {language === 'zh'
+                    ? 'Signal Scanner 会定期发现未处理消息、缺少下一步、长期未跟进和高互动邮件，并把任务派给最适合的智能体。'
+                    : 'Signal Scanner finds unhandled messages, missing next steps, stale accounts, and high-engagement emails, then routes tasks to the best agent.'}
+                </p>
+              </div>
+              <button
+                onClick={runSchedulerNow}
+                disabled={schedulerRunning}
+                className="inline-flex items-center gap-2 rounded-md border border-blue-500/30 bg-blue-600/20 px-3 py-2 text-xs font-bold text-blue-100 hover:bg-blue-600/30 disabled:opacity-50"
+              >
+                <RefreshCw className={cn('h-4 w-4', schedulerRunning && 'animate-spin')} />
+                {language === 'zh' ? '立即扫描' : 'Scan Now'}
+              </button>
+            </div>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-neutral-800 bg-black px-4 py-3">
+              <div className="text-xs text-slate-500">
+                {language === 'zh'
+                  ? `开放任务 ${dispatchableOpportunities.length} 个 · 总队列 ${visibleOpportunities.length} 个`
+                  : `${dispatchableOpportunities.length} dispatchable · ${visibleOpportunities.length} total in queue`}
+              </div>
+              <button
+                type="button"
+                onClick={() => void runAllDispatchableOpportunities()}
+                disabled={dispatchableOpportunities.length === 0 || !!dispatchingOpportunityId}
+                className="inline-flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-600/15 px-3 py-2 text-xs font-bold text-emerald-100 hover:bg-emerald-600/25 disabled:opacity-50"
+              >
+                <Send className="h-3.5 w-3.5" />
+                {language === 'zh' ? '派发全部开放任务' : 'Dispatch All Open'}
+              </button>
+            </div>
+            <div className="mb-4 rounded-lg border border-blue-500/20 bg-blue-950/10 p-4">
+              <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-blue-200">
+                <ShieldCheck className="h-4 w-4" /> {language === 'zh' ? '策略路由器' : 'Policy Router'}
+              </div>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                <label className="flex items-center gap-2 rounded-md border border-neutral-800 bg-black px-3 py-2 text-xs text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={agentOpportunityRoutingPolicy.enabled}
+                    onChange={e => updateAgentOpportunityRoutingPolicy({ enabled: e.target.checked })}
+                  />
+                  {language === 'zh' ? '启用自动路由' : 'Enable routing'}
+                </label>
+                <label className="flex items-center gap-2 rounded-md border border-neutral-800 bg-black px-3 py-2 text-xs text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={agentOpportunityRoutingPolicy.autoExecuteLowRisk}
+                    onChange={e => updateAgentOpportunityRoutingPolicy({ autoExecuteLowRisk: e.target.checked })}
+                  />
+                  {language === 'zh' ? '低风险自动执行' : 'Auto low risk'}
+                </label>
+                <label className="flex items-center gap-2 rounded-md border border-neutral-800 bg-black px-3 py-2 text-xs text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={agentOpportunityRoutingPolicy.routeMediumRiskToReview}
+                    onChange={e => updateAgentOpportunityRoutingPolicy({ routeMediumRiskToReview: e.target.checked })}
+                  />
+                  {language === 'zh' ? '中风险进审核' : 'Review medium risk'}
+                </label>
+                <label className="flex items-center gap-2 rounded-md border border-neutral-800 bg-black px-3 py-2 text-xs text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={agentOpportunityRoutingPolicy.routeHighRiskToReview}
+                    onChange={e => updateAgentOpportunityRoutingPolicy({ routeHighRiskToReview: e.target.checked })}
+                  />
+                  {language === 'zh' ? '高风险进审核' : 'Review high risk'}
+                </label>
+                <label className="rounded-md border border-neutral-800 bg-black px-3 py-2 text-xs text-slate-300">
+                  <span className="mb-1 block text-slate-500">{language === 'zh' ? '每次最多路由' : 'Max per run'}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={agentOpportunityRoutingPolicy.maxAutoDispatchPerRun}
+                    onChange={e => updateAgentOpportunityRoutingPolicy({ maxAutoDispatchPerRun: Number(e.target.value || 0) })}
+                    className="w-full rounded border border-neutral-700 bg-neutral-950 px-2 py-1 text-slate-100"
+                  />
+                </label>
+              </div>
+            </div>
+            {visibleOpportunities.length === 0 ? (
+              <div className="rounded-lg border border-neutral-800 bg-black px-4 py-10 text-center text-sm text-slate-500">
+                {language === 'zh' ? '暂无开放机会任务。运行扫描器后，新的可执行任务会出现在这里。' : 'No open opportunities yet. Run the scanner and actionable tasks will appear here.'}
+              </div>
+            ) : (
+              <div className="grid gap-3">
+                {visibleOpportunities.map(opportunity => (
+                  <div key={opportunity.id} className="rounded-lg border border-neutral-800 bg-black p-4">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-bold text-slate-100">{opportunity.title}</span>
+                          <span className={cn('rounded border px-2 py-0.5 text-[10px] font-bold uppercase', opportunityStatusClass(opportunity.status))}>
+                            {opportunityStatusLabel(opportunity.status, language)}
+                          </span>
+                          <span className={cn('rounded border px-2 py-0.5 text-[10px] font-bold uppercase', riskClass(opportunity.risk))}>{opportunity.risk}</span>
+                          <span className="rounded border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-[10px] text-slate-400">{opportunity.recommendedAgentName}</span>
+                          {opportunity.targetType && <span className="rounded border border-neutral-800 px-2 py-0.5 text-[10px] text-slate-500">{opportunity.targetType}:{opportunity.targetId}</span>}
+                          {opportunity.relatedRunId && <span className="rounded border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] text-blue-300">{opportunity.relatedRunType}:{opportunity.relatedRunId}</span>}
+                        </div>
+                        <p className="mt-2 text-sm leading-relaxed text-slate-400">{opportunity.description}</p>
+                        <p className="mt-3 text-xs leading-relaxed text-slate-500">{opportunity.objective}</p>
+                        {opportunity.resultSummary && <p className="mt-3 rounded border border-neutral-800 bg-neutral-950 px-3 py-2 text-xs leading-relaxed text-slate-400">{opportunity.resultSummary}</p>}
+                        <div className="mt-2 text-[10px] text-slate-600">{new Date(opportunity.createdAt).toLocaleString()} · {opportunity.source}</div>
+                      </div>
+                      <div className="flex shrink-0 flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void dispatchOpportunity(opportunity)}
+                          disabled={!['open', 'failed'].includes(opportunity.status) || dispatchingOpportunityId === opportunity.id}
+                          className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-500 disabled:opacity-50"
+                        >
+                          {dispatchingOpportunityId === opportunity.id ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                          {language === 'zh' ? '交给 Agent 执行' : 'Run with Agent'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateAgentOpportunity(opportunity.id, { status: 'ignored', completedAt: new Date().toISOString() })}
+                          className="rounded-md border border-neutral-700 px-3 py-2 text-xs font-bold text-slate-400 hover:text-slate-100"
+                        >
+                          {language === 'zh' ? '忽略' : 'Ignore'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteAgentOpportunity(opportunity.id)}
+                          className="rounded-md p-2 text-slate-600 hover:bg-red-500/10 hover:text-red-300"
+                          title={language === 'zh' ? '删除任务' : 'Delete task'}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
         )}
 
         {tab === 'approvals' && (
