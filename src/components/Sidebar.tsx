@@ -136,18 +136,10 @@ export function Sidebar() {
         <button 
           onClick={() => setView('products')}
           className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors", 
-            view === 'products' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
+            (view === 'products' || view === 'quotes') ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
         >
           <Package className="w-5 h-5" />
-          {t('products')}
-        </button>
-        <button 
-          onClick={() => setView('quotes')}
-          className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors", 
-            view === 'quotes' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
-        >
-          <FileText className="w-5 h-5" />
-          {t('quotes')}
+          {t('productQuotes') || (language === 'zh' ? '产品与报价' : 'Products & Quotes')}
         </button>
         <button 
           onClick={() => setView('public-pool')}

@@ -7,7 +7,11 @@ import { cn } from '../lib/utils'; // if needed
 import { QuoteFormModal } from './QuoteFormModal';
 import { generateQuotePDF } from '../lib/pdf';
 
-export function QuotesList() {
+interface QuotesListProps {
+  embedded?: boolean;
+}
+
+export function QuotesList({ embedded = false }: QuotesListProps) {
   const { quotes, clients, products, deleteQuote, language } = useStore();
   const t = useTranslation(language);
   const [search, setSearch] = useState('');
@@ -43,7 +47,7 @@ export function QuotesList() {
   };
 
   return (
-    <div className="flex-1 bg-slate-900 overflow-y-auto p-6">
+    <div className={embedded ? "space-y-6" : "flex-1 bg-slate-900 overflow-y-auto p-6"}>
       <div className="w-full space-y-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div className="flex items-center gap-3">

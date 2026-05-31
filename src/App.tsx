@@ -21,8 +21,7 @@ import { Group as PanelGroup, Panel, Separator as PanelResizeHandle, useDefaultL
 import { Loader2 } from 'lucide-react';
 import { translateLiteral, useTranslation } from './lib/i18n';
 
-import { ProductsList } from './components/ProductsList';
-import { QuotesList } from './components/QuotesList';
+import { ProductQuoteHub } from './components/ProductQuoteHub';
 import { MediaLibrary } from './components/MediaLibrary';
 import { NotificationCenter } from './components/NotificationCenter';
 import { AgentHub } from './components/AgentHub';
@@ -441,8 +440,8 @@ export default function App() {
           
           {view === 'kanban' ? <Kanban /> : 
            view === 'list' ? <PipelineList /> :
-           view === 'products' ? <ProductsList /> :
-           view === 'quotes' ? <QuotesList /> :
+           view === 'products' ? <ProductQuoteHub initialTab="products" /> :
+           view === 'quotes' ? <ProductQuoteHub initialTab="quotes" /> :
            view === 'agent-hub' ? <AgentHub /> :
            view === 'clients' ? <ClientsList /> :
            view === 'public-pool' ? <PublicPool /> :

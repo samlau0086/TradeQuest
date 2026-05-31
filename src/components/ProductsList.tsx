@@ -4,7 +4,11 @@ import { useTranslation } from '../lib/i18n';
 import { Package, Plus, Search, MoreVertical, Edit2, Trash2 } from 'lucide-react';
 import { ProductFormModal } from './ProductFormModal';
 
-export function ProductsList() {
+interface ProductsListProps {
+  embedded?: boolean;
+}
+
+export function ProductsList({ embedded = false }: ProductsListProps) {
   const { products, deleteProduct, language } = useStore();
   const t = useTranslation(language);
   const [search, setSearch] = useState('');
@@ -35,7 +39,7 @@ export function ProductsList() {
   };
 
   return (
-    <div className="flex-1 bg-slate-900 overflow-y-auto p-6">
+    <div className={embedded ? "space-y-6" : "flex-1 bg-slate-900 overflow-y-auto p-6"}>
       <div className="w-full space-y-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div className="flex items-center gap-3">
