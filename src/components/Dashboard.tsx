@@ -113,41 +113,32 @@ function SparklineChart({ points, color = 'stroke-cyan-400', valueLabel = 'event
   const plotWidth = width - paddingX * 2;
   const max = Math.max(1, ...points.map(point => point.value));
   const step = points.length > 1 ? plotWidth / (points.length - 1) : plotWidth;
-  const path = points.map((point, index) => {
+  const chartPoints = points.map((point, index) => {
     const x = paddingX + index * step;
     const y = height - (point.value / max) * (height - 14) - 7;
-    return `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
-  }).join(' ');
+    return { ...point, x, y };
+  });
+  const path = chartPoints.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' ');
 
   return (
     <div className="h-40">
       <div className="relative h-32">
         <svg viewBox={`0 0 ${width} ${height}`} className="absolute inset-0 w-full h-32 overflow-visible">
           <path d={path} fill="none" className={cn(color, 'stroke-[3]')} strokeLinecap="round" strokeLinejoin="round" />
-          {points.map((point, index) => {
-            const x = paddingX + index * step;
-            const y = height - (point.value / max) * (height - 14) - 7;
-            return <circle key={index} cx={x} cy={y} r="3.5" className="fill-slate-950 stroke-cyan-400 stroke-2" />;
-          })}
+          {chartPoints.map((point, index) => (
+            <g key={`${point.meta || point.label}-${index}`} className="group">
+              <circle cx={point.x} cy={point.y} r="10" className="fill-transparent" />
+              <circle cx={point.x} cy={point.y} r="3.5" className="fill-slate-950 stroke-cyan-400 stroke-2" />
+              <foreignObject x={Math.min(Math.max(point.x - 52, 0), width - 104)} y={Math.max(point.y - 58, 0)} width="104" height="52" className="pointer-events-none overflow-visible opacity-0 group-hover:opacity-100">
+                <div className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200 shadow-2xl">
+                  <div className="font-bold">{point.label}</div>
+                  <div className="text-slate-400">{point.value} {valueLabel}</div>
+                  {point.meta && <div className="text-slate-500">{point.meta}</div>}
+                </div>
+              </foreignObject>
+            </g>
+          ))}
         </svg>
-        {points.map((point, index) => {
-          const x = paddingX + index * step;
-          const y = height - (point.value / max) * (height - 14) - 7;
-          return (
-            <div
-              key={`${point.meta || point.label}-${index}`}
-              className="group absolute z-10 h-7 w-7 -translate-x-1/2 -translate-y-1/2 rounded-full"
-              style={{ left: `${(x / width) * 100}%`, top: `${(y / height) * 100}%` }}
-            >
-              <HoverTooltip>
-                <div className="font-bold">{point.label}</div>
-                <div className="text-slate-400">{point.value} {valueLabel}</div>
-                {point.meta && <div className="text-slate-500">{point.meta}</div>}
-              </HoverTooltip>
-              <div className="h-full w-full rounded-full hover:bg-cyan-400/10" />
-            </div>
-          );
-        })}
       </div>
       <div className="grid grid-cols-7 text-[10px] text-slate-500">
         {points.map((point, index) => <span key={point.label} className="text-center">{index === points.length - 1 ? point.label : `-${points.length - 1 - index}d`}</span>)}
