@@ -120,7 +120,7 @@ export function Sidebar() {
         <button 
           onClick={() => setView('clients')}
           className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors", 
-            view === 'clients' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
+            (view === 'clients' || view === 'public-pool') ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
         >
           <Users className="w-5 h-5" />
           {t('clientsMenu')}
@@ -140,14 +140,6 @@ export function Sidebar() {
         >
           <Package className="w-5 h-5" />
           {t('productQuotes') || (language === 'zh' ? '产品与报价' : 'Products & Quotes')}
-        </button>
-        <button 
-          onClick={() => setView('public-pool')}
-          className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors", 
-            view === 'public-pool' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
-        >
-          <Globe className="w-5 h-5" />
-          {t('publicPool')}
         </button>
         <button 
           onClick={() => setView('knowledge-base')}

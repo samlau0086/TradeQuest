@@ -9,9 +9,8 @@ import { Inbox } from './components/Inbox';
 import { Dashboard } from './components/Dashboard';
 import { ActionableClients } from './components/ActionableClients';
 import { Settings } from './components/Settings';
-import { PublicPool } from './components/PublicPool';
+import { ClientLeadHub } from './components/ClientLeadHub';
 import { PipelineList } from './components/PipelineList';
-import { ClientsList } from './components/ClientsList';
 import { EditRequests } from './components/EditRequests';
 import { KnowledgeBaseManager } from './components/KnowledgeBaseManager';
 import { AuthPage } from './components/AuthPage';
@@ -442,8 +441,8 @@ export default function App() {
            view === 'products' ? <ProductQuoteHub initialTab="products" /> :
            view === 'quotes' ? <ProductQuoteHub initialTab="quotes" /> :
            view === 'agent-hub' ? <AgentHub /> :
-           view === 'clients' ? <ClientsList /> :
-           view === 'public-pool' ? <PublicPool /> :
+           view === 'clients' ? <ClientLeadHub initialTab="clients" /> :
+           view === 'public-pool' ? <ClientLeadHub initialTab="public-pool" /> :
            view === 'edit-requests' ? <EditRequests /> :
            view === 'inbox' ? <Inbox /> : 
            view === 'settings' ? <Settings /> : 
