@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Quest, useStore, ViewMode } from '../store';
 import { cn } from '../lib/utils';
-import { Swords, Trophy, KanbanSquare, Tags, Flame, Plus, Mail, Settings as SettingsIcon, Sun, Moon, Shield, Globe, Users, Package, FileText, Book, Image as ImageIcon, Bot } from 'lucide-react';
+import { Swords, Trophy, Tags, Flame, Plus, Mail, Settings as SettingsIcon, Sun, Moon, Shield, Users, Package, Book, Image as ImageIcon, Bot } from 'lucide-react';
 import { ClientFormModal } from './ClientFormModal';
 import { ExpHistoryModal } from './ExpHistoryModal';
 import { useAuthStore } from '../authStore';
@@ -124,14 +124,6 @@ export function Sidebar() {
         >
           <Users className="w-5 h-5" />
           {t('clientsMenu')}
-        </button>
-        <button 
-          onClick={() => setView('kanban')}
-          className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors", 
-            view === 'kanban' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
-        >
-          <KanbanSquare className="w-5 h-5" />
-          {t('kanbanView')}
         </button>
         <button 
           onClick={() => setView('products')}

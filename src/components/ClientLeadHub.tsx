@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
-import { Users, Globe } from 'lucide-react';
+import { KanbanSquare, Users, Globe } from 'lucide-react';
 import { useStore } from '../store';
 import { useTranslation } from '../lib/i18n';
 import { cn } from '../lib/utils';
 import { ClientsList } from './ClientsList';
 import { PublicPool } from './PublicPool';
+import { Kanban } from './Kanban';
 
-type ClientLeadHubTab = 'clients' | 'public-pool';
+type ClientLeadHubTab = 'clients' | 'kanban' | 'public-pool';
 
 export function ClientLeadHub({ initialTab = 'clients' }: { initialTab?: ClientLeadHubTab }) {
   const { language } = useStore();
@@ -27,16 +28,20 @@ export function ClientLeadHub({ initialTab = 'clients' }: { initialTab?: ClientL
           <div>
             <h1 className="flex items-center gap-3 text-2xl font-bold text-white">
               <Users className="h-7 w-7 text-cyan-400" />
-              {language === 'zh' ? '客户与公海线索' : 'Clients & Public Leads'}
+              {language === 'zh' ? '客户与线索' : 'Clients & Leads'}
             </h1>
             <p className="mt-1 text-sm text-slate-400">
-              {language === 'zh' ? '在同一工作区管理自有客户和可领取的公海线索。' : 'Manage owned clients and claimable public leads in one workspace.'}
+              {language === 'zh' ? '在同一工作区管理客户、线索看板和可领取的公海线索。' : 'Manage clients, lead board, and claimable public leads in one workspace.'}
             </p>
           </div>
           <div className="rounded-xl border border-slate-800 bg-slate-900/80 p-1">
             <button type="button" onClick={() => setActiveTab('clients')} className={tabClass('clients')}>
               <Users className="h-4 w-4" />
               {t('clientsMenu')}
+            </button>
+            <button type="button" onClick={() => setActiveTab('kanban')} className={tabClass('kanban')}>
+              <KanbanSquare className="h-4 w-4" />
+              {language === 'zh' ? '线索看板' : 'Lead Board'}
             </button>
             <button type="button" onClick={() => setActiveTab('public-pool')} className={tabClass('public-pool')}>
               <Globe className="h-4 w-4" />
@@ -46,7 +51,7 @@ export function ClientLeadHub({ initialTab = 'clients' }: { initialTab?: ClientL
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
-        {activeTab === 'clients' ? <ClientsList /> : <PublicPool />}
+        {activeTab === 'clients' ? <ClientsList /> : activeTab === 'kanban' ? <Kanban /> : <PublicPool />}
       </div>
     </div>
   );

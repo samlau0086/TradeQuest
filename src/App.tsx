@@ -3,7 +3,6 @@ import { AgentHubAgent, useStore } from './store';
 import { useAuthStore } from './authStore';
 import { Sidebar } from './components/Sidebar';
 import { TopBar, MagicCommand } from './components/TopBar';
-import { Kanban } from './components/Kanban';
 import { ClientDetails } from './components/ClientDetails';
 import { Inbox } from './components/Inbox';
 import { Dashboard } from './components/Dashboard';
@@ -436,7 +435,7 @@ export default function App() {
         <Panel id="main-content" className="flex-1 flex flex-col relative overflow-hidden">
           <TopBar />
           
-          {view === 'kanban' ? <Kanban /> : 
+          {view === 'kanban' ? <ClientLeadHub initialTab="kanban" /> : 
            view === 'list' ? <PipelineList /> :
            view === 'products' ? <ProductQuoteHub initialTab="products" /> :
            view === 'quotes' ? <ProductQuoteHub initialTab="quotes" /> :
