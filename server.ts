@@ -3116,17 +3116,25 @@ No markdown wrappers, just valid JSON.`;
     const eventPayload = firstStep.payload?.eventPayload || {};
     const eventScope = firstStep.payload?.eventScope || agent.eventTriggerScope || 'subject';
     const subjectClientIds = new Set<string>();
+    const payloadTargetType = firstStep.payload?.targetType;
+    const payloadTargetId = firstStep.payload?.targetId;
     const directClientId = eventPayload.clientId || eventPayload.client?.id || eventPayload.customerId || eventPayload.customer?.id;
     if (directClientId) subjectClientIds.add(String(directClientId));
+    if (payloadTargetType === 'client' && payloadTargetId) subjectClientIds.add(String(payloadTargetId));
     const leadId = eventPayload.leadId || eventPayload.lead?.id || eventPayload.dealId || eventPayload.deal?.id;
-    if (leadId) {
+    const payloadLeadId = payloadTargetType === 'lead' ? payloadTargetId : null;
+    if (leadId || payloadLeadId) {
       const leadClientRes = await pool.query(
         `SELECT client_id FROM deals WHERE id = $1 AND user_id = $2 AND client_id IS NOT NULL`,
-        [String(leadId), userId]
+        [String(leadId || payloadLeadId), userId]
       );
       leadClientRes.rows.forEach((row: any) => row.client_id && subjectClientIds.add(String(row.client_id)));
     }
-    const emailIds = Array.isArray(eventPayload.emailIds) ? eventPayload.emailIds : [];
+    const emailIds = [
+      ...(Array.isArray(eventPayload.emailIds) ? eventPayload.emailIds : []),
+      ...(eventPayload.emailId ? [eventPayload.emailId] : []),
+      ...(payloadTargetType === 'email' && payloadTargetId ? [payloadTargetId] : [])
+    ].filter(Boolean);
     if (emailIds.length > 0) {
       const emailClientRes = await pool.query(
         `SELECT DISTINCT client_id FROM emails WHERE user_id = $1 AND id = ANY($2::text[]) AND client_id IS NOT NULL`,
