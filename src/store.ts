@@ -1199,6 +1199,20 @@ const INITIAL_ACHIEVEMENTS: Achievement[] = [
   { id: 'inbox_zero', title: 'Inbox Zero', description: 'Clear all unread emails in your inbox.', icon: 'MailCheck', expReward: 150, unlockedAt: null },
   { id: 'rich_history', title: 'Historian', description: 'Log 50 interactions or events.', icon: 'BookOpen', expReward: 400, unlockedAt: null },
   { id: 'quest_master', title: 'Quest Master', description: 'Complete a daily quest.', icon: 'Target', expReward: 100, unlockedAt: null },
+  { id: 'public_pool_builder', title: 'Pool Builder', description: 'Import 25 public leads.', icon: 'Users', expReward: 300, unlockedAt: null },
+  { id: 'lead_hunter', title: 'Lead Hunter', description: 'Manage 25 active leads in the pipeline.', icon: 'Target', expReward: 350, unlockedAt: null },
+  { id: 'lead_scout', title: 'Lead Scout', description: 'Create 10 lead acquisition campaigns.', icon: 'Globe', expReward: 300, unlockedAt: null },
+  { id: 'profile_architect', title: 'Profile Architect', description: 'Maintain 10 clients with country, company, and at least one contact method.', icon: 'BookOpen', expReward: 350, unlockedAt: null },
+  { id: 'contact_cartographer', title: 'Contact Cartographer', description: 'Add 10 client contacts.', icon: 'Users', expReward: 250, unlockedAt: null },
+  { id: 'knowledge_keeper', title: 'Knowledge Keeper', description: 'Add 10 knowledge base items.', icon: 'BookOpen', expReward: 300, unlockedAt: null },
+  { id: 'product_builder', title: 'Product Builder', description: 'Create 10 products in the catalog.', icon: 'Target', expReward: 300, unlockedAt: null },
+  { id: 'quote_machine', title: 'Quote Machine', description: 'Create 10 quotes.', icon: 'Handshake', expReward: 350, unlockedAt: null },
+  { id: 'agent_operator', title: 'Agent Operator', description: 'Complete 10 agent runs.', icon: 'Swords', expReward: 400, unlockedAt: null },
+  { id: 'opportunity_router', title: 'Opportunity Router', description: 'Route 10 agent opportunity tasks.', icon: 'Target', expReward: 350, unlockedAt: null },
+  { id: 'whatsapp_connector', title: 'WhatsApp Connector', description: 'Record 10 WhatsApp interactions.', icon: 'MailCheck', expReward: 250, unlockedAt: null },
+  { id: 'email_power_user', title: 'Email Power User', description: 'Send 50 emails.', icon: 'MailCheck', expReward: 500, unlockedAt: null },
+  { id: 'rich_pipeline', title: 'Rich Pipeline', description: 'Build a pipeline worth at least 100,000.', icon: 'Handshake', expReward: 600, unlockedAt: null },
+  { id: 'rag_ready', title: 'RAG Ready', description: 'Create both product data and knowledge base context.', icon: 'BookOpen', expReward: 250, unlockedAt: null },
   { id: 'early_bird', title: 'Early Bird', description: 'Send out an email before 8 AM.', icon: '🌅', expReward: 150, unlockedAt: null },
   { id: 'night_owl', title: 'Night Owl', description: 'Log an interaction after 10 PM.', icon: '🦉', expReward: 150, unlockedAt: null },
   { id: 'deal_maker', title: 'Deal Maker', description: 'Close 5 deals.', icon: '🤝', expReward: 600, unlockedAt: null },
@@ -1209,6 +1223,18 @@ const INITIAL_ACHIEVEMENTS: Achievement[] = [
   { id: 'data_driven', title: 'Data Driven', description: 'Categorize clients with 5 tags.', icon: '📊', expReward: 250, unlockedAt: null },
   { id: 'unstoppable', title: 'Unstoppable', description: 'Achieve a 10-day streak.', icon: '⚡', expReward: 1000, unlockedAt: null }
 ];
+
+function mergeAchievementsWithDefaults(savedAchievements: Achievement[] | undefined, expConfig: Record<string, number> = {}) {
+  const savedById = new Map((savedAchievements || []).map(achievement => [achievement.id, achievement]));
+  return INITIAL_ACHIEVEMENTS.map(defaultAchievement => {
+    const saved = savedById.get(defaultAchievement.id);
+    return {
+      ...defaultAchievement,
+      ...saved,
+      expReward: expConfig[`achieve_${defaultAchievement.id}`] ?? saved?.expReward ?? defaultAchievement.expReward
+    };
+  });
+}
 
 export const useStore = create<StoreState>((set, get) => ({
   globalLoading: false,
@@ -1420,6 +1446,9 @@ export const useStore = create<StoreState>((set, get) => ({
   }),
   agentRunRecords: [],
   addAgentRunRecord: (record) => {
+    if (record.status === 'completed') {
+      setTimeout(() => get().addExp(get().expConfig['event_agent_run'] ?? 10, 'Completed agent run'), 0);
+    }
     const id = `agent_run_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
     const now = new Date().toISOString();
     set((state) => ({
@@ -1427,11 +1456,17 @@ export const useStore = create<StoreState>((set, get) => ({
     }));
     return id;
   },
-  updateAgentRunRecord: (id, updates) => set((state) => ({
-    agentRunRecords: state.agentRunRecords.map(record => (
-      record.id === id ? { ...record, ...updates, updatedAt: new Date().toISOString() } : record
-    ))
-  })),
+  updateAgentRunRecord: (id, updates) => set((state) => {
+    const previous = state.agentRunRecords.find(record => record.id === id);
+    if (previous && previous.status !== 'completed' && updates.status === 'completed') {
+      setTimeout(() => get().addExp(get().expConfig['event_agent_run'] ?? 10, 'Completed agent run'), 0);
+    }
+    return {
+      agentRunRecords: state.agentRunRecords.map(record => (
+        record.id === id ? { ...record, ...updates, updatedAt: new Date().toISOString() } : record
+      ))
+    };
+  }),
   deleteAgentRunRecord: (id) => set((state) => ({
     agentRunRecords: state.agentRunRecords.filter(record => record.id !== id)
   })),
@@ -1498,6 +1533,7 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
   addKnowledgeItem: (item) => {
+    setTimeout(() => get().addExp(get().expConfig['event_add_knowledge'] ?? 8, 'Added knowledge base item'), 0);
     const token = localStorage.getItem('token');
     const newId = `kb-${Date.now()}`;
     const newItem = { ...item, id: newId };
@@ -1564,6 +1600,7 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
   addMedia: (media) => {
+    setTimeout(() => get().addExp(get().expConfig['event_add_media'] ?? 3, 'Added media asset'), 0);
     const newItem = {
       ...media,
       id: crypto.randomUUID(),
@@ -1762,7 +1799,10 @@ export const useStore = create<StoreState>((set, get) => ({
   currentStreak: 0,
   expLogs: [],
   addExp: (amount, reason) => set((state) => {
-    let newExp = state.userExp + amount;
+    const normalizedAmount = Number(amount) || 0;
+    if (normalizedAmount === 0) return state;
+
+    let newExp = state.userExp + normalizedAmount;
     let newLevel = state.userLevel;
     let newTitle = state.userTitle;
     
@@ -1787,7 +1827,7 @@ export const useStore = create<StoreState>((set, get) => ({
     
     const newLog: ExpLog = {
       id: `exp_${Date.now()}`,
-      amount,
+      amount: normalizedAmount,
       reason: reason || 'Task Completed',
       date: new Date().toISOString()
     };
@@ -1811,6 +1851,7 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
   addProduct: (product) => {
+    setTimeout(() => get().addExp(get().expConfig['event_add_product'] ?? 10, 'Added product'), 0);
     const id = `p${Date.now()}`;
     const newProduct: Product = { ...product, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     set((state) => ({ products: [...state.products, newProduct] }));
@@ -1904,6 +1945,7 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
   addDocument: (doc) => {
+    setTimeout(() => get().addExp(get().expConfig['event_create_document'] ?? 12, 'Created document'), 0);
     const id = `doc${Date.now()}`;
     const newDoc: AppDocument = { ...doc, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     set((state) => ({ documents: [...state.documents, newDoc] }));
@@ -2009,6 +2051,7 @@ export const useStore = create<StoreState>((set, get) => ({
         }
 
         if (statusChanged) {
+          get().addExp(get().expConfig['event_update_lead_status'] ?? 8, 'Updated lead status');
           get().addLog(deal.clientId, `Lead "${deal.name}" status updated to: ${updates.status}`, undefined, 'general', { leadId: id, dealId: id });
           if (updates.status === 'Closed Won') {
             get().addExp(get().expConfig['event_win_deal'] ?? 100, 'Won a deal!');
@@ -2309,6 +2352,7 @@ export const useStore = create<StoreState>((set, get) => ({
   },
   
   addComment: (clientId, content, attachments) => set((state) => {
+    setTimeout(() => get().addExp(get().expConfig['event_add_comment'] ?? 3, 'Added team comment'), 0);
     const newComment: Comment = {
       id: `cmt${Date.now()}`,
       author: state.userTitle,
@@ -2372,6 +2416,18 @@ export const useStore = create<StoreState>((set, get) => ({
 
   logs: INITIAL_LOGS,
   addLog: (clientId, content, relatedEmailId, type = 'general', metadata) => {
+    const expKey = type === 'whatsapp'
+      ? 'event_send_whatsapp'
+      : type === 'email'
+        ? 'event_log_email'
+        : 'event_add_log';
+    const expReason = type === 'whatsapp'
+      ? 'Logged WhatsApp interaction'
+      : type === 'email'
+        ? 'Logged email interaction'
+        : 'Logged interaction';
+    const defaultReward = type === 'whatsapp' ? 5 : 3;
+    setTimeout(() => get().addExp(get().expConfig[expKey] ?? defaultReward, expReason), 0);
     set((state) => {
       const client = state.clients.find(c => c.id === clientId);
       if (client && client.isDormant) {
@@ -2588,7 +2644,24 @@ export const useStore = create<StoreState>((set, get) => ({
 
   achievements: INITIAL_ACHIEVEMENTS,
   checkAchievements: () => set((state) => {
-    const { clients, userLevel, emails, logs, dailyQuests, achievements, addExp, addBroadcast } = state;
+    const {
+      clients,
+      publicClients,
+      deals,
+      quotes,
+      products,
+      knowledgeBase,
+      leadCampaigns,
+      agentRunRecords,
+      agentOpportunities,
+      userLevel,
+      emails,
+      logs,
+      dailyQuests,
+      achievements,
+      addExp,
+      addBroadcast
+    } = state;
     
     let changed = false;
     const newAchievements = [...achievements];
@@ -2620,6 +2693,10 @@ export const useStore = create<StoreState>((set, get) => ({
     if (clients.filter(c => c.status === 'Sample Sent').length >= 10) unlock('sample_sender');
     if (clients.some(c => (c.contactMethods?.length || 0) >= 3)) unlock('social_butterfly');
     if (clients.some(c => c.tags.length >= 5)) unlock('data_driven');
+    if (publicClients.length >= 25) unlock('public_pool_builder');
+    if (leadCampaigns.length >= 10) unlock('lead_scout');
+    if (clients.filter(c => c.country && c.company && (c.contactMethods?.length || 0) > 0).length >= 10) unlock('profile_architect');
+    if (clients.reduce((sum, c) => sum + (c.contacts?.length || 0), 0) >= 10) unlock('contact_cartographer');
     
     if (userLevel >= 5) unlock('level_5');
     if (userLevel >= 10) unlock('level_10');
@@ -2628,8 +2705,18 @@ export const useStore = create<StoreState>((set, get) => ({
     if (state.currentStreak >= 10) unlock('unstoppable');
     
     if (emails.length > 0 && emails.filter(e => !e.read && e.type === 'inbox').length === 0) unlock('inbox_zero');
+    if (emails.filter(e => e.type === 'sent' || e.type === 'outbound').length >= 50) unlock('email_power_user');
     
     if (logs.length >= 50) unlock('rich_history');
+    if (logs.filter(l => l.type === 'whatsapp').length >= 10) unlock('whatsapp_connector');
+    if (deals.filter(deal => deal.status !== 'Closed Won').length >= 25) unlock('lead_hunter');
+    if (quotes.length >= 10) unlock('quote_machine');
+    if (products.length >= 10) unlock('product_builder');
+    if (knowledgeBase.length >= 10) unlock('knowledge_keeper');
+    if (products.length > 0 && knowledgeBase.length > 0) unlock('rag_ready');
+    if (deals.reduce((sum, deal) => sum + (Number(deal.value) || 0), 0) >= 100000) unlock('rich_pipeline');
+    if (agentRunRecords.filter(record => record.status === 'completed').length >= 10) unlock('agent_operator');
+    if (agentOpportunities.filter(opportunity => opportunity.relatedRunId || ['completed', 'running', 'pending_review'].includes(opportunity.status)).length >= 10) unlock('opportunity_router');
     
     // Use user configured timezone to determine the correct hour
     const getHourInTimezone = (dateStr: string) => {
@@ -2740,10 +2827,7 @@ export const useStore = create<StoreState>((set, get) => ({
         
         // update achievements and quests
         set((state) => ({
-          achievements: state.achievements.map(a => ({
-            ...a,
-            expReward: expConfig[`achieve_${a.id}`] ?? a.expReward
-          })),
+          achievements: mergeAchievementsWithDefaults(state.achievements, expConfig),
           dailyQuests: state.dailyQuests.map(q => ({
             ...q,
             expReward: expConfig[`quest_${q.id}`] ?? q.expReward
@@ -2828,7 +2912,8 @@ export const useStore = create<StoreState>((set, get) => ({
           theme: settings.theme ?? state.theme,
           timezone: settings.timezone ?? state.timezone,
           currencyRates: settings.currency_rates ? { ...DEFAULT_CURRENCY_RATES, ...settings.currency_rates } : state.currencyRates,
-          defaultQuoteCurrency: settings.default_quote_currency || state.defaultQuoteCurrency
+          defaultQuoteCurrency: settings.default_quote_currency || state.defaultQuoteCurrency,
+          achievements: mergeAchievementsWithDefaults(state.achievements, state.expConfig)
         }));
       }
     } catch(e) {

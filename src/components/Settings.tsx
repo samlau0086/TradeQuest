@@ -596,10 +596,20 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
                     { id: 'claim_lead', label: 'Claim Lead from Pool', default: 5 },
                     { id: 'import_lead', label: 'Import Lead (per lead)', default: 2 },
                     { id: 'send_email', label: 'Send Email', default: 5 },
+                    { id: 'send_whatsapp', label: 'Log WhatsApp Interaction', default: 5 },
                     { id: 'read_email', label: 'Read/Track Email', default: 1 },
+                    { id: 'log_email', label: 'Log Email Interaction', default: 3 },
+                    { id: 'add_log', label: 'Add Interaction Log', default: 3 },
+                    { id: 'add_comment', label: 'Add Team Comment', default: 3 },
                     { id: 'create_deal', label: 'Create Deal', default: 20 },
+                    { id: 'update_lead_status', label: 'Update Lead Status', default: 8 },
                     { id: 'win_deal', label: 'Win Deal', default: 100 },
-                    { id: 'create_quote', label: 'Create Quote', default: 15 }
+                    { id: 'create_quote', label: 'Create Quote', default: 15 },
+                    { id: 'add_product', label: 'Add Product', default: 10 },
+                    { id: 'add_knowledge', label: 'Add Knowledge Item', default: 8 },
+                    { id: 'add_media', label: 'Add Media Asset', default: 3 },
+                    { id: 'create_document', label: 'Create Document', default: 12 },
+                    { id: 'agent_run', label: 'Complete Agent Run', default: 10 }
                   ].map((event) => (
                     <div key={event.id}>
                       <label className="text-sm font-bold text-slate-300 block mb-2 opacity-80">
