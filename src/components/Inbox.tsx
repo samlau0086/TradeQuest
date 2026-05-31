@@ -98,6 +98,13 @@ function fallbackEmailKnowledgeSummary(text: string) {
   return compact.length > 1200 ? `${compact.slice(0, 1200)}...` : compact;
 }
 
+function getInboxFilterForEmail(email: EmailMessage): 'inbox' | 'sent' | 'scheduled' | 'drafts' {
+  if (email.type === 'sent' || email.type === 'outbound') return 'sent';
+  if (email.type === 'scheduled') return 'scheduled';
+  if (email.type === 'draft') return 'drafts';
+  return 'inbox';
+}
+
 export function Inbox() {
   const { emails, markEmailRead, clients, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail, notify, language, llmConfigs, activeLLMId, llmMappings } = useStore();
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'inbox-layout' });
@@ -388,6 +395,12 @@ export function Inbox() {
   }, []);
 
   const selectedEmail = emails.find(e => e.id === selectedEmailId);
+  useEffect(() => {
+    if (!selectedEmail) return;
+    const nextFilter = getInboxFilterForEmail(selectedEmail);
+    if (filter !== nextFilter) setFilter(nextFilter);
+  }, [selectedEmail?.id, selectedEmail?.type, filter]);
+
   const selectedTrackingEvents = [...(selectedEmail?.trackingEvents || [])].sort((a: any, b: any) => (
     new Date(b.created_at || b.createdAt || b.date || 0).getTime() - new Date(a.created_at || a.createdAt || a.date || 0).getTime()
   ));
