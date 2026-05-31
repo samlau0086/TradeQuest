@@ -2341,7 +2341,14 @@ No markdown wrappers, just valid JSON.`;
     const [clientsRes, dealsRes, emailsRes] = await Promise.all([
       pool.query(`SELECT id, name, company, country, status, last_contact, lead_score, lead_summary, lead_next_step, agent_next_step, updated_at FROM clients WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 200`, [userId]),
       pool.query(`SELECT id, client_id, name, status, value, lead_score, lead_summary, lead_next_step, updated_at FROM deals WHERE user_id = $1 AND pending_delete = FALSE ORDER BY updated_at DESC LIMIT 200`, [userId]),
-      pool.query(`SELECT id, client_id, sender, recipient, subject, body, date, read, type, tracking_events FROM emails WHERE user_id = $1 AND pending_delete = FALSE ORDER BY date DESC LIMIT 300`, [userId])
+      pool.query(`
+        SELECT e.id, e.client_id, e.sender, e.recipient, e.subject, e.body, e.date, e.read, e.type,
+          COALESCE((SELECT json_agg(t.*) FROM email_tracking t WHERE t.email_id = e.id), '[]'::json) as tracking_events
+        FROM emails e
+        WHERE e.user_id = $1 AND e.pending_delete = FALSE
+        ORDER BY e.date DESC
+        LIMIT 300
+      `, [userId])
     ]);
     const clientsById = new Map(clientsRes.rows.map((client: any) => [client.id, client]));
     const inboundEmails = emailsRes.rows.filter((email: any) => ['inbox', 'inbound'].includes(email.type));
