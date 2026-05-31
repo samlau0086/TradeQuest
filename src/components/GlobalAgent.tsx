@@ -366,6 +366,36 @@ ${objective}`;
   };
 
   const normalizeRows = (rows: any[], campaign: LeadCampaign) => rows.filter(Boolean).map((row: any) => {
+    const countryAliases: Record<string, string> = {
+      us: 'United States',
+      usa: 'United States',
+      'u.s.': 'United States',
+      'u.s.a.': 'United States',
+      'united states': 'United States',
+      'united states of america': 'United States',
+      america: 'United States'
+    };
+    const normalizeCountry = (value: any) => {
+      const raw = String(value || '').trim();
+      return raw ? (countryAliases[raw.toLowerCase()] || raw) : '';
+    };
+    const getByPath = (path: string) => path.split('.').reduce((value, key) => value?.[key], row);
+    const pickFirst = (keys: string[]) => {
+      for (const key of keys) {
+        const value = key.includes('.') ? getByPath(key) : row[key];
+        if (Array.isArray(value) && value.find(Boolean)) return value.find(Boolean);
+        if (value !== undefined && value !== null && String(value).trim()) return value;
+      }
+      return '';
+    };
+    const collectDeepValues = (value: any, matcher: (key: string) => boolean, parentKey = ''): string[] => {
+      if (value === undefined || value === null) return [];
+      if (Array.isArray(value)) return value.flatMap(item => collectDeepValues(item, matcher, parentKey));
+      if (typeof value === 'object') {
+        return Object.entries(value).flatMap(([key, item]) => collectDeepValues(item, matcher, key));
+      }
+      return matcher(parentKey) ? String(value).split(',').map(item => item.trim()).filter(Boolean) : [];
+    };
     const contactMethods = [];
     const addMethod = (type: string, value: any) => {
       const normalized = String(value || '').trim();
@@ -380,16 +410,21 @@ ${objective}`;
     const phoneList = Array.isArray(phones) ? phones : phones ? String(phones).split(',') : [];
     emailList.forEach((email: any) => addMethod('email', email));
     phoneList.forEach((phone: any) => addMethod('phone', phone));
-    [row.email_address, row.email_1, row.email_2, row.email_3].filter(Boolean).forEach(email => addMethod('email', email));
-    [row.phone_number, row.phone_1, row.phone_2, row.phone_3, row.mobile].filter(Boolean).forEach(phone => addMethod('phone', phone));
-    [row.site, row.website, row.domain, row.url, row.business_url].filter(Boolean).forEach(site => addMethod('website', site));
+    [row.email_address, row.email_1, row.email_2, row.email_3, row.business_email, row.company_email, row.contact_email, ...(collectDeepValues(row, key => /email/i.test(key)))]
+      .filter(Boolean)
+      .filter(email => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email)))
+      .forEach(email => addMethod('email', email));
+    [row.phone_number, row.phone_1, row.phone_2, row.phone_3, row.mobile, row.mobile_phone, ...(collectDeepValues(row, key => /(phone|mobile|telephone)/i.test(key)))]
+      .filter(Boolean)
+      .forEach(phone => addMethod('phone', phone));
+    [row.site, row.website, row.domain, row.url, row.business_url, row.website_url, getByPath('links.website')].filter(Boolean).forEach(site => addMethod('website', site));
     return {
       name: row.name || row.company || row.title,
       company: row.company || row.name || row.title || '',
-      address: row.address || row.full_address || row.formatted_address || '',
-      city: row.city || row.municipality || '',
-      state: row.state || row.region || row.province || '',
-      country: row.country || campaign.country || 'Unknown',
+      address: pickFirst(['address', 'full_address', 'formatted_address', 'street_address', 'address_info.full_address', 'location.address']),
+      city: pickFirst(['city', 'municipality', 'locality', 'town', 'address_info.city', 'address_info.town', 'address_info.municipality', 'address_info.locality', 'location.city']),
+      state: pickFirst(['state', 'region', 'province', 'administrative_area_level_1', 'address_info.state', 'address_info.region', 'address_info.province', 'location.state']),
+      country: normalizeCountry(pickFirst(['country', 'country_name', 'address_info.country', 'location.country', 'country_code']) || campaign.country || 'Unknown'),
       tags: Array.from(new Set([...(row.tags || []), row.type, row.category, campaign.industry, 'Global Agent'].filter(Boolean))),
       contactMethods: contactMethods.length ? contactMethods : undefined,
       comments: row.comments || []

@@ -76,6 +76,24 @@ const getOutboundLanguage = (preferredLanguage?: string, country?: string) => {
   return COUNTRY_LANGUAGE_OVERRIDES[normalizedCountry] || 'English';
 };
 
+const normalizeCrmCountry = (value?: string | null) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const aliases: Record<string, string> = {
+    us: 'United States',
+    usa: 'United States',
+    'u.s.': 'United States',
+    'u.s.a.': 'United States',
+    'united states': 'United States',
+    'united states of america': 'United States',
+    america: 'United States',
+    uk: 'United Kingdom',
+    'u.k.': 'United Kingdom',
+    'great britain': 'United Kingdom'
+  };
+  return aliases[raw.toLowerCase()] || raw;
+};
+
 const getSystemLanguageName = (language?: string) => {
   const normalized = String(language || '').trim().toLowerCase();
   return ['zh', 'zh-cn', 'cn', 'chinese', '中文', '简体中文'].includes(normalized) ? 'Chinese' : 'English';
@@ -140,9 +158,9 @@ const clearCommentPendingDelete = (comments: any[] = [], commentId: string): any
 const countryNameFromCode = (code?: string) => {
   if (!code) return '';
   try {
-    return new Intl.DisplayNames(['en'], { type: 'region' }).of(code.toUpperCase()) || code.toUpperCase();
+    return normalizeCrmCountry(new Intl.DisplayNames(['en'], { type: 'region' }).of(code.toUpperCase()) || code.toUpperCase());
   } catch {
-    return code.toUpperCase();
+    return normalizeCrmCountry(code.toUpperCase());
   }
 };
 
@@ -263,6 +281,9 @@ async function initDB() {
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS preferred_time_range VARCHAR(255);
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS contacts JSONB DEFAULT '[]'::jsonb;
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS primary_contact_id VARCHAR(128);
+      UPDATE clients
+      SET country = 'United States'
+      WHERE LOWER(TRIM(COALESCE(country, ''))) IN ('us', 'usa', 'u.s.', 'u.s.a.', 'united states of america', 'america');
 
       CREATE TABLE IF NOT EXISTS global_settings (
         key VARCHAR(128) PRIMARY KEY,
@@ -4343,9 +4364,19 @@ Query: "${query}"`;
   });
 
   const normalizeLeadRows = (rows: any[], fallbackCountry = '', fallbackTag = '') => {
+    const getByPath = (row: any, path: string) => path.split('.').reduce((value, key) => value?.[key], row);
+    const collectDeepValues = (value: any, matcher: (key: string) => boolean, parentKey = ''): string[] => {
+      if (value === undefined || value === null) return [];
+      if (Array.isArray(value)) return value.flatMap(item => collectDeepValues(item, matcher, parentKey));
+      if (typeof value === 'object') {
+        return Object.entries(value).flatMap(([key, item]) => collectDeepValues(item, matcher, key));
+      }
+      if (!matcher(parentKey)) return [];
+      return String(value).split(',').map(item => item.trim()).filter(Boolean);
+    };
     const pickFirst = (row: any, keys: string[]) => {
       for (const key of keys) {
-        const value = row?.[key];
+        const value = key.includes('.') ? getByPath(row, key) : row?.[key];
         if (Array.isArray(value) && value.find(Boolean)) return value.find(Boolean);
         if (value !== undefined && value !== null && String(value).trim()) return value;
       }
@@ -4354,7 +4385,7 @@ Query: "${query}"`;
     const collectValues = (row: any, keys: string[]) => {
       const values: string[] = [];
       for (const key of keys) {
-        const value = row?.[key];
+        const value = key.includes('.') ? getByPath(row, key) : row?.[key];
         if (Array.isArray(value)) {
           values.push(...value.map(item => String(item || '').trim()).filter(Boolean));
         } else if (value !== undefined && value !== null && String(value).trim()) {
@@ -4376,11 +4407,20 @@ Query: "${query}"`;
       const company = pickFirst(row, ['company', 'companyName', 'organization_name', 'business_name', 'name', 'title']);
       const contactMethods: any[] = [];
       for (const method of row.contactMethods || []) appendMethod(contactMethods, method.type, method.value);
-      collectValues(row, ['emails', 'email', 'email_address', 'emailAddresses', 'email_1', 'email_2', 'email_3']).forEach(value => appendMethod(contactMethods, 'email', value));
-      collectValues(row, ['phones', 'phone', 'phone_number', 'phoneNumbers', 'phone_1', 'phone_2', 'phone_3', 'mobile', 'mobile_phone']).forEach(value => appendMethod(contactMethods, 'phone', value));
+      collectValues(row, ['emails', 'email', 'email_address', 'emailAddresses', 'email_1', 'email_2', 'email_3', 'business_email', 'company_email', 'contact_email', 'website_data.emails'])
+        .concat(collectDeepValues(row, key => /email/i.test(key)))
+        .filter(value => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))
+        .forEach(value => appendMethod(contactMethods, 'email', value));
+      collectValues(row, ['phones', 'phone', 'phone_number', 'phoneNumbers', 'phone_1', 'phone_2', 'phone_3', 'mobile', 'mobile_phone', 'business_phone', 'phone_numbers', 'contacts.phone'])
+        .concat(collectDeepValues(row, key => /(phone|mobile|telephone)/i.test(key)))
+        .forEach(value => appendMethod(contactMethods, 'phone', value));
       collectValues(row, ['whatsapp', 'whatsapp_number', 'whatsappNumber']).forEach(value => appendMethod(contactMethods, 'whatsapp', value));
-      collectValues(row, ['site', 'website', 'domain', 'url', 'business_url']).forEach(value => appendMethod(contactMethods, 'website', value));
+      collectValues(row, ['site', 'website', 'domain', 'url', 'business_url', 'website_url', 'links.website'])
+        .forEach(value => appendMethod(contactMethods, 'website', value));
       const categoryValues = collectValues(row, ['type', 'category', 'categories', 'subtypes', 'industry']);
+      const city = pickFirst(row, ['city', 'municipality', 'locality', 'town', 'address_info.city', 'address_info.town', 'address_info.municipality', 'address_info.locality', 'location.city']);
+      const state = pickFirst(row, ['state', 'region', 'province', 'administrative_area_level_1', 'address_info.state', 'address_info.region', 'address_info.province', 'location.state']);
+      const country = normalizeCrmCountry(pickFirst(row, ['country', 'country_name', 'address_info.country', 'location.country', 'country_code']) || fallbackCountry || 'Unknown');
       const comments = [
         row.rating ? `Outscraper rating: ${row.rating}${row.reviews ? ` (${row.reviews} reviews)` : ''}` : '',
         row.site || row.website ? `Website: ${row.site || row.website}` : '',
@@ -4395,10 +4435,10 @@ Query: "${query}"`;
       return {
         name,
         company: company || name,
-        address: pickFirst(row, ['full_address', 'address', 'formatted_address', 'street_address', 'location']),
-        city: pickFirst(row, ['city', 'municipality', 'locality']),
-        state: pickFirst(row, ['state', 'region', 'province']),
-        country: pickFirst(row, ['country', 'country_code']) || fallbackCountry || 'Unknown',
+        address: pickFirst(row, ['full_address', 'address', 'formatted_address', 'street_address', 'address_info.full_address', 'location.address']),
+        city,
+        state,
+        country,
         tags: Array.from(new Set([...categoryValues, fallbackTag, 'Outscraper'].filter(Boolean))),
         contactMethods: contactMethods.length > 0 ? contactMethods : undefined,
         comments
@@ -4498,7 +4538,7 @@ Query: "${query}"`;
       await pool.query(
         `INSERT INTO clients (id, user_id, name, company, address, state, city, country, status, tags, last_contact, is_dormant, contact_methods, contacts, primary_contact_id, comments)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
-        [id, null, lead.name, lead.company || '', lead.address || '', lead.state || '', lead.city || '', lead.country || '', 'Leads', JSON.stringify(lead.tags || []), null, false, JSON.stringify(lead.contactMethods || []), JSON.stringify(lead.contacts || []), lead.primaryContactId || null, JSON.stringify(lead.comments || [])]
+        [id, null, lead.name, lead.company || '', lead.address || '', lead.state || '', lead.city || '', normalizeCrmCountry(lead.country) || '', 'Leads', JSON.stringify(lead.tags || []), null, false, JSON.stringify(lead.contactMethods || []), JSON.stringify(lead.contacts || []), lead.primaryContactId || null, JSON.stringify(lead.comments || [])]
       );
       addedCount += 1;
     }
@@ -5064,7 +5104,7 @@ Return JSON only:
         await pool.query(
           `INSERT INTO clients (id, user_id, name, company, address, state, city, country, status, tags, last_contact, is_dormant, contact_methods, contacts, primary_contact_id, comments)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
-          [id, null, lead.name, lead.company || '', lead.address || '', lead.state || '', lead.city || '', lead.country || '', 'Leads', JSON.stringify(lead.tags || []), null, false, JSON.stringify(lead.contactMethods || []), JSON.stringify(lead.contacts || []), lead.primaryContactId || null, JSON.stringify(lead.comments || [])]
+          [id, null, lead.name, lead.company || '', lead.address || '', lead.state || '', lead.city || '', normalizeCrmCountry(lead.country) || '', 'Leads', JSON.stringify(lead.tags || []), null, false, JSON.stringify(lead.contactMethods || []), JSON.stringify(lead.contacts || []), lead.primaryContactId || null, JSON.stringify(lead.comments || [])]
         );
         addedCount++;
       }
