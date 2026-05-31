@@ -388,7 +388,9 @@ export function Inbox() {
   }, []);
 
   const selectedEmail = emails.find(e => e.id === selectedEmailId);
-  const selectedTrackingEvents = selectedEmail?.trackingEvents || [];
+  const selectedTrackingEvents = [...(selectedEmail?.trackingEvents || [])].sort((a: any, b: any) => (
+    new Date(b.created_at || b.createdAt || b.date || 0).getTime() - new Date(a.created_at || a.createdAt || a.date || 0).getTime()
+  ));
   const isTrackingExpanded = selectedEmail ? expandedTrackingEmailIds.has(selectedEmail.id) : false;
   const visibleTrackingEvents = isTrackingExpanded ? selectedTrackingEvents : selectedTrackingEvents.slice(0, 3);
   const toggleTrackingExpanded = (emailId: string) => {
