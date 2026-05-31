@@ -934,7 +934,7 @@ No markdown wrappers, just valid JSON.`;
   // Emotional Thermometer & Icebreaker
   app.post("/api/chat/icebreaker", authenticateToken, async (req: any, res) => {
     try {
-      const { client, logs, emails, llmConfig, embeddingLlmConfig, systemLanguage = 'English', outboundLanguage } = req.body;
+      const { client, lead, logs, emails, llmConfig, embeddingLlmConfig, systemLanguage = 'English', outboundLanguage } = req.body;
       const latestCustomerText = Array.isArray(emails) ? (emails.find((email: any) => ['inbox', 'inbound'].includes(email.type)) || emails[0])?.body : '';
       const resolvedOutboundLanguage = outboundLanguage || getCustomerOutputLanguage({
         lastCommunicationText: latestCustomerText,
@@ -945,12 +945,14 @@ No markdown wrappers, just valid JSON.`;
       const kbRes = await searchKnowledgeBase(req.user.uid, client?.id || null, `Icebreaker and follow up strategy for client in ${client?.company || 'foreign trade'}`, embeddingLlmConfig || llmConfig, 5);
       
       const prompt = `You are a savvy foreign trade AI assistant.
-Analyze this client and their recent logs.
+Analyze the ${lead ? 'specific lead/opportunity' : 'customer/account'} and its recent logs.
 Language rules:
 ${buildLanguagePolicy({ systemLanguage, customerLanguage: resolvedOutboundLanguage })}
 - sentiment, leadSummary, leadNextStep, and summary are internal CRM outputs.
 - icebreaker is customer-facing outbound content.
+- Client/account fields and lead/opportunity fields are separate modules. If a lead is provided, leadSummary and leadNextStep must describe that specific opportunity, not the overall customer account. If no lead is provided, they should describe the customer/account-level relationship and account-level next step.
 Client: ${JSON.stringify(client)}
+Lead/Opportunity: ${JSON.stringify(lead || null)}
 Logs: ${JSON.stringify(logs)}
 Emails: ${JSON.stringify(emails || [])}
 Knowledge Base (RAG):
@@ -970,7 +972,7 @@ No markdown wrappers, just valid JSON.`;
       
       const text = await callAI(prompt, llmConfig, true);
       const parsed = JSON.parse(text || '{}');
-      const fallbackSummary = [client?.company || client?.name, client?.country, client?.status, Array.isArray(client?.tags) && client.tags.length ? `Tags: ${client.tags.join(', ')}` : '']
+      const fallbackSummary = [lead?.name || client?.company || client?.name, client?.country, lead?.status || client?.status, Array.isArray(client?.tags) && client.tags.length ? `Tags: ${client.tags.join(', ')}` : '']
         .filter(Boolean)
         .join(' / ');
       parsed.leadScore = Number(parsed.leadScore ?? parsed.temperature ?? 0);
@@ -4544,7 +4546,7 @@ Return JSON only:
         }
         if (tools.includes('client.summarize') || tools.includes('client.update')) {
           await pool.query(
-            `UPDATE clients SET agent_summary = COALESCE($1, agent_summary), agent_next_step = COALESCE($2, agent_next_step), lead_score = COALESCE($3, lead_score), lead_summary = COALESCE($1, lead_summary), lead_next_step = COALESCE($2, lead_next_step), updated_at = CURRENT_TIMESTAMP WHERE id = $4 AND user_id = $5`,
+            `UPDATE clients SET agent_summary = COALESCE($1, agent_summary), agent_next_step = COALESCE($2, agent_next_step), lead_score = COALESCE($3, lead_score), updated_at = CURRENT_TIMESTAMP WHERE id = $4 AND user_id = $5`,
             [summary || null, nextStep || null, Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : null, client.id, userId]
           );
         }
@@ -5046,29 +5048,6 @@ Return JSON only:
       if (setClauses.length > 0) {
         setClauses.push(`updated_at = CURRENT_TIMESTAMP`);
         await pool.query(`UPDATE clients SET ${setClauses.join(', ')} WHERE id = $1 AND user_id = $2`, values);
-        if (updates.leadScore !== undefined || updates.leadSummary !== undefined || updates.leadNextStep !== undefined || updates.leadScoringSignature !== undefined || updates.leadScoringAnalyzedAt !== undefined) {
-          const dealSetClauses: string[] = [];
-          const dealValues: any[] = [id, req.user.uid];
-          let dealValIdx = 3;
-          const dealLeadMapping: Record<string, string> = {
-            leadScore: 'lead_score',
-            leadSummary: 'lead_summary',
-            leadNextStep: 'lead_next_step',
-            leadScoringSignature: 'lead_scoring_signature',
-            leadScoringAnalyzedAt: 'lead_scoring_analyzed_at'
-          };
-          for (const [key, column] of Object.entries(dealLeadMapping)) {
-            if (updates[key] !== undefined) {
-              dealSetClauses.push(`${column} = $${dealValIdx}`);
-              dealValues.push(updates[key]);
-              dealValIdx++;
-            }
-          }
-          if (dealSetClauses.length > 0) {
-            dealSetClauses.push(`updated_at = CURRENT_TIMESTAMP`);
-            await pool.query(`UPDATE deals SET ${dealSetClauses.join(', ')} WHERE client_id = $1 AND user_id = $2`, dealValues);
-          }
-        }
         
         if (pointsToAward > 0) {
             await pool.query(`UPDATE users SET points = points + $1 WHERE id = $2`, [pointsToAward, req.user.uid]);

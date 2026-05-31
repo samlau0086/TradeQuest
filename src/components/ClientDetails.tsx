@@ -485,9 +485,13 @@ export function ClientDetails() {
     if (!leadRecord) return true;
     return log.metadata?.leadId === leadRecord.id || log.metadata?.dealId === leadRecord.id;
   });
-  const leadScore = leadRecord?.leadScore ?? client?.leadScore;
-  const leadSummary = client?.leadSummary || leadRecord?.leadSummary;
-  const leadNextStep = client?.leadNextStep || client?.agentNextStep || leadRecord?.leadNextStep;
+  const leadScore = leadRecord ? leadRecord.leadScore : client?.leadScore;
+  const summaryText = leadRecord
+    ? leadRecord.leadSummary
+    : (client?.agentSummary || client?.leadSummary);
+  const nextStepText = leadRecord
+    ? leadRecord.leadNextStep
+    : (client?.agentNextStep || client?.leadNextStep);
 
   if (!client) return null;
   const displayContacts = (client.contacts && client.contacts.length > 0)
@@ -554,6 +558,7 @@ export function ClientDetails() {
         },
         body: JSON.stringify({ 
           client, 
+          lead: leadRecord,
           logs: clientLogs,
           emails: clientEmails,
           llmConfig: getLLMConfig('analysis'),
@@ -564,13 +569,13 @@ export function ClientDetails() {
       const data = await res.json();
       const score = Number(data.leadScore ?? data.temperature ?? 0);
       const fallbackSummary = [
-        client.company || client.name,
+        leadRecord?.name || client.company || client.name,
         client.country,
-        client.status,
+        leadRecord?.status || client.status,
         client.tags?.length ? `Tags: ${client.tags.join(', ')}` : ''
       ].filter(Boolean).join(' / ');
       const analyzedLeadSummary = data.leadSummary || data.summary || fallbackSummary || 'Lead profile requires more interaction data.';
-      const analyzedLeadNextStep = data.leadNextStep || data.nextStep || client.agentNextStep || 'Review the lead profile and choose the next follow-up action.';
+      const analyzedLeadNextStep = data.leadNextStep || data.nextStep || (leadRecord ? leadRecord.leadNextStep : client.agentNextStep) || 'Review the lead profile and choose the next follow-up action.';
       const normalizedData = { ...data, leadScore: score, leadSummary: analyzedLeadSummary, leadNextStep: analyzedLeadNextStep };
       setAiData(normalizedData);
       if (leadRecord) {
@@ -581,24 +586,13 @@ export function ClientDetails() {
           leadScoringSignature: buildLeadScoringSignature(client, leadLogs, emails),
           leadScoringAnalyzedAt: new Date().toISOString()
         });
-        editClient(client.id, {
-          leadScore: score,
-          leadSummary: analyzedLeadSummary,
-          leadNextStep: analyzedLeadNextStep,
-          agentSummary: analyzedLeadSummary || client.agentSummary,
-          agentNextStep: analyzedLeadNextStep || client.agentNextStep,
-          leadScoringSignature: buildLeadScoringSignature(client, leadLogs, emails),
-          leadScoringAnalyzedAt: new Date().toISOString()
-        });
       } else {
         useStore.getState().editClient(client.id, {
           leadScore: score,
-          leadSummary: analyzedLeadSummary,
-          leadNextStep: analyzedLeadNextStep,
+          agentSummary: analyzedLeadSummary,
+          agentNextStep: analyzedLeadNextStep,
           leadScoringSignature: buildLeadScoringSignature(client, logs, emails),
-          leadScoringAnalyzedAt: new Date().toISOString(),
-          agentSummary: analyzedLeadSummary || client.agentSummary,
-          agentNextStep: analyzedLeadNextStep || client.agentNextStep
+          leadScoringAnalyzedAt: new Date().toISOString()
         });
       }
       useStore.getState().addLog(
@@ -757,10 +751,10 @@ export function ClientDetails() {
             <div className="space-y-6 min-w-0">
               <div className="rounded-xl border border-blue-500/20 bg-blue-950/20 p-5 shadow-[0_0_40px_rgba(14,165,233,0.05)]">
                 <div className="text-xs font-bold text-cyan-300 uppercase tracking-wider flex items-center gap-2 mb-3">
-                  <Sparkles className="w-4 h-4" /> AI Customer Summary
+                  <Sparkles className="w-4 h-4" /> {leadRecord ? 'AI Lead Summary' : 'AI Customer Summary'}
                 </div>
                 <p className="text-sm lg:text-base text-slate-200 leading-relaxed">
-                  {leadSummary || client.agentSummary || 'No AI summary has been generated yet. Run AI Radar to analyze this customer or lead.'}
+                  {summaryText || 'No AI summary has been generated yet. Run AI Radar to analyze this customer or lead.'}
                 </p>
               </div>
 
@@ -769,7 +763,7 @@ export function ClientDetails() {
                   <CheckCircle2 className="w-4 h-4" /> Best Next Step
                 </div>
                 <p className="text-lg text-white leading-relaxed">
-                  {leadNextStep || client.agentNextStep || 'Review recent activity and choose the next follow-up action.'}
+                  {nextStepText || 'Review recent activity and choose the next follow-up action.'}
                 </p>
                 <div className="mt-5 flex items-center gap-3">
                   <button
@@ -850,7 +844,7 @@ export function ClientDetails() {
                     <MessageSquare className="w-4 h-4 text-slate-500 mt-0.5" />
                     <div>
                       <div className="text-[11px] text-slate-500 uppercase">Description</div>
-                      <div className="text-sm text-slate-300 leading-relaxed">{client.agentContext || leadSummary || 'No description yet.'}</div>
+                      <div className="text-sm text-slate-300 leading-relaxed">{client.agentContext || summaryText || 'No description yet.'}</div>
                     </div>
                   </div>
                 </div>
@@ -1051,16 +1045,16 @@ export function ClientDetails() {
                     <span className="text-lg font-bold text-white">{Number(aiData.leadScore ?? aiData.temperature ?? 0)}/100</span>
                   </div>
                 </div>
-                {(aiData.leadSummary || leadSummary) && (
+                {(aiData.leadSummary || summaryText) && (
                   <div className="bg-slate-900 rounded-lg p-3 border border-slate-700">
-                    <span className="text-[10px] text-slate-500 font-bold uppercase">Lead Summary</span>
-                    <p className="text-xs text-slate-300 mt-1 leading-relaxed">{aiData.leadSummary || leadSummary}</p>
+                    <span className="text-[10px] text-slate-500 font-bold uppercase">{leadRecord ? 'Lead Summary' : 'Customer Summary'}</span>
+                    <p className="text-xs text-slate-300 mt-1 leading-relaxed">{aiData.leadSummary || summaryText}</p>
                   </div>
                 )}
-                {(aiData.leadNextStep || leadNextStep) && (
+                {(aiData.leadNextStep || nextStepText) && (
                   <div className="bg-cyan-950/30 rounded-lg p-3 border border-cyan-500/20">
                     <span className="text-[10px] text-cyan-400 font-bold uppercase">Best Next Step</span>
-                    <p className="text-sm text-white mt-1 font-medium">{aiData.leadNextStep || leadNextStep}</p>
+                    <p className="text-sm text-white mt-1 font-medium">{aiData.leadNextStep || nextStepText}</p>
                   </div>
                 )}
               </div>
@@ -1111,8 +1105,8 @@ export function ClientDetails() {
                     <span className="text-[10px] text-cyan-400 font-bold uppercase">Lead Score</span>
                     <span className="text-lg font-bold text-white">{leadScore}/100</span>
                   </div>
-                  {leadSummary && <p className="text-xs text-slate-300 leading-relaxed">{leadSummary}</p>}
-                  {leadNextStep && <p className="text-sm text-white font-medium">Next: {leadNextStep}</p>}
+                  {summaryText && <p className="text-xs text-slate-300 leading-relaxed">{summaryText}</p>}
+                  {nextStepText && <p className="text-sm text-white font-medium">Next: {nextStepText}</p>}
                 </div>
               ) : 'AI analysis requires target scan.'}
             </div>

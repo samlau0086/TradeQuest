@@ -142,12 +142,10 @@ async function executeLeadScoringAgentRun(agent: AgentHubAgent) {
       const leadNextStep = data.leadNextStep || data.nextStep || client.agentNextStep || 'Review the lead profile and choose the next follow-up action.';
       state.editClient(client.id, {
         leadScore: score,
-        leadSummary,
-        leadNextStep,
         leadScoringSignature: signature,
         leadScoringAnalyzedAt: new Date().toISOString(),
-        agentSummary: leadSummary || client.agentSummary,
-        agentNextStep: leadNextStep || client.agentNextStep
+        agentSummary: leadSummary,
+        agentNextStep: leadNextStep
       });
       state.addLog(
         client.id,
