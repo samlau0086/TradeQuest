@@ -1,403 +1,791 @@
 # Foreign Trade CRM (AI-Powered)
 
-English | 中文
+English | Chinese
 
 ## English
 
-Welcome to **Foreign Trade CRM**, a modern AI-powered customer relationship management system built for foreign trade teams. It combines CRM workflows, lead acquisition, multi-channel communication, gamification, AI agents, WhatsApp automation, email workflows, quotes, and data enrichment to help teams acquire leads and convert them more efficiently.
+Foreign Trade CRM is an AI-powered CRM for foreign trade teams. It combines client and lead management, unified email and WhatsApp communication, product and quote workflows, knowledge-base RAG, lead acquisition, enrichment, gamification, dashboards, and an Agent Hub that can discover, route, review, and execute CRM work.
 
-### Key Features
+## Current System Overview
 
-#### AI-Driven Automation and Agents
-Use language models to automate CRM work and improve follow-up quality. The system supports multiple AI providers, including Gemini, OpenAI, and custom OpenAI-compatible endpoints.
+### Dashboard
 
-- **AI Follow-Up Agent:** Assign an AI agent to specific clients. The agent can read long-term context, summarize the client's current status, suggest the next best action, and draft follow-up messages.
-- **Agent Harness:** Build task-level orchestration for repeatable workflows such as lead acquisition, enrichment, tagging, WhatsApp outreach, email follow-up, and data cleanup.
-- **Global Agent:** Coordinate the whole CRM with the goal of acquiring leads and improving conversion. Global Agent can plan work across lead acquisition, enrichment, email, WhatsApp, comments, quotes, stage updates, and follow-up tasks.
-- **Email Drafting and Magic Commands:** Generate context-aware email drafts or short snippets based on client history. Global `/` commands can be used for AI assistance.
-- **Client Analysis / AI Radar:** Analyze client background, logs, emails, and activity to generate icebreakers, sentiment readouts, and next-step suggestions.
-- **Module Mapping:** Assign different AI providers or models to different functional modules in **Settings -> AI & Integrations**.
+- Shows pipeline health, acquisition funnel, email load, activity trend, user contribution heatmap, daily quests, level progress, EXP, and user activity.
+- Includes a daily operating summary and improvement recommendations for the current user.
+- The daily summary is generated once per day per user and system language. It uses the AI model mapped to the `analysis` module, with a local fallback summary if AI is unavailable.
+- Chart hover data is available on activity trend points, email load segments, pipeline bars, and acquisition funnel bars.
 
-#### Lead Pool and Client Management
-- **Public Lead Pool:** Discover, import, and claim potential clients from a shared lead pool.
-- **Lead Acquisition Agent:** Create lead acquisition campaigns manually or through an agent. Campaigns can define keywords, industry, country, and batch size, and new leads are added to the public pool by default.
-- **Lead Data Channels:** Support lead acquisition and enrichment channels such as Apify, PhantomBuster, Scrap.io, HasData, Decodo, and Clay.
-- **Client Enrichment Rewards:** Earn points by filling missing client information such as country, address, company, and contact methods.
-- **Client Edit Requests:** For public or restricted leads, users can propose updates for admin approval.
-- **Kanban Pipeline:** Track clients and deals through `Leads -> Contacted -> Sample Sent -> Negotiating -> Closed Won`.
-- **Comprehensive Profiles:** View client contact methods, comments, logs, emails, WhatsApp history, AI summaries, quotes, files, and related tasks in one place.
+### Clients, Leads, and Public Pool
 
-#### WhatsApp Actor Hub
-- **Multi-Client WhatsApp Hub:** Manage multiple WhatsApp clients and conversations from a centralized inbox-like module.
-- **Conversation Persistence:** WhatsApp messages are stored in the CRM and linked to matching client records when possible.
-- **Message Sending:** Send text, emoji, media, and file messages through the connected WhatsApp Actor Hub.
-- **Client Selection Rules:** A user can choose a specific WhatsApp client or random client. After sending to a customer, the client used for that customer becomes fixed unless manually changed.
-- **Scheduled WhatsApp Messages:** Schedule WhatsApp sends from workflows or directly from WhatsApp Hub. If no suitable client is available, the message is sent when an available or specified client comes online.
-- **Conversation Management:** Search conversations, add tags and comments, and open the linked client sidebar from the conversation header.
-- **AI Agent Access:** AI Follow-Up Agent, Agent Harness, and Global Agent can use WhatsApp Actor Hub according to the same client selection and quota rules.
-- **Quota Awareness:** Automated WhatsApp outreach should consider client send quota, reply rate, and account safety. Daily sending limits should adjust dynamically to reduce ban risk.
+- Clients, public lead pool, and lead board are grouped under the customer workspace.
+- A customer can have multiple leads. Customer-level summaries and lead-level summaries are treated separately.
+- Leads can have their own score, summary, next step, team comments, growth logs, stage, tags, and timeline.
+- Contacts are first-class records under clients/leads. A customer can have multiple contacts, and contacts can have multiple communication methods.
+- Key contact can be selected or changed.
+- Public lead pool supports import, claim, delete, and superadmin bulk delete.
+- Lead acquisition channels normalize imported fields such as country, city, state, email, phone, website, and company where the source provides them.
+- Outscraper country aliases such as `United States of America` are normalized to `United States`.
 
-#### Email Inbox and Communication
-- **Unified Inbox:** Manage incoming and sent emails inside the CRM.
-- **Background Sync:** Email inboxes sync automatically in the background. The default interval is 1 hour and can be configured per email server.
-- **Scheduled Emails:** Schedule email sending as part of manual workflows or AI workflows.
-- **Multi-Channel Logs:** Track WhatsApp, phone, email, comments, and other interactions in client growth logs.
+### Unified Inbox
 
-#### Gamification and Productivity
-- **Level and Experience:** Earn EXP by adding clients, logging contact events, sending emails, and closing deals.
-- **Points Economy:** Earn points through enrichment and tasks, then spend points to claim public leads.
-- **Daily Quests and Streaks:** Complete daily challenges, such as waking up dormant clients, to earn bonus EXP.
+- Email and WhatsApp messages are integrated into one inbox.
+- Inbox supports inbox, sent, drafts, scheduled messages, conversational view, customer grouping, tags, comments, and channel icons.
+- WhatsApp conversations are persisted in the CRM database and loaded incrementally.
+- Deleted WhatsApp conversations/messages stay deleted locally and should not reappear unless new messages arrive or a new outbound message is sent.
+- Email sync runs in the background even when the user is not inside the inbox. Default sync interval is 1 hour and can be configured per email server.
+- Replying to an email uses the matching outbox mapping or the last used outbox server when available.
+- Email composer uses a WYSIWYG editor, keeps line breaks, supports inserted images, and appends signatures at send time instead of placing signatures inside the draft body.
+- Email tracking events are shown in reverse chronological order.
+- Emails can be added to the knowledge base by extracting and summarizing the latest message text instead of storing raw HTML or quoted thread history.
 
-#### Products, Quotes, and Invoices
-- **Product Catalog:** Manage products, SKUs, pricing tiers, inventory, and descriptions.
-- **Smart Quotes:** Build professional quotes from the product catalog, calculate totals, apply payment terms, and generate PDFs with company details.
-- **Document Generation:** Manage and link PI, CI, SO, and other sales documents.
+### WhatsApp Actor Hub
 
-#### Admin and Permissions
-- **Role-Based Access:** Support superadmin and standard user roles.
-- **Edit Approvals:** Superadmins can review lead and client data enrichment proposals.
-- **Global Preferences:** Configure CRM behavior, AI providers, module assignments, integrations, and email server sync intervals.
+- WhatsApp Actor Hub is integrated into the unified inbox instead of a separate navigation module.
+- Supports multiple WhatsApp clients.
+- Sending can use a selected client or a random client. After one message is sent to a customer, that customer is sticky to the last used client unless manually changed.
+- Supports text, emoji, media, files, scheduled sending, and retry when the selected client is unavailable.
+- Scheduled WhatsApp messages send immediately when a usable client becomes available after the scheduled time.
+- AI agents can use WhatsApp tools according to the same client selection and quota rules.
+- Automated WhatsApp outreach should consider send quota, reply rate, and account safety.
 
-### Setup and Usage
+### Products, Quotes, and Currency
 
-#### First-Time Setup
-1. The first registered user may need to be promoted manually to `superadmin` in the database, or use the initialized account `samlau0086@gmail.com`.
-2. Go to **Settings -> Profile** to set company name, address, and contact information. These values appear on generated PDFs such as quotes.
+- Products and quotes share one module with tabs.
+- Product records support SKU, description, product images/files, pricing, tier pricing, inventory, and Sales Points.
+- Product descriptions and Sales Points can be generated by AI.
+- Quote workflows support product selection, payment terms, PDF generation, and customer-facing quote drafts.
+- Quotes support currency switching. USD is the default base currency.
+- Settings can define currency exchange rates, add/delete currency rates, and update rates through a public exchange-rate API.
+- Product tier pricing can be AI-assisted to optimize commercial value.
 
-#### Adding Custom AI Providers
-1. Open **Settings** from the sidebar.
-2. Go to **AI & Integrations**.
-3. Add an AI provider.
-4. Select the provider type: OpenAI, Gemini, or custom OpenAI-compatible endpoint.
-5. Enter the API key, base URL if needed, and model name.
-6. Under functional module assignments, assign providers/models to modules such as Magic Commands, Email Drafting, Client Analysis, Agent Harness, and Global Agent.
+### Knowledge Base and RAG
 
-#### Configuring AI Follow-Up Agents
-1. Open a client's detail card.
-2. Find the **AI Follow-Up Agent** section and enable the agent.
-3. Choose a tracking mode:
-   - `Prompt Only`: Read logs, summarize status, and suggest next steps.
-   - `Auto Email`: Draft follow-up emails based on client context.
-4. Add agent context or instructions, such as "This client is price-sensitive, focus on ROI."
-5. Run the agent to generate summaries and next-step suggestions.
+- Knowledge base items store title, content, optional client association, and embedding vectors.
+- RAG search uses global knowledge plus client-specific knowledge when a client context is available.
+- Deleting a knowledge item hard-deletes both the content and the stored embedding from the same `knowledge_base` table.
+- After deletion, future RAG searches will not retrieve that item.
+- If knowledge update embedding generation fails, the content can update while the old embedding may remain; deleting does not have this issue.
 
-#### Agent Harness and Global Agent Planning Cadence
-Use **Agent Harness** for task-level orchestration, and use **Global Agent** for cross-system revenue planning.
+### AI and Language Policy
 
-**Agent Harness** is best for repeatable workflows such as lead acquisition, lead enrichment, WhatsApp outreach, email follow-up, tagging, and data cleanup. You usually do not need to regenerate an orchestration task before every run.
+- System language is configured in Settings.
+- Internal AI outputs for CRM users should follow the system language.
+- Customer-facing outputs such as email, WhatsApp, quotes, proposals, and external comments should follow this priority:
+  1. Last communication language.
+  2. Customer preferred language.
+  3. Official language of the customer's country.
+  4. English.
+- AI model providers are configured in Settings -> AI & Integrations.
+- Supported provider presets include OpenAI, OpenRouter, Gemini, and custom OpenAI-compatible endpoints.
+- Functional modules can use different models, such as drafting, analysis, embedding, Agent Harness, prompt building, tool selection, context suggestions, WhatsApp drafting, and Global Agent.
+- Default options avoid hard-coded Gemini assumptions when Gemini is not configured.
 
-Recommended regeneration triggers:
-- Business goal, target market, keywords, channels, or workflow rules changed.
-- Data channel, API, AI provider, or model assignment changed.
-- Message templates, scoring rules, enrichment requirements, or compliance limits changed.
-- The latest execution results were poor and the workflow needs optimization.
-- New capabilities were added, such as WhatsApp Actor Hub, media messages, scheduled sending, or new enrichment sources.
+## Agent Hub
 
-Default cadence:
-- Regenerate manually when the workflow definition changes.
-- Review and optimize weekly or biweekly for stable workflows.
-- Keep generated tasks under human review before execution when they can affect customers or external channels.
+Agent Hub is the central place for agent chat, agent fleet configuration, opportunity tasks, approvals, execution traces, and global coordination.
 
-**Global Agent** is the system-level coordinator. Its goal is to acquire leads and convert them by coordinating lead acquisition, enrichment, email, WhatsApp, comments, quotes, stage updates, and follow-up actions across the CRM.
+### System Agents
 
-Recommended cadence:
-- Generate a daily execution plan for short-term actions: who to follow up with, which leads to enrich, what messages to send, and which stages to update.
-- Generate a weekly strategy plan for target industries, countries, keywords, channel allocation, send quotas, and conversion bottlenecks.
-- Regenerate immediately after major changes, such as AI provider changes, WhatsApp client quota changes, email reply spikes, lead source changes, or a visible drop in conversion quality.
+System agents are built-in, cannot be deleted, and have fixed names because the name represents the system role.
 
-All Global Agent plans should require human approval before execution. If approved, the agent can execute according to the reviewed plan; if rejected, regenerate or manually adjust the plan before running.
+- Global Conversion Agent: coordinates acquisition and conversion across the CRM.
+- Signal Scanner Agent: scans CRM signals and creates actionable opportunity tasks.
+- Lead Data Agent: acquires, imports, enriches, deduplicates, and normalizes leads using product and knowledge context.
+- Lead Scoring Agent: scores leads, generates lead summaries, and recommends best next steps.
+- AI Follow-Up Agent: handles account-level follow-up recommendations and drafts.
+- WhatsApp Inbox Agent: reads WhatsApp conversation context and suggests next actions.
+- Context Suggestion Agent: analyzes email/WhatsApp context and suggests actions.
+- Email Draft Agent: drafts customer-facing emails using CRM, product, and RAG context.
+- WhatsApp Draft Agent: drafts WhatsApp-style messages using CRM, product, and RAG context.
+- Agent Prompt Builder Agent: generates agent instructions from user goals, products, knowledge base, available tools, guardrails, and language policy.
+- Agent Tool Selection Agent: selects tools for an agent from the tool registry based on the agent name and prompt.
 
-#### Agent Execution Policy
-**Agent Execution Policy** controls which Global Agent actions can run automatically after planning, and which actions must wait for human review.
+System agents can be restored to default best-practice configuration from Agent Hub.
 
-Where to configure:
-1. Open **Settings**.
-2. Go to **AI & Integrations**.
-3. Find **Agent Execution Policy / Agent 执行策略**.
-4. For each Global Agent action type, choose:
-   - `Auto`: the step can run automatically after the plan is generated.
-   - `Review`: the step waits for human approval before execution.
-   - Risk level: `Low`, `Medium`, or `High`.
+### Custom Agents
 
-Default policy:
-- Auto by default: `enrich_client_data`, `add_client_comment`, `prioritize_leads`, `review_pipeline`.
-- Review by default: sending email, sending WhatsApp messages, updating client stage, creating quotes, creating deals, creating/running lead campaigns, processing customer replies, and creating follow-up workflows.
+- Users can create, edit, activate, pause, and delete custom agents.
+- Custom agents have instructions, tools, guardrails, schedule, event triggers, event scope, and execution policy.
+- Tools are selected with a tool picker instead of free-form comma strings.
+- AI can generate prompts and auto-select tools. Both operations are performed by system agents and increase their handled task counts.
+- Agent names define role and purpose. Instructions define how the agent should behave, which context to inspect, idempotency rules, risk rules, and output format.
 
-How it works:
-- When Global Agent generates a plan, each step is labeled as `Auto` or `Review` according to the current policy.
-- `Auto` steps run automatically after successful planning.
-- `Review` steps remain in the pending review plan and require **Approve & Execute** before running.
-- If automatic execution fails, the plan moves to `failed` and the failed step must be reviewed before continuing.
-- If AI planning fails and the system creates a safe fallback plan, that fallback plan is not auto-executed and must be reviewed manually.
+### Agent Chat
 
-Recommended usage:
-- Keep customer-facing actions as `Review`, especially email, WhatsApp, quotes, and stage changes.
-- Use `Auto` for low-risk internal actions such as enrichment, internal comments, and lead prioritization.
-- Review this policy whenever new channels, AI models, or automation capabilities are added.
+- Agent Hub opens to Agent Chat by default.
+- Click an agent in the left list to chat with it.
+- The chat panel shows user-friendly usage guidance for the selected agent instead of raw prompt text.
+- `@` is used to reference customers/leads in the chat, not to select agents.
+- Chat messages are persisted, ordered chronologically, and can be deleted or cleared.
+- Agents can execute allowed tools from chat, show loading state while executing, return execution results in the chat, and display approval buttons inline when human review is required.
 
-#### Agent Tool Reference
-Use these tool identifiers when configuring agents in **Agent Hub**. Keep customer-facing tools behind review unless the workflow is proven safe.
+## Three-Layer Agent Mechanism
+
+The system uses a three-layer mechanism to avoid requiring users to manually tell agents what to do every time.
+
+### Layer 1: Signal Scanner
+
+Signal Scanner Agent periodically scans CRM signals, such as:
+
+- Unread inbound emails.
+- Missing best next steps.
+- Leads missing score or analysis.
+- Long-inactive clients.
+- High email tracking activity without follow-up.
+- Failed or pending agent work.
+
+It creates deduplicated opportunity tasks and recommends the responsible agent.
+
+### Layer 2: Opportunity Inbox and Routing Policy
+
+Opportunity tasks are collected in Agent Hub -> Opportunity Inbox.
+
+Routing policy decides whether each opportunity should:
+
+- Stay open for manual dispatch.
+- Auto-dispatch.
+- Enter human review.
+- Auto-execute if risk and guardrails allow it.
+
+Opportunity dedupe uses `dedupeKey`.
+
+- Active opportunities with the same `dedupeKey` are not duplicated.
+- Failed opportunities are reused instead of recreated.
+- Completed or ignored opportunities are suppressed for 30 days, so the same customer/email thread does not keep creating repeated opportunity tasks.
+
+### Layer 3: Execution Harness
+
+Execution Harness executes the selected agent's workflow with traceable steps.
+
+It records:
+
+- Plan.
+- Expected result.
+- Actual result.
+- Tool steps.
+- Risk.
+- Approval status.
+- Execution time and completion time.
+
+Execution output is shown as a timeline. By default only part of long step lists is shown, with a show-all option.
+
+### How This Relates to Global Agent and Agent Harness
+
+- Global Conversion Agent is the high-level strategist and coordinator.
+- Signal Scanner discovers work.
+- Opportunity Inbox queues and routes work.
+- Execution Harness executes traceable workflows and approval-gated actions.
+- Individual agents do the specialist work.
+
+Older direct scheduled agent execution has been optimized to route through the opportunity mechanism first. This avoids conflicting execution paths and keeps scheduled work, event-triggered work, and manual work in one governance model.
+
+## Agent Schedules and Event Triggers
+
+Agents can be configured to run periodically:
+
+- Every X seconds.
+- Every X minutes.
+- Every X hours.
+- Every X days.
+- Monthly on day X.
+- Optional execution count limit.
+
+Agents can also be triggered by events. Event trigger scope can be:
+
+- Event subject only: operate only on the customer/lead/message that triggered the event. This is the default.
+- Global: scan or operate across eligible records.
+
+Background scheduled execution is handled by the backend scheduler. It does not require the browser page to stay open after the server is running.
+
+## Idempotency and Duplicate Prevention
+
+Many agent operations should not repeat when nothing changed.
+
+- Lead scoring and lead analysis compare signatures of relevant lead/client state, comments, contacts, related emails, deals, workflow due state, and follow-up timing.
+- Follow-up actions check recent CRM log markers and skip repeated work inside the idempotency window.
+- Opportunity tasks suppress duplicate `dedupeKey` items while active and for 30 days after completed/ignored.
+- Customer-facing send actions should avoid sending identical or near-identical content.
+- Internal summaries and next steps are saved to the database so page refreshes do not revert AI-generated output.
+
+## Agent Execution Policy
+
+Agent Execution Policy controls what can auto-run and what requires review.
+
+Recommended defaults:
+
+- Auto: internal enrichment, internal comments, lead prioritization, pipeline review, low-risk summaries.
+- Review: customer-facing email, WhatsApp, quotes, proposals, stage updates, campaign execution, customer reply handling, and high-risk actions.
+
+If AI planning fails, safe fallback plans are generated for review and are not auto-executed.
+
+## Agent Tool Reference
+
+Use these tool identifiers when configuring agents in Agent Hub.
 
 | Tool | Description |
 | --- | --- |
-| `global_agent.plan` | Generate a cross-system acquisition and conversion plan for human review. |
-| `lead.acquire` | Search and retrieve external lead data from configured lead channels; does not create CRM records by itself. |
-| `lead.read` | Read lead profile, stage, score, comments, growth logs, and related activity. |
-| `lead.create` | Create a single CRM lead from validated lead data. |
-| `lead.update` | Update lead profile fields, stage, tags, score, summary, and next step. |
-| `lead.delete` | Delete or archive a lead record. |
-| `lead.comment` | Add internal comments or replies to a lead. |
-| `lead.log` | Add lead-level growth logs, activity notes, and timeline events. |
-| `lead.stage` | Move a lead through the pipeline without changing the client-level status. |
-| `lead.tag` | Add, update, or remove lead-level tags. |
-| `lead.enrich` | Enrich lead or client data through configured enrichment providers. |
-| `public_pool.import` | Import acquired leads into the public lead pool. |
-| `client.read` | Read client profile, contact methods, preferences, comments, and activity context. |
-| `client.create` | Create a new client or convert a qualified lead into a client record. |
-| `client.update` | Update client profile fields, contact methods, preferences, tags, and ownership. |
-| `client.delete` | Delete, archive, or move a client record out of the active CRM. |
-| `client.comment` | Add internal comments to client records. |
-| `client.log` | Add client-level growth logs, activity notes, and timeline events. |
-| `client.stage` | Update client pipeline stage. |
-| `client.tag` | Add, update, or remove tags on a client record. |
-| `client.dedupe` | Detect and avoid duplicate client or lead records. |
-| `data.normalize` | Normalize imported lead fields, contact methods, country, and tags. |
-| `lead.analyze` | Analyze a lead or client using CRM history, messages, and context. |
+| `global_agent.plan` | Generate cross-system acquisition and conversion plans. |
+| `signal.scan` | Scan CRM signals and create opportunity tasks. |
+| `opportunity.create` | Create an Agent Hub opportunity task. |
+| `opportunity.dispatch` | Dispatch an opportunity to the recommended agent. |
+| `lead.acquire` | Retrieve external lead data from configured channels. |
+| `lead.read` | Read lead profile, score, comments, logs, and activity. |
+| `lead.create` | Create a CRM lead. |
+| `lead.update` | Update lead fields, score, summary, next step, tags, or stage. |
+| `lead.delete` | Delete or archive a lead. |
+| `lead.comment` | Add lead-level internal comments. |
+| `lead.log` | Add lead-level growth logs or timeline events. |
+| `lead.stage` | Move a lead through the lead pipeline. |
+| `lead.tag` | Add, update, or remove lead tags. |
+| `lead.enrich` | Enrich lead data from configured channels. |
+| `lead.analyze` | Analyze a lead or client using CRM, messages, products, and RAG. |
 | `lead.score` | Score lead quality and conversion potential. |
+| `public_pool.import` | Import acquired leads into the public pool. |
+| `public_pool.delete` | Delete public pool leads. |
+| `client.read` | Read client profile, contacts, preferences, comments, and activity. |
+| `client.create` | Create a client or convert a qualified lead into a client. |
+| `client.update` | Update client fields, contacts, preferences, ownership, or tags. |
+| `client.delete` | Delete, archive, or move a client out of active CRM. |
+| `client.comment` | Add client-level internal comments. |
+| `client.log` | Add client-level growth logs or timeline events. |
+| `client.stage` | Update client pipeline stage. |
+| `client.tag` | Add, update, or remove client tags. |
+| `client.dedupe` | Detect duplicate clients or leads. |
+| `contact.read` | Read contacts and communication methods. |
+| `contact.create` | Create contacts under a client or lead. |
+| `contact.update` | Update contact details or key-contact status. |
+| `contact.delete` | Delete contacts or contact methods. |
+| `data.normalize` | Normalize imported lead data, countries, contact methods, and tags. |
 | `client.summarize` | Generate or update internal client summaries. |
-| `next_step.recommend` | Recommend the best next follow-up action. |
-| `email.read` | Read inbox, sent, scheduled, draft, and conversation email records. |
-| `email.draft` | Create or update an email draft without sending it. |
-| `email.schedule` | Schedule an email to be sent later through configured outbox rules. |
-| `email.send` | Send email through configured outbox rules. |
-| `email.delete` | Delete or archive email records from the unified inbox. |
-| `email.tag` | Add, update, or remove tags on email messages or threads. |
-| `email.comment` | Add internal comments or replies to email messages. |
-| `email.reply` | Draft, schedule, or send replies in an existing email conversation. |
-| `whatsapp.read` | Read WhatsApp conversation history from the unified inbox cache. |
-| `whatsapp.send` | Draft, schedule, or send WhatsApp messages through WhatsApp Actor Hub. |
-| `conversation.tag` | Add or update tags on WhatsApp conversations. |
-| `conversation.comment` | Add internal comments to WhatsApp conversations. |
-| `product.read` | Read product catalog details, SKUs, descriptions, pricing, and bulk price rules. |
-| `product.create` | Create a new product catalog item. |
-| `product.update` | Update product catalog details, pricing, images, and bulk price rules. |
-| `product.delete` | Delete a product catalog item. |
-| `knowledge.search` | Search global or client-specific knowledge base content for RAG context. |
-| `knowledge.read` | Read knowledge base items and attached extracted document content. |
-| `knowledge.create` | Create a global or client-specific knowledge base item. |
-| `knowledge.update` | Update knowledge base title, content, or client association. |
-| `knowledge.delete` | Delete a knowledge base item. |
-| `quote.create` | Create quote drafts for operator review and sending. |
+| `next_step.recommend` | Recommend the best next action. |
+| `email.read` | Read inbox, sent, scheduled, draft, and thread emails. |
+| `email.draft` | Create or update an email draft. |
+| `email.subject` | Generate or optimize an email subject. |
+| `email.schedule` | Schedule an email send. |
+| `email.send` | Send an email through configured outbox rules. |
+| `email.delete` | Delete or archive email records. |
+| `email.tag` | Add, update, or remove email tags. |
+| `email.comment` | Add internal comments to emails. |
+| `email.reply` | Draft, schedule, or send replies in an email thread. |
+| `whatsapp.read` | Read WhatsApp conversation history. |
+| `whatsapp.draft` | Draft WhatsApp-style messages. |
+| `whatsapp.send` | Send or schedule WhatsApp messages through Actor Hub. |
+| `conversation.tag` | Add or update conversation tags. |
+| `conversation.comment` | Add conversation comments. |
+| `product.read` | Read products, SKUs, descriptions, Sales Points, prices, and tiers. |
+| `product.create` | Create product catalog items. |
+| `product.update` | Update product catalog items, prices, media, or tiers. |
+| `product.delete` | Delete product catalog items. |
+| `product.describe` | Generate or improve product descriptions. |
+| `product.sales_points` | Generate product Sales Points. |
+| `product.pricing` | Generate or optimize tier pricing. |
+| `knowledge.search` | Search global or client-specific knowledge for RAG. |
+| `knowledge.read` | Read knowledge base items. |
+| `knowledge.create` | Create knowledge base items. |
+| `knowledge.update` | Update knowledge base items and embeddings. |
+| `knowledge.delete` | Delete knowledge base items and embeddings. |
+| `quote.create` | Create quote drafts for review. |
+| `quote.update` | Update quote details, products, payment terms, or currency. |
+| `quote.delete` | Delete quote drafts. |
+| `quote.currency` | Convert quote currency using configured exchange rates. |
+| `media.read` | Read media library assets. |
+| `media.attach` | Attach media/files to WhatsApp or email drafts. |
+| `comment.delete_request` | Request deletion of team comments through approval. |
+| `growth_log.delete` | Delete lead/client growth logs when permitted. |
 
-Global Agent action types used by **Agent Execution Policy**:
+Global Agent action types used by Agent Execution Policy:
+
 `create_lead_campaign`, `run_lead_campaign`, `create_followup_workflow`, `process_customer_reply`, `send_email`, `send_whatsapp`, `update_client_stage`, `add_client_comment`, `enrich_client_data`, `create_deal`, `create_quote`, `prioritize_leads`, `review_pipeline`.
 
-### Technology Stack
-- **Frontend:** React, TypeScript, Tailwind CSS, Zustand, Lucide Icons, jsPDF.
-- **Backend:** Express.js, PostgreSQL, JWT, bcrypt.
-- **AI Integrations:** `@google/genai`, `openai`.
-- **Infrastructure:** Vite and ESBuild wrapper for full-stack development.
+## Lead Acquisition and Enrichment Channels
+
+The system can be configured to use these channels:
+
+- Apify.
+- PhantomBuster.
+- Scrap.io.
+- HasData.
+- Decodo.
+- Clay.
+- Outscraper.
+
+Each channel can be tested from settings where supported. Lead acquisition should use product data, knowledge base content, and historical customer profiles to choose target industries, roles, countries, and keywords.
+
+## Notifications
+
+The system supports user-friendly notifications instead of blocking browser alerts.
+
+Notification channels can include:
+
+- In-app notifications.
+- Bark.
+- Webhook.
+
+Typical notification events:
+
+- New email received.
+- New WhatsApp message received.
+- Agent action requires review.
+- Agent execution fails.
+- Scheduled send is delayed or resumed.
+
+## Deployment
+
+### Local Development
+
+Install dependencies:
+
+```bash
+npm install --legacy-peer-deps
+```
+
+Run type check:
+
+```bash
+npm run lint
+```
+
+Start development server:
+
+```bash
+npm run dev
+```
+
+### Docker / VPS Deployment
+
+The project includes Docker-based deployment support.
+
+The deployment workflow:
+
+1. Checks out the repository.
+2. Syncs files to the VPS.
+3. Runs `docker compose down`.
+4. Runs `docker compose up -d --build`.
+
+If Docker build fails with a snapshot/parent layer error, it is usually a Docker/buildkit cache issue on the VPS rather than a TypeScript build error. Clean Docker builder/cache on the server and rerun deployment.
+
+### Database
+
+The backend initializes required PostgreSQL tables and migrations on startup where implemented.
+
+Important tables include:
+
+- `users`
+- `clients`
+- `deals`
+- `emails`
+- `email_tracking`
+- `logs`
+- `knowledge_base`
+- `products`
+- `quotes`
+- WhatsApp-related message/conversation tables
+- Settings/state stored in user settings
+
+For a fresh server, deployment should start the app and initialize schema, but production migration should still include database backups and verification.
+
+## Technology Stack
+
+- Frontend: React, TypeScript, Tailwind CSS, Zustand, Lucide Icons.
+- Backend: Express.js, PostgreSQL, JWT, bcrypt.
+- AI: OpenAI-compatible API, OpenRouter, Gemini, embeddings, RAG.
+- Communication: Email servers, WhatsApp Actor Hub.
+- Build: Vite, esbuild, Docker.
 
 ---
 
 ## 中文
 
-欢迎使用 **Foreign Trade CRM**，这是一套面向外贸团队的 AI 驱动 CRM 系统。它将客户管理、获客、公海线索、多渠道沟通、游戏化激励、AI Agent、WhatsApp 自动化、邮件流程、报价、资料补全和数据富化整合在一起，帮助团队更高效地获取 lead 并推动转化。
+Foreign Trade CRM 是一套面向外贸团队的 AI CRM。系统把客户/线索管理、统一邮件和 WhatsApp 收件箱、产品与报价、知识库 RAG、获客、数据富集、积分激励、仪表盘和 Agent Hub 整合在一起，用来帮助团队持续发现机会、跟进客户并提升转化。
 
-### 核心功能
+## 当前系统概览
 
-#### AI 自动化与 Agent
-系统可接入多个 AI provider，例如 Gemini、OpenAI 和兼容 OpenAI 格式的自定义接口，用于自动化 CRM 工作并提升客户跟进质量。
+### 仪表盘
 
-- **AI Follow-Up Agent：** 可为单个客户启用跟进 Agent。Agent 能读取长期上下文，总结客户状态，建议下一步动作，并生成跟进内容。
-- **Agent Harness：** 用于任务级编排，适合获客、资料补全、打标签、WhatsApp 触达、邮件跟进和数据清理等可重复流程。
-- **Global Agent：** 用于全局统筹 CRM，核心目标是获取 lead 并提升转化。它可以跨获客、资料补全、邮件、WhatsApp、comments、报价、阶段推进和跟进任务进行规划。
-- **邮件草稿与 Magic Commands：** 根据客户历史自动生成邮件草稿或短文本。也可以使用全局 `/` 命令调用 AI 辅助。
-- **客户分析 / AI Radar：** 分析客户背景、日志、邮件和互动记录，生成破冰话术、冷热度判断和下一步建议。
-- **功能模块分配：** 可在 **Settings -> AI & Integrations** 中为不同功能模块指定不同 AI provider 或模型。
+- 展示客户管线、获客漏斗、邮件负载、活动趋势、用户贡献图、每日任务、等级进度、EXP 和用户活动情况。
+- 提供当前用户的每日运营摘要和提升建议。
+- 每个用户、每种系统语言每天只生成一次摘要。优先使用 `analysis` 模块绑定的 AI 模型；如果 AI 不可用，则生成安全的本地摘要。
+- 图表支持鼠标悬停数据，包括活动趋势点、邮件负载区块、管线条形图和获客漏斗。
 
-#### 公海线索与客户管理
-- **Public Lead Pool：** 从共享公海中发现、导入和领取潜在客户。
-- **自动获客 Agent：** 可手动创建或通过 Agent 创建获客 campaign，设置关键词、行业、国家和单次获取数量，新获取的 lead 默认进入公海。
-- **Lead 数据渠道：** 支持 Apify、PhantomBuster、Scrap.io、HasData、Decodo、Clay 等渠道，用于获取 lead 和做 lead data enrichment。
-- **客户资料补全奖励：** 补全国家、地址、公司、联系方式等信息可获得 points，帮助保持数据健康。
-- **客户编辑申请：** 对公海或受限客户可提交资料修改申请，由管理员审核。
-- **看板销售管线：** 使用 `Leads -> Contacted -> Sample Sent -> Negotiating -> Closed Won` 阶段追踪客户与交易。
-- **客户完整档案：** 在一个侧边栏中查看客户联系方式、comments、growth logs、邮件、WhatsApp 历史、AI 总结、报价、文件和相关任务。
+### 客户、线索与公海
 
-#### WhatsApp Actor Hub
-- **多 Client WhatsApp Hub：** 像邮箱 inbox 一样集中管理多个 WhatsApp client 和多条对话。
-- **消息固化：** WhatsApp 消息会保存到 CRM，并在可能时关联到对应客户记录。
-- **消息发送：** 可通过 WhatsApp Actor Hub 发送文本、emoji、媒体消息和文件。
-- **Client 选择规则：** 可手动选择某个 WhatsApp client，也可以随机选择。向某客户发送消息后，该客户默认固定使用最后一次发送所用的 client，除非手动切换。
-- **WhatsApp 定时发送：** 可在 AI 工作流或 WhatsApp Hub 中设置定时发送。如发送时无可用 client，或指定 client 未在线，则在有可用 client 或指定 client 上线时立即发送。
-- **对话管理：** 支持搜索对话、添加 tag、添加 comments，并可从对话 header 点击客户名称打开客户侧边栏。
-- **AI Agent 调用：** AI Follow-Up Agent、Agent Harness 和 Global Agent 都可以调用 WhatsApp Actor Hub，并遵循相同的 client 选择和 quota 规则。
-- **Quota 安全策略：** 自动化 WhatsApp 营销应考虑 client send quota、回复率和账号安全，每日最大发送量需要根据回复率动态调整，以降低封号风险。
+- 客户、公海线索池和线索看板整合在客户工作区，通过 Tab 切换。
+- 一个客户可以有多个 leads。客户级摘要和 lead 级摘要分开处理。
+- Lead 拥有独立的评分、摘要、最佳下一步、团队评论、Growth Logs、阶段、标签和时间线。
+- 联系人是独立模块。一个客户可以有多个联系人，一个联系人可以有多种联系方式。
+- Key Contact 可以手动指定或修改。
+- 公海线索池支持导入、认领、删除，超级管理员支持批量删除。
+- 获客渠道导入时会尽量标准化国家、城市、省份、邮箱、电话、网址、公司名等字段。
+- Outscraper 导入的 `United States of America` 会标准化为 `United States`。
 
-#### 邮件收件箱与沟通记录
-- **统一 Inbox：** 在 CRM 内管理收件和发件邮件。
-- **后台同步：** 邮箱会定期在后台同步，默认每 1 小时同步一次，也可以在 Email Servers 配置中为每个邮箱设置同步间隔。
-- **邮件定时发送：** 支持手动工作流和 AI 工作流中的邮件定时发送。
-- **多渠道 Growth Logs：** 记录 WhatsApp、电话、邮件、comments 和其他客户互动。
+### 统一收件箱
 
-#### 游戏化与效率
-- **等级与经验值：** 添加客户、记录联系、发送邮件、赢单等操作可获得 EXP。
-- **Points 经济：** 通过资料补全和任务获得 points，并用 points 领取公海 lead。
-- **每日任务与连续记录：** 完成唤醒休眠客户等每日任务可获得额外 EXP。
+- 邮件和 WhatsApp 消息整合在同一个收件箱。
+- 支持收件、已发送、草稿、定时发送、会话视图、按客户分组、标签、评论和渠道图标。
+- WhatsApp 对话会固化到 CRM 数据库，并增量同步。
+- 已删除的 WhatsApp 对话/消息不会因为重新进入收件箱而恢复；除非收到新消息或再次主动发消息。
+- 邮件会在后台定期同步，即使用户没有打开 Inbox。默认每 1 小时同步一次，可在 Email Servers 中为每个邮箱配置同步间隔。
+- 回复邮件时会优先使用收发服务器映射或该会话上次使用的发件服务器。
+- 写邮件使用 WYSIWYG 编辑器，保留换行，支持插入图片；邮件签名在发送时拼接，避免 AI 覆盖或重复生成签名。
+- 邮件追踪记录按时间倒序显示。
+- 邮件添加到知识库时，只提取并总结最新邮件文本，不保存原始 HTML 或历史引用邮件。
 
-#### 产品、报价与单据
-- **产品目录：** 管理产品、SKU、阶梯价格、库存和描述。
-- **智能报价：** 从产品目录生成专业报价，自动计算总价，套用付款条款，并生成带公司信息的 PDF。
-- **单据生成：** 管理并关联 PI、CI、SO 等销售单据。
+### WhatsApp Actor Hub
 
-#### 管理员与权限
-- **角色权限：** 支持 superadmin 和普通用户角色。
-- **编辑审核：** Superadmin 可审核 lead 和客户资料补全申请。
-- **全局偏好设置：** 集中配置 CRM 行为、AI provider、功能模块分配、集成和邮箱同步间隔。
+- WhatsApp Actor Hub 已整合到统一收件箱，不再作为独立导航模块。
+- 支持多 WhatsApp client。
+- 发送时可以选择指定 client 或随机 client。首次向客户发送后，该客户默认固定使用最后一次发送所用 client，除非手动切换。
+- 支持文本、emoji、媒体、文件、定时发送，以及 client 不可用时的延迟重试。
+- 定时 WhatsApp 如果到点无可用 client，会在后续有可用 client 或指定 client 上线时立即发送。
+- AI Agent 可以按照同样的 client 选择和 quota 规则调用 WhatsApp。
+- 自动化 WhatsApp 触达需要考虑发送配额、回复率和账号安全。
 
-### 安装与使用
+### 产品、报价与货币
 
-#### 首次设置
-1. 第一个注册用户可能需要在数据库中手动提升为 `superadmin`，也可以使用初始化账号 `samlau0086@gmail.com`。
-2. 前往 **Settings -> Profile** 设置公司名称、地址和联系方式。这些信息会出现在报价等 PDF 文件中。
+- 产品和报价合并到同一个模块，通过 Tab 切换。
+- 产品支持 SKU、描述、图片/文件、价格、阶梯价格、库存和 Sales Points。
+- 产品描述和 Sales Points 可由 AI 生成。
+- 报价支持产品选择、付款条款、PDF 生成和客户可见报价草稿。
+- 报价支持货币切换，默认以美元为基础货币。
+- Settings 中可以配置汇率，添加/删除货币，并通过公共汇率接口更新。
+- 产品阶梯价格可通过 AI 辅助生成，以优化商业价值。
 
-#### 添加自定义 AI Provider
-1. 从侧边栏进入 **Settings**。
-2. 打开 **AI & Integrations**。
-3. 添加 AI provider。
-4. 选择 provider 类型：OpenAI、Gemini 或兼容 OpenAI 的自定义接口。
-5. 填写 API key、必要时填写 base URL，并填写模型名称。
-6. 在功能模块分配中，为 Magic Commands、Email Drafting、Client Analysis、Agent Harness、Global Agent 等模块指定 provider 或模型。
+### 知识库与 RAG
 
-#### 配置 AI Follow-Up Agent
-1. 打开客户详情侧边栏。
-2. 找到 **AI Follow-Up Agent** 区块并启用。
-3. 选择跟踪模式：
-   - `Prompt Only`：读取日志、总结状态并建议下一步。
-   - `Auto Email`：根据客户上下文生成邮件草稿。
-4. 添加 Agent 上下文或指令，例如“该客户对价格敏感，重点强调 ROI”。
-5. 运行 Agent，生成客户总结和下一步建议。
+- 知识库条目包含标题、内容、可选客户关联和 embedding 向量。
+- RAG 会检索全局知识库；有客户上下文时也会检索客户专属知识。
+- 删除知识库条目时，会从同一张 `knowledge_base` 表中硬删除内容和 embedding。
+- 删除后，后续 RAG 不会再检索到该条知识。
+- 如果更新知识库时 embedding 生成失败，正文可能已更新但旧 embedding 仍保留；删除操作没有这个问题。
 
-#### Agent Harness 与 Global Agent 计划刷新频率
-**Agent Harness** 适合做任务级编排，**Global Agent** 适合做跨系统的获客与转化统筹。
+### AI 与语言策略
 
-**Agent Harness** 主要用于可重复执行的流程，例如获客、线索资料补全、WhatsApp 触达、邮件跟进、打标签、数据清理等。通常不需要每次运行前都重新生成编排任务。
+- 系统语言在 Settings 中配置。
+- 面向内部 CRM 用户的 AI 输出应使用系统语言。
+- 面向客户的内容，例如邮件、WhatsApp、报价、方案和外部备注，应按以下优先级选择语言：
+  1. 最近一次沟通语言。
+  2. 客户 preferred language。
+  3. 客户所在国家官方语言。
+  4. 英文。
+- AI Provider 在 Settings -> AI & Integrations 中配置。
+- 支持 OpenAI、OpenRouter、Gemini 和自定义 OpenAI-compatible endpoint。
+- 不同功能模块可以指定不同模型，例如 drafting、analysis、embedding、Agent Harness、Prompt Builder、Tool Selection、Context Suggestions、WhatsApp Drafting 和 Global Agent。
+- 默认选项不会强制依赖 Gemini。
 
-建议在以下情况重新生成：
-- 业务目标、目标市场、关键词、渠道或流程规则发生变化。
-- 数据渠道、API、AI provider 或模型分配发生变化。
-- 消息模板、评分规则、资料补全要求或合规限制发生变化。
-- 最近一次执行效果不理想，需要优化流程。
-- 系统新增了 WhatsApp Actor Hub、媒体消息、定时发送、新的数据富化渠道等能力。
+## Agent Hub
 
-默认建议频率：
-- 工作流定义变化时手动重新生成。
-- 稳定流程建议每周或每两周复盘优化一次。
-- 涉及客户触达或外部渠道动作的编排任务，建议先进入人工审核，通过后再执行。
+Agent Hub 是系统的智能体中心，负责 Agent Chat、Agent 队列配置、机会任务、人工审核、运行记录和全局协同。
 
-**Global Agent** 是系统级统筹 Agent，核心目标是获取 lead 并推动转化。它会协调 CRM 内的获客、资料补全、邮件、WhatsApp、comments、报价、阶段推进和跟进动作。
+### 系统 Agent
 
-建议频率：
-- 每天生成一次短期执行计划：今天跟进谁、补全哪些资料、发送什么消息、推进哪些客户阶段。
-- 每周生成一次整体策略计划：目标行业、目标国家、关键词、渠道分配、发送配额和转化瓶颈。
-- 遇到重大变化时立即重新生成，例如 AI provider 调整、WhatsApp client quota 变化、邮件回复量突然增加、lead 来源变化或转化质量明显下降。
+系统 Agent 内置且不可删除，名称不可修改，因为名称代表系统角色定位。
 
-所有 Global Agent 计划都应先经过人工审核。审核通过后，Agent 按审核后的计划执行；如果审核拒绝，应重新生成或人工调整计划后再执行。
+- Global Conversion Agent：统筹 CRM 获客与转化。
+- Signal Scanner Agent：扫描 CRM 信号并创建机会任务。
+- Lead Data Agent：基于产品、知识库和客户画像获取、导入、富集、去重和标准化线索。
+- Lead Scoring Agent：为 lead 评分，生成 lead 摘要和最佳下一步。
+- AI Follow-Up Agent：生成客户跟进建议和邮件/WhatsApp 草稿。
+- WhatsApp Inbox Agent：读取 WhatsApp 对话上下文并建议下一步。
+- Context Suggestion Agent：分析邮件/WhatsApp 上下文并给出建议。
+- Email Draft Agent：结合 CRM、产品和 RAG 起草邮件。
+- WhatsApp Draft Agent：结合 CRM、产品和 RAG 起草 WhatsApp 风格消息。
+- Agent Prompt Builder Agent：根据用户目标、产品、知识库、工具、护栏和语言策略生成 Agent 指令。
+- Agent Tool Selection Agent：根据 Agent 名称和 Prompt 从工具注册表中选择工具。
 
-#### Agent Execution Policy / Agent 执行策略
-**Agent Execution Policy** 用来控制 Global Agent 生成计划后，哪些动作可以自动执行，哪些动作必须等待人工审核。
+系统 Agent 支持一键恢复默认最佳实践配置。
 
-配置位置：
-1. 打开 **Settings**。
-2. 进入 **AI & Integrations**。
-3. 找到 **Agent Execution Policy / Agent 执行策略**。
-4. 对每一种 Global Agent action type 设置：
-   - `Auto / 自动`：计划生成后，该步骤可以自动执行。
-   - `Review / 审核`：该步骤必须等待人工审核，通过后才执行。
-   - 风险等级：`Low / 低`、`Medium / 中`、`High / 高`。
+### 自定义 Agent
 
-默认策略：
-- 默认自动执行：`enrich_client_data`、`add_client_comment`、`prioritize_leads`、`review_pipeline`。
-- 默认需要审核：发送邮件、发送 WhatsApp、更新客户阶段、创建报价、创建交易、创建/执行获客 campaign、处理客户回复、创建跟进 workflow。
+- 用户可以创建、编辑、启动、暂停和删除自定义 Agent。
+- 自定义 Agent 包含指令、工具、护栏、定期运行、事件触发、事件作用范围和执行策略。
+- 工具通过工具选择器配置，不再手动输入逗号字符串。
+- AI 可以生成 Prompt，也可以自动选择工具。这两个动作由系统 Agent 完成，并会增加对应系统 Agent 的已处理任务数。
+- Agent 名称定义角色，Prompt/指令定义行为、上下文检查、幂等规则、风险规则和输出格式。
 
-运行规则：
-- Global Agent 生成计划后，每个 step 会按照当前策略标记为 `Auto` 或 `Review`。
-- `Auto` 步骤会在计划生成成功后自动执行。
-- `Review` 步骤会留在待审核计划中，需要点击 **Approve & Execute** 后才执行。
-- 如果自动执行失败，计划会进入 `failed` 状态，需要先检查失败步骤，再继续执行。
-- 如果 AI 规划失败，系统生成的安全默认计划不会自动执行，必须人工审核。
+### Agent Chat
 
-推荐使用方式：
-- 对客户外发动作保持 `Review`，尤其是邮件、WhatsApp、报价和客户阶段变更。
-- 对低风险内部动作使用 `Auto`，例如资料补全、内部 comments、线索优先级排序。
-- 每次新增渠道、AI 模型或自动化能力后，都应复查一次执行策略。
+- Agent Hub 默认打开 Agent Chat。
+- 点击左侧 Agent 即可与该 Agent 对话。
+- 聊天窗口会显示该 Agent 的用户友好使用说明，而不是直接展示原始 Prompt。
+- `@` 用于引用客户/线索，不用于选择 Agent。
+- 聊天记录会持久化，按时间顺序显示，并支持删除和清空。
+- Agent 可以在聊天中调用自己有权限的工具，执行时显示 loading，完成后在聊天中反馈结果；如需审核，会在对应聊天窗口内显示审核按钮。
 
-#### Agent 工具清单
-在 **Agent Hub** 中配置 Agent tools 时可使用以下标识。客户外发类工具建议保持人工审核，除非流程已经充分验证安全。
+## 三层 Agent 机制
 
-| Tool | 说明 |
+系统使用三层机制，让 Agent 能主动发现任务，而不是每次都等用户手动下指令。
+
+### 第一层：Signal Scanner
+
+Signal Scanner Agent 会定期扫描 CRM 信号，例如：
+
+- 未读入站邮件。
+- 缺少最佳下一步。
+- Lead 缺少评分或分析。
+- 长期未跟进客户。
+- 多次邮件打开/点击但未跟进。
+- 失败或待处理的 Agent 工作。
+
+它会创建去重后的机会任务，并推荐负责 Agent。
+
+### 第二层：机会任务与路由策略
+
+机会任务集中在 Agent Hub -> 机会任务中。
+
+路由策略决定每个机会任务：
+
+- 保留为手动派发。
+- 自动派发。
+- 进入人工审核。
+- 在风险和护栏允许时自动执行。
+
+机会任务通过 `dedupeKey` 去重。
+
+- 活跃机会任务不会重复创建。
+- 失败机会任务会复用，不再新建副本。
+- 已完成或已忽略的机会任务 30 天内不会重新创建，避免同一个客户/邮件线程每小时重复派发。
+
+### 第三层：Execution Harness
+
+Execution Harness 负责执行 Agent 工作流，并记录完整追踪。
+
+它记录：
+
+- 计划。
+- 预期结果。
+- 实际结果。
+- 工具步骤。
+- 风险等级。
+- 审核状态。
+- 执行时间和完成时间。
+
+执行输出以 timeline 显示。长步骤默认只显示部分步骤，可点击显示全部。
+
+### 与 Global Agent 和 Agent Harness 的关系
+
+- Global Conversion Agent 是高层策略与统筹者。
+- Signal Scanner 负责发现任务。
+- 机会任务队列负责排队和路由。
+- Execution Harness 负责可追踪执行和人工审核。
+- 各个专业 Agent 负责执行具体工作。
+
+旧的直接定时执行逻辑已经优化为先进入机会任务机制，避免定时执行、事件触发和手动执行互相冲突。
+
+## Agent 定期运行与事件触发
+
+Agent 可以配置定期运行：
+
+- 每隔 X 秒。
+- 每隔 X 分钟。
+- 每隔 X 小时。
+- 每隔 X 天。
+- 每月第 X 日。
+- 可选执行次数上限。
+
+Agent 也可以配置事件触发。事件作用范围包括：
+
+- 仅针对事件主体：只处理触发事件关联的客户/lead/消息。默认使用此模式。
+- 全局：跨符合条件的记录扫描或执行。
+
+后台定期执行由后端调度器处理。只要服务器在运行，不需要一直打开浏览器页面。
+
+## 幂等与重复执行防护
+
+很多 Agent 操作不应该在数据没有变化时重复执行。
+
+- Lead scoring / lead analysis 会对 lead、客户、评论、联系人、相关邮件、交易、workflow 到期状态和跟进时间生成签名，未变化则跳过。
+- Follow-up 操作会检查近期 CRM log marker，在幂等窗口内跳过重复工作。
+- 机会任务会按 `dedupeKey` 去重，活跃状态不重复，完成/忽略后 30 天内不重复。
+- 面向客户的发送动作应避免发送相同或近似相同内容。
+- 内部摘要和下一步建议会保存到数据库，刷新页面不会恢复成旧内容。
+
+## Agent 执行策略
+
+Agent Execution Policy 控制哪些动作可以自动执行，哪些必须审核。
+
+推荐默认策略：
+
+- 自动执行：内部数据富集、内部评论、线索优先级、管线检查、低风险摘要。
+- 需要审核：邮件、WhatsApp、报价、方案、阶段变更、campaign 执行、客户回复处理和高风险动作。
+
+如果 AI 规划失败，系统会生成安全默认计划供审核，不会自动执行。
+
+## Agent 工具清单
+
+在 Agent Hub 配置 Agent 时可使用以下工具标识：
+
+| 工具 | 说明 |
 | --- | --- |
-| `global_agent.plan` | 生成跨系统获客与转化计划，供人工审核。 |
-| `lead.acquire` | 按 campaign 条件和数据渠道搜索并获取外部 lead 数据；此工具本身不会创建 CRM 记录。 |
-| `lead.read` | 读取 lead 资料、阶段、评分、comments、Growth Logs 和相关活动。 |
-| `lead.create` | 根据已验证的 lead 数据创建单个 CRM 线索。 |
-| `lead.update` | 更新 lead 资料字段、阶段、标签、评分、摘要和下一步。 |
-| `lead.delete` | 删除或归档 lead 记录。 |
-| `lead.comment` | 给 lead 添加内部 comments 或回复。 |
-| `lead.log` | 添加 lead 级 Growth Logs、活动备注和时间线事件。 |
-| `lead.stage` | 移动 lead 管线阶段，不改变 client 级状态。 |
-| `lead.tag` | 添加、更新或移除 lead 级标签。 |
-| `lead.enrich` | 通过已配置的数据补全渠道补全 lead 或客户资料。 |
-| `public_pool.import` | 将获取到的 lead 导入公海。 |
-| `client.read` | 读取客户资料、联系方式、偏好、comments 和活动上下文。 |
-| `client.create` | 创建新客户，或将合格 lead 转为客户记录。 |
-| `client.update` | 更新客户资料字段、联系方式、偏好、标签和归属。 |
-| `client.delete` | 删除、归档或将客户移出活跃 CRM。 |
-| `client.comment` | 给客户记录添加内部 comments。 |
-| `client.log` | 添加客户级 Growth Logs、活动备注和时间线事件。 |
+| `global_agent.plan` | 生成跨系统获客与转化计划。 |
+| `signal.scan` | 扫描 CRM 信号并创建机会任务。 |
+| `opportunity.create` | 创建 Agent Hub 机会任务。 |
+| `opportunity.dispatch` | 将机会任务派发给推荐 Agent。 |
+| `lead.acquire` | 从配置的数据渠道获取外部线索数据。 |
+| `lead.read` | 读取 lead 资料、评分、评论、日志和活动。 |
+| `lead.create` | 创建 CRM lead。 |
+| `lead.update` | 更新 lead 字段、评分、摘要、下一步、标签或阶段。 |
+| `lead.delete` | 删除或归档 lead。 |
+| `lead.comment` | 添加 lead 内部评论。 |
+| `lead.log` | 添加 lead Growth Logs 或时间线事件。 |
+| `lead.stage` | 移动 lead 管线阶段。 |
+| `lead.tag` | 添加、更新或移除 lead 标签。 |
+| `lead.enrich` | 通过配置渠道富集 lead 数据。 |
+| `lead.analyze` | 基于 CRM、消息、产品和 RAG 分析 lead 或客户。 |
+| `lead.score` | 评估 lead 质量和转化潜力。 |
+| `public_pool.import` | 将获取到的线索导入公海。 |
+| `public_pool.delete` | 删除公海线索。 |
+| `client.read` | 读取客户资料、联系人、偏好、评论和活动。 |
+| `client.create` | 创建客户或将合格 lead 转为客户。 |
+| `client.update` | 更新客户字段、联系人、偏好、归属或标签。 |
+| `client.delete` | 删除、归档或移出活跃客户。 |
+| `client.comment` | 添加客户内部评论。 |
+| `client.log` | 添加客户 Growth Logs 或时间线事件。 |
 | `client.stage` | 更新客户管线阶段。 |
 | `client.tag` | 添加、更新或移除客户标签。 |
-| `client.dedupe` | 检测并避免重复客户或重复 lead。 |
-| `data.normalize` | 标准化导入字段、联系方式、国家和标签。 |
-| `lead.analyze` | 基于 CRM 历史、消息和上下文分析 lead 或客户。 |
-| `lead.score` | 给 lead 质量和转化潜力打分。 |
-| `client.summarize` | 生成或更新内部客户摘要。 |
-| `next_step.recommend` | 推荐最佳下一步跟进动作。 |
-| `email.read` | 读取收件、已发送、定时、草稿和会话邮件记录。 |
-| `email.draft` | 创建或更新邮件草稿，不发送。 |
-| `email.schedule` | 通过已配置发件规则定时发送邮件。 |
-| `email.send` | 通过已配置发件规则发送邮件。 |
-| `email.delete` | 从统一收件箱删除或归档邮件记录。 |
-| `email.tag` | 添加、更新或移除邮件或邮件线程标签。 |
-| `email.comment` | 给邮件添加内部 comments 或回复。 |
-| `email.reply` | 在已有邮件会话中起草、定时或发送回复。 |
-| `whatsapp.read` | 从统一收件箱缓存读取 WhatsApp 对话历史。 |
-| `whatsapp.send` | 通过 WhatsApp Actor Hub 起草、定时或发送 WhatsApp 消息。 |
-| `conversation.tag` | 添加或更新 WhatsApp 对话标签。 |
-| `conversation.comment` | 给 WhatsApp 对话添加内部 comments。 |
-| `product.read` | 读取产品目录详情、SKU、描述、价格和阶梯报价规则。 |
-| `product.create` | 创建新的产品目录条目。 |
-| `product.update` | 更新产品目录详情、价格、图片和阶梯报价规则。 |
-| `product.delete` | 删除产品目录条目。 |
-| `knowledge.search` | 搜索全局或客户专属知识库内容，用作 RAG 上下文。 |
-| `knowledge.read` | 读取知识库条目和附件解析内容。 |
-| `knowledge.create` | 创建全局或客户专属知识库条目。 |
-| `knowledge.update` | 更新知识库标题、内容或客户关联。 |
-| `knowledge.delete` | 删除知识库条目。 |
-| `quote.create` | 创建报价草稿，供人工检查后发送。 |
+| `client.dedupe` | 检测重复客户或 lead。 |
+| `contact.read` | 读取联系人和联系方式。 |
+| `contact.create` | 在客户或 lead 下创建联系人。 |
+| `contact.update` | 更新联系人或 key contact 状态。 |
+| `contact.delete` | 删除联系人或联系方式。 |
+| `data.normalize` | 标准化导入字段、国家、联系方式和标签。 |
+| `client.summarize` | 生成或更新客户内部摘要。 |
+| `next_step.recommend` | 推荐最佳下一步动作。 |
+| `email.read` | 读取收件、已发送、定时、草稿和邮件线程。 |
+| `email.draft` | 创建或更新邮件草稿。 |
+| `email.subject` | 生成或优化邮件主题。 |
+| `email.schedule` | 定时发送邮件。 |
+| `email.send` | 通过配置的发件规则发送邮件。 |
+| `email.delete` | 删除或归档邮件。 |
+| `email.tag` | 添加、更新或移除邮件标签。 |
+| `email.comment` | 添加邮件内部评论。 |
+| `email.reply` | 在线程中起草、定时或发送回复。 |
+| `whatsapp.read` | 读取 WhatsApp 对话历史。 |
+| `whatsapp.draft` | 起草 WhatsApp 风格消息。 |
+| `whatsapp.send` | 通过 Actor Hub 发送或定时 WhatsApp 消息。 |
+| `conversation.tag` | 添加或更新对话标签。 |
+| `conversation.comment` | 添加对话评论。 |
+| `product.read` | 读取产品、SKU、描述、Sales Points、价格和阶梯价格。 |
+| `product.create` | 创建产品。 |
+| `product.update` | 更新产品、价格、媒体或阶梯价格。 |
+| `product.delete` | 删除产品。 |
+| `product.describe` | 生成或优化产品描述。 |
+| `product.sales_points` | 生成产品 Sales Points。 |
+| `product.pricing` | 生成或优化阶梯价格。 |
+| `knowledge.search` | 搜索全局或客户专属知识库作为 RAG。 |
+| `knowledge.read` | 读取知识库。 |
+| `knowledge.create` | 创建知识库。 |
+| `knowledge.update` | 更新知识库和 embedding。 |
+| `knowledge.delete` | 删除知识库和 embedding。 |
+| `quote.create` | 创建报价草稿。 |
+| `quote.update` | 更新报价、产品、付款条款或货币。 |
+| `quote.delete` | 删除报价草稿。 |
+| `quote.currency` | 使用配置汇率转换报价货币。 |
+| `media.read` | 读取媒体素材库。 |
+| `media.attach` | 将媒体/文件附加到 WhatsApp 或邮件草稿。 |
+| `comment.delete_request` | 通过审批请求删除团队评论。 |
+| `growth_log.delete` | 在权限允许时删除 Growth Logs。 |
 
-**Agent Execution Policy** 使用的 Global Agent action type：
-`create_lead_campaign`、`run_lead_campaign`、`create_followup_workflow`、`process_customer_reply`、`send_email`、`send_whatsapp`、`update_client_stage`、`add_client_comment`、`enrich_client_data`、`create_deal`、`create_quote`、`prioritize_leads`、`review_pipeline`。
+Agent Execution Policy 使用的 Global Agent action type：
 
-### 技术栈
-- **前端：** React、TypeScript、Tailwind CSS、Zustand、Lucide Icons、jsPDF。
-- **后端：** Express.js、PostgreSQL、JWT、bcrypt。
-- **AI 集成：** `@google/genai`、`openai`。
-- **基础设施：** Vite 与 ESBuild wrapper，用于全栈开发。
+`create_lead_campaign`, `run_lead_campaign`, `create_followup_workflow`, `process_customer_reply`, `send_email`, `send_whatsapp`, `update_client_stage`, `add_client_comment`, `enrich_client_data`, `create_deal`, `create_quote`, `prioritize_leads`, `review_pipeline`。
+
+## 获客与数据富集渠道
+
+系统可配置以下渠道：
+
+- Apify。
+- PhantomBuster。
+- Scrap.io。
+- HasData。
+- Decodo。
+- Clay。
+- Outscraper。
+
+支持的渠道可在设置中测试连接。获客 Agent 应结合产品资料、知识库和历史成交客户画像来选择行业、角色、国家和关键词。
+
+## 通知
+
+系统使用用户友好的 notification，不使用阻塞式浏览器 alert。
+
+通知渠道可包括：
+
+- 系统内通知。
+- Bark。
+- Webhook。
+
+典型通知事件：
+
+- 收到新邮件。
+- 收到新 WhatsApp 消息。
+- Agent 动作需要审核。
+- Agent 执行失败。
+- 定时发送延迟或恢复发送。
+
+## 部署
+
+### 本地开发
+
+安装依赖：
+
+```bash
+npm install --legacy-peer-deps
+```
+
+类型检查：
+
+```bash
+npm run lint
+```
+
+启动开发服务：
+
+```bash
+npm run dev
+```
+
+### Docker / VPS 部署
+
+项目支持 Docker 部署。
+
+部署流程：
+
+1. 拉取仓库代码。
+2. 同步文件到 VPS。
+3. 执行 `docker compose down`。
+4. 执行 `docker compose up -d --build`。
+
+如果 Docker build 出现 snapshot/parent layer 错误，通常是 VPS 上 Docker/buildkit 缓存问题，不是 TypeScript 构建错误。清理服务器 Docker builder/cache 后重新部署。
+
+### 数据库
+
+后端启动时会初始化已实现的 PostgreSQL 表和迁移。
+
+主要表包括：
+
+- `users`
+- `clients`
+- `deals`
+- `emails`
+- `email_tracking`
+- `logs`
+- `knowledge_base`
+- `products`
+- `quotes`
+- WhatsApp 消息/对话相关表
+- 用户设置中保存的系统状态
+
+全新服务器理论上可以通过部署脚本启动并初始化结构，但生产迁移仍建议先备份数据库并验证迁移结果。
+
+## 技术栈
+
+- 前端：React、TypeScript、Tailwind CSS、Zustand、Lucide Icons。
+- 后端：Express.js、PostgreSQL、JWT、bcrypt。
+- AI：OpenAI-compatible API、OpenRouter、Gemini、Embeddings、RAG。
+- 通信：Email Servers、WhatsApp Actor Hub。
+- 构建：Vite、esbuild、Docker。
 
 ---
 
-*Maximize your outreach, keep your pipeline clean, and let AI handle the heavy lifting of CRM follow-ups.*
+Maximize outreach, keep the pipeline clean, and let AI agents discover and execute the right CRM work with review where it matters.
 
-*最大化你的客户触达效率，保持销售管线清晰，把重复性的 CRM 跟进工作交给 AI。*
+最大化客户触达效率，保持管线清晰，让 AI Agent 主动发现并执行正确的 CRM 工作，同时在关键动作上保留人工审核。

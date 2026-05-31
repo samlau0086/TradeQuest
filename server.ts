@@ -2340,10 +2340,29 @@ No markdown wrappers, just valid JSON.`;
     ));
   };
 
+  const AGENT_OPPORTUNITY_ACTIVE_STATUSES = new Set(['open', 'queued', 'pending_review', 'running', 'failed']);
+  const AGENT_OPPORTUNITY_CLOSED_DEDUPE_MS = 30 * 24 * 60 * 60 * 1000;
+
+  const getAgentOpportunityTimestamp = (opportunity: any) => {
+    const raw = opportunity?.completedAt || opportunity?.updatedAt || opportunity?.createdAt;
+    const time = raw ? new Date(raw).getTime() : 0;
+    return Number.isFinite(time) ? time : 0;
+  };
+
+  const shouldSuppressDuplicateOpportunity = (existingOpportunity: any, incomingOpportunity: any) => {
+    if (!existingOpportunity?.dedupeKey || existingOpportunity.dedupeKey !== incomingOpportunity?.dedupeKey) return false;
+    const status = existingOpportunity.status || 'open';
+    if (AGENT_OPPORTUNITY_ACTIVE_STATUSES.has(status)) return true;
+    if (!['completed', 'ignored'].includes(status)) return false;
+
+    const lastTouchedAt = getAgentOpportunityTimestamp(existingOpportunity);
+    return lastTouchedAt > 0 && Date.now() - lastTouchedAt < AGENT_OPPORTUNITY_CLOSED_DEDUPE_MS;
+  };
+
   const addAgentOpportunityToSettings = (settings: any, opportunity: any) => {
     const now = new Date().toISOString();
     const existing = Array.isArray(settings.agentOpportunities) ? settings.agentOpportunities : [];
-    if (existing.some((item: any) => item.dedupeKey === opportunity.dedupeKey && ['open', 'queued', 'pending_review', 'running'].includes(item.status))) {
+    if (existing.some((item: any) => shouldSuppressDuplicateOpportunity(item, opportunity))) {
       return null;
     }
     const nextOpportunity = {
