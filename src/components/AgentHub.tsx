@@ -972,9 +972,42 @@ export function AgentHub() {
     ...globalAgentPlans.filter(plan => plan.status === 'pending_review').map(plan => ({ kind: 'global' as const, id: plan.id, title: plan.summary, agent: 'Global Agent', body: plan.objective, createdAt: plan.createdAt }))
   ], [agentHarnessRuns, globalAgentPlans]);
 
+  const normalizeRunStep = (step: any) => ({
+    title: step.title || step.tool || step.actionType || 'agent.run',
+    tool: step.tool || step.actionType || step.title || 'agent.run',
+    status: step.status || 'pending',
+    result: step.result || step.error || ''
+  });
+
+  const isLegacySignalScannerPendingTrace = (run: any) => (
+    run.summary?.includes('Signal Scanner Agent') &&
+    run.status === 'approved' &&
+    run.steps?.length === 1 &&
+    run.steps?.[0]?.tool === 'client.read' &&
+    run.steps?.[0]?.status === 'pending'
+  );
+
   const runLogs = useMemo(() => [
-    ...agentHarnessRuns.map(run => ({ kind: 'harness' as const, id: run.id, title: run.summary, agent: 'Execution Harness', status: run.status, steps: run.steps.map(step => `${step.tool}: ${step.status}`), createdAt: run.createdAt })),
-    ...globalAgentPlans.map(plan => ({ kind: 'global' as const, id: plan.id, title: plan.summary, agent: 'Global Agent', status: plan.status, steps: plan.steps.map(step => `${step.actionType}: ${step.status}`), createdAt: plan.createdAt }))
+    ...agentHarnessRuns
+      .filter(run => !isLegacySignalScannerPendingTrace(run))
+      .map(run => ({
+        kind: 'harness' as const,
+        id: run.id,
+        title: run.summary,
+        agent: 'Execution Harness',
+        status: run.status,
+        steps: run.steps.map(normalizeRunStep),
+        createdAt: run.createdAt
+      })),
+    ...globalAgentPlans.map(plan => ({
+      kind: 'global' as const,
+      id: plan.id,
+      title: plan.summary,
+      agent: 'Global Agent',
+      status: plan.status,
+      steps: plan.steps.map(normalizeRunStep),
+      createdAt: plan.createdAt
+    }))
   ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [agentHarnessRuns, globalAgentPlans]);
   const visibleRunLogs = runLogs.slice(0, logDisplayLimit);
   const visibleAgentRunRecords = agentRunRecords.slice(0, logDisplayLimit);
@@ -1418,8 +1451,8 @@ export function AgentHub() {
       updateAgentRunRecord(linkedRecord.id, {
         status: item.kind === 'harness' ? 'running' : 'approved',
         actualResult: item.kind === 'harness'
-          ? 'Human approved the planned agent run. Executing configured tools now.'
-          : 'Human approved the planned agent run.'
+          ? (language === 'zh' ? '人工已批准计划运行，正在执行配置的工具。' : 'Human approved the planned agent run. Executing configured tools now.')
+          : (language === 'zh' ? '人工已批准计划运行。' : 'Human approved the planned agent run.')
       });
     }
     if (item.kind !== 'harness') return;
@@ -1442,7 +1475,7 @@ export function AgentHub() {
       if (linkedRecord) {
         updateAgentRunRecord(linkedRecord.id, {
           status: 'failed',
-          actualResult: error instanceof Error ? error.message : 'Agent Hub run failed.',
+          actualResult: error instanceof Error ? error.message : (language === 'zh' ? '智能体运行失败。' : 'Agent Hub run failed.'),
           completedAt: new Date().toISOString()
         });
       }
@@ -1465,7 +1498,7 @@ export function AgentHub() {
     if (linkedRecord) {
       updateAgentRunRecord(linkedRecord.id, {
         status: 'rejected',
-        actualResult: 'Human rejected the planned agent run.',
+        actualResult: language === 'zh' ? '人工已拒绝该计划运行。' : 'Human rejected the planned agent run.',
         completedAt: new Date().toISOString()
       });
     }
@@ -1572,22 +1605,36 @@ export function AgentHub() {
     </button>
   );
 
+  const localizeInternalRunText = (value: string) => {
+    if (language !== 'zh') return value;
+    return value
+      .replace(/Scheduled run for ([^:]+):/g, '定期运行：$1：')
+      .replace(/Scheduled triggers (?:now )?enqueue an opportunity first\. The policy router decides whether to auto-execute, send to review, or keep it for manual dispatch\./g, '定期触发先进入机会任务队列，由策略路由器决定自动执行、进入审核或保留待派发。')
+      .replace(/Creating an opportunity and applying routing policy\./g, '正在创建机会任务并应用路由策略。')
+      .replace(/Opportunity dispatched and auto-approved by the agent guardrail policy\./g, '机会任务已派发，并根据智能体护栏策略自动通过。')
+      .replace(/Opportunity dispatched and a review-gated execution item was created\./g, '机会任务已派发，并创建待审核执行项。')
+      .replace(/Human approved the planned agent run\. Executing configured tools now\./g, '人工已批准计划运行，正在执行配置的工具。')
+      .replace(/Human approved the planned agent run\./g, '人工已批准计划运行。')
+      .replace(/Human rejected the planned agent run\./g, '人工已拒绝该计划运行。')
+      .replace(/Backend scheduled agent run started\./g, '后端定期智能体运行已开始。');
+  };
+
   const runTimelineItems = (record: typeof agentRunRecords[number]) => [
     {
       label: t('Plan'),
-      value: record.plan,
+      value: localizeInternalRunText(record.plan),
       tone: 'blue',
       time: new Date(record.createdAt).toLocaleString()
     },
     {
       label: t('Expected Result'),
-      value: record.expectedResult,
+      value: localizeInternalRunText(record.expectedResult),
       tone: 'amber',
       time: record.relatedRunId ? `${record.relatedRunType}:${record.relatedRunId}` : t(`trigger_${record.trigger}`)
     },
     {
       label: t('Actual Result'),
-      value: record.actualResult || t('Waiting for execution result.'),
+      value: record.actualResult ? localizeInternalRunText(record.actualResult) : t('Waiting for execution result.'),
       tone: record.status === 'failed' || record.status === 'rejected' ? 'red' : record.status === 'completed' || record.status === 'approved' ? 'emerald' : 'blue',
       time: record.completedAt ? `${t('Completed at')}: ${new Date(record.completedAt).toLocaleString()}` : t(record.status)
     }
@@ -2253,12 +2300,28 @@ export function AgentHub() {
                       </div>
                     </div>
                     <ol className="mt-4 space-y-2 text-xs text-slate-300">
-                      {run.steps.slice(0, 4).map((step, index) => (
-                        <li key={step} className="flex items-center gap-2">
-                          <span className="text-slate-500">{index + 1}.</span>
-                          <span className="px-2 py-1 rounded bg-blue-500/10 text-blue-300 font-mono">{step}</span>
+                      {run.steps.slice(0, 8).map((step, index) => (
+                        <li key={`${run.id}-${step.tool}-${index}`} className="rounded border border-neutral-800 bg-neutral-950/60 px-3 py-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-slate-500">{index + 1}.</span>
+                            <span className="px-2 py-1 rounded bg-blue-500/10 text-blue-300 font-mono">{step.tool}</span>
+                            <span className={cn(
+                              'px-2 py-0.5 rounded text-[10px] uppercase tracking-wide border',
+                              step.status === 'completed' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' :
+                                step.status === 'failed' ? 'bg-red-500/10 text-red-300 border-red-500/20' :
+                                  step.status === 'approved' ? 'bg-blue-500/10 text-blue-300 border-blue-500/20' :
+                                    'bg-amber-500/10 text-amber-300 border-amber-500/20'
+                            )}>
+                              {t(step.status)}
+                            </span>
+                            {step.title && step.title !== step.tool && <span className="text-slate-400">{step.title}</span>}
+                          </div>
+                          {step.result && <div className="mt-2 text-slate-500 leading-relaxed">{step.result}</div>}
                         </li>
                       ))}
+                      {run.steps.length > 8 && (
+                        <li className="text-slate-500">{language === 'zh' ? `还有 ${run.steps.length - 8} 个步骤未显示` : `${run.steps.length - 8} more step(s) hidden`}</li>
+                      )}
                     </ol>
                   </div>
                 ))}

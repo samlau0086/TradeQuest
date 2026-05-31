@@ -556,7 +556,6 @@ async function initDB() {
   }
 }
 
-
 const defaultAi = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 async function callAI(prompt: string, llmConfig: any, isJson: boolean = false) {
@@ -2495,19 +2494,29 @@ No markdown wrappers, just valid JSON.`;
       ? (isZh ? '机会任务已派发，并根据 Agent 护栏策略自动进入执行。' : 'Opportunity dispatched and auto-approved by the agent guardrail policy.')
       : (isZh ? '机会任务已派发，并创建待审核执行项。' : 'Opportunity dispatched and a review-gated execution item was created.');
 
+    const localizedObjective = isZh
+      ? `机会任务执行：${opportunity.title}\n\n目标：${opportunity.objective}\n\n负责智能体：${agent.name}\n指令：${agent.instructions || ''}`
+      : `Opportunity execution: ${opportunity.title}\n\nObjective: ${opportunity.objective}\n\nResponsible agent: ${agent.name}\nInstructions: ${agent.instructions || ''}`;
+    const localizedExpectedResult = isZh
+      ? `1. 读取机会任务和目标主体上下文。\n2. 确认推荐智能体、工具权限和护栏策略。\n3. 创建可追踪的执行或审核项。\n4. 若策略允许自动执行，则运行授权工具并回写机会任务结果。\n5. 若需要审核，则保持机会任务为待审核状态，等待人工确认。`
+      : expectedResult;
+    const localizedActualResult = reviewStatus === 'approved'
+      ? (isZh ? '机会任务已派发，并根据智能体护栏策略自动进入执行。' : actualResult)
+      : (isZh ? '机会任务已派发，并创建待审核执行项。' : actualResult);
+
     updateAgentOpportunityInSettings(settings, opportunityId, {
       status: reviewStatus === 'approved' && relatedRunType === 'harness' ? 'running' : 'pending_review',
       relatedRunId,
       relatedRunType,
       dispatchMode,
       dispatchedAt: nowIso,
-      resultSummary: actualResult
+      resultSummary: localizedActualResult
     });
 
     if (relatedRunType === 'global') {
       settings.globalAgentPlans = [{
         id: relatedRunId,
-        objective,
+        objective: localizedObjective,
         summary: isZh ? `机会任务派发：${agent.name}` : `Opportunity dispatch: ${agent.name}`,
         status: reviewStatus,
         steps: [{
@@ -2524,7 +2533,7 @@ No markdown wrappers, just valid JSON.`;
     } else {
       settings.agentHarnessRuns = [{
         id: relatedRunId,
-        objective,
+        objective: localizedObjective,
         summary: isZh ? `机会任务派发：${agent.name}` : `Opportunity dispatch: ${agent.name}`,
         status: reviewStatus,
         steps: buildHarnessStepsForAgent(agent, {
@@ -2546,9 +2555,9 @@ No markdown wrappers, just valid JSON.`;
       agentName: agent.name,
       trigger: dispatchMode === 'auto' ? 'system' : 'manual',
       status: reviewStatus,
-      plan: objective,
-      expectedResult,
-      actualResult,
+      plan: localizedObjective,
+      expectedResult: localizedExpectedResult,
+      actualResult: localizedActualResult,
       relatedRunId,
       relatedRunType,
       completedAt: reviewStatus === 'pending_review' ? nowIso : undefined
@@ -2681,7 +2690,7 @@ No markdown wrappers, just valid JSON.`;
               trigger: 'scheduled',
               status: 'running',
               plan: isZh ? '扫描 CRM 信号并生成智能体机会任务。' : 'Scan CRM signals and generate agent opportunity tasks.',
-              expectedResult: isZh ? '生成去重后的可执行任务，并推荐负责智能体。' : 'Create deduplicated actionable tasks and recommend the responsible agent.',
+              expectedResult: isZh ? '生成去重后的可执行机会任务，并推荐负责智能体。' : 'Create deduplicated actionable tasks and recommend the responsible agent.',
               actualResult: isZh ? 'Signal Scanner 已开始扫描。' : 'Signal Scanner started.'
             });
             summary.recordsCreated += 1;
@@ -2696,8 +2705,8 @@ No markdown wrappers, just valid JSON.`;
               updateAgentHubRunRecordInSettings(settings, startedRecord.id, {
                 status: 'completed',
                 actualResult: isZh
-                  ? `扫描完成，新增 ${opportunities.length} 个机会任务。`
-                  : `Scan completed. Created ${opportunities.length} opportunity task(s).`,
+                  ? `扫描完成：新增 ${opportunities.length} 个机会任务，自动路由 ${routed.routed} 个，进入审核 ${routed.review} 个，已自动执行 ${routed.executed} 个，失败 ${routed.failed} 个。`
+                  : `Scan completed: created ${opportunities.length} opportunity task(s), routed ${routed.routed}, sent ${routed.review} to review, auto-executed ${routed.executed}, failed ${routed.failed}.`,
                 completedAt: new Date().toISOString()
               });
               const nextRunCount = (agent.scheduleRunCount || 0) + 1;
@@ -2710,7 +2719,7 @@ No markdown wrappers, just valid JSON.`;
               summary.errors += 1;
               updateAgentHubRunRecordInSettings(settings, startedRecord.id, {
                 status: 'failed',
-                actualResult: error?.message || 'Signal Scanner failed.',
+                actualResult: isZh ? `Signal Scanner 扫描失败：${error?.message || '未知错误'}` : (error?.message || 'Signal Scanner failed.'),
                 completedAt: new Date().toISOString()
               });
             }
@@ -2727,16 +2736,24 @@ No markdown wrappers, just valid JSON.`;
               : (isZh
                 ? `审核通过后执行 ${agent.name} 的配置工作流：读取符合条件的客户上下文，检查幂等和风险规则，生成适合渠道的外发内容，执行已授权工具（${(agent.tools || []).join(', ') || 'agent tools'}），更新 CRM 日志/状态，并汇总扫描、执行、跳过、失败数量。`
                 : `Run the configured ${agent.name} workflow after approval: read eligible customer context, check idempotency and risk rules, generate channel-appropriate outbound content, execute permitted tools (${(agent.tools || []).join(', ') || 'agent tools'}), update CRM logs/status, and report scanned/acted/skipped/failed counts.`);
+          const localizedScheduledObjective = isZh
+            ? `定期运行：${agent.name}\n\n${agent.instructions || ''}`
+            : objective;
+          const localizedSchedulerExpectedResult = isZh
+            ? `1. 定期触发先进入机会任务队列。\n2. 策略路由器判断是否自动执行、进入审核或保留待派发。\n3. 执行时按该智能体配置的工具链运行：${(agent.tools || []).join(', ') || 'agent tools'}。\n4. 写入机会任务、追踪日志和运行记录。`
+            : 'Scheduled triggers enqueue an opportunity first. The policy router decides whether to auto-execute, send to review, or keep it for manual dispatch.';
+          const localizedSchedulerActualResult = isZh
+            ? '正在创建机会任务并应用路由策略。'
+            : 'Creating an opportunity and applying routing policy.';
           const schedulerRecord = addAgentHubRunRecordToSettings(settings, {
             agentId: agent.id,
             agentName: agent.name,
             trigger: 'scheduled',
             status: 'running',
-            plan: objective,
-            expectedResult: isZh
-              ? '定期触发不再直接执行，而是进入机会任务队列，由策略路由器决定自动执行、进入审核或保留待派发。'
-              : 'Scheduled triggers now enqueue an opportunity first. The policy router decides whether to auto-execute, send to review, or keep it for manual dispatch.',
-            actualResult: isZh ? '正在创建机会任务并应用路由策略。' : 'Creating an opportunity and applying routing policy.'
+            plan: localizedScheduledObjective,
+            expectedResult: localizedSchedulerExpectedResult,
+
+            actualResult: localizedSchedulerActualResult
           });
           summary.recordsCreated += 1;
           try {
@@ -2791,7 +2808,7 @@ No markdown wrappers, just valid JSON.`;
             agentName: agent.name,
             trigger: 'scheduled',
             status: 'running',
-            plan: objective,
+            plan: localizedScheduledObjective,
             expectedResult,
             actualResult: 'Backend scheduled agent run started.'
           });
@@ -3299,6 +3316,9 @@ Return JSON only:
       let objective = isZh
         ? `事件触发运行：${agent.name}\n触发事件：${event}\n事件上下文：${JSON.stringify(payload, null, 2)}\n\n${agent.instructions || ''}`
         : `Event-triggered run: ${agent.name}\nEvent: ${event}\nEvent context: ${JSON.stringify(payload, null, 2)}\n\n${agent.instructions || ''}`;
+      if (isZh) {
+        objective = `事件触发运行：${agent.name}\n触发事件：${event}\n事件上下文：${JSON.stringify(payload, null, 2)}\n\n${agent.instructions || ''}`;
+      }
       const expectedResult = isZh
         ? `1. 读取事件上下文和相关客户/线索资料。\n2. 根据 ${agent.name} 的指令判断是否需要行动。\n3. 检查幂等性、风险和审核策略。\n4. 执行已授权工具：${(agent.tools || []).join(', ') || 'agent tools'}。\n5. 写入运行结果、CRM 日志和后续建议。`
         : `1. Read event context and related client/lead data.\n2. Decide whether action is needed according to ${agent.name} instructions.\n3. Check idempotency, risk, and approval policy.\n4. Execute permitted tools: ${(agent.tools || []).join(', ') || 'agent tools'}.\n5. Record run result, CRM logs, and next-step suggestions.`;
@@ -6311,8 +6331,6 @@ No markdown wrappers, just valid JSON.`;
       res.status(500).send('Tracker error');
     }
   });
-
-
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
