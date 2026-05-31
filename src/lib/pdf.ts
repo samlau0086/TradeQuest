@@ -2,6 +2,8 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Quote, QuoteItem, QuoteFee, Client, Product } from '../store';
 import { useAuthStore } from '../authStore';
+import { useStore } from '../store';
+import { formatCurrency } from './currency';
 
 const loadImageBase64 = async (url: string): Promise<string | null> => {
   try {
@@ -21,6 +23,8 @@ const loadImageBase64 = async (url: string): Promise<string | null> => {
 export async function generateQuotePDF(quote: Quote, client?: Client, products?: Product[]) {
   const doc = new jsPDF();
   const profile = useAuthStore.getState().profile;
+  const { currencyRates } = useStore.getState();
+  const quoteCurrency = quote.currency || 'USD';
   
   const itemImages: Record<number, string> = {};
   for (let i = 0; i < quote.items.length; i++) {
@@ -92,8 +96,8 @@ export async function generateQuotePDF(quote: Quote, client?: Client, products?:
     '', // Image placeholder
     item.description ? `${item.name || 'Unnamed Item'}\n\n${item.description}` : (item.name || 'Unnamed Item'),
     item.quantity.toString(),
-    `$${item.unitPrice.toFixed(2)}`,
-    `$${(item.total || (item.quantity * item.unitPrice)).toFixed(2)}`
+    formatCurrency(item.unitPrice, quoteCurrency, currencyRates),
+    formatCurrency(item.total || (item.quantity * item.unitPrice), quoteCurrency, currencyRates)
   ]);
 
   autoTable(doc, {
@@ -139,7 +143,7 @@ export async function generateQuotePDF(quote: Quote, client?: Client, products?:
   if (quote.fees && quote.fees.length > 0) {
     const feeData = quote.fees.map(fee => [
       fee.name || 'Fee',
-      `$${fee.amount.toFixed(2)}`
+      formatCurrency(fee.amount, quoteCurrency, currencyRates)
     ]);
 
     autoTable(doc, {
@@ -156,16 +160,16 @@ export async function generateQuotePDF(quote: Quote, client?: Client, products?:
 
   // Totals
   doc.setFontSize(10);
-  doc.text(`Subtotal: $${subtotal.toFixed(2)}`, 140, currentY);
+  doc.text(`Subtotal: ${formatCurrency(subtotal, quoteCurrency, currencyRates)}`, 140, currentY);
   currentY += 6;
   if (totalFees !== 0) {
-    doc.text(`Fees/Discounts: $${totalFees.toFixed(2)}`, 140, currentY);
+    doc.text(`Fees/Discounts: ${formatCurrency(totalFees, quoteCurrency, currencyRates)}`, 140, currentY);
     currentY += 6;
   }
   
   doc.setFontSize(12);
   doc.setFont('helvetica', 'bold');
-  doc.text(`Total: $${totalAmount.toFixed(2)}`, 140, currentY + 2);
+  doc.text(`Total: ${formatCurrency(totalAmount, quoteCurrency, currencyRates)}`, 140, currentY + 2);
 
   // Footer / Terms
   if (quote.paymentTerms) {
@@ -184,9 +188,9 @@ export async function generateQuotePDF(quote: Quote, client?: Client, products?:
       const balanceAmount = totalAmount * ((quote.balanceRatio || (100 - quote.advanceRatio)) / 100);
       doc.setFont('helvetica', 'bold');
       currentY += 6;
-      doc.text(`Advance Payment (${quote.advanceRatio}%): $${advanceAmount.toFixed(2)}`, 14, currentY);
+      doc.text(`Advance Payment (${quote.advanceRatio}%): ${formatCurrency(advanceAmount, quoteCurrency, currencyRates)}`, 14, currentY);
       currentY += 6;
-      doc.text(`Balance Payment (${quote.balanceRatio || (100 - quote.advanceRatio)}%): $${balanceAmount.toFixed(2)}`, 14, currentY);
+      doc.text(`Balance Payment (${quote.balanceRatio || (100 - quote.advanceRatio)}%): ${formatCurrency(balanceAmount, quoteCurrency, currencyRates)}`, 14, currentY);
     }
   }
 

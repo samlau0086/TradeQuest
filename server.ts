@@ -430,6 +430,7 @@ async function initDB() {
         user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
         client_id VARCHAR(128) REFERENCES clients(id) ON DELETE SET NULL,
         quote_number VARCHAR(255) NOT NULL,
+        currency VARCHAR(16) DEFAULT 'USD',
         payment_terms TEXT,
         payment_term_id VARCHAR(128),
         advance_ratio NUMERIC(5,2) DEFAULT 0,
@@ -443,6 +444,7 @@ async function initDB() {
       );
 
       ALTER TABLE quotes ADD COLUMN IF NOT EXISTS payment_term_id VARCHAR(128);
+      ALTER TABLE quotes ADD COLUMN IF NOT EXISTS currency VARCHAR(16) DEFAULT 'USD';
       ALTER TABLE quotes ADD COLUMN IF NOT EXISTS advance_ratio NUMERIC(5,2) DEFAULT 0;
       ALTER TABLE quotes ADD COLUMN IF NOT EXISTS balance_ratio NUMERIC(5,2) DEFAULT 0;
 
@@ -4100,7 +4102,7 @@ Return JSON only:
       
       const row = result.rows[0];
       res.json({
-        id: row.id, quoteNumber: row.quote_number, clientId: row.client_id, paymentTerms: row.payment_terms,
+        id: row.id, quoteNumber: row.quote_number, clientId: row.client_id, currency: row.currency || 'USD', paymentTerms: row.payment_terms,
         status: row.status, items: row.items, fees: row.fees, comments: row.comments, createdAt: row.created_at, updatedAt: row.updated_at,
         clientName: row.client_name, clientCompany: row.client_company, clientContactMethods: row.client_contact_methods,
         userName: row.user_name, userEmail: row.user_email
@@ -4114,7 +4116,7 @@ Return JSON only:
     try {
       const result = await pool.query('SELECT * FROM quotes WHERE user_id = $1 ORDER BY created_at DESC', [req.user.uid]);
       res.json(result.rows.map(row => ({
-        id: row.id, quoteNumber: row.quote_number, clientId: row.client_id, paymentTerms: row.payment_terms,
+        id: row.id, quoteNumber: row.quote_number, clientId: row.client_id, currency: row.currency || 'USD', paymentTerms: row.payment_terms,
         paymentTermId: row.payment_term_id, advanceRatio: row.advance_ratio ? parseFloat(row.advance_ratio) : 0, balanceRatio: row.balance_ratio ? parseFloat(row.balance_ratio) : 0,
         status: row.status, items: row.items, fees: row.fees, comments: row.comments, createdAt: row.created_at, updatedAt: row.updated_at
       })));
@@ -4125,11 +4127,11 @@ Return JSON only:
 
   app.post('/api/quotes', authenticateToken, async (req: any, res) => {
     try {
-      const { id, quoteNumber, clientId, paymentTerms, paymentTermId, advanceRatio, balanceRatio, status, items, fees, comments } = req.body;
+      const { id, quoteNumber, clientId, currency, paymentTerms, paymentTermId, advanceRatio, balanceRatio, status, items, fees, comments } = req.body;
       const result = await pool.query(
-        `INSERT INTO quotes (id, user_id, client_id, quote_number, payment_terms, payment_term_id, advance_ratio, balance_ratio, status, items, fees, comments)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
-        [id, req.user.uid, clientId || null, quoteNumber, paymentTerms, paymentTermId || null, advanceRatio || 0, balanceRatio || 0, status, JSON.stringify(items || []), JSON.stringify(fees || []), JSON.stringify(comments || [])]
+        `INSERT INTO quotes (id, user_id, client_id, quote_number, currency, payment_terms, payment_term_id, advance_ratio, balance_ratio, status, items, fees, comments)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+        [id, req.user.uid, clientId || null, quoteNumber, currency || 'USD', paymentTerms, paymentTermId || null, advanceRatio || 0, balanceRatio || 0, status, JSON.stringify(items || []), JSON.stringify(fees || []), JSON.stringify(comments || [])]
       );
       res.json(result.rows[0]);
     } catch (e) {
@@ -4139,10 +4141,10 @@ Return JSON only:
 
   app.patch('/api/quotes/:id', authenticateToken, async (req: any, res) => {
     try {
-      const { quoteNumber, clientId, paymentTerms, paymentTermId, advanceRatio, balanceRatio, status, items, fees, comments } = req.body;
+      const { quoteNumber, clientId, currency, paymentTerms, paymentTermId, advanceRatio, balanceRatio, status, items, fees, comments } = req.body;
       const updates = []; const values = []; let idx = 1;
-      const mapping = { quoteNumber: 'quote_number', clientId: 'client_id', paymentTerms: 'payment_terms', paymentTermId: 'payment_term_id', advanceRatio: 'advance_ratio', balanceRatio: 'balance_ratio', status: 'status', items: 'items', fees: 'fees', comments: 'comments' };
-      for (const [k, v] of Object.entries({ quoteNumber, clientId, paymentTerms, paymentTermId, advanceRatio, balanceRatio, status, items, fees, comments })) {
+      const mapping = { quoteNumber: 'quote_number', clientId: 'client_id', currency: 'currency', paymentTerms: 'payment_terms', paymentTermId: 'payment_term_id', advanceRatio: 'advance_ratio', balanceRatio: 'balance_ratio', status: 'status', items: 'items', fees: 'fees', comments: 'comments' };
+      for (const [k, v] of Object.entries({ quoteNumber, clientId, currency, paymentTerms, paymentTermId, advanceRatio, balanceRatio, status, items, fees, comments })) {
         if (v !== undefined) {
           updates.push(`${mapping[k as keyof typeof mapping]} = $${idx++}`);
           values.push(k === 'items' || k === 'fees' || k === 'comments' ? JSON.stringify(v) : v);
@@ -5457,7 +5459,7 @@ No markdown wrappers, just valid JSON.`;
   // Public Settings
   app.get('/api/settings/public', authenticateToken, async (req: any, res) => {
     try {
-      const result = await pool.query('SELECT * FROM global_settings WHERE key LIKE \'exp_%\' OR key LIKE \'point_cost_%\' OR key IN (\'agent_polling_interval_seconds\', \'agent_polling_interval_hours\')');
+      const result = await pool.query('SELECT * FROM global_settings WHERE key LIKE \'exp_%\' OR key LIKE \'point_cost_%\' OR key IN (\'agent_polling_interval_seconds\', \'agent_polling_interval_hours\', \'currency_rates\', \'default_quote_currency\', \'currency_rates_updated_at\')');
       const settings = result.rows.reduce((acc, row) => ({ ...acc, [row.key]: typeof row.value === 'string' ? JSON.parse(row.value) : row.value }), {});
       res.json(settings);
     } catch (e) {
@@ -5502,6 +5504,34 @@ No markdown wrappers, just valid JSON.`;
     } catch (e) {
       console.error('Failed to update settings', e);
       res.status(500).json({ error: 'Failed' });
+    }
+  });
+
+  app.post('/api/admin/settings/currency-rates/update', authenticateToken, requireSuperadmin, async (req: any, res) => {
+    try {
+      const response = await fetch('https://open.er-api.com/v6/latest/USD');
+      if (!response.ok) return res.status(response.status).json({ error: 'Failed to fetch public exchange rates' });
+      const data = await response.json();
+      const rates = data?.rates || {};
+      if (!rates.USD) rates.USD = 1;
+      const allowed = ['USD', 'EUR', 'GBP', 'CNY', 'JPY', 'AUD', 'CAD', 'HKD', 'SGD', 'KRW', 'INR', 'AED'];
+      const nextRates = allowed.reduce((acc: Record<string, number>, code) => {
+        const value = Number(rates[code]);
+        if (Number.isFinite(value) && value > 0) acc[code] = value;
+        return acc;
+      }, { USD: 1 });
+      const updatedAt = new Date().toISOString();
+      await pool.query(
+        `INSERT INTO global_settings (key, value) VALUES
+          ('currency_rates', $1),
+          ('currency_rates_updated_at', $2)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+        [JSON.stringify(nextRates), JSON.stringify(updatedAt)]
+      );
+      res.json({ success: true, rates: nextRates, updatedAt });
+    } catch (e) {
+      console.error('Failed to update currency rates', e);
+      res.status(500).json({ error: 'Failed to update currency rates' });
     }
   });
 

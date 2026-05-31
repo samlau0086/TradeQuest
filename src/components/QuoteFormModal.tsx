@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useStore, Quote, QuoteItem, QuoteFee } from '../store';
 import { useTranslation } from '../lib/i18n';
 import { X, Plus, Trash2 } from 'lucide-react';
+import { formatCurrency, normalizeCurrency } from '../lib/currency';
 
 interface QuoteFormModalProps {
   onClose: () => void;
@@ -11,7 +12,7 @@ interface QuoteFormModalProps {
 }
 
 export function QuoteFormModal({ onClose, quoteId, initialData, onSave }: QuoteFormModalProps) {
-  const { quotes, clients, products, addQuote, updateQuote, language, paymentTerms: configuredPaymentTerms, notify } = useStore();
+  const { quotes, clients, products, addQuote, updateQuote, language, paymentTerms: configuredPaymentTerms, notify, currencyRates, defaultQuoteCurrency } = useStore();
   const t = useTranslation(language);
   const existingQuote = quoteId ? quotes.find(q => q.id === quoteId) : null;
 
@@ -22,6 +23,7 @@ export function QuoteFormModal({ onClose, quoteId, initialData, onSave }: QuoteF
   const [advanceRatio, setAdvanceRatio] = useState(existingQuote?.advanceRatio || initialData?.advanceRatio || 0);
   const [balanceRatio, setBalanceRatio] = useState(existingQuote?.balanceRatio || initialData?.balanceRatio || 0);
   const [status, setStatus] = useState(existingQuote?.status || initialData?.status || 'Draft');
+  const [currency, setCurrency] = useState(normalizeCurrency(existingQuote?.currency || initialData?.currency || defaultQuoteCurrency || 'USD'));
   
   const [items, setItems] = useState<QuoteItem[]>(
     existingQuote?.items || initialData?.items || []
@@ -53,6 +55,7 @@ export function QuoteFormModal({ onClose, quoteId, initialData, onSave }: QuoteF
     const quoteData = {
       quoteNumber,
       clientId: clientId || null,
+      currency,
       paymentTerms,
       paymentTermId,
       advanceRatio,
@@ -172,7 +175,7 @@ export function QuoteFormModal({ onClose, quoteId, initialData, onSave }: QuoteF
         </div>
 
         <div className="p-6 overflow-y-auto space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <div className="space-y-1">
               <label className="text-xs font-bold text-slate-400 uppercase">{t('quoteNoReq')}</label>
               <input value={quoteNumber} onChange={e => setQuoteNumber(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
@@ -194,6 +197,15 @@ export function QuoteFormModal({ onClose, quoteId, initialData, onSave }: QuoteF
                 <option value="Accepted">Accepted</option>
                 <option value="Rejected">Rejected</option>
               </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-400 uppercase">Currency</label>
+              <select value={currency} onChange={e => setCurrency(normalizeCurrency(e.target.value))} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+                {Object.keys(currencyRates).sort().map(code => (
+                  <option key={code} value={code}>{code}</option>
+                ))}
+              </select>
+              <div className="text-[10px] text-slate-500">Base prices are stored in USD.</div>
             </div>
             <div className="space-y-1">
               <label className="text-xs font-bold text-slate-400 uppercase">{t('paymentTerms')}</label>
@@ -251,7 +263,7 @@ export function QuoteFormModal({ onClose, quoteId, initialData, onSave }: QuoteF
                   <tr>
                     <th className="px-3 py-2">{t('productName')}</th>
                     <th className="px-3 py-2 w-24">{t('qty')}</th>
-                    <th className="px-3 py-2 w-32">{t('unitPrice')}</th>
+                    <th className="px-3 py-2 w-36">{t('unitPrice')} (USD)</th>
                     <th className="px-3 py-2 w-24">{t('total')}</th>
                     <th className="px-2 py-2 w-10"></th>
                   </tr>
@@ -296,7 +308,8 @@ export function QuoteFormModal({ onClose, quoteId, initialData, onSave }: QuoteF
                         </div>
                       </td>
                       <td className="px-3 py-2 text-slate-300">
-                        ${(item.total || (item.quantity * item.unitPrice) || 0).toFixed(2)}
+                        <div>{formatCurrency(item.total || (item.quantity * item.unitPrice) || 0, currency, currencyRates)}</div>
+                        {currency !== 'USD' && <div className="text-[10px] text-slate-500">${(item.total || (item.quantity * item.unitPrice) || 0).toFixed(2)}</div>}
                       </td>
                       <td className="px-2 py-2 text-center">
                         <button onClick={() => removeItem(idx)} className="text-slate-500 hover:text-rose-400"><Trash2 className="w-4 h-4 mx-auto" /></button>
@@ -332,16 +345,21 @@ export function QuoteFormModal({ onClose, quoteId, initialData, onSave }: QuoteF
             <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col justify-end space-y-2">
               <div className="flex justify-between text-sm text-slate-400">
                 <span>{t('subtotal')}</span>
-                <span>${subtotal.toFixed(2)}</span>
+                <span>{formatCurrency(subtotal, currency, currencyRates)}</span>
               </div>
               <div className="flex justify-between text-sm text-slate-400 border-b border-slate-800 pb-2">
                 <span>{t('feesAndAdjustments')}</span>
-                <span>${totalFees.toFixed(2)}</span>
+                <span>{formatCurrency(totalFees, currency, currencyRates)}</span>
               </div>
               <div className="flex justify-between text-lg font-bold text-white pt-2">
                 <span>{t('total')}</span>
-                <span>${totalAmount.toFixed(2)}</span>
+                <span>{formatCurrency(totalAmount, currency, currencyRates)}</span>
               </div>
+              {currency !== 'USD' && (
+                <div className="text-right text-[11px] text-slate-500">
+                  USD base total: ${totalAmount.toFixed(2)} · 1 USD = {currencyRates[currency]} {currency}
+                </div>
+              )}
             </div>
           </div>
         </div>

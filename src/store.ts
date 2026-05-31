@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { useAuthStore } from './authStore';
 import { syncViewToUrl } from './lib/viewRoutes';
 import { AgentIdempotencyRecord, AgentIdempotencyStatus, createAgentIdempotencyKey } from './lib/agentIdempotency';
+import { DEFAULT_CURRENCY_RATES } from './lib/currency';
 
 export type ViewMode = 'kanban' | 'map' | 'inbox' | 'dashboard' | 'agent-hub' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests' | 'list' | 'products' | 'quotes' | 'knowledge-base' | 'media-library';
 
@@ -106,6 +107,7 @@ export interface Quote {
   id: string;
   quoteNumber: string;
   clientId: string | null;
+  currency?: string;
   paymentTerms: string;
   paymentTermId?: string;
   advanceRatio?: number;
@@ -708,6 +710,8 @@ export interface StoreState {
   addPaymentTerm: (term: Omit<PaymentTerm, 'id'>) => void;
   updatePaymentTerm: (id: string, updates: Partial<PaymentTerm>) => void;
   deletePaymentTerm: (id: string) => void;
+  currencyRates: Record<string, number>;
+  defaultQuoteCurrency: string;
 
   llmConfigs: LLMConfig[];
   addLLMConfig: (config: Omit<LLMConfig, 'id'>) => void;
@@ -1587,6 +1591,8 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   paymentTerms: [],
+  currencyRates: DEFAULT_CURRENCY_RATES,
+  defaultQuoteCurrency: 'USD',
   fetchPaymentTerms: () => {
     const token = localStorage.getItem('token');
     if (token) {
@@ -2725,7 +2731,12 @@ export const useStore = create<StoreState>((set, get) => ({
             pointCostConfig[key.replace('point_cost_', '')] = Number(settings[key]);
           }
         }
-        set({ expConfig, pointCostConfig });
+        set((state) => ({
+          expConfig,
+          pointCostConfig,
+          currencyRates: settings.currency_rates ? { ...DEFAULT_CURRENCY_RATES, ...settings.currency_rates } : state.currencyRates,
+          defaultQuoteCurrency: settings.default_quote_currency || state.defaultQuoteCurrency
+        }));
         
         // update achievements and quests
         set((state) => ({
@@ -2815,7 +2826,9 @@ export const useStore = create<StoreState>((set, get) => ({
           activeLLMId: settings.activeLLMId ?? state.activeLLMId,
           language: settings.language ?? state.language,
           theme: settings.theme ?? state.theme,
-          timezone: settings.timezone ?? state.timezone
+          timezone: settings.timezone ?? state.timezone,
+          currencyRates: settings.currency_rates ? { ...DEFAULT_CURRENCY_RATES, ...settings.currency_rates } : state.currencyRates,
+          defaultQuoteCurrency: settings.default_quote_currency || state.defaultQuoteCurrency
         }));
       }
     } catch(e) {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useStore, InboxConfig, OutboxConfig, LLMConfig, PaymentTerm, LeadDataProvider, EmailSignature, EmailServerMapping, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType } from '../store';
 import { useAuthStore } from '../authStore';
-import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark, Clock, Book, Target, Trophy, Eye, EyeOff, MessageCircle, Bell } from 'lucide-react';
+import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark, Clock, Book, Target, Trophy, Eye, EyeOff, MessageCircle, Bell, RefreshCw } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ProfileSettings } from './ProfileSettings';
 import { UserManagement } from './UserManagement';
@@ -132,6 +132,46 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
 
   const [editingPTId, setEditingPTId] = useState<string | null>(null);
   const [ptFormData, setPtFormData] = useState<Partial<PaymentTerm>>({});
+  const [currencyCode, setCurrencyCode] = useState('');
+  const [currencyRate, setCurrencyRate] = useState('');
+  const [updatingRates, setUpdatingRates] = useState(false);
+
+  const currencyRates: Record<string, number> = globalSettings.currency_rates || { USD: 1 };
+  const saveCurrencyRates = (rates: Record<string, number>) => handleSaveGlobalSetting('currency_rates', { USD: 1, ...rates });
+  const handleAddCurrencyRate = () => {
+    const code = currencyCode.trim().toUpperCase();
+    const rate = Number(currencyRate);
+    if (!code || !Number.isFinite(rate) || rate <= 0) return;
+    saveCurrencyRates({ ...currencyRates, [code]: rate });
+    setCurrencyCode('');
+    setCurrencyRate('');
+  };
+  const handleDeleteCurrencyRate = (code: string) => {
+    if (code === 'USD') return;
+    const next = { ...currencyRates };
+    delete next[code];
+    saveCurrencyRates(next);
+  };
+  const handleUpdateRatesFromPublicApi = async () => {
+    setUpdatingRates(true);
+    try {
+      const res = await fetch('/api/admin/settings/currency-rates/update', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to update rates');
+      setGlobalSettings(prev => ({
+        ...prev,
+        currency_rates: data.rates,
+        currency_rates_updated_at: data.updatedAt
+      }));
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setUpdatingRates(false);
+    }
+  };
 
   const handleEditPT = (pt: PaymentTerm) => {
     setEditingPTId(pt.id);
@@ -658,6 +698,77 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
                       Determines how frequently the backend checks enabled auto follow-up agents per client. (e.g., 3600 means once per hour). Leave empty to disable.
                     </p>
                   </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="space-y-6 pt-6 border-t border-slate-800">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold flex items-center gap-2">
+                    <Landmark className="w-5 h-5 text-cyan-400" /> Currency Rates
+                  </h2>
+                  <p className="mt-1 text-xs text-slate-500">USD is the base currency. Quote prices are converted from USD using these rates.</p>
+                </div>
+                <button
+                  onClick={handleUpdateRatesFromPublicApi}
+                  disabled={updatingRates}
+                  className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-cyan-500 disabled:opacity-50"
+                >
+                  <RefreshCw className={cn('h-4 w-4', updatingRates && 'animate-spin')} />
+                  Update Rates
+                </button>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_auto]">
+                  <input
+                    value={currencyCode}
+                    onChange={e => setCurrencyCode(e.target.value.toUpperCase())}
+                    placeholder="Currency code, e.g. EUR"
+                    className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                  />
+                  <input
+                    type="number"
+                    step="0.0001"
+                    value={currencyRate}
+                    onChange={e => setCurrencyRate(e.target.value)}
+                    placeholder="Rate per 1 USD"
+                    className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                  />
+                  <button onClick={handleAddCurrencyRate} className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-bold text-cyan-300 hover:bg-slate-700">
+                    Add Rate
+                  </button>
+                </div>
+
+                <div className="mb-4 flex items-center gap-3">
+                  <label className="text-xs font-bold uppercase text-slate-400">Default Quote Currency</label>
+                  <select
+                    value={globalSettings.default_quote_currency || 'USD'}
+                    onChange={e => handleSaveGlobalSetting('default_quote_currency', e.target.value)}
+                    className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                  >
+                    {Object.keys(currencyRates).sort().map(code => <option key={code} value={code}>{code}</option>)}
+                  </select>
+                  {globalSettings.currency_rates_updated_at && (
+                    <span className="text-xs text-slate-500">Updated: {new Date(globalSettings.currency_rates_updated_at).toLocaleString()}</span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {Object.entries(currencyRates).sort(([a], [b]) => a.localeCompare(b)).map(([code, rate]) => (
+                    <div key={code} className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
+                      <div>
+                        <div className="font-mono text-sm font-bold text-slate-100">{code}</div>
+                        <div className="text-xs text-slate-500">1 USD = {Number(rate).toLocaleString()} {code}</div>
+                      </div>
+                      {code !== 'USD' && (
+                        <button onClick={() => handleDeleteCurrencyRate(code)} className="rounded p-1.5 text-rose-400 hover:bg-rose-950/50 hover:text-white">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
             </section>

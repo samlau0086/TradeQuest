@@ -6,13 +6,14 @@ import { format } from 'date-fns';
 import { cn } from '../lib/utils'; // if needed
 import { QuoteFormModal } from './QuoteFormModal';
 import { generateQuotePDF } from '../lib/pdf';
+import { formatCurrency } from '../lib/currency';
 
 interface QuotesListProps {
   embedded?: boolean;
 }
 
 export function QuotesList({ embedded = false }: QuotesListProps) {
-  const { quotes, clients, products, deleteQuote, language } = useStore();
+  const { quotes, clients, products, deleteQuote, language, currencyRates } = useStore();
   const t = useTranslation(language);
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -87,6 +88,7 @@ export function QuotesList({ embedded = false }: QuotesListProps) {
                 <th className="px-4 py-3 font-medium">{t('quoteNo')}</th>
                 <th className="px-4 py-3 font-medium">{t('date')}</th>
                 <th className="px-4 py-3 font-medium">{t('client')}</th>
+                <th className="px-4 py-3 font-medium">Total</th>
                 <th className="px-4 py-3 font-medium">{t('stage')}</th>
                 <th className="px-4 py-3 font-medium text-right">{t('actions')}</th>
               </tr>
@@ -94,10 +96,16 @@ export function QuotesList({ embedded = false }: QuotesListProps) {
             <tbody className="divide-y divide-slate-800">
               {filteredQuotes.map(quote => {
                 const client = clients.find(c => c.id === quote.clientId);
+                const subtotal = quote.items.reduce((sum, item) => sum + (item.total || item.quantity * item.unitPrice || 0), 0);
+                const fees = quote.fees.reduce((sum, fee) => sum + (fee.amount || 0), 0);
                 return (
                   <tr key={quote.id} className="hover:bg-slate-800/30 transition-colors">
                     <td className="px-4 py-3 font-mono font-medium text-slate-200">
                       {quote.quoteNumber}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="font-mono text-slate-200">{formatCurrency(subtotal + fees, quote.currency || 'USD', currencyRates)}</div>
+                      <div className="text-[10px] text-slate-500">{quote.currency || 'USD'}</div>
                     </td>
                     <td className="px-4 py-3">
                       {quote.createdAt ? format(new Date(quote.createdAt), 'MMM d, yyyy') : '-'}
@@ -141,7 +149,7 @@ export function QuotesList({ embedded = false }: QuotesListProps) {
               })}
               {filteredQuotes.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-12 text-center">
+                  <td colSpan={6} className="px-4 py-12 text-center">
                     <FileText className="w-12 h-12 text-slate-700 mx-auto mb-4" />
                     <h3 className="text-lg font-bold text-slate-400 mb-1">{t('noQuotes')}</h3>
                     <p className="text-slate-500">{t('createFirstQuote')}</p>
