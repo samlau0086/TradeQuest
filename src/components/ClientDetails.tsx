@@ -33,7 +33,7 @@ function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { met
   const [loadingPurpose, setLoadingPurpose] = useState(false);
   const [activeTab, setActiveTab] = useState<'compose' | 'history'>('compose');
   const [showWhatsAppChat, setShowWhatsAppChat] = useState(false);
-  const { addLog, logs, emails, userTitle, outboxConfigs, addEmail, llmConfigs, activeLLMId, llmMappings, language, setView, selectEmail, notify, incrementAgentHubTaskCount } = useStore();
+  const { addLog, logs, emails, userTitle, outboxConfigs, addEmail, llmConfigs, activeLLMId, llmMappings, language, setView, selectEmail, selectClient, selectDeal, notify, incrementAgentHubTaskCount } = useStore();
   const [selectedOutboxId, setSelectedOutboxId] = useState<string>(outboxConfigs?.[0]?.id || '');
 
   const getLLMConfig = (module: string) => {
@@ -243,7 +243,13 @@ function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { met
                   <div key={email.id} className="relative flex items-start pl-6 group">
                     <div className={`absolute left-[5px] top-1 flex items-center justify-center w-2.5 h-2.5 rounded-full border-2 ${email.type === 'draft' ? 'border-amber-500/30 bg-amber-500' : email.type === 'sent' ? 'border-cyan-500/30 bg-cyan-500' : 'border-indigo-500/30 bg-indigo-500'}`}></div>
                     <div 
-                      onClick={() => { setView('inbox'); selectEmail(email.id); onClose(); }}
+                      onClick={() => {
+                        selectEmail(email.id);
+                        selectDeal(null);
+                        selectClient(null);
+                        setView('inbox');
+                        onClose();
+                      }}
                       className="flex flex-col gap-1.5 w-full bg-slate-800/30 p-2.5 rounded-lg border border-slate-700/30 group-hover:border-slate-700/60 transition-colors cursor-pointer hover:bg-slate-800/50"
                     >
                       <div className="flex items-center justify-between gap-4">
@@ -1162,8 +1168,10 @@ export function ClientDetails() {
                     {log.relatedEmailId ? (
                       <button 
                         onClick={() => {
-                          setView('inbox');
                           selectEmail(log.relatedEmailId || null);
+                          selectDeal(null);
+                          selectClient(null);
+                          setView('inbox');
                         }}
                         className="text-cyan-400 hover:text-cyan-300 hover:underline flex items-center gap-1 text-left"
                       >
