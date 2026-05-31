@@ -4,6 +4,7 @@ import { useAuthStore } from '../authStore';
 import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark, Clock, Book, Target, Trophy, Eye, EyeOff, MessageCircle, Bell } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ProfileSettings } from './ProfileSettings';
+import { UserManagement } from './UserManagement';
 import { useTranslation } from '../lib/i18n';
 
 const GLOBAL_AGENT_ACTION_LABELS: Record<GlobalAgentActionType, string> = {
@@ -22,7 +23,9 @@ const GLOBAL_AGENT_ACTION_LABELS: Record<GlobalAgentActionType, string> = {
   review_pipeline: 'Review Pipeline / 管线复盘'
 };
 
-export function Settings() {
+type SettingsTab = 'profile' | 'mail' | 'ai' | 'system' | 'gamification' | 'users';
+
+export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab }) {
   const { 
     inboxConfigs, addInboxConfig, updateInboxConfig, deleteInboxConfig, 
     outboxConfigs, addOutboxConfig, updateOutboxConfig, deleteOutboxConfig,
@@ -373,7 +376,13 @@ export function Settings() {
     setEditingLLMId(null);
   };
 
-  const [activeTab, setActiveTab] = useState<'profile' | 'mail' | 'ai' | 'system' | 'gamification'>('profile');
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
+
+  useEffect(() => {
+    if (!isSuperadmin && ['system', 'gamification', 'users'].includes(activeTab)) {
+      setActiveTab('profile');
+    }
+  }, [activeTab, isSuperadmin]);
 
   const leadDataProviders: { id: LeadDataProvider; label: string; description: string; docsUrl: string; workflowLabel: string }[] = [
     { id: 'outscraper', label: 'Outscraper', description: 'Google Maps business search for lead acquisition.', docsUrl: 'https://outscraper.com/', workflowLabel: 'Native Maps Search' },
@@ -432,6 +441,14 @@ export function Settings() {
                 className={cn("px-4 py-2 text-sm font-medium rounded-lg transition-all", activeTab === 'system' ? "bg-indigo-600 text-white shadow-lg" : "text-slate-400 hover:text-white hover:bg-slate-700/50")}
               >
                 System Flags
+              </button>
+            )}
+            {isSuperadmin && (
+              <button
+                onClick={() => setActiveTab('users')}
+                className={cn("px-4 py-2 text-sm font-medium rounded-lg transition-all", activeTab === 'users' ? "bg-indigo-600 text-white shadow-lg" : "text-slate-400 hover:text-white hover:bg-slate-700/50")}
+              >
+                {t('userManagement')}
               </button>
             )}
           </div>
@@ -493,6 +510,12 @@ export function Settings() {
                 </div>
               </div>
             </section>
+          </div>
+        )}
+
+        {isSuperadmin && activeTab === 'users' && (
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <UserManagement />
           </div>
         )}
 

@@ -9,7 +9,6 @@ import { Inbox } from './components/Inbox';
 import { Dashboard } from './components/Dashboard';
 import { ActionableClients } from './components/ActionableClients';
 import { Settings } from './components/Settings';
-import { UserManagement } from './components/UserManagement';
 import { PublicPool } from './components/PublicPool';
 import { PipelineList } from './components/PipelineList';
 import { ClientsList } from './components/ClientsList';
@@ -450,7 +449,7 @@ export default function App() {
            view === 'settings' ? <Settings /> : 
            view === 'knowledge-base' ? <div className="flex-1 bg-slate-900 border-t border-slate-800 p-6 overflow-y-auto"><div className="w-full text-white"><KnowledgeBaseManager /></div></div> :
            view === 'media-library' ? <MediaLibrary /> :
-           view === 'user-management' ? <div className="flex-1 bg-slate-900 overflow-y-auto p-6"><div className="w-full text-white"><UserManagement /></div></div> :
+           view === 'user-management' ? <Settings initialTab="users" /> :
            (view === 'dormant' || view === 'leads' || view === 'followups') ? <ActionableClients /> : 
            <Dashboard />}
         </Panel>
