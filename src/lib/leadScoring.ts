@@ -17,7 +17,9 @@ export function buildLeadScoringSignature(client: Client, logs: Log[], emails: E
       log.clientId === client.id &&
       log.metadata?.source !== 'lead_scoring_agent' &&
       !log.content.startsWith('Lead Scoring Agent analyzed lead:') &&
-      !log.content.startsWith('Enriched profile / updated client details:')
+      !log.content.startsWith('线索评分智能体已分析线索：') &&
+      !log.content.startsWith('Enriched profile / updated client details:') &&
+      !log.content.startsWith('已补全资料/更新客户详情：')
     ))
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     .slice(0, 20)

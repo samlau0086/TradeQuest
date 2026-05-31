@@ -390,6 +390,34 @@ export interface AgentHubAgent {
   updatedAt: string;
 }
 
+const INTERNAL_FIELD_LABELS: Record<string, { en: string; zh: string }> = {
+  leadScore: { en: 'Lead score', zh: '线索评分' },
+  leadSummary: { en: 'Lead summary', zh: '线索摘要' },
+  leadNextStep: { en: 'Best next step', zh: '最佳下一步' },
+  leadScoringSignature: { en: 'Lead scoring signature', zh: '线索评分签名' },
+  leadScoringAnalyzedAt: { en: 'Lead scoring analyzed time', zh: '线索评分分析时间' },
+  agentSummary: { en: 'Agent summary', zh: '智能体摘要' },
+  agentNextStep: { en: 'Agent next step', zh: '智能体下一步' },
+  status: { en: 'Status', zh: '状态' },
+  name: { en: 'Name', zh: '名称' },
+  company: { en: 'Company', zh: '公司' },
+  country: { en: 'Country/region', zh: '国家/地区' },
+  tags: { en: 'Tags', zh: '标签' },
+  contacts: { en: 'Contacts', zh: '联系人' },
+  contactMethods: { en: 'Contact methods', zh: '联系方式' }
+};
+
+function formatInternalUpdateLog(updates: Record<string, unknown>, language: string) {
+  const keys = Object.keys(updates);
+  const labels = keys.map(key => {
+    const label = INTERNAL_FIELD_LABELS[key];
+    return label ? (language === 'zh' ? label.zh : label.en) : key;
+  });
+  return language === 'zh'
+    ? `已补全资料/更新客户详情：${labels.join('、')}`
+    : `Enriched profile / updated client details: ${labels.join(', ')}`;
+}
+
 export type AgentHubRunStatus = 'planned' | 'pending_review' | 'approved' | 'running' | 'completed' | 'failed' | 'rejected';
 export type AgentHubRunTrigger = 'scheduled' | 'manual' | 'approval' | 'system' | 'event';
 export type AgentOpportunityStatus = 'open' | 'queued' | 'pending_review' | 'running' | 'completed' | 'failed' | 'ignored';
@@ -2067,7 +2095,10 @@ export const useStore = create<StoreState>((set, get) => ({
     return id;
   },
   editClient: (id, updates) => {
-    get().addLog(id, `Enriched profile / updated client details: ${Object.keys(updates).join(', ')}`);
+    get().addLog(id, formatInternalUpdateLog(updates, get().language), undefined, 'general', {
+      source: 'client_update',
+      updatedFields: Object.keys(updates)
+    });
     set((state) => {
       const token = localStorage.getItem('token');
       if (token) {

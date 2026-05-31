@@ -151,7 +151,9 @@ async function executeLeadScoringAgentRun(agent: AgentHubAgent) {
       });
       state.addLog(
         client.id,
-        `Lead Scoring Agent analyzed lead: score ${score}/100. Next step: ${leadNextStep}`,
+        state.language === 'zh'
+          ? `线索评分智能体已分析线索：评分 ${score}/100。下一步：${leadNextStep}`
+          : `Lead Scoring Agent analyzed lead: score ${score}/100. Next step: ${leadNextStep}`,
         undefined,
         'general',
         { source: 'lead_scoring_agent', score, summary: leadSummary }
