@@ -2525,16 +2525,15 @@ No markdown wrappers, just valid JSON.`;
         objective,
         summary: isZh ? `机会任务派发：${agent.name}` : `Opportunity dispatch: ${agent.name}`,
         status: reviewStatus,
-        steps: [{
-          id: `hstep_opp_${Date.now()}_${agent.id}`,
-          agentId: agent.id,
-          title: opportunity.title,
-          description: opportunity.description || agent.instructions || '',
-          tool: (agent.tools || [])[0] || 'agent.run',
-          risk: opportunity.risk || (agent.guardrail === 'auto' ? 'low' : 'medium'),
+        steps: buildHarnessStepsForAgent(agent, {
           status: reviewStatus === 'approved' ? 'approved' : 'pending',
-          payload: { source: 'agent-opportunity', opportunityId, agentId: agent.id, tools: agent.tools || [], targetType: opportunity.targetType, targetId: opportunity.targetId }
-        }],
+          payload: { source: 'agent-opportunity', opportunityId, targetType: opportunity.targetType, targetId: opportunity.targetId }
+        }).map((step: any, index: number) => ({
+          ...step,
+          title: index === 0 ? opportunity.title : step.title,
+          description: opportunity.description || step.description,
+          risk: opportunity.risk || step.risk
+        })),
         createdAt: nowIso,
         updatedAt: nowIso
       }, ...(settings.agentHarnessRuns || [])];
@@ -2944,6 +2943,28 @@ No markdown wrappers, just valid JSON.`;
     return JSON.parse(start >= 0 && end > start ? cleaned.slice(start, end + 1) : cleaned);
   };
 
+  const buildHarnessStepsForAgent = (agent: any, base: any = {}) => {
+    const tools = Array.isArray(agent.tools) && agent.tools.length ? agent.tools : ['agent.run'];
+    return tools.map((tool: string, index: number) => ({
+      id: `hstep_${Date.now()}_${index}_${agent.id}`,
+      agentId: agent.id,
+      title: tool,
+      description: agent.instructions || '',
+      tool,
+      risk: ['email.send', 'whatsapp.send', 'quote.create', 'product.delete'].includes(tool)
+        ? 'high'
+        : ['lead.acquire', 'lead.create', 'lead.update', 'client.update', 'product.update', 'email.schedule'].includes(tool)
+          ? 'medium'
+          : (agent.guardrail === 'auto' ? 'low' : 'medium'),
+      status: base.status || 'pending',
+      payload: {
+        ...(base.payload || {}),
+        agentId: agent.id,
+        tools
+      }
+    }));
+  };
+
   const executeAgentHubHarnessRun = async (userId: string, settings: any, runId: string) => {
     const isZh = settings.language === 'zh';
     const runs = Array.isArray(settings.agentHarnessRuns) ? settings.agentHarnessRuns : [];
@@ -3316,16 +3337,13 @@ Return JSON only:
           objective,
           summary: isZh ? `事件触发：${agent.name}` : `Event-triggered run: ${agent.name}`,
           status: reviewStatus,
-          steps: [{
-            id: `hstep_event_${Date.now()}_${agent.id}`,
-            agentId: agent.id,
-            title: isZh ? `处理事件：${event}` : `Handle event: ${event}`,
-            description: agent.instructions || '',
-            tool: (agent.tools || [])[0] || 'agent.run',
-            risk: agent.guardrail === 'auto' ? 'low' : 'medium',
+          steps: buildHarnessStepsForAgent(agent, {
             status: reviewStatus === 'approved' ? 'approved' : 'pending',
-            payload: { source: 'agent-hub-event', event, eventPayload: payload, eventScope, agentId: agent.id, tools: agent.tools || [] }
-          }],
+            payload: { source: 'agent-hub-event', event, eventPayload: payload, eventScope }
+          }).map((step: any, index: number) => ({
+            ...step,
+            title: index === 0 ? (isZh ? `处理事件：${event}` : `Handle event: ${event}`) : step.title
+          })),
           createdAt: nowIso,
           updatedAt: nowIso
         }, ...(settings.agentHarnessRuns || [])];
@@ -3431,16 +3449,13 @@ Return JSON only:
           objective,
           summary: isZh ? `手动执行：${agent.name}` : `Manual run: ${agent.name}`,
           status: reviewStatus,
-          steps: [{
-            id: `hstep_manual_${Date.now()}_${agent.id}`,
-            agentId: agent.id,
-            title: isZh ? `执行 ${agent.name}` : `Run ${agent.name}`,
-            description: agent.instructions || '',
-            tool: (agent.tools || [])[0] || 'agent.run',
-            risk: agent.guardrail === 'auto' ? 'low' : 'medium',
+          steps: buildHarnessStepsForAgent(agent, {
             status: reviewStatus === 'approved' ? 'approved' : 'pending',
-            payload: { source: 'agent-hub-manual', agentId: agent.id, tools: agent.tools || [] }
-          }],
+            payload: { source: 'agent-hub-manual' }
+          }).map((step: any, index: number) => ({
+            ...step,
+            title: index === 0 ? (isZh ? `执行 ${agent.name}` : `Run ${agent.name}`) : step.title
+          })),
           createdAt: nowIso,
           updatedAt: nowIso
         }, ...(settings.agentHarnessRuns || [])];

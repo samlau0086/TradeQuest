@@ -2076,6 +2076,21 @@ export function AgentHub() {
                         <div className="mt-2 text-[10px] text-slate-600">{new Date(opportunity.createdAt).toLocaleString()} · {opportunity.source}</div>
                       </div>
                       <div className="flex shrink-0 flex-wrap items-center gap-2">
+                        {opportunity.status === 'completed' && (
+                          <button
+                            type="button"
+                            onClick={() => updateAgentOpportunity(opportunity.id, {
+                              status: 'open',
+                              relatedRunId: undefined,
+                              relatedRunType: undefined,
+                              resultSummary: language === 'zh' ? '已重新打开，可再次派发。' : 'Reopened for dispatch.',
+                              completedAt: undefined
+                            })}
+                            className="rounded-md border border-blue-500/30 px-3 py-2 text-xs font-bold text-blue-300 hover:bg-blue-500/10"
+                          >
+                            {language === 'zh' ? '重新打开' : 'Reopen'}
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => void dispatchOpportunity(opportunity)}
