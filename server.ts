@@ -2317,7 +2317,7 @@ No markdown wrappers, just valid JSON.`;
   const addAgentOpportunityToSettings = (settings: any, opportunity: any) => {
     const now = new Date().toISOString();
     const existing = Array.isArray(settings.agentOpportunities) ? settings.agentOpportunities : [];
-    if (existing.some((item: any) => item.dedupeKey === opportunity.dedupeKey && ['open', 'running'].includes(item.status))) {
+    if (existing.some((item: any) => item.dedupeKey === opportunity.dedupeKey && ['open', 'queued', 'pending_review', 'running'].includes(item.status))) {
       return null;
     }
     const nextOpportunity = {
@@ -2717,6 +2717,65 @@ No markdown wrappers, just valid JSON.`;
               : (isZh
                 ? `审核通过后执行 ${agent.name} 的配置工作流：读取符合条件的客户上下文，检查幂等和风险规则，生成适合渠道的外发内容，执行已授权工具（${(agent.tools || []).join(', ') || 'agent tools'}），更新 CRM 日志/状态，并汇总扫描、执行、跳过、失败数量。`
                 : `Run the configured ${agent.name} workflow after approval: read eligible customer context, check idempotency and risk rules, generate channel-appropriate outbound content, execute permitted tools (${(agent.tools || []).join(', ') || 'agent tools'}), update CRM logs/status, and report scanned/acted/skipped/failed counts.`);
+          const schedulerRecord = addAgentHubRunRecordToSettings(settings, {
+            agentId: agent.id,
+            agentName: agent.name,
+            trigger: 'scheduled',
+            status: 'running',
+            plan: objective,
+            expectedResult: isZh
+              ? '定期触发不再直接执行，而是进入机会任务队列，由策略路由器决定自动执行、进入审核或保留待派发。'
+              : 'Scheduled triggers now enqueue an opportunity first. The policy router decides whether to auto-execute, send to review, or keep it for manual dispatch.',
+            actualResult: isZh ? '正在创建机会任务并应用路由策略。' : 'Creating an opportunity and applying routing policy.'
+          });
+          summary.recordsCreated += 1;
+          try {
+            const tools = Array.isArray(agent.tools) ? agent.tools : [];
+            const scheduledRisk = tools.some((tool: string) => ['email.send', 'whatsapp.send', 'quote.create'].includes(tool))
+              ? 'high'
+              : (agent.guardrail === 'auto' ? 'low' : 'medium');
+            const opportunity = addAgentOpportunityToSettings(settings, {
+              title: isZh ? `定期任务：${agent.name}` : `Scheduled task: ${agent.name}`,
+              description: isZh
+                ? '该任务由智能体定期运行配置触发，已统一进入机会任务队列。'
+                : 'This task was triggered by the agent schedule and routed through the opportunity queue.',
+              recommendedAgentId: agent.id,
+              recommendedAgentName: agent.name,
+              objective,
+              risk: scheduledRisk,
+              targetType: 'system',
+              source: 'agent_schedule',
+              dedupeKey: `scheduled_agent:${agent.id}`
+            });
+            const routed = await routeAgentOpportunitiesForUser(user.id, settings);
+            summary.opportunitiesCreated += opportunity ? 1 : 0;
+            summary.opportunitiesRouted += routed.routed;
+            summary.opportunitiesExecuted += routed.executed;
+            summary.opportunitiesReview += routed.review;
+            summary.errors += routed.failed;
+            updateAgentHubRunRecordInSettings(settings, schedulerRecord.id, {
+              status: 'completed',
+              actualResult: isZh
+                ? `已进入三层机制：新增机会任务 ${opportunity ? 1 : 0} 个，自动路由 ${routed.routed} 个，进入审核 ${routed.review} 个。`
+                : `Routed through the three-layer flow: created ${opportunity ? 1 : 0} opportunity, auto-routed ${routed.routed}, sent ${routed.review} to review.`,
+              completedAt: new Date().toISOString()
+            });
+            const nextRunCount = (agent.scheduleRunCount || 0) + 1;
+            agent.lastRunAt = new Date(now).toISOString();
+            agent.scheduleRunCount = nextRunCount;
+            agent.scheduleEnabled = agent.scheduleMaxRuns != null && nextRunCount >= agent.scheduleMaxRuns ? false : agent.scheduleEnabled;
+            agent.tasksCompleted = (agent.tasksCompleted || 0) + (opportunity ? 1 : 0);
+            agent.updatedAt = new Date().toISOString();
+          } catch (error: any) {
+            summary.errors += 1;
+            updateAgentHubRunRecordInSettings(settings, schedulerRecord.id, {
+              status: 'failed',
+              actualResult: error?.message || 'Scheduled opportunity routing failed.',
+              completedAt: new Date().toISOString()
+            });
+          }
+          changed = true;
+          continue;
           const startedRecord = addAgentHubRunRecordToSettings(settings, {
             agentId: agent.id,
             agentName: agent.name,
