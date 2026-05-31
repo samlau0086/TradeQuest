@@ -1,10 +1,20 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useStore } from '../store';
-import { Trophy, Star, History, Flame, ArrowUpCircle, Award, Target, CheckCircle2, ChevronDown, Clock, Mail, Users, DollarSign, BarChart3, Activity, Send, Globe2 } from 'lucide-react';
+import { Trophy, Star, History, Flame, ArrowUpCircle, Award, Target, CheckCircle2, ChevronDown, Clock, Mail, Users, DollarSign, BarChart3, Activity, Send, Globe2, Sparkles, RefreshCw, Lightbulb } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useTranslation } from '../lib/i18n';
+import { useAuthStore } from '../authStore';
 
 const PIPELINE_STAGES = ['Leads', 'Contacted', 'Sample Sent', 'Negotiating', 'Closed Won'];
+
+type DashboardDailySummary = {
+  date: string;
+  summary: string;
+  highlights: string[];
+  recommendations: string[];
+  generatedAt: string;
+  fallback?: boolean;
+};
 
 function MetricCard({ icon, label, value, subtext, tone = 'cyan' }: { icon: React.ReactNode; label: string; value: string | number; subtext?: string; tone?: 'cyan' | 'emerald' | 'amber' | 'rose' }) {
   const toneClass = {
@@ -240,6 +250,26 @@ function addDays(date: Date, days: number) {
   return copy;
 }
 
+function parseDailySummary(raw: string, date: string): DashboardDailySummary | null {
+  const cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
+  const jsonStart = cleaned.indexOf('{');
+  const jsonEnd = cleaned.lastIndexOf('}');
+  if (jsonStart < 0 || jsonEnd <= jsonStart) return null;
+
+  try {
+    const parsed = JSON.parse(cleaned.slice(jsonStart, jsonEnd + 1));
+    return {
+      date,
+      summary: String(parsed.summary || '').trim(),
+      highlights: Array.isArray(parsed.highlights) ? parsed.highlights.map((item: unknown) => String(item)).filter(Boolean).slice(0, 4) : [],
+      recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations.map((item: unknown) => String(item)).filter(Boolean).slice(0, 5) : [],
+      generatedAt: new Date().toISOString()
+    };
+  } catch {
+    return null;
+  }
+}
+
 function ContributionHeatmap({
   days,
   total,
@@ -348,9 +378,12 @@ function ContributionHeatmap({
 }
 
 export function Dashboard() {
-  const { userExp, userLevel, userTitle, currentStreak, dailyQuests, expLogs, setView, skipQuest, language, emails, clients, deals, quotes, logs, leadCampaigns, publicClients } = useStore();
+  const { userExp, userLevel, userTitle, currentStreak, dailyQuests, expLogs, setView, skipQuest, language, emails, clients, deals, quotes, logs, leadCampaigns, publicClients, llmConfigs, activeLLMId, llmMappings, notify } = useStore();
+  const { profile, token } = useAuthStore();
   const t = useTranslation(language);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+  const [dailySummary, setDailySummary] = useState<DashboardDailySummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -481,6 +514,140 @@ export function Dashboard() {
     };
   }, [clients, deals, emails, expLogs, leadCampaigns, logs, publicClients, quotes, t]);
 
+  const todayKey = formatDateKey(new Date());
+  const summaryCacheKey = `tradequest:dashboard-daily-summary:${profile?.id || profile?.email || 'local'}:${language}:${todayKey}`;
+  const summaryLLMId = llmMappings.analysis || activeLLMId;
+  const summaryLLMConfig = summaryLLMId ? llmConfigs.find(config => config.id === summaryLLMId) : undefined;
+
+  const summaryInput = useMemo(() => ({
+    date: todayKey,
+    metrics: {
+      totalClients: clients.length,
+      publicPoolLeads: publicClients.length,
+      totalDeals: deals.length,
+      totalQuotes: quotes.length,
+      pipelineValue: operations.dealValue,
+      wonValue: operations.wonValue,
+      conversionRate: operations.conversionRate,
+      unreadEmails: operations.emailRows[0]?.value || 0,
+      openFollowUpTodos: operations.openTodos,
+      quoteDrafts: operations.quoteDrafts,
+      contributionEventsLastYear: operations.contributionTotal
+    },
+    pipeline: operations.clientStageRows.map(row => ({ stage: row.label, count: row.value })),
+    dealPipeline: operations.dealStageRows.map(row => ({ stage: row.label, count: row.value })),
+    activityTrend: operations.activityTrend.map(point => ({ date: point.meta, events: point.value })),
+    acquisition: operations.campaignRows.map(row => ({ label: row.label, value: row.value })),
+    upcomingTodos: upcomingTodos.slice(0, 5).map(email => ({
+      subject: email.subject,
+      contact: email.sender || email.recipient,
+      todoAt: email.todoAt
+    })),
+    recentSignals: [
+      ...logs.slice(-8).map(log => ({ type: 'log', date: log.date, text: log.content })),
+      ...emails.slice(-8).map(email => ({ type: email.type, date: email.date, text: email.subject }))
+    ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 10)
+  }), [clients.length, deals.length, emails, logs, operations, publicClients.length, quotes.length, todayKey, upcomingTodos]);
+
+  const buildFallbackSummary = (date: string): DashboardDailySummary => {
+    const unreadEmails = operations.emailRows[0]?.value || 0;
+    const recommendations = [
+      unreadEmails > 0
+        ? t('Prioritize unread inbound messages and clear urgent replies first.')
+        : t('Keep monitoring inbound channels and prepare proactive follow-ups.'),
+      operations.openTodos > 0
+        ? t('Complete due follow-up todos before starting new outreach.')
+        : t('Create next-step tasks for high-fit clients to keep momentum visible.'),
+      publicClients.length > 0
+        ? t('Review public pool leads and claim or enrich the highest-fit records.')
+        : t('Run lead acquisition or enrichment to keep the top of funnel healthy.')
+    ];
+
+    return {
+      date,
+      summary: t('Today operations are stable. Review the key workload, pipeline, and acquisition signals below before planning outreach.'),
+      highlights: [
+        t('{count} total clients').replace('{count}', String(clients.length)),
+        t('{count} unread emails').replace('{count}', String(unreadEmails)),
+        t('{count} public pool leads').replace('{count}', String(publicClients.length)),
+        t('{count}% conversion rate').replace('{count}', String(operations.conversionRate))
+      ],
+      recommendations,
+      generatedAt: new Date().toISOString(),
+      fallback: true
+    };
+  };
+
+  const generateDailySummary = async (force = false) => {
+    if (!force) {
+      const cached = localStorage.getItem(summaryCacheKey);
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached) as DashboardDailySummary;
+          if (parsed.date === todayKey) {
+            setDailySummary(parsed);
+            return;
+          }
+        } catch {
+          localStorage.removeItem(summaryCacheKey);
+        }
+      }
+    }
+
+    setSummaryLoading(true);
+    try {
+      let nextSummary: DashboardDailySummary | null = null;
+      if (summaryLLMConfig && token) {
+        const res = await fetch('/api/chat/magic', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            command: [
+              'Generate a concise daily CRM operations summary and improvement recommendations for the current user.',
+              `Internal output language: ${language === 'zh' ? 'Chinese' : 'English'}.`,
+              'Use the provided metrics only. Do not invent numbers.',
+              'Return ONLY JSON with this shape: {"summary":"...","highlights":["..."],"recommendations":["..."]}.',
+              'Keep summary to 1-2 sentences. Provide 3-5 practical recommendations.'
+            ].join('\n'),
+            context: {
+              systemLanguage: language,
+              dashboardMetrics: summaryInput
+            },
+            llmConfig: summaryLLMConfig,
+            skipKnowledgeBase: true
+          })
+        });
+        const data = await res.json();
+        if (res.ok && data?.result) {
+          nextSummary = parseDailySummary(String(data.result), todayKey);
+        }
+      }
+
+      if (!nextSummary || !nextSummary.summary) {
+        nextSummary = buildFallbackSummary(todayKey);
+      }
+
+      localStorage.setItem(summaryCacheKey, JSON.stringify(nextSummary));
+      setDailySummary(nextSummary);
+      if (force) notify(t('Daily operating summary regenerated.'), 'success');
+    } catch {
+      const fallback = buildFallbackSummary(todayKey);
+      localStorage.setItem(summaryCacheKey, JSON.stringify(fallback));
+      setDailySummary(fallback);
+      if (force) notify(t('AI summary failed. A safe local summary was generated.'), 'warning');
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    generateDailySummary(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [summaryCacheKey]);
+
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin bg-slate-900 border-t border-slate-800 p-6">
       <div className="w-full space-y-8 flex flex-col min-h-full">
@@ -516,6 +683,63 @@ export function Dashboard() {
             >
               {t('Open Global Agent')}
             </button>
+          </div>
+
+          <div className="bg-slate-950/60 rounded-2xl p-6 border border-cyan-900/40 shadow-sm">
+            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-cyan-400" /> {t('Daily Operating Summary')}
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  {dailySummary
+                    ? t('Generated once per day. Last updated: {time}').replace('{time}', new Date(dailySummary.generatedAt).toLocaleString())
+                    : t('Preparing today summary...')}
+                </p>
+              </div>
+              <button
+                onClick={() => generateDailySummary(true)}
+                disabled={summaryLoading}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-xs font-bold text-slate-200 shrink-0"
+              >
+                <RefreshCw className={cn('w-4 h-4 text-cyan-400', summaryLoading && 'animate-spin')} />
+                {summaryLoading ? t('Generating...') : t('Regenerate')}
+              </button>
+            </div>
+
+            <div className="mt-5 grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-5">
+              <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+                <div className="text-xs uppercase font-bold text-cyan-400 mb-2">{t('Summary')}</div>
+                <p className="text-sm leading-6 text-slate-200">
+                  {dailySummary?.summary || t('Preparing today summary...')}
+                </p>
+                {!!dailySummary?.highlights.length && (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {dailySummary.highlights.map((item, index) => (
+                      <span key={`${item}-${index}`} className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs text-slate-300">
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+                <div className="text-xs uppercase font-bold text-emerald-400 mb-3 flex items-center gap-2">
+                  <Lightbulb className="w-4 h-4" /> {t('Improvement Recommendations')}
+                </div>
+                <div className="space-y-3">
+                  {(dailySummary?.recommendations.length ? dailySummary.recommendations : [t('Preparing today recommendations...')]).map((item, index) => (
+                    <div key={`${item}-${index}`} className="flex items-start gap-3 text-sm text-slate-300">
+                      <span className="mt-1 w-5 h-5 rounded-full bg-emerald-500/10 border border-emerald-800 text-[10px] font-black text-emerald-300 flex items-center justify-center shrink-0">
+                        {index + 1}
+                      </span>
+                      <span className="leading-6">{item}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
