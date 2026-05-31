@@ -2468,11 +2468,23 @@ No markdown wrappers, just valid JSON.`;
     ));
   };
 
+  const activeOpportunityDispatches = new Set<string>();
+  const activeHarnessExecutions = new Set<string>();
+
   const dispatchAgentOpportunityForUser = async (userId: string, settings: any, opportunityId: string, dispatchMode: 'manual' | 'auto' = 'manual') => {
+    const dispatchLockKey = `${userId}:${opportunityId}`;
+    if (activeOpportunityDispatches.has(dispatchLockKey)) {
+      throw new Error(settings.language === 'zh' ? '该机会任务正在派发中，请勿重复提交。' : 'This opportunity is already being dispatched.');
+    }
+    activeOpportunityDispatches.add(dispatchLockKey);
+    try {
     const opportunities = Array.isArray(settings.agentOpportunities) ? settings.agentOpportunities : [];
     const opportunity = opportunities.find((item: any) => item.id === opportunityId);
     if (!opportunity) throw new Error('Agent opportunity not found');
     if (['completed', 'ignored'].includes(opportunity.status)) throw new Error('Agent opportunity is already closed');
+    if (opportunity.relatedRunId || !['open', 'failed'].includes(opportunity.status || 'open')) {
+      throw new Error(settings.language === 'zh' ? '该机会任务已派发或正在处理中。' : 'This opportunity has already been dispatched or is already in progress.');
+    }
 
     const agents = Array.isArray(settings.agentHubAgents) ? settings.agentHubAgents : [];
     const agent = agents.find((item: any) => item.id === opportunity.recommendedAgentId);
@@ -2589,6 +2601,9 @@ No markdown wrappers, just valid JSON.`;
     }
 
     return { opportunityId, relatedRunId, relatedRunType, reviewStatus, executionResult };
+    } finally {
+      activeOpportunityDispatches.delete(dispatchLockKey);
+    }
   };
 
   const getOpportunityRoutingPolicy = (settings: any) => ({
@@ -2602,6 +2617,7 @@ No markdown wrappers, just valid JSON.`;
 
   const shouldAutoRouteOpportunity = (opportunity: any, agent: any, policy: any) => {
     if (!policy.enabled || !agent || agent.status === 'paused') return false;
+    if (opportunity.relatedRunId) return false;
     if (!['open', 'failed'].includes(opportunity.status || 'open')) return false;
     const risk = opportunity.risk || 'medium';
     if (risk === 'low') return policy.autoExecuteLowRisk && agent.guardrail === 'auto';
@@ -3533,16 +3549,28 @@ Return JSON only:
       res.json({ success: true, result, settings: updated.rows[0]?.settings || settings });
     } catch (e: any) {
       console.error('Failed to dispatch Agent Hub opportunity', e);
-      res.status(500).json({ error: e.message || 'Failed to dispatch opportunity' });
+      const message = e.message || 'Failed to dispatch opportunity';
+      const isConflict = message.includes('already') || message.includes('正在') || message.includes('已派发') || message.includes('处理中');
+      res.status(isConflict ? 409 : 500).json({ error: message });
     }
   });
 
   app.post('/api/agent-hub/harness-runs/:runId/execute', authenticateToken, async (req: any, res) => {
+    const { runId } = req.params;
+    const executionLockKey = `${req.user.uid}:${runId}`;
+    if (activeHarnessExecutions.has(executionLockKey)) {
+      return res.status(409).json({ error: 'This agent run is already executing.' });
+    }
+    activeHarnessExecutions.add(executionLockKey);
     try {
-      const { runId } = req.params;
       const userRes = await pool.query('SELECT settings FROM users WHERE id = $1', [req.user.uid]);
       if (userRes.rows.length === 0) return res.status(404).json({ error: 'User not found' });
       const settings = typeof userRes.rows[0].settings === 'string' ? JSON.parse(userRes.rows[0].settings || '{}') : (userRes.rows[0].settings || {});
+      const existingRun = (settings.agentHarnessRuns || []).find((run: any) => run.id === runId);
+      if (!existingRun) return res.status(404).json({ error: 'Agent run not found' });
+      if (['running', 'completed'].includes(existingRun.status)) {
+        return res.status(409).json({ error: settings.language === 'zh' ? '该智能体运行已在执行或已完成。' : 'This agent run is already running or completed.' });
+      }
       settings.agentHarnessRuns = (settings.agentHarnessRuns || []).map((run: any) => run.id === runId ? {
         ...run,
         status: 'running',
@@ -3577,6 +3605,8 @@ Return JSON only:
         error: e.message || 'Failed to execute Agent Hub run'
       }).catch(err => console.warn('Agent Hub execution_failed trigger failed', err));
       res.status(500).json({ error: e.message || 'Failed to execute Agent Hub run' });
+    } finally {
+      activeHarnessExecutions.delete(executionLockKey);
     }
   });
 
