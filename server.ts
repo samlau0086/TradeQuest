@@ -1205,6 +1205,21 @@ No markdown wrappers, just valid JSON.`;
     ])).filter(id => !SYSTEM_AGENT_IDS.has(id));
     const deletedAgentHubAgentIdSet = new Set(deletedAgentHubAgentIds);
     merged.agentRunRecords = mergeSettingsArrayById(existing.agentRunRecords || [], incoming.agentRunRecords || []).slice(0, 200);
+    const mergedOpportunityDedupeLog = {
+      ...(existing.agentOpportunityDedupeLog || {}),
+      ...(incoming.agentOpportunityDedupeLog || {})
+    };
+    Object.entries(existing.agentOpportunityDedupeLog || {}).forEach(([key, value]: [string, any]) => {
+      const incomingValue = mergedOpportunityDedupeLog[key] as any;
+      const existingTime = new Date(value?.lastTouchedAt || value?.completedAt || value?.updatedAt || 0).getTime();
+      const incomingTime = new Date(incomingValue?.lastTouchedAt || incomingValue?.completedAt || incomingValue?.updatedAt || 0).getTime();
+      if (existingTime > incomingTime) mergedOpportunityDedupeLog[key] = value;
+    });
+    merged.agentOpportunityDedupeLog = Object.fromEntries(
+      Object.entries(mergedOpportunityDedupeLog)
+        .sort(([, a]: [string, any], [, b]: [string, any]) => new Date(b?.lastTouchedAt || 0).getTime() - new Date(a?.lastTouchedAt || 0).getTime())
+        .slice(0, 500)
+    );
     merged.agentOpportunities = Array.isArray(incoming.agentOpportunities)
       ? incoming.agentOpportunities.filter((opportunity: any) => opportunity?.id).slice(0, 300)
       : (existing.agentOpportunities || []);
@@ -2342,6 +2357,8 @@ No markdown wrappers, just valid JSON.`;
 
   const AGENT_OPPORTUNITY_ACTIVE_STATUSES = new Set(['open', 'queued', 'pending_review', 'running', 'failed']);
   const AGENT_OPPORTUNITY_CLOSED_DEDUPE_MS = 30 * 24 * 60 * 60 * 1000;
+  const AGENT_OPPORTUNITY_DEDUPE_LOG_LIMIT = 500;
+  const AGENT_OPPORTUNITY_DEDUPE_LOG_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 
   const getAgentOpportunityTimestamp = (opportunity: any) => {
     const raw = opportunity?.completedAt || opportunity?.updatedAt || opportunity?.createdAt;
@@ -2349,11 +2366,64 @@ No markdown wrappers, just valid JSON.`;
     return Number.isFinite(time) ? time : 0;
   };
 
+  const getAgentOpportunityStateSignature = (opportunity: any) => {
+    if (opportunity?.metadata?.stateSignature) return String(opportunity.metadata.stateSignature);
+    return JSON.stringify({
+      targetType: opportunity?.targetType || null,
+      targetId: opportunity?.targetId || null,
+      relatedEmailIds: opportunity?.metadata?.relatedEmailIds || null,
+      trackingCount: opportunity?.metadata?.trackingCount || null,
+      objective: opportunity?.objective || ''
+    });
+  };
+
+  const pruneAgentOpportunityDedupeLog = (settings: any) => {
+    const now = Date.now();
+    const entries = Object.entries(settings.agentOpportunityDedupeLog || {})
+      .filter(([, value]: [string, any]) => {
+        const touchedAt = new Date(value?.lastTouchedAt || 0).getTime();
+        return touchedAt > 0 && now - touchedAt < AGENT_OPPORTUNITY_DEDUPE_LOG_TTL_MS;
+      })
+      .sort(([, a]: [string, any], [, b]: [string, any]) => new Date(b?.lastTouchedAt || 0).getTime() - new Date(a?.lastTouchedAt || 0).getTime())
+      .slice(0, AGENT_OPPORTUNITY_DEDUPE_LOG_LIMIT);
+    settings.agentOpportunityDedupeLog = Object.fromEntries(entries);
+  };
+
+  const rememberAgentOpportunityDedupe = (settings: any, opportunity: any, updates: any = {}) => {
+    if (!opportunity?.dedupeKey) return;
+    pruneAgentOpportunityDedupeLog(settings);
+    settings.agentOpportunityDedupeLog = {
+      ...(settings.agentOpportunityDedupeLog || {}),
+      [opportunity.dedupeKey]: {
+        opportunityId: opportunity.id,
+        relatedRunId: updates.relatedRunId || opportunity.relatedRunId || null,
+        status: updates.status || opportunity.status || 'open',
+        title: opportunity.title || '',
+        source: opportunity.source || '',
+        targetType: opportunity.targetType || null,
+        targetId: opportunity.targetId || null,
+        stateSignature: getAgentOpportunityStateSignature(opportunity),
+        lastTouchedAt: updates.completedAt || updates.updatedAt || new Date().toISOString()
+      }
+    };
+    pruneAgentOpportunityDedupeLog(settings);
+  };
+
+  const shouldSuppressOpportunityByDedupeLog = (settings: any, opportunity: any, options: { ignoreOpportunityId?: string } = {}) => {
+    const entry = opportunity?.dedupeKey ? settings.agentOpportunityDedupeLog?.[opportunity.dedupeKey] : null;
+    if (!entry) return false;
+    if (options.ignoreOpportunityId && entry.opportunityId === options.ignoreOpportunityId) return false;
+    if (entry.stateSignature !== getAgentOpportunityStateSignature(opportunity)) return false;
+    const touchedAt = new Date(entry.lastTouchedAt || 0).getTime();
+    return touchedAt > 0 && Date.now() - touchedAt < AGENT_OPPORTUNITY_CLOSED_DEDUPE_MS;
+  };
+
   const shouldSuppressDuplicateOpportunity = (existingOpportunity: any, incomingOpportunity: any) => {
     if (!existingOpportunity?.dedupeKey || existingOpportunity.dedupeKey !== incomingOpportunity?.dedupeKey) return false;
     const status = existingOpportunity.status || 'open';
     if (AGENT_OPPORTUNITY_ACTIVE_STATUSES.has(status)) return true;
     if (!['completed', 'ignored'].includes(status)) return false;
+    if (getAgentOpportunityStateSignature(existingOpportunity) !== getAgentOpportunityStateSignature(incomingOpportunity)) return false;
 
     const lastTouchedAt = getAgentOpportunityTimestamp(existingOpportunity);
     return lastTouchedAt > 0 && Date.now() - lastTouchedAt < AGENT_OPPORTUNITY_CLOSED_DEDUPE_MS;
@@ -2362,6 +2432,9 @@ No markdown wrappers, just valid JSON.`;
   const addAgentOpportunityToSettings = (settings: any, opportunity: any) => {
     const now = new Date().toISOString();
     const existing = Array.isArray(settings.agentOpportunities) ? settings.agentOpportunities : [];
+    if (shouldSuppressOpportunityByDedupeLog(settings, opportunity)) {
+      return null;
+    }
     if (existing.some((item: any) => shouldSuppressDuplicateOpportunity(item, opportunity))) {
       return null;
     }
@@ -2373,6 +2446,7 @@ No markdown wrappers, just valid JSON.`;
       updatedAt: now
     };
     settings.agentOpportunities = [nextOpportunity, ...existing].slice(0, 300);
+    rememberAgentOpportunityDedupe(settings, nextOpportunity, { status: nextOpportunity.status, updatedAt: now });
     return nextOpportunity;
   };
 
@@ -2430,7 +2504,10 @@ No markdown wrappers, just valid JSON.`;
         targetType: 'email',
         targetId: email.id,
         source: 'signal_scanner',
-        dedupeKey: `unread_email:${email.id}`
+        dedupeKey: `unread_email:${email.id}`,
+        metadata: {
+          stateSignature: `read:${email.read}:date:${email.date || ''}:subject:${email.subject || ''}`
+        }
       });
     });
 
@@ -2447,7 +2524,10 @@ No markdown wrappers, just valid JSON.`;
         targetType: 'client',
         targetId: client.id,
         source: 'signal_scanner',
-        dedupeKey: `missing_next_step:client:${client.id}`
+        dedupeKey: `missing_next_step:client:${client.id}`,
+        metadata: {
+          stateSignature: `status:${client.status || ''}:score:${client.lead_score ?? ''}:updated:${client.updated_at || ''}:next:${client.lead_next_step || client.agent_next_step || ''}`
+        }
       });
     });
 
@@ -2464,7 +2544,10 @@ No markdown wrappers, just valid JSON.`;
         targetType: 'lead',
         targetId: deal.id,
         source: 'signal_scanner',
-        dedupeKey: `missing_score:lead:${deal.id}`
+        dedupeKey: `missing_score:lead:${deal.id}`,
+        metadata: {
+          stateSignature: `status:${deal.status || ''}:score:${deal.lead_score ?? ''}:updated:${deal.updated_at || ''}:next:${deal.lead_next_step || ''}`
+        }
       });
     });
 
@@ -2485,7 +2568,10 @@ No markdown wrappers, just valid JSON.`;
         targetType: 'client',
         targetId: client.id,
         source: 'signal_scanner',
-        dedupeKey: `inactive_30d:client:${client.id}`
+        dedupeKey: `inactive_30d:client:${client.id}`,
+        metadata: {
+          stateSignature: `status:${client.status || ''}:last:${client.last_contact || ''}:updated:${client.updated_at || ''}`
+        }
       });
     });
 
@@ -2524,7 +2610,8 @@ No markdown wrappers, just valid JSON.`;
           threadKey,
           normalizedSubject: baseSubject,
           relatedEmailIds,
-          trackingCount: thread.trackingCount
+          trackingCount: thread.trackingCount,
+          stateSignature: `tracking:${thread.trackingCount}:emails:${relatedEmailIds.sort().join(',')}:representative:${email.id}`
         }
       });
     });
@@ -2546,9 +2633,12 @@ No markdown wrappers, just valid JSON.`;
 
   const updateAgentOpportunityInSettings = (settings: any, opportunityId: string, updates: any) => {
     const nowIso = new Date().toISOString();
-    settings.agentOpportunities = (Array.isArray(settings.agentOpportunities) ? settings.agentOpportunities : []).map((opportunity: any) => (
-      opportunity.id === opportunityId ? { ...opportunity, ...updates, updatedAt: nowIso } : opportunity
-    ));
+    settings.agentOpportunities = (Array.isArray(settings.agentOpportunities) ? settings.agentOpportunities : []).map((opportunity: any) => {
+      if (opportunity.id !== opportunityId) return opportunity;
+      const nextOpportunity = { ...opportunity, ...updates, updatedAt: nowIso };
+      rememberAgentOpportunityDedupe(settings, nextOpportunity, { ...updates, updatedAt: nowIso });
+      return nextOpportunity;
+    });
   };
 
   const activeOpportunityDispatches = new Set<string>();
@@ -2577,6 +2667,28 @@ No markdown wrappers, just valid JSON.`;
     const opportunity = opportunities.find((item: any) => item.id === opportunityId);
     if (!opportunity) throw new Error('Agent opportunity not found');
     if (['completed', 'ignored'].includes(opportunity.status)) throw new Error('Agent opportunity is already closed');
+    if (shouldSuppressOpportunityByDedupeLog(settings, opportunity, { ignoreOpportunityId: opportunity.id })) {
+      updateAgentOpportunityInSettings(settings, opportunityId, {
+        status: 'completed',
+        resultSummary: settings.language === 'zh'
+          ? '同一机会任务在冷却窗口内且状态未变化，已跳过重复派发。'
+          : 'Duplicate opportunity skipped because the same state is still inside the dispatch cooldown window.',
+        completedAt: new Date().toISOString()
+      });
+      return {
+        opportunityId,
+        relatedRunId: null,
+        relatedRunType: 'harness',
+        reviewStatus: 'skipped',
+        executionResult: {
+          scanned: 0,
+          acted: 0,
+          skipped: 1,
+          failed: 0,
+          details: [settings.language === 'zh' ? '已按机会任务派发记忆跳过。' : 'Skipped by opportunity dispatch memory.']
+        }
+      };
+    }
     if (opportunity.relatedRunId || !['open', 'failed'].includes(opportunity.status || 'open')) {
       throw new Error(settings.language === 'zh' ? '该机会任务已派发或正在处理中。' : 'This opportunity has already been dispatched or is already in progress.');
     }
@@ -2743,12 +2855,23 @@ No markdown wrappers, just valid JSON.`;
     for (const opportunity of opportunities) {
       if (result.routed >= max) break;
       const agent = agents.find((item: any) => item.id === opportunity.recommendedAgentId);
+      if (shouldSuppressOpportunityByDedupeLog(settings, opportunity, { ignoreOpportunityId: opportunity.id })) {
+        updateAgentOpportunityInSettings(settings, opportunity.id, {
+          status: 'completed',
+          resultSummary: settings.language === 'zh'
+            ? '同一机会任务在冷却窗口内且状态未变化，已跳过重复派发。'
+            : 'Duplicate opportunity skipped because the same state is still inside the dispatch cooldown window.',
+          completedAt: new Date().toISOString()
+        });
+        result.details.push(`${opportunity.id}: skipped_by_dedupe_memory`);
+        continue;
+      }
       if (!shouldAutoRouteOpportunity(opportunity, agent, policy)) continue;
       try {
         const dispatch = await dispatchAgentOpportunityForUser(userId, settings, opportunity.id, 'auto');
         result.routed += 1;
         if (dispatch.reviewStatus === 'pending_review') result.review += 1;
-        if (dispatch.executionResult) result.executed += 1;
+        if (dispatch.executionResult && dispatch.reviewStatus !== 'skipped') result.executed += 1;
         result.details.push(`${opportunity.id}: ${dispatch.reviewStatus}`);
       } catch (error: any) {
         result.failed += 1;
