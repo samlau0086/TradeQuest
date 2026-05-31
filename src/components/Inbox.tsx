@@ -399,7 +399,7 @@ export function Inbox() {
     if (!selectedEmail) return;
     const nextFilter = getInboxFilterForEmail(selectedEmail);
     if (filter !== nextFilter) setFilter(nextFilter);
-  }, [selectedEmail?.id, selectedEmail?.type, filter]);
+  }, [selectedEmail?.id, selectedEmail?.type]);
 
   const selectedTrackingEvents = [...(selectedEmail?.trackingEvents || [])].sort((a: any, b: any) => (
     new Date(b.created_at || b.createdAt || b.date || 0).getTime() - new Date(a.created_at || a.createdAt || a.date || 0).getTime()
@@ -590,25 +590,25 @@ export function Inbox() {
           <div className="flex justify-between items-center bg-slate-900">
             <div className="flex bg-slate-800/50 rounded-lg p-1 border border-slate-700/50">
               <button 
-                onClick={() => setFilter('inbox')}
+                onClick={() => { selectEmail(null); setFilter('inbox'); }}
                 className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors", filter === 'inbox' ? "bg-slate-700 text-white" : "text-slate-400 hover:text-slate-200")}
               >
                 Inbox
               </button>
               <button 
-                onClick={() => setFilter('sent')}
+                onClick={() => { selectEmail(null); setFilter('sent'); }}
                 className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors", filter === 'sent' ? "bg-slate-700 text-white" : "text-slate-400 hover:text-slate-200")}
               >
                 Sent
               </button>
               <button 
-                onClick={() => setFilter('scheduled')}
+                onClick={() => { selectEmail(null); setFilter('scheduled'); }}
                 className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors", filter === 'scheduled' ? "bg-slate-700 text-white" : "text-slate-400 hover:text-slate-200")}
               >
                 Scheduled
               </button>
               <button 
-                onClick={() => setFilter('drafts')}
+                onClick={() => { selectEmail(null); setFilter('drafts'); }}
                 className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors", filter === 'drafts' ? "bg-slate-700 text-white" : "text-slate-400 hover:text-slate-200")}
               >
                 Drafts

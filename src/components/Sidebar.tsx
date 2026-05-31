@@ -8,7 +8,7 @@ import { useAuthStore } from '../authStore';
 import { useTranslation } from '../lib/i18n';
 
 export function Sidebar() {
-  const { userExp, userLevel, userTitle, currentStreak, dailyQuests, view, setView, setKanbanSearch, clients, theme, setTheme, language, setLanguage, emails } = useStore();
+  const { userExp, userLevel, userTitle, currentStreak, dailyQuests, view, setView, setKanbanSearch, clients, theme, setTheme, language, setLanguage, emails, selectEmail } = useStore();
   const { profile } = useAuthStore();
   const [showAddModal, setShowAddModal] = useState(false);
   const [showExpHistory, setShowExpHistory] = useState(false);
@@ -94,7 +94,10 @@ export function Sidebar() {
           {t('dashboard')}
         </button>
         <button 
-          onClick={() => setView('inbox')}
+          onClick={() => {
+            selectEmail(null);
+            setView('inbox');
+          }}
           className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors", 
             view === 'inbox' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
         >
