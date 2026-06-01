@@ -27,6 +27,18 @@ interface InboxWhatsAppConversation {
   lastHubClientId?: string;
 }
 
+interface WhatsAppContactOption {
+  key: string;
+  clientId: string;
+  clientName: string;
+  clientCompany?: string;
+  contactName: string;
+  contactTitle?: string;
+  phone: string;
+  label: string;
+  searchText: string;
+}
+
 function decodeHtmlEntities(value: string) {
   const textarea = document.createElement('textarea');
   textarea.innerHTML = value;
@@ -136,8 +148,10 @@ export function Inbox() {
   const [tagInput, setTagInput] = useState('');
   const [whatsappConversations, setWhatsappConversations] = useState<InboxWhatsAppConversation[]>([]);
   const [selectedWhatsAppPhone, setSelectedWhatsAppPhone] = useState<string | null>(null);
+  const [selectedWhatsAppClientId, setSelectedWhatsAppClientId] = useState<string | null>(null);
   const [isStartingWhatsApp, setIsStartingWhatsApp] = useState(false);
   const [newWhatsAppPhone, setNewWhatsAppPhone] = useState('');
+  const [showWhatsAppContactPicker, setShowWhatsAppContactPicker] = useState(false);
   const whatsappSyncInFlightRef = useRef(false);
 
   const [confirmDialog, setConfirmDialog] = useState<{message: string, onConfirm: () => void} | null>(null);
@@ -251,6 +265,55 @@ export function Inbox() {
             : haystack.includes(normalized);
         });
       })
+    : [];
+
+  const whatsappContactOptions = useMemo<WhatsAppContactOption[]>(() => {
+    const options: WhatsAppContactOption[] = [];
+    clients.forEach(client => {
+      const pushMethod = (method: any, contactName: string, contactTitle?: string, suffix = '') => {
+        if (method.type !== 'whatsapp') return;
+        const phone = method.value || '';
+        const normalized = phone.replace(/[^0-9]/g, '');
+        if (!normalized) return;
+        const label = `${contactName || client.name} · ${phone}`;
+        options.push({
+          key: `${client.id}:${suffix}:${normalized}`,
+          clientId: client.id,
+          clientName: client.name,
+          clientCompany: client.company,
+          contactName: contactName || client.name,
+          contactTitle,
+          phone,
+          label,
+          searchText: [
+            client.name,
+            client.company,
+            client.country,
+            contactName,
+            contactTitle,
+            phone,
+            normalized
+          ].filter(Boolean).join(' ').toLowerCase()
+        });
+      };
+
+      (client.contactMethods || []).forEach((method, index) => pushMethod(method, client.name, undefined, `client-${index}`));
+      (client.contacts || []).forEach(contact => {
+        (contact.contactMethods || []).forEach((method, index) => pushMethod(method, contact.name || client.name, contact.title, `${contact.id}-${index}`));
+      });
+    });
+    return options.sort((a, b) => a.clientName.localeCompare(b.clientName));
+  }, [clients]);
+
+  const whatsappMentionQuery = (() => {
+    const atIndex = newWhatsAppPhone.lastIndexOf('@');
+    return atIndex >= 0 ? newWhatsAppPhone.slice(atIndex + 1).trim().toLowerCase() : '';
+  })();
+
+  const visibleWhatsAppContactOptions = showWhatsAppContactPicker || newWhatsAppPhone.includes('@')
+    ? whatsappContactOptions
+        .filter(option => !whatsappMentionQuery || option.searchText.includes(whatsappMentionQuery))
+        .slice(0, 8)
     : [];
 
   const emailConversationGroups = useMemo(() => {
@@ -420,14 +483,17 @@ export function Inbox() {
   const activeWhatsAppConversation = selectedWhatsAppPhone
     ? whatsappConversations.find(conversation => conversation.targetPhone === selectedWhatsAppPhone)
     : null;
-  const activeWhatsAppClient = activeWhatsAppConversation
-    ? clients.find(client => client.id === activeWhatsAppConversation.clientId) || matchWhatsAppClient(activeWhatsAppConversation.targetPhone) || null
+  const activeWhatsAppClient = selectedWhatsAppPhone
+    ? clients.find(client => client.id === (activeWhatsAppConversation?.clientId || selectedWhatsAppClientId))
+      || matchWhatsAppClient(activeWhatsAppConversation?.targetPhone || selectedWhatsAppPhone)
+      || null
     : null;
 
   const handleSelect = (id: string) => {
     setIsComposing(false);
     setIsStartingWhatsApp(false);
     setSelectedWhatsAppPhone(null);
+    setSelectedWhatsAppClientId(null);
     selectEmail(id);
     markEmailRead(id);
   };
@@ -437,6 +503,7 @@ export function Inbox() {
     setIsStartingWhatsApp(false);
     selectEmail(null);
     setSelectedWhatsAppPhone(conversation.targetPhone);
+    setSelectedWhatsAppClientId(conversation.clientId || null);
   };
 
   const handleDeleteWhatsAppConversation = (conversation: InboxWhatsAppConversation) => {
@@ -468,6 +535,13 @@ export function Inbox() {
     setSelectedWhatsAppPhone(phone);
     setIsStartingWhatsApp(false);
     setNewWhatsAppPhone('');
+    setShowWhatsAppContactPicker(false);
+  };
+
+  const selectWhatsAppContactOption = (option: WhatsAppContactOption) => {
+    setNewWhatsAppPhone(option.phone);
+    setSelectedWhatsAppClientId(option.clientId);
+    setShowWhatsAppContactPicker(false);
   };
 
   const handleCreateLead = () => {
@@ -631,7 +705,7 @@ export function Inbox() {
                 <Edit3 className="w-4 h-4" />
               </button>
               <button
-                onClick={() => { setIsStartingWhatsApp(true); setIsComposing(false); setSelectedWhatsAppPhone(null); selectEmail(null); }}
+                onClick={() => { setIsStartingWhatsApp(true); setIsComposing(false); setSelectedWhatsAppPhone(null); setSelectedWhatsAppClientId(null); selectEmail(null); }}
                 className="p-1.5 bg-green-600 text-white rounded-md hover:bg-green-500 transition-colors shadow-lg shadow-green-600/20"
                 title="New WhatsApp Message"
               >
@@ -1026,19 +1100,62 @@ export function Inbox() {
             </div>
             <div className="flex-1 flex items-center justify-center p-6">
               <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase">Phone Number</label>
+                <div className="relative">
+                  <label className="text-xs font-bold text-slate-500 uppercase">Phone Number or @Contact</label>
                   <input
                     value={newWhatsAppPhone}
-                    onChange={e => setNewWhatsAppPhone(e.target.value)}
+                    onChange={e => {
+                      const value = e.target.value;
+                      setNewWhatsAppPhone(value);
+                      if (value.includes('@')) setShowWhatsAppContactPicker(true);
+                      if (selectedWhatsAppClientId && value.replace(/[^0-9]/g, '') !== newWhatsAppPhone.replace(/[^0-9]/g, '')) {
+                        setSelectedWhatsAppClientId(null);
+                      }
+                    }}
+                    onFocus={() => setShowWhatsAppContactPicker(newWhatsAppPhone.includes('@'))}
                     onKeyDown={e => { if (e.key === 'Enter') startNewWhatsApp(); }}
-                    placeholder="+1 555 000 0000"
+                    placeholder="+1 555 000 0000 or @customer"
                     className="mt-2 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 outline-none focus:border-green-500"
                     autoFocus
                   />
+                  <div className="mt-2 text-[11px] text-slate-500">
+                    Type <span className="text-green-300">@</span> to choose a saved customer/contact WhatsApp number.
+                  </div>
+                  {visibleWhatsAppContactOptions.length > 0 && (
+                    <div className="absolute z-30 left-0 right-0 top-full mt-2 max-h-72 overflow-y-auto rounded-xl border border-slate-700 bg-slate-950 shadow-2xl">
+                      {visibleWhatsAppContactOptions.map(option => (
+                        <button
+                          key={option.key}
+                          type="button"
+                          onClick={() => selectWhatsAppContactOption(option)}
+                          className="w-full text-left px-3 py-2.5 hover:bg-green-500/10 border-b border-slate-800 last:border-b-0"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-sm font-bold text-slate-200 truncate">
+                                {option.contactName}
+                                {option.contactName !== option.clientName && (
+                                  <span className="ml-2 text-xs font-normal text-slate-500">({option.clientName})</span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-slate-500 truncate">
+                                {[option.contactTitle, option.clientCompany].filter(Boolean).join(' · ') || option.clientName}
+                              </div>
+                            </div>
+                            <div className="shrink-0 text-xs text-green-300 font-mono">{option.phone}</div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {newWhatsAppPhone.includes('@') && visibleWhatsAppContactOptions.length === 0 && (
+                    <div className="absolute z-30 left-0 right-0 top-full mt-2 rounded-xl border border-slate-800 bg-slate-950 px-3 py-3 text-xs text-slate-500 shadow-2xl">
+                      No saved WhatsApp contacts matched.
+                    </div>
+                  )}
                 </div>
                 <div className="flex justify-end gap-2">
-                  <button onClick={() => setIsStartingWhatsApp(false)} className="px-4 py-2 text-sm text-slate-400 hover:text-white">
+                  <button onClick={() => { setIsStartingWhatsApp(false); setShowWhatsAppContactPicker(false); }} className="px-4 py-2 text-sm text-slate-400 hover:text-white">
                     Cancel
                   </button>
                   <button
@@ -1057,7 +1174,7 @@ export function Inbox() {
           <div className="flex-1 flex flex-col min-h-0">
             {activeWhatsAppConversation && (
               <div className="px-4 py-3 border-b border-slate-800 bg-slate-900/80 flex items-center justify-between gap-3">
-                <button onClick={() => setSelectedWhatsAppPhone(null)} className="md:hidden p-2 -ml-2 text-slate-400 hover:text-white">
+                <button onClick={() => { setSelectedWhatsAppPhone(null); setSelectedWhatsAppClientId(null); }} className="md:hidden p-2 -ml-2 text-slate-400 hover:text-white">
                   <ArrowLeft className="w-5 h-5" />
                 </button>
                 <div className="min-w-0 flex-1">
@@ -1081,6 +1198,7 @@ export function Inbox() {
               conversation={activeWhatsAppConversation}
               onClose={() => {
                 setSelectedWhatsAppPhone(null);
+                setSelectedWhatsAppClientId(null);
                 loadWhatsAppConversations();
               }}
             />

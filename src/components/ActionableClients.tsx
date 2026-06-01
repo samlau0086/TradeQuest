@@ -256,14 +256,16 @@ export function ActionableClients() {
                   >
                     View Details
                   </button>
-                  <button 
-                    onClick={() => {
-                        setView('inbox');
-                    }}
-                    className="flex-1 py-2 font-bold text-sm bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 rounded-lg transition-colors flex items-center justify-center gap-2"
-                  >
-                   <Mail className="w-4 h-4" /> Message
-                  </button>
+                  {view !== 'followups' && (
+                    <button 
+                      onClick={() => {
+                          setView('inbox');
+                      }}
+                      className="flex-1 py-2 font-bold text-sm bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 rounded-lg transition-colors flex items-center justify-center gap-2"
+                    >
+                     <Mail className="w-4 h-4" /> Message
+                    </button>
+                  )}
                 </div>
               </div>
             );
