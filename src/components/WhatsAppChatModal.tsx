@@ -80,6 +80,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const syncInFlightRef = useRef(false);
   const targetPhone = useMemo(() => cleanPhone(phone), [phone]);
   const latestInboundMessage = messages.filter(message => message.direction === 'inbound').slice(-1)[0];
+  const latestOutboundMessage = messages.filter(message => message.direction === 'outbound').slice(-1)[0];
   const outboundLanguage = getCustomerOutputLanguage({
     lastCommunicationText: latestInboundMessage?.body,
     preferredLanguage: client?.preferredLanguage,
@@ -284,10 +285,13 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
         body: JSON.stringify({
           command: `Draft an outbound WhatsApp message using this user instruction as the prompt: ${prompt}
 
-Write in a WhatsApp style: concise, natural, conversational, easy to reply to, and not formatted like an email. Customer-facing output language: ${outboundLanguage}. This language was resolved by priority: last customer communication language > client preferred language > official country/region language > English. Adapt tone, timing, offer details, and next step to the customer profile, preferences, prior communication, CRM records, recent WhatsApp chat, and relevant knowledge base context. Return only the message text.`,
+Write in a WhatsApp style: concise, natural, conversational, easy to reply to, and not formatted like an email. Customer-facing output language: ${outboundLanguage}. This language was resolved by priority: last customer communication language > client preferred language > official country/region language > English. Adapt tone, timing, offer details, and next step to the customer profile, preferences, prior communication, CRM records, recent WhatsApp chat, and relevant knowledge base context.
+Critical direction rule: inbound messages are customer messages; outbound messages are our team's messages. Never treat our outbound messages as if the customer said them. If the latest message is outbound, draft a follow-up based on the latest inbound customer message and prior outreach context.
+Return only the message text.`,
           context: {
             channel: 'whatsapp',
             userInstruction: prompt,
+            directionPolicy: 'Only inbound WhatsApp messages are customer messages. Outbound messages were sent by our team and must be used only as prior outreach context, never as customer requests to answer.',
             client,
             clientPreferences: {
               preferredLanguage: client?.preferredLanguage,
@@ -300,6 +304,8 @@ Write in a WhatsApp style: concise, natural, conversational, easy to reply to, a
             relatedEmails: clientEmails,
             conversation,
             recentWhatsAppMessages: recentMessages,
+            latestInboundCustomerMessage: latestInboundMessage?.body || '',
+            latestOutboundOurMessage: latestOutboundMessage?.body || '',
             targetPhone,
             outboundLanguage,
             clientPreferredLanguage: client?.preferredLanguage || null,
@@ -542,7 +548,9 @@ Write in a WhatsApp style: concise, natural, conversational, easy to reply to, a
             hasClient={!!(conversation?.clientId || client?.id)}
             hasKnowledge={!!client}
             onDraftReply={() => generateWhatsAppMessage(
-              body.trim() || `Reply to the latest WhatsApp conversation with ${conversation?.clientName || client?.name || targetPhone}.`
+              body.trim() || (latestInboundMessage
+                ? `Reply to the latest inbound customer WhatsApp message from ${conversation?.clientName || client?.name || targetPhone}: ${latestInboundMessage.body}`
+                : `Draft a polite WhatsApp follow-up to ${conversation?.clientName || client?.name || targetPhone}. There is no inbound customer message yet, so do not answer our own outbound messages.`)
             )}
             onAddComment={() => addConversationComment(`Agent suggestion: review WhatsApp conversation with ${conversation?.clientName || client?.name || targetPhone} and prepare the next best reply.`)}
             onSaveAnalysis={async (key, insight) => {

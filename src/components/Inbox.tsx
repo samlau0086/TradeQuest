@@ -458,6 +458,25 @@ export function Inbox() {
   }, []);
 
   const selectedEmail = emails.find(e => e.id === selectedEmailId);
+  const selectedEmailIsInbound = selectedEmail ? isInboundCustomerEmail(selectedEmail) : false;
+  const selectedEmailClient = selectedEmail?.clientId ? clients.find(client => client.id === selectedEmail.clientId) : null;
+  const latestInboundEmailForSelectedClient = selectedEmailClient
+    ? emails
+        .filter(email => email.clientId === selectedEmailClient.id && ['inbox', 'inbound'].includes(email.type))
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
+    : null;
+  const selectedEmailAgentContextBody = selectedEmail
+    ? [
+        `Current email direction: ${selectedEmailIsInbound ? 'INBOUND_FROM_CUSTOMER' : 'OUTBOUND_FROM_OUR_TEAM'}.`,
+        selectedEmailIsInbound
+          ? 'Treat the current email as the customer message to reply to.'
+          : 'Do NOT treat the current email as a customer request. It was sent by our team and is only prior outreach context.',
+        `Current email body:\n${extractLatestEmailText(selectedEmail.body || '') || selectedEmail.body || 'N/A'}`,
+        !selectedEmailIsInbound && latestInboundEmailForSelectedClient
+          ? `Latest inbound customer message to consider:\n${extractLatestEmailText(latestInboundEmailForSelectedClient.body || '') || latestInboundEmailForSelectedClient.body || 'N/A'}`
+          : ''
+      ].filter(Boolean).join('\n\n')
+    : '';
   useEffect(() => {
     if (!selectedEmail) return;
     const nextFilter = getInboxFilterForEmail(selectedEmail);
@@ -1393,17 +1412,22 @@ export function Inbox() {
                  persistedInsight={selectedEmail.agentContextAnalysisKey === `email:${selectedEmail.id}` ? selectedEmail.agentContextAnalysis : undefined}
                  persistedInsightKey={selectedEmail.agentContextAnalysisKey}
                  subject={selectedEmail.subject}
-                 body={selectedEmail.body}
+                 body={selectedEmailAgentContextBody}
                  clientName={selectedEmail.clientId ? clients.find(c => c.id === selectedEmail.clientId)?.name : undefined}
                  hasClient={!!selectedEmail.clientId}
                  hasKnowledge={addedToRagId === selectedEmail.id}
                  onDraftReply={() => {
+                   const replySourceEmail = isInboundCustomerEmail(selectedEmail)
+                     ? selectedEmail
+                     : latestInboundEmailForSelectedClient || selectedEmail;
                    setComposeDefaults({
-                     recipient: isInboundCustomerEmail(selectedEmail) ? selectedEmail.sender : selectedEmail.recipient,
+                     recipient: isInboundCustomerEmail(replySourceEmail) ? replySourceEmail.sender : selectedEmail.recipient,
                      subject: `Re: ${selectedEmail.subject.replace(/^Re:\s*/i, '')}`,
-                     originalEmailBody: `On ${new Date(selectedEmail.date).toLocaleString()}, ${selectedEmail.senderName || selectedEmail.sender} wrote:<br>${selectedEmail.body || ''}`,
+                     originalEmailBody: isInboundCustomerEmail(replySourceEmail)
+                       ? `On ${new Date(replySourceEmail.date).toLocaleString()}, ${replySourceEmail.senderName || replySourceEmail.sender} wrote:<br>${replySourceEmail.body || ''}`
+                       : '',
                      initialBody: '',
-                     replyToEmailId: selectedEmail.id
+                     replyToEmailId: replySourceEmail.id
                    });
                    setIsComposing(true);
                  }}
@@ -2327,7 +2351,10 @@ Rules:
       .filter(e => e.clientId === matchedClient.id)
       .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .slice(0, 12)
-      .map(e => `[${e.type} - ${new Date(e.date).toLocaleDateString()}] ${e.subject}\n${e.body?.slice(0, 1200)}`)
+      .map(e => {
+        const direction = ['inbox', 'inbound'].includes(e.type) ? 'CUSTOMER_TO_US' : 'OUR_TEAM_TO_CUSTOMER';
+        return `[${direction} - ${new Date(e.date).toLocaleDateString()}] ${e.subject}\n${extractLatestEmailText(e.body || '').slice(0, 1200)}`;
+      })
       .join('\n\n');
     const lastEmailReceived = emails.filter(e => e.clientId === matchedClient.id && ['inbox', 'inbound'].includes(e.type)).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
     const productContext = products
@@ -2356,6 +2383,7 @@ Return JSON only with exactly these keys: "subject" and "body".
 Subject seed: ${subject || "Follow up"}.
 Purpose for this email: ${purpose || 'General follow up'}.
 Use relevant product facts and knowledge base snippets when they help answer the customer or move the deal forward.
+Only treat emails marked CUSTOMER_TO_US and lastReceivedEmailBody as customer intent. Emails marked OUR_TEAM_TO_CUSTOMER are prior outreach context and must never be interpreted as customer requests.
 Do not invent product specs, prices, delivery promises, compliance claims, or discounts not present in the provided context.
 Do not include any email signature, sign-off block, sender name, company footer, or quoted original email. The app will append the selected signature and original email separately when sending.
 Customer-facing output language: ${outboundLanguage}. This language was resolved by priority: last customer communication language > client preferred language > official country/region language > English.`,
