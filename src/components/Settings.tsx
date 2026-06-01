@@ -609,7 +609,10 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
                     { id: 'add_knowledge', label: 'Add Knowledge Item', default: 8 },
                     { id: 'add_media', label: 'Add Media Asset', default: 3 },
                     { id: 'create_document', label: 'Create Document', default: 12 },
-                    { id: 'agent_run', label: 'Complete Agent Run', default: 10 }
+                    { id: 'agent_run', label: 'Complete Agent Run', default: 10 },
+                    { id: 'quality_profile', label: 'High-quality Client Profile', default: 15 },
+                    { id: 'customer_progress', label: 'Customer Stage Progress', default: 10 },
+                    { id: 'sales_combo', label: 'Sales Combo Completed', default: 40 }
                   ].map((event) => (
                     <div key={event.id}>
                       <label className="text-sm font-bold text-slate-300 block mb-2 opacity-80">

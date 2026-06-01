@@ -1213,6 +1213,12 @@ const INITIAL_ACHIEVEMENTS: Achievement[] = [
   { id: 'email_power_user', title: 'Email Power User', description: 'Send 50 emails.', icon: 'MailCheck', expReward: 500, unlockedAt: null },
   { id: 'rich_pipeline', title: 'Rich Pipeline', description: 'Build a pipeline worth at least 100,000.', icon: 'Handshake', expReward: 600, unlockedAt: null },
   { id: 'rag_ready', title: 'RAG Ready', description: 'Create both product data and knowledge base context.', icon: 'BookOpen', expReward: 250, unlockedAt: null },
+  { id: 'first_progression', title: 'Momentum Starter', description: 'Move a customer or lead beyond the initial stage.', icon: 'Target', expReward: 180, unlockedAt: null },
+  { id: 'proposal_runner', title: 'Proposal Runner', description: 'Create a quote for a customer.', icon: 'Handshake', expReward: 220, unlockedAt: null },
+  { id: 'quality_keeper', title: 'Quality Keeper', description: 'Maintain 5 high-quality client profiles.', icon: 'BookOpen', expReward: 260, unlockedAt: null },
+  { id: 'combo_starter', title: 'Combo Starter', description: 'Complete one full sales combo for a client.', icon: 'Swords', expReward: 300, unlockedAt: null },
+  { id: 'combo_master', title: 'Combo Master', description: 'Complete 5 full sales combos across clients.', icon: 'Crown', expReward: 900, unlockedAt: null },
+  { id: 'weekly_challenger', title: 'Weekly Challenger', description: 'Complete a weekly business challenge.', icon: 'Target', expReward: 300, unlockedAt: null },
   { id: 'early_bird', title: 'Early Bird', description: 'Send out an email before 8 AM.', icon: '🌅', expReward: 150, unlockedAt: null },
   { id: 'night_owl', title: 'Night Owl', description: 'Log an interaction after 10 PM.', icon: '🦉', expReward: 150, unlockedAt: null },
   { id: 'deal_maker', title: 'Deal Maker', description: 'Close 5 deals.', icon: '🤝', expReward: 600, unlockedAt: null },
@@ -1234,6 +1240,93 @@ function mergeAchievementsWithDefaults(savedAchievements: Achievement[] | undefi
       expReward: expConfig[`achieve_${defaultAchievement.id}`] ?? saved?.expReward ?? defaultAchievement.expReward
     };
   });
+}
+
+function getWeekStart(date = new Date()) {
+  const current = new Date(date);
+  const day = current.getDay() || 7;
+  current.setHours(0, 0, 0, 0);
+  current.setDate(current.getDate() - day + 1);
+  return current.getTime();
+}
+
+function isThisWeek(dateString?: string) {
+  if (!dateString) return false;
+  return new Date(dateString).getTime() >= getWeekStart();
+}
+
+function hasAwardLog(state: StoreState, key: string) {
+  return state.expLogs.some(log => log.reason.includes(key));
+}
+
+function awardGameExpOnce(getState: () => StoreState, key: string, amount: number, reason: string) {
+  const state = getState();
+  if (hasAwardLog(state, key)) return;
+  state.addExp(amount, `${reason} ${key}`);
+}
+
+function getClientQualityScore(client: Client) {
+  let score = 0;
+  if (client.name?.trim()) score += 10;
+  if (client.company?.trim()) score += 15;
+  if (client.country?.trim()) score += 10;
+  if (client.state?.trim() || client.city?.trim()) score += 10;
+  if ((client.contactMethods || []).some(method => method.value?.trim())) score += 20;
+  if ((client.contacts || []).some(contact => contact.name?.trim() && (contact.contactMethods || []).some(method => method.value?.trim()))) score += 15;
+  if ((client.tags || []).length >= 2) score += 10;
+  if (client.preferredLanguage?.trim()) score += 5;
+  if (client.agentSummary?.trim() || client.leadSummary?.trim()) score += 5;
+  return Math.min(100, score);
+}
+
+function evaluateClientQualityRewards(getState: () => StoreState, clientId: string) {
+  const state = getState();
+  const client = state.clients.find(item => item.id === clientId);
+  if (!client) return;
+  const score = getClientQualityScore(client);
+  if (score >= 80) {
+    awardGameExpOnce(
+      getState,
+      `[game:quality:${client.id}]`,
+      state.expConfig['event_quality_profile'] ?? 15,
+      `Quality bonus: complete client profile for ${client.name || client.company || 'client'}.`
+    );
+  }
+}
+
+function evaluateClientProgressRewards(getState: () => StoreState, clientId: string, status?: ClientStatus) {
+  const state = getState();
+  const client = state.clients.find(item => item.id === clientId);
+  const stage = status || client?.status;
+  if (!client || !stage || stage === 'Leads') return;
+  awardGameExpOnce(
+    getState,
+    `[game:stage:${client.id}:${stage}]`,
+    state.expConfig['event_customer_progress'] ?? 10,
+    `Customer progress bonus: ${client.name || client.company || 'client'} reached ${stage}.`
+  );
+}
+
+function evaluateSalesComboRewards(getState: () => StoreState, clientId: string) {
+  const state = getState();
+  const client = state.clients.find(item => item.id === clientId);
+  if (!client) return;
+  const qualityScore = getClientQualityScore(client);
+  const hasLead = state.deals.some(deal => deal.clientId === clientId) || client.status !== 'Leads';
+  const hasOutbound = state.emails.some(email => email.clientId === clientId && ['sent', 'outbound', 'scheduled'].includes(email.type))
+    || state.logs.some(log => log.clientId === clientId && log.type === 'whatsapp');
+  const hasNextStep = state.quotes.some(quote => quote.clientId === clientId)
+    || state.deals.some(deal => deal.clientId === clientId && ['Sample Sent', 'Negotiating', 'Closed Won'].includes(deal.status))
+    || state.logs.some(log => log.clientId === clientId && /next step|follow|quote|proposal|sample|下一步|跟进|报价|方案/i.test(log.content));
+
+  if (hasLead && qualityScore >= 70 && hasOutbound && hasNextStep) {
+    awardGameExpOnce(
+      getState,
+      `[game:combo:${client.id}]`,
+      state.expConfig['event_sales_combo'] ?? 40,
+      `Sales combo completed for ${client.name || client.company || 'client'}.`
+    );
+  }
 }
 
 export const useStore = create<StoreState>((set, get) => ({
@@ -1902,6 +1995,9 @@ export const useStore = create<StoreState>((set, get) => ({
     const id = `q${Date.now()}`;
     const newQuote: Quote = { ...quote, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     set((state) => ({ quotes: [...state.quotes, newQuote] }));
+    if (quote.clientId) {
+      setTimeout(() => evaluateSalesComboRewards(get, quote.clientId!), 0);
+    }
     const token = localStorage.getItem('token');
     if (token) {
       fetch('/api/quotes', {
@@ -2008,6 +2104,12 @@ export const useStore = create<StoreState>((set, get) => ({
     }
     
     set((state) => ({ deals: [...state.deals, newDeal] }));
+    if (deal.clientId) {
+      setTimeout(() => {
+        evaluateClientProgressRewards(get, deal.clientId!, deal.status);
+        evaluateSalesComboRewards(get, deal.clientId!);
+      }, 0);
+    }
 
     const token = localStorage.getItem('token');
     if (token) {
@@ -2053,6 +2155,10 @@ export const useStore = create<StoreState>((set, get) => ({
         if (statusChanged) {
           get().addExp(get().expConfig['event_update_lead_status'] ?? 8, 'Updated lead status');
           get().addLog(deal.clientId, `Lead "${deal.name}" status updated to: ${updates.status}`, undefined, 'general', { leadId: id, dealId: id });
+          if (deal.clientId) {
+            evaluateClientProgressRewards(get, deal.clientId, updates.status);
+            evaluateSalesComboRewards(get, deal.clientId);
+          }
           if (updates.status === 'Closed Won') {
             get().addExp(get().expConfig['event_win_deal'] ?? 100, 'Won a deal!');
           }
@@ -2125,6 +2231,11 @@ export const useStore = create<StoreState>((set, get) => ({
           return null;
         } else if (res.ok) {
           get().addLog(id, `Created lead: ${client.name}`);
+          setTimeout(() => {
+            evaluateClientQualityRewards(get, id);
+            evaluateClientProgressRewards(get, id, client.status);
+            evaluateSalesComboRewards(get, id);
+          }, 0);
           if (data.pointsAdded) {
             console.log(`Lead added successfully! You earned ${data.pointsAdded} points.`);
             useAuthStore.getState().fetchProfile();
@@ -2138,6 +2249,11 @@ export const useStore = create<StoreState>((set, get) => ({
       }
     } else {
       get().addLog(id, `Created lead: ${client.name}`);
+      setTimeout(() => {
+        evaluateClientQualityRewards(get, id);
+        evaluateClientProgressRewards(get, id, client.status);
+        evaluateSalesComboRewards(get, id);
+      }, 0);
       set({ globalLoading: false });
     }
     
@@ -2169,6 +2285,11 @@ export const useStore = create<StoreState>((set, get) => ({
       }
       return { clients: state.clients.map(c => c.id === id ? { ...c, ...updates } : c) };
     });
+    setTimeout(() => {
+      evaluateClientQualityRewards(get, id);
+      evaluateClientProgressRewards(get, id, updates.status);
+      evaluateSalesComboRewards(get, id);
+    }, 0);
   },
   submitClientEditRequest: (id, requestedData) => set((state) => {
     const token = localStorage.getItem('token');
@@ -2353,6 +2474,7 @@ export const useStore = create<StoreState>((set, get) => ({
   
   addComment: (clientId, content, attachments) => set((state) => {
     setTimeout(() => get().addExp(get().expConfig['event_add_comment'] ?? 3, 'Added team comment'), 0);
+    setTimeout(() => evaluateSalesComboRewards(get, clientId), 0);
     const newComment: Comment = {
       id: `cmt${Date.now()}`,
       author: state.userTitle,
@@ -2428,6 +2550,7 @@ export const useStore = create<StoreState>((set, get) => ({
         : 'Logged interaction';
     const defaultReward = type === 'whatsapp' ? 5 : 3;
     setTimeout(() => get().addExp(get().expConfig[expKey] ?? defaultReward, expReason), 0);
+    setTimeout(() => evaluateSalesComboRewards(get, clientId), 0);
     set((state) => {
       const client = state.clients.find(c => c.id === clientId);
       if (client && client.isDormant) {
@@ -2480,6 +2603,9 @@ export const useStore = create<StoreState>((set, get) => ({
       }
       
       setTimeout(() => get().addExp(get().expConfig['event_send_email'] ?? 5, 'Sent an email'), 0);
+      if (email.clientId && ['sent', 'outbound', 'scheduled'].includes(email.type)) {
+        setTimeout(() => evaluateSalesComboRewards(get, email.clientId!), 0);
+      }
       
       const newEmail = { ...email, id: newEmailId, date: new Date().toISOString() } as EmailMessage;
       
@@ -2620,7 +2746,10 @@ export const useStore = create<StoreState>((set, get) => ({
   dailyQuests: [
     { id: 'q1', title: 'Wake up Dormant Clients', description: 'Contact 1 client inactive for >30 days.', expReward: 50, completed: false },
     { id: 'q2', title: 'First Blood', description: 'Send out the first development email of the day.', expReward: 20, completed: false },
-    { id: 'q3', title: 'Follow Up Master', description: 'Complete scheduled follow-ups.', expReward: 80, completed: false }
+    { id: 'q3', title: 'Follow Up Master', description: 'Complete scheduled follow-ups.', expReward: 80, completed: false },
+    { id: 'weekly_quality_profiles', title: 'Weekly Challenge: Data Quality', description: 'Maintain 5 high-quality client profiles this week.', expReward: 120, completed: false },
+    { id: 'weekly_pipeline_motion', title: 'Weekly Challenge: Pipeline Motion', description: 'Move 5 leads or customers forward this week.', expReward: 150, completed: false },
+    { id: 'weekly_agent_operator', title: 'Weekly Challenge: Agent Operator', description: 'Complete 3 agent runs this week.', expReward: 120, completed: false }
   ],
   addQuest: (quest) => set((state) => ({
     dailyQuests: [...state.dailyQuests, { ...quest, id: `q${Date.now()}`, completed: false }]
@@ -2655,6 +2784,7 @@ export const useStore = create<StoreState>((set, get) => ({
       agentRunRecords,
       agentOpportunities,
       userLevel,
+      expLogs,
       emails,
       logs,
       dailyQuests,
@@ -2688,6 +2818,7 @@ export const useStore = create<StoreState>((set, get) => ({
     if (countries.size >= 10) unlock('world_domination');
     
     if (clients.some(c => c.status === 'Closed Won')) unlock('close_deal');
+    if (clients.some(c => c.status !== 'Leads')) unlock('first_progression');
     if (clients.filter(c => c.status === 'Closed Won').length >= 5) unlock('deal_maker');
     if (clients.filter(c => c.status === 'Closed Won').length >= 20) unlock('sales_legend');
     if (clients.filter(c => c.status === 'Sample Sent').length >= 10) unlock('sample_sender');
@@ -2711,12 +2842,18 @@ export const useStore = create<StoreState>((set, get) => ({
     if (logs.filter(l => l.type === 'whatsapp').length >= 10) unlock('whatsapp_connector');
     if (deals.filter(deal => deal.status !== 'Closed Won').length >= 25) unlock('lead_hunter');
     if (quotes.length >= 10) unlock('quote_machine');
+    if (quotes.length >= 1) unlock('proposal_runner');
     if (products.length >= 10) unlock('product_builder');
     if (knowledgeBase.length >= 10) unlock('knowledge_keeper');
     if (products.length > 0 && knowledgeBase.length > 0) unlock('rag_ready');
     if (deals.reduce((sum, deal) => sum + (Number(deal.value) || 0), 0) >= 100000) unlock('rich_pipeline');
     if (agentRunRecords.filter(record => record.status === 'completed').length >= 10) unlock('agent_operator');
     if (agentOpportunities.filter(opportunity => opportunity.relatedRunId || ['completed', 'running', 'pending_review'].includes(opportunity.status)).length >= 10) unlock('opportunity_router');
+    const qualityProfileCount = clients.filter(client => getClientQualityScore(client) >= 80).length;
+    if (qualityProfileCount >= 5) unlock('quality_keeper');
+    const comboLogs = expLogs.filter(log => log.reason.includes('[game:combo:'));
+    if (comboLogs.length >= 1) unlock('combo_starter');
+    if (comboLogs.length >= 5) unlock('combo_master');
     
     // Use user configured timezone to determine the correct hour
     const getHourInTimezone = (dateStr: string) => {
@@ -2743,6 +2880,14 @@ export const useStore = create<StoreState>((set, get) => ({
     if (Object.values(logsPerClient).some(v => v >= 5)) unlock('persistent');
     
     if (dailyQuests.some(q => q.completed)) unlock('quest_master');
+    if (dailyQuests.some(q => q.id.startsWith('weekly_') && q.completed)) unlock('weekly_challenger');
+
+    const weeklyProgressLogs = logs.filter(log => isThisWeek(log.date) && /status updated to|reached|推进|状态/i.test(log.content)).length;
+    if (qualityProfileCount >= 5) setTimeout(() => state.completeQuest('weekly_quality_profiles'), 0);
+    if (weeklyProgressLogs >= 5) setTimeout(() => state.completeQuest('weekly_pipeline_motion'), 0);
+    if (agentRunRecords.filter(record => record.status === 'completed' && isThisWeek(record.completedAt || record.updatedAt || record.createdAt)).length >= 3) {
+      setTimeout(() => state.completeQuest('weekly_agent_operator'), 0);
+    }
 
     if (changed) {
       return { achievements: newAchievements };
@@ -2982,7 +3127,13 @@ useStore.subscribe((state, prevState) => {
     state.userLevel !== prevState.userLevel ||
     state.emails !== prevState.emails ||
     state.logs !== prevState.logs ||
-    state.dailyQuests !== prevState.dailyQuests
+    state.dailyQuests !== prevState.dailyQuests ||
+    state.deals !== prevState.deals ||
+    state.quotes !== prevState.quotes ||
+    state.products !== prevState.products ||
+    state.knowledgeBase !== prevState.knowledgeBase ||
+    state.agentRunRecords !== prevState.agentRunRecords ||
+    state.agentOpportunities !== prevState.agentOpportunities
   ) {
     state.checkAchievements();
   }
