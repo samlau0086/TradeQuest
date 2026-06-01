@@ -888,12 +888,15 @@ export function Dashboard() {
                         </div>
                         {!quest.completed ? (
                           <div className="flex gap-2">
-                            {(quest.id === 'q1' || quest.id === 'q2' || quest.id === 'q3') && (
+                            {(quest.id === 'q1' || quest.id === 'q2' || quest.id === 'q3' || quest.id.startsWith('weekly_')) && (
                               <button
                                  onClick={() => {
                                    if (quest.id === 'q1') setView('dormant');
                                    if (quest.id === 'q2') setView('leads');
                                    if (quest.id === 'q3') setView('followups');
+                                   if (quest.id === 'weekly_quality_profiles') setView('clients');
+                                   if (quest.id === 'weekly_pipeline_motion') setView('kanban');
+                                   if (quest.id === 'weekly_agent_operator') setView('agent-hub');
                                  }}
                                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-sm font-bold text-white rounded-lg transition-colors shadow-lg shadow-indigo-600/20"
                               >

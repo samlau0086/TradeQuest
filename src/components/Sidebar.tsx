@@ -21,6 +21,9 @@ export function Sidebar() {
     if (quest.id === 'q1') return 'dormant';
     if (quest.id === 'q2') return 'leads';
     if (quest.id === 'q3') return 'followups';
+    if (quest.id === 'weekly_quality_profiles') return 'clients';
+    if (quest.id === 'weekly_pipeline_motion') return 'kanban';
+    if (quest.id === 'weekly_agent_operator') return 'agent-hub';
     if (quest.description.includes('Agent drafted instructions')) return 'followups';
     if (quest.description.toLowerCase().includes('email')) return 'inbox';
     return 'dashboard';
