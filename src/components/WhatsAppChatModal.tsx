@@ -59,7 +59,7 @@ const dataUrlToFile = async (dataUrl: string, name: string, mimeType: string) =>
 };
 
 export function WhatsAppChatModal({ client, phone, conversation: initialConversation, initialMessage = '', embedded = false, onClose }: Props) {
-  const { notify, addLog, selectClient, language, llmConfigs, activeLLMId, llmMappings, logs, emails, incrementAgentHubTaskCount } = useStore();
+  const { notify, addLog, selectClient, language, llmConfigs, activeLLMId, llmMappings, logs, emails, clients, deals, knowledgeBase, products, incrementAgentHubTaskCount } = useStore();
   const t = useTranslation(language);
   const [hubClients, setHubClients] = useState<WhatsAppHubClient[]>([]);
   const [messages, setMessages] = useState<WhatsAppHubMessage[]>([]);
@@ -79,12 +79,42 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [generating, setGenerating] = useState(false);
   const syncInFlightRef = useRef(false);
   const targetPhone = useMemo(() => cleanPhone(phone), [phone]);
+  const activeClient = useMemo(() => {
+    if (client) return client;
+    if (conversation?.clientId) return clients.find(item => item.id === conversation.clientId) || null;
+    return clients.find(item => item.contactMethods?.some(method => (
+      ['whatsapp', 'phone'].includes(method.type) && cleanPhone(method.value).endsWith(targetPhone.slice(-8))
+    ))) || null;
+  }, [client, conversation?.clientId, clients, targetPhone]);
+  const relatedDeals = useMemo(() => (
+    activeClient
+      ? deals
+          .filter(deal => deal.clientId === activeClient.id)
+          .sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime())
+          .slice(0, 5)
+      : []
+  ), [activeClient?.id, deals]);
+  const localKnowledgeSnippets = useMemo(() => (
+    activeClient
+      ? knowledgeBase
+          .filter(item => !item.clientId || item.clientId === activeClient.id)
+          .slice(0, 8)
+          .map(item => ({ title: item.title, content: item.content?.slice(0, 900) }))
+      : knowledgeBase.slice(0, 5).map(item => ({ title: item.title, content: item.content?.slice(0, 900) }))
+  ), [activeClient?.id, knowledgeBase]);
+  const productSnippets = useMemo(() => products.slice(0, 12).map(product => ({
+    name: product.name,
+    sku: product.sku,
+    description: product.description?.slice(0, 700),
+    salesPoints: product.salesPoints?.slice(0, 700),
+    bulkPrices: product.bulkPrices || []
+  })), [products]);
   const latestInboundMessage = messages.filter(message => message.direction === 'inbound').slice(-1)[0];
   const latestOutboundMessage = messages.filter(message => message.direction === 'outbound').slice(-1)[0];
   const outboundLanguage = getCustomerOutputLanguage({
     lastCommunicationText: latestInboundMessage?.body,
-    preferredLanguage: client?.preferredLanguage,
-    country: client?.country
+    preferredLanguage: activeClient?.preferredLanguage,
+    country: activeClient?.country
   });
 
   const getLLMConfig = (module: string) => {
@@ -259,15 +289,15 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
         body: message.body,
         at: message.created_at || message.received_at
       }));
-      const clientLogs = client
+      const clientLogs = activeClient
         ? logs
-            .filter(log => log.clientId === client.id)
+            .filter(log => log.clientId === activeClient.id)
             .slice(0, 20)
             .map(log => ({ date: log.date, type: log.type, content: log.content }))
         : [];
-      const clientEmails = client
+      const clientEmails = activeClient
         ? emails
-            .filter(email => email.clientId === client.id)
+            .filter(email => email.clientId === activeClient.id)
             .slice(0, 8)
             .map(email => ({
               date: email.date,
@@ -287,19 +317,36 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
 
 Write in a WhatsApp style: concise, natural, conversational, easy to reply to, and not formatted like an email. Customer-facing output language: ${outboundLanguage}. This language was resolved by priority: last customer communication language > client preferred language > official country/region language > English. Adapt tone, timing, offer details, and next step to the customer profile, preferences, prior communication, CRM records, recent WhatsApp chat, and relevant knowledge base context.
 Critical direction rule: inbound messages are customer messages; outbound messages are our team's messages. Never treat our outbound messages as if the customer said them. If the latest message is outbound, draft a follow-up based on the latest inbound customer message and prior outreach context.
+Before drafting, use the provided AI Customer Summary, AI next step, lead summaries, deal context, local RAG snippets, and product sales points. If those conflict with the raw chat, prioritize the latest inbound customer message and then CRM AI analysis.
 Return only the message text.`,
           context: {
             channel: 'whatsapp',
             userInstruction: prompt,
             directionPolicy: 'Only inbound WhatsApp messages are customer messages. Outbound messages were sent by our team and must be used only as prior outreach context, never as customer requests to answer.',
-            client,
+            client: activeClient,
+            clientId: activeClient?.id || conversation?.clientId || null,
+            aiCustomerSummary: activeClient?.agentSummary || activeClient?.leadSummary || '',
+            aiCustomerNextStep: activeClient?.agentNextStep || activeClient?.leadNextStep || '',
+            aiCustomerScore: activeClient?.leadScore ?? null,
+            relatedLeads: relatedDeals.map(deal => ({
+              id: deal.id,
+              name: deal.name,
+              status: deal.status,
+              value: deal.value,
+              leadScore: deal.leadScore,
+              leadSummary: deal.leadSummary,
+              leadNextStep: deal.leadNextStep,
+              comments: (deal.comments || []).slice(-5)
+            })),
+            localKnowledgeSnippets,
+            productSnippets,
             clientPreferences: {
-              preferredLanguage: client?.preferredLanguage,
-              preferredTimeRange: client?.preferredTimeRange,
-              country: client?.country,
-              tags: client?.tags || []
+              preferredLanguage: activeClient?.preferredLanguage,
+              preferredTimeRange: activeClient?.preferredTimeRange,
+              country: activeClient?.country,
+              tags: activeClient?.tags || []
             },
-            clientComments: client?.comments || [],
+            clientComments: activeClient?.comments || [],
             clientLogs,
             relatedEmails: clientEmails,
             conversation,
@@ -308,7 +355,7 @@ Return only the message text.`,
             latestOutboundOurMessage: latestOutboundMessage?.body || '',
             targetPhone,
             outboundLanguage,
-            clientPreferredLanguage: client?.preferredLanguage || null,
+            clientPreferredLanguage: activeClient?.preferredLanguage || null,
             systemLanguage: language === 'zh' ? 'Chinese' : 'English'
           },
           llmConfig,
@@ -379,15 +426,15 @@ Return only the message text.`,
           media,
           clientId: selectedClientId || undefined,
           scheduledAt: scheduleEnabled && scheduleDateTime ? new Date(scheduleDateTime).toISOString() : undefined,
-          metadata: { clientId: client?.id, hasMedia: !!media }
+          metadata: { clientId: activeClient?.id, hasMedia: !!media }
         })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to send WhatsApp message');
       setSelectedClientId(data.selectedClientId || selectedClientId);
-      if (client) {
+      if (activeClient) {
         addLog(
-          client.id,
+          activeClient.id,
           data.scheduled
             ? `WhatsApp Hub message scheduled for ${new Date(data.scheduledAt).toLocaleString()}: ${body.slice(0, 120)}`
             : `WhatsApp Hub message sent: ${body.slice(0, 120)}`,
@@ -420,14 +467,14 @@ Return only the message text.`,
         <div className="p-4 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <MessageCircle className="w-5 h-5 text-green-400" />
-            <div>
-              {client ? (
+              <div>
+              {activeClient ? (
                 <button
-                  onClick={() => selectClient(client.id)}
+                  onClick={() => selectClient(activeClient.id)}
                   className="font-bold text-white hover:text-cyan-300 hover:underline flex items-center gap-1"
                 >
                   <User className="w-3.5 h-3.5" />
-                  {client.name}
+                  {activeClient.name}
                 </button>
               ) : (
                 <div className="font-bold text-white">{conversation?.clientName || targetPhone}</div>
@@ -538,21 +585,21 @@ Return only the message text.`,
           <AgentContextSuggestions
             channel="whatsapp"
             cacheKey={`whatsapp:${targetPhone}:${messages[messages.length - 1]?.id || 'empty'}`}
-            clientId={conversation?.clientId || client?.id}
+            clientId={conversation?.clientId || activeClient?.id}
             whatsappNumber={targetPhone}
             persistedInsight={conversation?.agentContextAnalysisKey === `whatsapp:${targetPhone}:${messages[messages.length - 1]?.id || 'empty'}` ? conversation?.agentContextAnalysis : undefined}
             persistedInsightKey={conversation?.agentContextAnalysisKey}
-            subject={conversation?.clientName || client?.name || targetPhone}
+            subject={conversation?.clientName || activeClient?.name || targetPhone}
             body={messages.slice(-6).map(message => `${message.direction}: ${message.body}`).join('\n')}
-            clientName={conversation?.clientName || client?.name}
-            hasClient={!!(conversation?.clientId || client?.id)}
-            hasKnowledge={!!client}
+            clientName={conversation?.clientName || activeClient?.name}
+            hasClient={!!(conversation?.clientId || activeClient?.id)}
+            hasKnowledge={!!activeClient}
             onDraftReply={() => generateWhatsAppMessage(
               body.trim() || (latestInboundMessage
-                ? `Reply to the latest inbound customer WhatsApp message from ${conversation?.clientName || client?.name || targetPhone}: ${latestInboundMessage.body}`
-                : `Draft a polite WhatsApp follow-up to ${conversation?.clientName || client?.name || targetPhone}. There is no inbound customer message yet, so do not answer our own outbound messages.`)
+                ? `Reply to the latest inbound customer WhatsApp message from ${conversation?.clientName || activeClient?.name || targetPhone}: ${latestInboundMessage.body}`
+                : `Draft a polite WhatsApp follow-up to ${conversation?.clientName || activeClient?.name || targetPhone}. There is no inbound customer message yet, so do not answer our own outbound messages.`)
             )}
-            onAddComment={() => addConversationComment(`Agent suggestion: review WhatsApp conversation with ${conversation?.clientName || client?.name || targetPhone} and prepare the next best reply.`)}
+            onAddComment={() => addConversationComment(`Agent suggestion: review WhatsApp conversation with ${conversation?.clientName || activeClient?.name || targetPhone} and prepare the next best reply.`)}
             onSaveAnalysis={async (key, insight) => {
               if (!conversation?.id) return;
               const response = await fetch(`/api/whatsapp-hub/conversations/${conversation.id}`, {

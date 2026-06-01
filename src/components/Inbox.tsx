@@ -2369,6 +2369,20 @@ Rules:
       .slice(0, 12)
       .map(item => `[${item.title}]\n${item.content?.slice(0, 1200)}`)
       .join('\n\n');
+    const relatedDeals = useStore.getState().deals
+      .filter(deal => deal.clientId === matchedClient.id)
+      .sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime())
+      .slice(0, 5)
+      .map(deal => ({
+        id: deal.id,
+        name: deal.name,
+        status: deal.status,
+        value: deal.value,
+        leadScore: deal.leadScore,
+        leadSummary: deal.leadSummary,
+        leadNextStep: deal.leadNextStep,
+        comments: (deal.comments || []).slice(-5)
+      }));
 
     try {
       const res = await fetch('/api/chat/magic', {
@@ -2384,12 +2398,17 @@ Subject seed: ${subject || "Follow up"}.
 Purpose for this email: ${purpose || 'General follow up'}.
 Use relevant product facts and knowledge base snippets when they help answer the customer or move the deal forward.
 Only treat emails marked CUSTOMER_TO_US and lastReceivedEmailBody as customer intent. Emails marked OUR_TEAM_TO_CUSTOMER are prior outreach context and must never be interpreted as customer requests.
+Before drafting, use the provided AI Customer Summary, AI next step, lead summaries, deal context, local RAG snippets, and product sales points. If those conflict with the raw email history, prioritize the latest inbound customer message and then CRM AI analysis.
 Do not invent product specs, prices, delivery promises, compliance claims, or discounts not present in the provided context.
 Do not include any email signature, sign-off block, sender name, company footer, or quoted original email. The app will append the selected signature and original email separately when sending.
 Customer-facing output language: ${outboundLanguage}. This language was resolved by priority: last customer communication language > client preferred language > official country/region language > English.`,
           context: { 
             client: matchedClient,
             clientId: matchedClient.id,
+            aiCustomerSummary: matchedClient.agentSummary || matchedClient.leadSummary || '',
+            aiCustomerNextStep: matchedClient.agentNextStep || matchedClient.leadNextStep || '',
+            aiCustomerScore: matchedClient.leadScore ?? null,
+            relatedLeads: relatedDeals,
             outboundLanguage,
             clientPreferredLanguage: matchedClient.preferredLanguage || null,
             historicalFollowUpLogs: clientLogs,
