@@ -64,11 +64,11 @@ export function Sidebar() {
           </div>
         </div>
         
-        {/* EXP Bar & Stats */}
+        {/* Experience Bar & Stats */}
         <div className="space-y-2">
           <div className="flex justify-between text-xs text-slate-400">
             <span>{t('level')} {userLevel}</span>
-            <span>{userExp} / 500 EXP</span>
+            <span>{userExp} / 500 {t('experienceUnit')}</span>
           </div>
           <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
             <div 
@@ -225,7 +225,7 @@ export function Sidebar() {
               <div className="font-medium text-slate-200 mb-1">{t(quest.title)}</div>
               <div className="text-xs text-slate-400 truncate">{t(quest.description)}</div>
               {!quest.completed && (
-                <div className="text-cyan-400 text-xs font-bold mt-2">+{quest.expReward} EXP</div>
+                <div className="text-cyan-400 text-xs font-bold mt-2">+{quest.expReward} {t('experienceUnit')}</div>
               )}
             </button>
           ))}

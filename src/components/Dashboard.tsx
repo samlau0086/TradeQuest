@@ -796,7 +796,7 @@ export function Dashboard() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 flex-1 pb-8">
           
-          {/* Main XP Progress Section */}
+          {/* Main Experience Progress Section */}
           <div className="lg:col-span-2 space-y-8">
             <div className="bg-slate-950/50 rounded-2xl p-6 border border-slate-800 shadow-sm">
               <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
@@ -804,7 +804,7 @@ export function Dashboard() {
               </h2>
               <div className="mb-4 flex justify-between text-sm font-medium">
                 <span className="text-slate-300">{t('level')} {userLevel}</span>
-                <span className="text-cyan-400">{userExp} / {expToNextLevel} EXP</span>
+                <span className="text-cyan-400">{userExp} / {expToNextLevel} {t('experienceUnit')}</span>
               </div>
               <div className="w-full bg-slate-800 rounded-full h-4 overflow-hidden shadow-inner mb-6">
                 <div 
@@ -884,7 +884,7 @@ export function Dashboard() {
                       </div>
                       <div className="flex items-center gap-4">
                         <div className="font-bold text-cyan-400 bg-cyan-950/30 px-3 py-1 rounded-full text-sm">
-                          +{quest.expReward} EXP
+                          +{quest.expReward} {t('experienceUnit')}
                         </div>
                         {!quest.completed ? (
                           <div className="flex gap-2">
@@ -1029,7 +1029,7 @@ export function Dashboard() {
                          </div>
                        </div>
                        <div className="font-bold text-cyan-400 text-sm whitespace-nowrap">
-                         +{log.amount} EXP
+                         +{log.amount} {t('experienceUnit')}
                        </div>
                      </div>
                    ))

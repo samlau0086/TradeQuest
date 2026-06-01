@@ -34,7 +34,7 @@ export function TopBar() {
         {profile?.points !== undefined && (
           <div className="bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1">
             <Sparkles className="w-3 h-3" />
-            {profile.points} {t('points')}
+            {profile.points} {t('availablePoints')}
           </div>
         )}
         <div className="flex items-center gap-2">

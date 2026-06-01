@@ -70,7 +70,7 @@ export function ExpHistoryModal({ onClose }: { onClose: () => void }) {
               <Trophy className="w-5 h-5 text-amber-500" />
               {t('profileAndAwards')}
             </h2>
-            <div className="text-sm text-slate-400 mt-1">{t('level')} {userLevel} • {userExp} / 500 EXP</div>
+            <div className="text-sm text-slate-400 mt-1">{t('level')} {userLevel} • {userExp} / 500 {t('experienceUnit')}</div>
           </div>
           
           <button onClick={onClose} className="p-2 text-slate-400 hover:bg-slate-800 hover:text-white rounded-lg transition-colors">
@@ -131,7 +131,7 @@ export function ExpHistoryModal({ onClose }: { onClose: () => void }) {
                           <div className="text-xs text-slate-500 mt-1">{formatDate(log.date)}</div>
                         </div>
                         <div className="flex items-center gap-1 font-bold text-cyan-400 text-lg">
-                          +{log.amount} <span className="text-xs text-cyan-500 font-medium">EXP</span>
+                          +{log.amount} <span className="text-xs text-cyan-500 font-medium">{t('experienceUnit')}</span>
                         </div>
                       </div>
                     ))}
@@ -146,7 +146,7 @@ export function ExpHistoryModal({ onClose }: { onClose: () => void }) {
                         
                         <div className="w-full md:w-[calc(50%-2rem)] bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 shadow-sm hover:border-cyan-500/30 transition-colors">
                           <div className="flex items-center justify-between mb-1">
-                            <div className="font-bold text-cyan-400">+{log.amount} EXP</div>
+                            <div className="font-bold text-cyan-400">+{log.amount} {t('experienceUnit')}</div>
                             <div className="text-[10px] text-slate-500 font-medium px-2 py-0.5 bg-slate-900 rounded">{formatShortDate(log.date)}</div>
                           </div>
                           <div className="text-sm font-medium text-slate-200">{log.reason}</div>
@@ -187,7 +187,7 @@ export function ExpHistoryModal({ onClose }: { onClose: () => void }) {
                         {t(achievement.description)}
                       </p>
                       <div className="text-xs font-bold text-cyan-500 mt-2 flex items-center gap-1">
-                        <ArrowUpRight className="w-3 h-3" /> {achievement.expReward} EXP
+                        <ArrowUpRight className="w-3 h-3" /> {achievement.expReward} {t('experienceUnit')}
                       </div>
                       {unlocked && achievement.unlockedAt && (
                         <div className="text-[10px] text-slate-500 mt-1">
