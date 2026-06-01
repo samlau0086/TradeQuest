@@ -1954,9 +1954,13 @@ No markdown wrappers, just valid JSON.`;
       if (!to || (!req.body.body && !req.body.media)) return res.status(400).json({ error: 'Missing WhatsApp recipient or message body' });
       if (req.body.scheduledAt && isFutureDate(req.body.scheduledAt)) {
         const scheduled = await scheduleWhatsAppMessage(req.user.uid, { ...req.body, to });
+        const pointsAdded = Math.max(0, await getGlobalSettingNumber('point_event_schedule_whatsapp', 1));
+        await adjustUserPoints(req.user.uid, pointsAdded, 'Scheduled WhatsApp message', 'schedule_whatsapp', scheduled.id, { to });
         return res.status(202).json({ scheduled: true, ...scheduled });
       }
       const data = await sendWhatsAppViaHub(req.user.uid, { ...req.body, to });
+      const pointsAdded = Math.max(0, await getGlobalSettingNumber('point_event_send_whatsapp', 2));
+      await adjustUserPoints(req.user.uid, pointsAdded, 'Sent WhatsApp message', 'send_whatsapp', data?.id || null, { to });
       res.status(202).json(data);
     } catch (e: any) {
       res.status(e.status || 500).json({ error: e.message || 'Failed to send WhatsApp message' });
@@ -3844,6 +3848,10 @@ Return JSON only:
       }
 
       await pool.query('UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [JSON.stringify(settings), req.user.uid]);
+      if (reviewStatus === 'approved') {
+        const pointsAdded = Math.max(0, await getGlobalSettingNumber('point_event_agent_run', 5));
+        await adjustUserPoints(req.user.uid, pointsAdded, 'Completed agent run', 'agent_run', relatedRunId, { agentId, relatedRunType });
+      }
       res.json({ success: true, runId: relatedRunId, relatedRunType, executionResult });
     } catch (e: any) {
       console.error('Failed to run Agent Hub agent manually', e);
@@ -3922,6 +3930,8 @@ Return JSON only:
         });
       }
       await pool.query('UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [JSON.stringify(settings), req.user.uid]);
+      const pointsAdded = Math.max(0, await getGlobalSettingNumber('point_event_agent_run', 5));
+      await adjustUserPoints(req.user.uid, pointsAdded, 'Completed agent run', 'agent_run', runId, { runId });
       res.json({ success: true, result });
     } catch (e: any) {
       console.error('Failed to execute Agent Hub harness run', e);
@@ -4107,6 +4117,8 @@ Return JSON only:
         value: value || 0,
         status: status || 'Leads'
       }).catch(err => console.warn('Agent Hub lead_created trigger failed', err));
+      const pointsAdded = Math.max(0, await getGlobalSettingNumber('point_event_create_deal', 5));
+      await adjustUserPoints(req.user.uid, pointsAdded, 'Created lead / deal', 'create_deal', id, { dealId: id, clientId: clientId || null });
       res.json(result.rows[0]);
     } catch (e) {
       console.error(e);
@@ -4255,7 +4267,9 @@ Return JSON only:
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
         [id, req.user.uid, sku, name, description, salesPoints, imageUrl, JSON.stringify(bulkPrices || []), JSON.stringify(comments || [])]
       );
-      res.json(result.rows[0]);
+      const pointsAdded = Math.max(0, await getGlobalSettingNumber('point_event_add_product', 3));
+      await adjustUserPoints(req.user.uid, pointsAdded, 'Added product', 'add_product', id, { productId: id });
+      res.json({ ...result.rows[0], pointsAdded });
     } catch (e) {
       console.error(e); res.status(500).json({ error: 'Internal error' });
     }
@@ -4339,7 +4353,9 @@ Return JSON only:
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
         [id, req.user.uid, clientId || null, quoteNumber, currency || 'USD', paymentTerms, paymentTermId || null, advanceRatio || 0, balanceRatio || 0, status, JSON.stringify(items || []), JSON.stringify(fees || []), JSON.stringify(comments || [])]
       );
-      res.json(result.rows[0]);
+      const pointsAdded = Math.max(0, await getGlobalSettingNumber('point_event_create_quote', 8));
+      await adjustUserPoints(req.user.uid, pointsAdded, 'Created quote', 'create_quote', id, { quoteId: id, clientId: clientId || null });
+      res.json({ ...result.rows[0], pointsAdded });
     } catch (e) {
       console.error(e); res.status(500).json({ error: 'Internal error' });
     }
@@ -4467,7 +4483,9 @@ Return JSON only:
          VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
         [id, req.user.uid, quoteId, type, documentNumber, JSON.stringify(content || {}), JSON.stringify(comments || [])]
       );
-      res.json(result.rows[0]);
+      const pointsAdded = Math.max(0, await getGlobalSettingNumber('point_event_create_document', 5));
+      await adjustUserPoints(req.user.uid, pointsAdded, 'Created document', 'create_document', id, { documentId: id, quoteId });
+      res.json({ ...result.rows[0], pointsAdded });
     } catch (e) {
       console.error(e); res.status(500).json({ error: 'Internal error' });
     }
@@ -4521,7 +4539,9 @@ Return JSON only:
         'INSERT INTO media_library (id, user_id, name, type, size, url) VALUES ($1, $2, $3, $4, $5, $6)',
         [id, req.user.uid, name, type, size, url]
       );
-      res.json({ success: true, pointsAdded: 0 });
+      const pointsAdded = Math.max(0, await getGlobalSettingNumber('point_event_add_media', 1));
+      await adjustUserPoints(req.user.uid, pointsAdded, 'Added media asset', 'add_media', id, { mediaId: id });
+      res.json({ success: true, pointsAdded });
     } catch (e) {
       console.error(e); res.status(500).json({ error: 'Internal error' });
     }
@@ -6018,8 +6038,9 @@ No markdown wrappers, just valid JSON.`;
       }
       
       const result = await pool.query(query, params);
-      
-      res.json({ success: true, data: result.rows[0] });
+      const pointsAdded = Math.max(0, await getGlobalSettingNumber('point_event_add_knowledge', 3));
+      await adjustUserPoints(req.user.uid, pointsAdded, 'Added knowledge base item', 'add_knowledge', id, { knowledgeId: id, clientId: clientId || null });
+      res.json({ success: true, data: result.rows[0], pointsAdded });
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: 'Failed to add knowledge base' });
@@ -6635,6 +6656,12 @@ No markdown wrappers, just valid JSON.`;
       );
       if (clientId) {
         await pool.query(`UPDATE clients SET last_contact = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND user_id = $2`, [clientId, req.user.uid]);
+      }
+      const pointKey = type === 'scheduled' ? 'point_event_schedule_email' : type === 'sent' || type === 'outbound' ? 'point_event_send_email' : '';
+      const fallback = type === 'scheduled' ? 1 : 2;
+      if (pointKey) {
+        const pointsAdded = Math.max(0, await getGlobalSettingNumber(pointKey, fallback));
+        await adjustUserPoints(req.user.uid, pointsAdded, type === 'scheduled' ? 'Scheduled email' : 'Sent email', type === 'scheduled' ? 'schedule_email' : 'send_email', id, { emailId: id, clientId: clientId || null });
       }
       res.json({ success: true });
     } catch (e: any) {

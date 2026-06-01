@@ -655,9 +655,20 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
                     {[
                       { id: 'add_client', label: 'Create Client', default: 5, desc: 'Awarded when a user creates a non-public client.' },
+                      { id: 'create_deal', label: 'Create Lead / Deal', default: 5, desc: 'Awarded when a user creates a pipeline lead or deal.' },
                       { id: 'import_lead', label: 'Import Public Lead', default: 5, desc: 'Awarded per lead imported into the public pool.' },
                       { id: 'enrich_client', label: 'Profile Enrichment Multiplier', default: 1, desc: 'Multiplies profile completion rewards from company, address, country, contacts, and tags.' },
-                      { id: 'edit_request', label: 'Submit Edit Request', default: 5, desc: 'Awarded when a user submits a client edit request for review.' }
+                      { id: 'edit_request', label: 'Submit Edit Request', default: 5, desc: 'Awarded when a user submits a client edit request for review.' },
+                      { id: 'send_email', label: 'Send Email', default: 2, desc: 'Awarded when an email is sent.' },
+                      { id: 'schedule_email', label: 'Schedule Email', default: 1, desc: 'Awarded when an email is scheduled for later.' },
+                      { id: 'send_whatsapp', label: 'Send WhatsApp', default: 2, desc: 'Awarded when a WhatsApp message is queued or sent.' },
+                      { id: 'schedule_whatsapp', label: 'Schedule WhatsApp', default: 1, desc: 'Awarded when a WhatsApp message is scheduled.' },
+                      { id: 'add_product', label: 'Add Product', default: 3, desc: 'Awarded when a product is added to the catalog.' },
+                      { id: 'add_knowledge', label: 'Add Knowledge Item', default: 3, desc: 'Awarded when a knowledge base item is added.' },
+                      { id: 'add_media', label: 'Add Media Asset', default: 1, desc: 'Awarded when a media library item is added.' },
+                      { id: 'create_quote', label: 'Create Quote', default: 8, desc: 'Awarded when a quote is created.' },
+                      { id: 'create_document', label: 'Create Document', default: 5, desc: 'Awarded when a sales document is created.' },
+                      { id: 'agent_run', label: 'Complete Agent Run', default: 5, desc: 'Awarded when an Agent Hub run completes.' }
                     ].map((event) => (
                       <label key={event.id} className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
                         <span className="text-xs font-bold text-slate-300 block mb-2">{event.label}</span>
