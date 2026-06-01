@@ -2939,8 +2939,9 @@ export const useStore = create<StoreState>((set, get) => ({
     const token = localStorage.getItem('token');
     if (!token) return;
 
-    // Trigger background fetches for independent modules
-    get().fetchUserSettings();
+    // User settings include persisted agent schedules and last-run timestamps; load them
+    // before any scheduler can decide whether an agent is due.
+    await get().fetchUserSettings();
     get().loadExpConfig();
     get().fetchProducts();
     get().fetchQuotes();

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AgentHubAgent, useStore } from './store';
 import { useAuthStore } from './authStore';
 import { Sidebar } from './components/Sidebar';
@@ -178,6 +178,7 @@ export default function App() {
   const { view, setView, selectedClientId, checkScheduledEmails, fetchInitialData, language, globalLoading, inboxConfigs, fetchEmails } = useStore();
   const t = useTranslation(language);
   const { token, isInitializing } = useAuthStore();
+  const [initialDataReady, setInitialDataReady] = useState(false);
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'app-layout' });
   const emailSyncStateRef = useRef<Record<string, { lastAttempt: number; inFlight: boolean }>>({});
   const agentRunInFlightRef = useRef(false);
@@ -207,9 +208,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    setInitialDataReady(false);
     if (token) {
-      fetchInitialData();
+      fetchInitialData().finally(() => {
+        if (!cancelled) setInitialDataReady(true);
+      });
     }
+    return () => {
+      cancelled = true;
+    };
   }, [token, fetchInitialData]);
 
   useEffect(() => {
@@ -219,7 +227,7 @@ export default function App() {
   }, [checkScheduledEmails]);
 
   useEffect(() => {
-    if (!token) return;
+    if (!token || !initialDataReady) return;
 
     const runDueAgents = async () => {
       if (agentRunInFlightRef.current) return;
@@ -317,7 +325,6 @@ export default function App() {
               scheduleEnabled: agent.scheduleMaxRuns != null && nextRunCount >= agent.scheduleMaxRuns ? false : agent.scheduleEnabled,
               tasksCompleted: agent.tasksCompleted + 1
             });
-            state.notify(`${agent.name} scheduled run created.`, 'info');
           } catch (error) {
             state.updateAgentRunRecord(runRecordId, {
               status: 'failed',
@@ -381,7 +388,7 @@ export default function App() {
       window.clearInterval(interval);
       window.clearInterval(agentInterval);
     };
-  }, [token, inboxConfigs, fetchEmails]);
+  }, [token, initialDataReady, inboxConfigs, fetchEmails]);
 
   useEffect(() => {
     const localizeNode = (node: Node) => {
