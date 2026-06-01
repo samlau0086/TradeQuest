@@ -16,6 +16,9 @@ import { getCustomerOutputLanguage } from '../lib/language';
 interface InboxWhatsAppConversation {
   id: string;
   targetPhone: string;
+  contactPhone?: string;
+  rawChatId?: string;
+  conversationKey?: string;
   clientId?: string;
   clientName?: string;
   clientCompany?: string;
@@ -152,6 +155,7 @@ export function Inbox() {
   const [isStartingWhatsApp, setIsStartingWhatsApp] = useState(false);
   const [newWhatsAppPhone, setNewWhatsAppPhone] = useState('');
   const [showWhatsAppContactPicker, setShowWhatsAppContactPicker] = useState(false);
+  const [mappingEdit, setMappingEdit] = useState<{ conversationId: string; chatId: string; phone: string; saving?: boolean } | null>(null);
   const whatsappSyncInFlightRef = useRef(false);
 
   const [confirmDialog, setConfirmDialog] = useState<{message: string, onConfirm: () => void} | null>(null);
@@ -548,6 +552,48 @@ export function Inbox() {
     });
   };
 
+  const handleConfirmWhatsAppMapping = async () => {
+    if (!mappingEdit) return;
+    const phone = mappingEdit.phone.replace(/[^0-9]/g, '');
+    if (!phone || !mappingEdit.chatId) {
+      notify('Phone and chatId are required to update the WhatsApp mapping.', 'warning');
+      return;
+    }
+    setMappingEdit({ ...mappingEdit, saving: true });
+    try {
+      const res = await fetch('/api/whatsapp-hub/contact-mappings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          conversationId: mappingEdit.conversationId,
+          chatId: mappingEdit.chatId,
+          phone
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to update WhatsApp mapping.');
+      setWhatsappConversations(prev => {
+        const next = prev.filter(item => item.id !== mappingEdit.conversationId || item.id === data.conversation?.id);
+        const conversation = data.conversation;
+        if (!conversation) return next;
+        const withoutMapped = next.filter(item => item.id !== conversation.id);
+        return [conversation, ...withoutMapped];
+      });
+      if (selectedWhatsAppPhone === mappingEdit.chatId || selectedWhatsAppPhone === mappingEdit.phone) {
+        setSelectedWhatsAppPhone(phone);
+      }
+      setMappingEdit(null);
+      notify('WhatsApp chatId mapping updated.', 'success');
+      loadWhatsAppConversations();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Failed to update WhatsApp mapping.', 'error');
+      setMappingEdit(prev => prev ? { ...prev, saving: false } : prev);
+    }
+  };
+
   const startNewWhatsApp = () => {
     const phone = newWhatsAppPhone.replace(/[^0-9]/g, '');
     if (!phone) return;
@@ -839,7 +885,11 @@ export function Inbox() {
             <div className="p-8 text-center text-sm text-slate-500 italic">No conversations found.</div>
           )}
           {filteredWhatsAppConversations.map(conversation => {
-            const client = conversation.clientId ? clients.find(c => c.id === conversation.clientId) : matchWhatsAppClient(conversation.targetPhone);
+            const displayPhone = conversation.contactPhone || conversation.targetPhone;
+            const rawChatId = conversation.rawChatId || (/@(?:lid|c\.us|g\.us)$/i.test(conversation.targetPhone) ? conversation.targetPhone : '');
+            const needsPhoneMapping = !!rawChatId && !conversation.contactPhone;
+            const isEditingMapping = mappingEdit?.conversationId === conversation.id;
+            const client = conversation.clientId ? clients.find(c => c.id === conversation.clientId) : matchWhatsAppClient(displayPhone);
             return (
               <div
                 key={`wa_${conversation.id}`}
@@ -856,7 +906,7 @@ export function Inbox() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-1 gap-2">
                     <span className="text-sm font-bold truncate text-slate-200">
-                      {client?.name || conversation.clientName || conversation.targetPhone}
+                      {client?.name || conversation.clientName || displayPhone}
                     </span>
                     <div className="flex items-center gap-1 shrink-0">
                       <span className="text-[10px] text-slate-500">
@@ -878,6 +928,53 @@ export function Inbox() {
                   <div className="text-[10px] text-green-400 font-bold uppercase mb-1">
                     WhatsApp {conversation.lastDirection === 'outbound' ? 'sent' : 'inbox'}
                   </div>
+                  {(needsPhoneMapping || isEditingMapping) && (
+                    <div
+                      className="mb-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2"
+                      onClick={event => event.stopPropagation()}
+                    >
+                      <div className="mb-1 text-[10px] font-bold uppercase text-amber-300">
+                        chatId needs phone mapping
+                      </div>
+                      <div className="mb-2 truncate text-[10px] text-slate-500" title={rawChatId}>
+                        {rawChatId}
+                      </div>
+                      {isEditingMapping ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            value={mappingEdit.phone}
+                            onChange={event => setMappingEdit(prev => prev ? { ...prev, phone: event.target.value } : prev)}
+                            placeholder="Enter customer phone"
+                            className="min-w-0 flex-1 rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-100 outline-none focus:border-amber-400"
+                            autoFocus
+                          />
+                          <button
+                            type="button"
+                            onClick={handleConfirmWhatsAppMapping}
+                            disabled={mappingEdit.saving || !mappingEdit.phone.replace(/[^0-9]/g, '')}
+                            className="rounded bg-amber-600 px-2 py-1.5 text-[10px] font-bold text-white hover:bg-amber-500 disabled:bg-slate-800 disabled:text-slate-500"
+                          >
+                            {mappingEdit.saving ? 'Saving' : 'Confirm'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMappingEdit(null)}
+                            className="rounded bg-slate-800 px-2 py-1.5 text-[10px] font-bold text-slate-300 hover:bg-slate-700"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setMappingEdit({ conversationId: conversation.id, chatId: rawChatId, phone: '' })}
+                          className="rounded border border-amber-500/40 px-2 py-1 text-[10px] font-bold text-amber-200 hover:bg-amber-500/20"
+                        >
+                          Edit as phone
+                        </button>
+                      )}
+                    </div>
+                  )}
                   <div className="text-xs font-medium mb-1 truncate text-slate-400">
                     {conversation.lastBody || 'Media message'}
                   </div>

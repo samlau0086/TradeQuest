@@ -39,6 +39,9 @@ interface Props {
 interface WhatsAppConversation {
   id: string;
   targetPhone: string;
+  contactPhone?: string;
+  rawChatId?: string;
+  conversationKey?: string;
   clientId?: string;
   clientName?: string;
   clientCompany?: string;
@@ -49,6 +52,7 @@ interface WhatsAppConversation {
 }
 
 const cleanPhone = (value: string) => value.replace(/[^0-9]/g, '');
+const isChatId = (value: string) => /@(?:lid|c\.us|g\.us|broadcast)$/i.test(value || '');
 
 const isInlineMedia = (mimeType: string) => mimeType.startsWith('image/') || mimeType.startsWith('video/');
 
@@ -78,12 +82,12 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [sending, setSending] = useState(false);
   const [generating, setGenerating] = useState(false);
   const syncInFlightRef = useRef(false);
-  const targetPhone = useMemo(() => cleanPhone(phone), [phone]);
+  const targetPhone = useMemo(() => isChatId(phone) ? phone.trim() : cleanPhone(phone), [phone]);
   const activeClient = useMemo(() => {
     if (client) return client;
     if (conversation?.clientId) return clients.find(item => item.id === conversation.clientId) || null;
     return clients.find(item => item.contactMethods?.some(method => (
-      ['whatsapp', 'phone'].includes(method.type) && cleanPhone(method.value).endsWith(targetPhone.slice(-8))
+      !isChatId(targetPhone) && ['whatsapp', 'phone'].includes(method.type) && cleanPhone(method.value).endsWith(targetPhone.slice(-8))
     ))) || null;
   }, [client, conversation?.clientId, clients, targetPhone]);
   const relatedDeals = useMemo(() => (
@@ -140,7 +144,9 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
       const conversationsRes = await fetch(`/api/whatsapp-hub/conversations?search=${encodeURIComponent(targetPhone)}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
       const conversationsData = await conversationsRes.json();
       if (conversationsRes.ok) {
-        const matched = (conversationsData.conversations || []).find((item: WhatsAppConversation) => item.targetPhone === targetPhone);
+        const matched = (conversationsData.conversations || []).find((item: WhatsAppConversation) => (
+          item.targetPhone === targetPhone || item.contactPhone === targetPhone || item.rawChatId === targetPhone || item.conversationKey === targetPhone
+        ));
         if (matched) setConversation(matched);
       }
     } catch (error: any) {
