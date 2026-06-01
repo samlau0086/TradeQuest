@@ -241,6 +241,20 @@ async function initDB() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS company_email VARCHAR(255);
       ALTER TABLE users ADD COLUMN IF NOT EXISTS company_website VARCHAR(255);
       ALTER TABLE users ADD COLUMN IF NOT EXISTS settings JSONB DEFAULT '{}'::jsonb;
+
+      CREATE TABLE IF NOT EXISTS point_transactions (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        amount INT NOT NULL,
+        balance_after INT NOT NULL,
+        reason TEXT NOT NULL,
+        source VARCHAR(100),
+        reference_id VARCHAR(128),
+        metadata JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_point_transactions_user_created
+      ON point_transactions (user_id, created_at DESC);
       
       CREATE TABLE IF NOT EXISTS clients (
         id VARCHAR(128) PRIMARY KEY,
@@ -577,6 +591,23 @@ async function initDB() {
   } catch (error) {
     console.error("Failed to initialize Postgres database:", error);
   }
+}
+
+async function adjustUserPoints(userId: string, amount: number, reason: string, source = 'system', referenceId: string | null = null, metadata: any = {}) {
+  const normalizedAmount = Number(amount) || 0;
+  if (normalizedAmount === 0) return null;
+  const updateRes = await pool.query(
+    `UPDATE users SET points = points + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING points`,
+    [normalizedAmount, userId]
+  );
+  const balanceAfter = Number(updateRes.rows[0]?.points ?? 0);
+  const id = `pt_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+  await pool.query(
+    `INSERT INTO point_transactions (id, user_id, amount, balance_after, reason, source, reference_id, metadata)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [id, userId, normalizedAmount, balanceAfter, reason, source, referenceId, JSON.stringify(metadata || {})]
+  );
+  return { id, amount: normalizedAmount, balanceAfter, reason, source, referenceId, metadata };
 }
 
 const defaultAi = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -1092,6 +1123,33 @@ No markdown wrappers, just valid JSON.`;
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  app.get('/api/points/history', authenticateToken, async (req: any, res) => {
+    try {
+      const limit = Math.min(100, Math.max(1, Number(req.query.limit || 50)));
+      const result = await pool.query(
+        `SELECT id, amount, balance_after, reason, source, reference_id, metadata, created_at
+         FROM point_transactions
+         WHERE user_id = $1
+         ORDER BY created_at DESC
+         LIMIT $2`,
+        [req.user.uid, limit]
+      );
+      res.json(result.rows.map((row: any) => ({
+        id: row.id,
+        amount: row.amount,
+        balanceAfter: row.balance_after,
+        reason: row.reason,
+        source: row.source,
+        referenceId: row.reference_id,
+        metadata: row.metadata || {},
+        createdAt: row.created_at
+      })));
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to load point history' });
     }
   });
 
@@ -5195,7 +5253,7 @@ Return JSON only:
         return res.status(400).json({ error: 'Lead already claimed or not found' });
       }
       
-      await pool.query('UPDATE users SET points = points - $1 WHERE id = $2', [CLAIM_COST, req.user.uid]);
+      await adjustUserPoints(req.user.uid, -CLAIM_COST, 'Claimed public lead', 'claim_lead', id, { leadId: id });
       
       const client = result.rows[0];
       const dealId = `d${Date.now()}${Math.floor(Math.random()*1000)}`;
@@ -5254,7 +5312,7 @@ Return JSON only:
       }
       
       if (addedCount > 0) {
-        await pool.query(`UPDATE users SET points = points + $1 WHERE id = $2`, [addedCount * 5, req.user.uid]);
+        await adjustUserPoints(req.user.uid, addedCount * 5, `Imported ${addedCount} public leads`, 'import_public_leads', null, { count: addedCount });
       }
       
       res.json({ success: true, count: addedCount, pointsAdded: addedCount * 5 });
@@ -5324,7 +5382,7 @@ Return JSON only:
         [id, req.body.isPublic ? null : req.user.uid, name, company, req.body.address || null, req.body.state || null, req.body.city || null, country, status, JSON.stringify(tags || []), lastContact || null, !!isDormant, JSON.stringify(contactMethods || []), JSON.stringify(contacts || []), primaryContactId || null, JSON.stringify(comments || []), req.body.preferredLanguage || null, req.body.preferredTimeRange || null, req.body.agentWorkflowId || null]
       );
 
-      await pool.query(`UPDATE users SET points = points + 5 WHERE id = $1`, [req.user.uid]);
+      await adjustUserPoints(req.user.uid, 5, 'Created client', 'client_create', id, { clientId: id });
       if (!req.body.isPublic) {
         await triggerAgentHubEvent(req.user.uid, 'client_created', {
           clientId: id,
@@ -5398,7 +5456,7 @@ Return JSON only:
         await pool.query(`UPDATE clients SET ${setClauses.join(', ')} WHERE id = $1 AND user_id = $2`, values);
         
         if (pointsToAward > 0) {
-            await pool.query(`UPDATE users SET points = points + $1 WHERE id = $2`, [pointsToAward, req.user.uid]);
+            await adjustUserPoints(req.user.uid, pointsToAward, 'Enriched client profile', 'client_update', id, { clientId: id, updatedFields: Object.keys(updates) });
         }
         await triggerAgentHubEvent(req.user.uid, 'client_updated', {
           clientId: id,
@@ -5540,7 +5598,7 @@ No markdown wrappers, just valid JSON.`;
       }
       
       // Award points for enrichment via edit request
-      await pool.query(`UPDATE users SET points = points + 5 WHERE id = $1`, [req.user.uid]);
+      await adjustUserPoints(req.user.uid, 5, 'Submitted client edit request', 'client_edit_request', id, { clientId: id });
 
       res.json({ success: true, pointsAdded: 5 });
     } catch (e) {

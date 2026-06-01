@@ -1,14 +1,25 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useStore } from '../store';
 import { useAuthStore } from '../authStore';
-import { Terminal, Sparkles, Send, Loader2, LogOut, User } from 'lucide-react';
+import { Terminal, Sparkles, Send, Loader2, LogOut, User, X, RefreshCw } from 'lucide-react';
 import { useTranslation } from '../lib/i18n';
+
+interface PointTransaction {
+  id: string;
+  amount: number;
+  balanceAfter: number;
+  reason: string;
+  source?: string;
+  referenceId?: string;
+  createdAt: string;
+}
 
 export function TopBar() {
   const { broadcasts, language } = useStore();
   const t = useTranslation(language);
-  const { profile, signOut } = useAuthStore();
+  const { profile, signOut, token } = useAuthStore();
   const latestBroadcast = broadcasts[0];
+  const [showPointHistory, setShowPointHistory] = useState(false);
 
   return (
     <header className="h-14 border-b border-slate-800 bg-slate-900/50 backdrop-blur-md flex items-center justify-between px-6 shrink-0 sticky top-0 z-40">
@@ -32,10 +43,15 @@ export function TopBar() {
       {/* User Actions */}
       <div className="flex-1 flex items-center justify-end gap-4">
         {profile?.points !== undefined && (
-          <div className="bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setShowPointHistory(true)}
+            className="bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 hover:bg-yellow-500/20 hover:border-yellow-500/40 transition-colors"
+            title={language === 'zh' ? '查看可用积分记录' : 'View available point history'}
+          >
             <Sparkles className="w-3 h-3" />
             {profile.points} {t('availablePoints')}
-          </div>
+          </button>
         )}
         <div className="flex items-center gap-2">
           {profile?.avatarUrl ? (
@@ -58,7 +74,103 @@ export function TopBar() {
           <LogOut className="w-4 h-4" />
         </button>
       </div>
+      {showPointHistory && (
+        <PointHistoryModal
+          token={token}
+          language={language}
+          balance={profile?.points || 0}
+          onClose={() => setShowPointHistory(false)}
+        />
+      )}
     </header>
+  );
+}
+
+function PointHistoryModal({ token, language, balance, onClose }: { token: string | null; language: 'en' | 'zh'; balance: number; onClose: () => void }) {
+  const [items, setItems] = useState<PointTransaction[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const loadHistory = async () => {
+    if (!token) return;
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/points/history?limit=50', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json().catch(() => []);
+      if (!res.ok) throw new Error(data.error || 'Failed to load point history');
+      setItems(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load point history');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadHistory();
+  }, [token]);
+
+  const title = language === 'zh' ? '可用积分记录' : 'Available Point History';
+  const balanceLabel = language === 'zh' ? '当前余额' : 'Current balance';
+  const emptyLabel = language === 'zh' ? '暂无积分记录。之后的加分和扣分会显示在这里。' : 'No point history yet. Future point gains and spending will appear here.';
+
+  return (
+    <div className="fixed inset-0 z-[80] bg-slate-950/75 backdrop-blur-sm flex items-start justify-end p-4 pt-16" onClick={onClose}>
+      <div
+        className="w-full max-w-md max-h-[78vh] overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl"
+        onClick={event => event.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+          <div>
+            <h2 className="text-sm font-bold text-white">{title}</h2>
+            <p className="text-xs text-slate-400 mt-0.5">{balanceLabel}: <span className="text-yellow-400 font-bold">{balance}</span></p>
+          </div>
+          <div className="flex items-center gap-1">
+            <button type="button" onClick={loadHistory} className="p-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white" title={language === 'zh' ? '刷新' : 'Refresh'}>
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+            <button type="button" onClick={onClose} className="p-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white" title={language === 'zh' ? '关闭' : 'Close'}>
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="max-h-[62vh] overflow-y-auto p-3 custom-scrollbar">
+          {loading && items.length === 0 ? (
+            <div className="py-10 text-center text-sm text-slate-500">{language === 'zh' ? '正在加载...' : 'Loading...'}</div>
+          ) : error ? (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">{error}</div>
+          ) : items.length === 0 ? (
+            <div className="py-10 text-center text-sm text-slate-500">{emptyLabel}</div>
+          ) : (
+            <div className="space-y-2">
+              {items.map(item => (
+                <div key={item.id} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-200 truncate">{item.reason}</div>
+                      <div className="text-[11px] text-slate-500 mt-1">
+                        {new Date(item.createdAt).toLocaleString(language === 'zh' ? 'zh-CN' : undefined)}
+                        {item.source ? ` · ${item.source}` : ''}
+                      </div>
+                    </div>
+                    <div className={`text-sm font-black ${item.amount > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {item.amount > 0 ? '+' : ''}{item.amount}
+                    </div>
+                  </div>
+                  <div className="mt-2 text-[11px] text-slate-500">
+                    {language === 'zh' ? '变动后余额' : 'Balance after'}: {item.balanceAfter}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
