@@ -147,7 +147,7 @@ export interface AppNotification {
   tone: NotificationTone;
 }
 
-export type ExternalNotificationEvent = 'email_received' | 'review_required' | 'execution_failed';
+export type ExternalNotificationEvent = 'email_received' | 'review_required' | 'execution_failed' | 'daily_operation_summary' | 'inactive_login_reminder';
 
 export interface ExternalNotificationConfig {
   enabled: boolean;
@@ -1140,7 +1140,9 @@ const INITIAL_EXTERNAL_NOTIFICATION_CONFIG: ExternalNotificationConfig = {
   events: {
     email_received: true,
     review_required: true,
-    execution_failed: true
+    execution_failed: true,
+    daily_operation_summary: true,
+    inactive_login_reminder: true
   }
 };
 

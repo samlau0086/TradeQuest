@@ -1761,7 +1761,9 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
                 {[
                   ['email_received', 'New email received / 收到新邮件'],
                   ['review_required', 'Review required / 需要审核'],
-                  ['execution_failed', 'Execution failed / 执行失败']
+                  ['execution_failed', 'Execution failed / 执行失败'],
+                  ['daily_operation_summary', 'Daily operation summary / 每日运营摘要'],
+                  ['inactive_login_reminder', 'Inactive login reminder / 长时间未登录提醒']
                 ].map(([event, label]) => (
                   <label key={event} className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-300">
                     <input

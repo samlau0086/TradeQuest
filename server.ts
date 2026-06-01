@@ -241,6 +241,9 @@ async function initDB() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS company_email VARCHAR(255);
       ALTER TABLE users ADD COLUMN IF NOT EXISTS company_website VARCHAR(255);
       ALTER TABLE users ADD COLUMN IF NOT EXISTS settings JSONB DEFAULT '{}'::jsonb;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP WITH TIME ZONE;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS inactive_notification_sent_at TIMESTAMP WITH TIME ZONE;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS notification_state JSONB DEFAULT '{}'::jsonb;
 
       CREATE TABLE IF NOT EXISTS point_transactions (
         id VARCHAR(128) PRIMARY KEY,
@@ -1084,6 +1087,10 @@ No markdown wrappers, just valid JSON.`;
         return res.status(401).json({ error: 'Invalid credentials' });
       }
       
+      await pool.query(
+        'UPDATE users SET last_login_at = CURRENT_TIMESTAMP, inactive_notification_sent_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $1',
+        [user.id]
+      );
       const token = jwt.sign({ uid: user.id }, JWT_SECRET, { expiresIn: '7d' });
       res.json({ token, user: {
         id: user.id, email: user.email, role: user.role, displayName: user.display_name, avatarUrl: user.avatar_url, points: user.points, companyName: user.company_name, companyAddress: user.company_address, companyPhone: user.company_phone, companyEmail: user.company_email, companyWebsite: user.company_website, createdAt: user.created_at, updatedAt: user.updated_at
@@ -1417,6 +1424,104 @@ No markdown wrappers, just valid JSON.`;
       res.status(500).json({ error: 'Failed to send external notification' });
     }
   });
+
+  const getUserNotificationDateKey = (timezone?: string) => {
+    try {
+      return new Intl.DateTimeFormat('en-CA', {
+        timeZone: timezone || 'UTC',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).format(new Date());
+    } catch {
+      return new Date().toISOString().slice(0, 10);
+    }
+  };
+
+  const buildDailyOperationSummary = async (user: any) => {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const [emailRes, clientRes, dealRes, logRes, editReqRes] = await Promise.all([
+      pool.query(`SELECT COUNT(*)::int AS count FROM emails WHERE user_id = $1 AND date >= $2`, [user.id, since]),
+      pool.query(`SELECT COUNT(*)::int AS count FROM clients WHERE user_id = $1 AND created_at >= $2`, [user.id, since]),
+      pool.query(`SELECT COUNT(*)::int AS count FROM deals WHERE user_id = $1 AND updated_at >= $2`, [user.id, since]),
+      pool.query(`SELECT COUNT(*)::int AS count FROM logs WHERE client_id IN (SELECT id FROM clients WHERE user_id = $1) AND date >= $2`, [user.id, since]),
+      pool.query(`SELECT COUNT(*)::int AS count FROM client_edit_requests WHERE user_id = $1 AND status = 'pending'`, [user.id])
+    ]);
+    const settings = user.settings || {};
+    const isZh = settings.language === 'zh';
+    const agentRecords = Array.isArray(settings.agentRunRecords) ? settings.agentRunRecords : [];
+    const recentAgentRuns = agentRecords.filter((record: any) => new Date(record.startedAt || record.createdAt || 0).getTime() >= Date.now() - 24 * 60 * 60 * 1000).length;
+    const emails = Number(emailRes.rows[0]?.count || 0);
+    const clients = Number(clientRes.rows[0]?.count || 0);
+    const deals = Number(dealRes.rows[0]?.count || 0);
+    const logs = Number(logRes.rows[0]?.count || 0);
+    const pendingReviews = Number(editReqRes.rows[0]?.count || 0);
+    return isZh
+      ? `过去24小时：邮件 ${emails} 封，新增客户/线索 ${clients} 个，更新线索 ${deals} 个，事件 ${logs} 条，智能体运行 ${recentAgentRuns} 次，待审核 ${pendingReviews} 项。`
+      : `Last 24h: ${emails} email(s), ${clients} new client/lead record(s), ${deals} updated deal(s), ${logs} event(s), ${recentAgentRuns} agent run(s), and ${pendingReviews} pending review item(s).`;
+  };
+
+  const runExternalNotificationScheduler = async () => {
+    try {
+      const usersRes = await pool.query(`
+        SELECT id, email, display_name, settings, last_login_at, inactive_notification_sent_at, notification_state, created_at, updated_at
+        FROM users
+        WHERE COALESCE((settings->'externalNotificationConfig'->>'enabled')::boolean, false) = true
+      `);
+      for (const user of usersRes.rows) {
+        const settings = user.settings || {};
+        const notificationState = user.notification_state || {};
+        const config = settings.externalNotificationConfig || {};
+        const events = config.events || {};
+        const isZh = settings.language === 'zh';
+        const dateKey = getUserNotificationDateKey(settings.timezone);
+
+        if (events.daily_operation_summary !== false && notificationState.lastDailyOperationSummaryDate !== dateKey) {
+          const body = await buildDailyOperationSummary(user);
+          const result = await sendExternalNotification(user.id, {
+            event: 'daily_operation_summary',
+            title: isZh ? 'TradeQuest 每日运营摘要' : 'TradeQuest Daily Operation Summary',
+            body,
+            metadata: { source: 'notification-scheduler', dateKey }
+          });
+          if (!result?.skipped) {
+            await pool.query(
+              `UPDATE users SET notification_state = COALESCE(notification_state, '{}'::jsonb) || $1::jsonb, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+              [JSON.stringify({ lastDailyOperationSummaryDate: dateKey }), user.id]
+            );
+          }
+        }
+
+        if (events.inactive_login_reminder !== false) {
+          const lastLoginAt = user.last_login_at || user.updated_at || user.created_at;
+          const lastLoginTime = lastLoginAt ? new Date(lastLoginAt).getTime() : Date.now();
+          const daysInactive = Math.floor((Date.now() - lastLoginTime) / (24 * 60 * 60 * 1000));
+          const lastSentTime = user.inactive_notification_sent_at ? new Date(user.inactive_notification_sent_at).getTime() : 0;
+          const daysSinceLastSent = lastSentTime ? Math.floor((Date.now() - lastSentTime) / (24 * 60 * 60 * 1000)) : Infinity;
+          if (daysInactive >= 3 && daysSinceLastSent >= 3) {
+            const result = await sendExternalNotification(user.id, {
+              event: 'inactive_login_reminder',
+              title: isZh ? 'TradeQuest 登录提醒' : 'TradeQuest Login Reminder',
+              body: isZh
+                ? `你已经连续 ${daysInactive} 天未登录 TradeQuest。建议回来查看待审核事项、客户回复和智能体运行结果。`
+                : `You have not logged in to TradeQuest for ${daysInactive} consecutive days. Check pending reviews, customer replies, and agent results.`,
+              metadata: { source: 'notification-scheduler', daysInactive }
+            });
+            if (!result?.skipped) {
+              await pool.query(
+                `UPDATE users SET inactive_notification_sent_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+                [user.id]
+              );
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('External notification scheduler failed', error);
+    }
+  };
+  setInterval(runExternalNotificationScheduler, 60 * 60 * 1000);
+  setTimeout(runExternalNotificationScheduler, 30 * 1000);
 
   const getWhatsAppHubConfig = async (userId: string) => {
     const result = await pool.query('SELECT settings FROM users WHERE id = $1', [userId]);
