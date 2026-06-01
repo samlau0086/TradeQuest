@@ -1668,7 +1668,35 @@ No markdown wrappers, just valid JSON.`;
       conversationKey: identity.conversationKey
     });
     if (!conversation) return;
-    const messageId = String(message.id || `wa_msg_${message.client_id || 'hub'}_${message.direction}_${targetPhone}_${new Date(messageTime).getTime()}`).slice(0, 128);
+    let messageId = String(message.id || `wa_msg_${message.client_id || 'hub'}_${message.direction}_${targetPhone}_${new Date(messageTime).getTime()}`).slice(0, 128);
+    const direction = message.direction || 'inbound';
+    const hubClientId = message.client_id || message.hubClientId || null;
+    const body = message.body || '';
+    const timeMs = new Date(messageTime).getTime();
+    const isHubEcho = Boolean(message.id && !String(message.id).startsWith('wa_local_'));
+    if (isHubEcho && direction === 'outbound') {
+      const duplicateRes = await pool.query(
+        `SELECT id
+         FROM whatsapp_messages
+         WHERE user_id = $1
+           AND conversation_id = $2
+           AND direction = 'outbound'
+           AND COALESCE(hub_client_id, '') = COALESCE($3, '')
+           AND COALESCE(body, '') = COALESCE($4, '')
+           AND (
+             id = $5
+             OR id LIKE 'wa_local_%'
+             OR payload->>'pendingTaskId' IS NOT NULL
+           )
+           AND ABS(EXTRACT(EPOCH FROM (COALESCE(source_created_at, created_at) - $6::timestamptz))) <= 900
+         ORDER BY
+           CASE WHEN id = $5 THEN 0 WHEN payload->>'pendingTaskId' IS NOT NULL THEN 1 ELSE 2 END,
+           COALESCE(source_created_at, created_at) DESC
+         LIMIT 1`,
+        [userId, conversation.id, hubClientId, body, messageId, Number.isFinite(timeMs) ? new Date(timeMs).toISOString() : messageTime]
+      );
+      if (duplicateRes.rows[0]?.id) messageId = duplicateRes.rows[0].id;
+    }
     await pool.query(
       `INSERT INTO whatsapp_messages
        (id, user_id, conversation_id, client_id, hub_client_id, direction, sender, recipient, target_phone, body, message_type, payload, source_created_at, received_at, contact_phone, raw_chat_id, conversation_key)
@@ -1691,12 +1719,12 @@ No markdown wrappers, just valid JSON.`;
         userId,
         conversation.id,
         conversation.clientId,
-        message.client_id || message.hubClientId || null,
-        message.direction || 'inbound',
+        hubClientId,
+        direction,
         message.sender || '',
         message.recipient || '',
         targetPhone,
-        message.body || '',
+        body,
         message.message_type || message.type || 'chat',
         JSON.stringify(message.payload || {}),
         message.created_at || messageTime,
@@ -1862,7 +1890,12 @@ No markdown wrappers, just valid JSON.`;
       recipient: to,
       body: payload.body || '',
       message_type: payload.media ? 'media' : 'chat',
-      payload: { ...(payload.media ? { media: payload.media, hasMedia: true } : {}), ...(payload.metadata || {}) },
+      payload: {
+        ...(payload.media ? { media: payload.media, hasMedia: true } : {}),
+        ...(payload.metadata || {}),
+        pendingTaskId: data.task?.id || data.id || null,
+        localEcho: true
+      },
       created_at: new Date().toISOString()
     });
     return { ...data, selectedClientId: clientId, quota };
