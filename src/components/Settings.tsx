@@ -38,9 +38,10 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
     outscraperApiKey, setOutscraperApiKey,
     leadDataChannelConfigs, updateLeadDataChannelConfig,
     whatsappHubConfig, updateWhatsAppHubConfig,
-    externalNotificationConfig, updateExternalNotificationConfig, sendExternalNotification,
+    externalNotificationConfig, updateExternalNotificationConfig,
     agentContextAnalysisConfig, updateAgentContextAnalysisConfig,
-    dailyQuests, achievements
+    dailyQuests, achievements,
+    notify
   } = useStore();
   const t = useTranslation(language);
   
@@ -123,6 +124,7 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
   const [showOutboxApiKey, setShowOutboxApiKey] = useState(false);
   const [showLLMApiKey, setShowLLMApiKey] = useState(false);
   const [showOutscraperApiKey, setShowOutscraperApiKey] = useState(false);
+  const [testingExternalNotification, setTestingExternalNotification] = useState(false);
   const [visibleLeadChannelKeys, setVisibleLeadChannelKeys] = useState<Record<string, boolean>>({});
   const [testingLeadChannel, setTestingLeadChannel] = useState<LeadDataProvider | null>(null);
   const [leadChannelTestResults, setLeadChannelTestResults] = useState<Partial<Record<LeadDataProvider, { status: 'success' | 'failed'; message: string }>>>({});
@@ -170,6 +172,76 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
       console.error(error);
     } finally {
       setUpdatingRates(false);
+    }
+  };
+
+  const handleTestExternalNotification = async () => {
+    if (!token) return;
+    if (!externalNotificationConfig.enabled) {
+      notify(language === 'zh' ? '请先开启外部通知总开关。' : 'Enable external notifications first.', 'warning');
+      return;
+    }
+    if (!externalNotificationConfig.barkEnabled && !externalNotificationConfig.webhookEnabled) {
+      notify(language === 'zh' ? '请至少开启 Bark 或 Webhook 其中一个通知渠道。' : 'Enable at least Bark or Webhook before testing.', 'warning');
+      return;
+    }
+    if (externalNotificationConfig.barkEnabled && !externalNotificationConfig.barkDeviceKey.trim()) {
+      notify(language === 'zh' ? '请填写 Bark Device Key 或完整 Bark URL。' : 'Enter a Bark device key or full Bark URL first.', 'warning');
+      return;
+    }
+    if (externalNotificationConfig.webhookEnabled && !externalNotificationConfig.webhookUrl.trim()) {
+      notify(language === 'zh' ? '请填写 Webhook URL。' : 'Enter a Webhook URL first.', 'warning');
+      return;
+    }
+
+    setTestingExternalNotification(true);
+    try {
+      const configForTest = {
+        ...externalNotificationConfig,
+        events: {
+          ...externalNotificationConfig.events,
+          review_required: true
+        }
+      };
+      await fetch('/api/user/settings', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ externalNotificationConfig: configForTest })
+      });
+      if (!externalNotificationConfig.events.review_required) {
+        updateExternalNotificationConfig({ events: configForTest.events });
+      }
+
+      const response = await fetch('/api/notifications/external', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          event: 'review_required',
+          title: 'TradeQuest notification test',
+          body: 'Bark / Webhook notifications are configured.',
+          metadata: { source: 'settings-test' }
+        })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Failed to send test notification.');
+      if (data.skipped) throw new Error(data.reason || 'Notification test was skipped.');
+      const results = Array.isArray(data.results) ? data.results : [];
+      const failed = results.filter((item: any) => !item.ok);
+      if (failed.length > 0) {
+        throw new Error(failed.map((item: any) => `${item.channel}: ${item.error || item.status || 'failed'}`).join('; '));
+      }
+      const channels = results.map((item: any) => item.channel).join(', ') || 'notification channel';
+      notify(language === 'zh' ? `测试通知已发送：${channels}` : `Test notification sent: ${channels}`, 'success');
+    } catch (error: any) {
+      notify(error?.message || (language === 'zh' ? '测试通知发送失败。' : 'Failed to send test notification.'), 'error');
+    } finally {
+      setTestingExternalNotification(false);
     }
   };
 
@@ -1707,14 +1779,11 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
 
               <button
                 type="button"
-                onClick={() => sendExternalNotification({
-                  event: 'review_required',
-                  title: 'TradeQuest notification test',
-                  body: 'Bark / Webhook notifications are configured.',
-                  metadata: { source: 'settings-test' }
-                })}
-                className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-sm font-bold"
+                onClick={handleTestExternalNotification}
+                disabled={testingExternalNotification}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-500 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-lg text-sm font-bold"
               >
+                {testingExternalNotification && <RefreshCw className="w-4 h-4 animate-spin" />}
                 Send Test Notification
               </button>
             </div>

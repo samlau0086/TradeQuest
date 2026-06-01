@@ -1336,43 +1336,66 @@ No markdown wrappers, just valid JSON.`;
     const settings = result.rows[0]?.settings || {};
     const config = settings.externalNotificationConfig || {};
     const events = config.events || {};
-    if (!config.enabled || events[payload.event] === false) return;
+    if (!config.enabled) return { skipped: true, reason: 'External notifications are disabled.', results: [] };
+    if (events[payload.event] === false) return { skipped: true, reason: `Event ${payload.event} is disabled.`, results: [] };
 
-    const jobs: Promise<any>[] = [];
+    const jobs: Promise<{ channel: string; ok: boolean; status?: number; error?: string }>[] = [];
     if (config.barkEnabled && config.barkDeviceKey) {
       const serverUrl = String(config.barkServerUrl || 'https://api.day.app').replace(/\/+$/, '');
       const deviceKey = String(config.barkDeviceKey).trim().replace(/^\/+|\/+$/g, '');
       const barkUrl = /^https?:\/\//i.test(deviceKey) ? deviceKey : `${serverUrl}/${encodeURIComponent(deviceKey)}`;
-      jobs.push(fetch(barkUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: payload.title,
-          body: payload.body,
-          url: payload.url,
-          group: 'TradeQuest',
-          level: payload.event === 'execution_failed' ? 'timeSensitive' : 'active'
+      jobs.push(
+        fetch(barkUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: payload.title,
+            body: payload.body,
+            url: payload.url,
+            group: 'TradeQuest',
+            level: payload.event === 'execution_failed' ? 'timeSensitive' : 'active'
+          })
         })
-      }));
+          .then(async response => ({
+            channel: 'bark',
+            ok: response.ok,
+            status: response.status,
+            error: response.ok ? undefined : (await response.text().catch(() => response.statusText)).slice(0, 300)
+          }))
+          .catch(error => ({ channel: 'bark', ok: false, error: error instanceof Error ? error.message : String(error) }))
+      );
     }
 
     if (config.webhookEnabled && config.webhookUrl) {
-      jobs.push(fetch(String(config.webhookUrl), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          app: 'TradeQuest',
-          event: payload.event,
-          title: payload.title,
-          body: payload.body,
-          url: payload.url,
-          metadata: payload.metadata || {},
-          createdAt: new Date().toISOString()
+      jobs.push(
+        fetch(String(config.webhookUrl), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            app: 'TradeQuest',
+            event: payload.event,
+            title: payload.title,
+            body: payload.body,
+            url: payload.url,
+            metadata: payload.metadata || {},
+            createdAt: new Date().toISOString()
+          })
         })
-      }));
+          .then(async response => ({
+            channel: 'webhook',
+            ok: response.ok,
+            status: response.status,
+            error: response.ok ? undefined : (await response.text().catch(() => response.statusText)).slice(0, 300)
+          }))
+          .catch(error => ({ channel: 'webhook', ok: false, error: error instanceof Error ? error.message : String(error) }))
+      );
     }
 
-    await Promise.allSettled(jobs);
+    if (jobs.length === 0) {
+      return { skipped: true, reason: 'No Bark or Webhook channel is configured.', results: [] };
+    }
+    const results = await Promise.all(jobs);
+    return { skipped: false, results };
   };
 
   app.post('/api/notifications/external', authenticateToken, async (req: any, res) => {
@@ -1381,14 +1404,14 @@ No markdown wrappers, just valid JSON.`;
       if (!event || !title || !body) {
         return res.status(400).json({ error: 'Missing notification event, title, or body' });
       }
-      await sendExternalNotification(req.user.uid, {
+      const result = await sendExternalNotification(req.user.uid, {
         event: String(event),
         title: String(title).slice(0, 160),
         body: String(body).slice(0, 1000),
         url: url ? String(url) : undefined,
         metadata
       });
-      res.json({ success: true });
+      res.json({ success: true, ...result });
     } catch (e) {
       console.error('External notification failed', e);
       res.status(500).json({ error: 'Failed to send external notification' });
