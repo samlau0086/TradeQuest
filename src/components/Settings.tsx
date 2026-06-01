@@ -586,11 +586,18 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
                 </div>
               </div>
 
-              <h2 className="text-xl font-bold flex items-center gap-2 mt-8 border-t border-slate-800 pt-8">
-                <Target className="w-5 h-5 text-indigo-400" /> Business Event EXP Rewards
-              </h2>
-              <div className="bg-slate-900 border border-slate-700/50 rounded-xl p-4 md:p-6 mb-8 shadow-sm">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mt-8 border-t border-slate-800 pt-8">
+                <div className="bg-slate-900 border border-indigo-500/20 rounded-xl p-4 md:p-6 shadow-sm">
+                  <div className="flex items-start justify-between gap-4 mb-5">
+                    <div>
+                      <h2 className="text-lg font-bold flex items-center gap-2">
+                        <Target className="w-5 h-5 text-indigo-400" /> Business Event EXP
+                      </h2>
+                      <p className="mt-1 text-xs text-slate-500">Experience grows levels, titles, achievements, and streak motivation.</p>
+                    </div>
+                    <span className="rounded-full border border-indigo-500/30 bg-indigo-500/10 px-2.5 py-1 text-[10px] font-bold uppercase text-indigo-300">Leveling</span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {[
                     { id: 'add_client', label: 'Add Lead/Client', default: 10 },
                     { id: 'claim_lead', label: 'Claim Lead from Pool', default: 5 },
@@ -614,49 +621,82 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
                     { id: 'customer_progress', label: 'Customer Stage Progress', default: 10 },
                     { id: 'sales_combo', label: 'Sales Combo Completed', default: 40 }
                   ].map((event) => (
-                    <div key={event.id}>
-                      <label className="text-sm font-bold text-slate-300 block mb-2 opacity-80">
+                    <label key={event.id} className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
+                      <span className="text-xs font-bold text-slate-300 block mb-2">
                         {event.label}
-                      </label>
-                      <div className="flex items-center gap-4">
+                      </span>
+                      <div className="flex items-center gap-2">
                         <input
                           type="number"
                           min="0"
                           value={globalSettings[`exp_event_${event.id}`] ?? event.default}
                           onChange={e => handleSaveGlobalSetting(`exp_event_${event.id}`, Number(e.target.value))}
-                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-indigo-500"
+                          className="w-full bg-slate-950 border border-slate-800 rounded-md px-3 py-2 text-sm text-slate-200 outline-none focus:border-indigo-500"
                         />
+                        <span className="text-[10px] font-bold text-indigo-300">EXP</span>
                       </div>
-                    </div>
+                    </label>
                   ))}
+                  </div>
                 </div>
-              </div>
 
-              <h2 className="text-xl font-bold flex items-center gap-2 mt-8 border-t border-slate-800 pt-8">
-                <Landmark className="w-5 h-5 text-cyan-400" /> Point Consumption Rules
-              </h2>
-              <div className="bg-slate-900 border border-slate-700/50 rounded-xl p-4 md:p-6 mb-8 shadow-sm">
-                <p className="text-sm text-slate-500 mb-5">
-                  Configure how many user points are consumed by paid CRM actions.
-                </p>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {[
-                    { id: 'claim_lead', label: 'Claim Public Lead', default: 10, desc: 'Deducted when a user claims one lead from the public pool.' }
-                  ].map((event) => (
-                    <div key={event.id}>
-                      <label className="text-sm font-bold text-slate-300 block mb-2 opacity-80">
-                        {event.label}
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={globalSettings[`point_cost_${event.id}`] ?? event.default}
-                        onChange={e => handleSaveGlobalSetting(`point_cost_${event.id}`, Number(e.target.value))}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
-                      />
-                      <p className="mt-2 text-xs text-slate-500">{event.desc}</p>
+                <div className="bg-slate-900 border border-yellow-500/20 rounded-xl p-4 md:p-6 shadow-sm">
+                  <div className="flex items-start justify-between gap-4 mb-5">
+                    <div>
+                      <h2 className="text-lg font-bold flex items-center gap-2">
+                        <Landmark className="w-5 h-5 text-yellow-400" /> Available Points
+                      </h2>
+                      <p className="mt-1 text-xs text-slate-500">Points are spendable account balance. Rewards add points; costs deduct points.</p>
                     </div>
-                  ))}
+                    <span className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2.5 py-1 text-[10px] font-bold uppercase text-yellow-300">Balance</span>
+                  </div>
+
+                  <h3 className="mb-3 text-xs font-black uppercase tracking-wide text-emerald-300">Point Rewards</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
+                    {[
+                      { id: 'add_client', label: 'Create Client', default: 5, desc: 'Awarded when a user creates a non-public client.' },
+                      { id: 'import_lead', label: 'Import Public Lead', default: 5, desc: 'Awarded per lead imported into the public pool.' },
+                      { id: 'enrich_client', label: 'Profile Enrichment Multiplier', default: 1, desc: 'Multiplies profile completion rewards from company, address, country, contacts, and tags.' },
+                      { id: 'edit_request', label: 'Submit Edit Request', default: 5, desc: 'Awarded when a user submits a client edit request for review.' }
+                    ].map((event) => (
+                      <label key={event.id} className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
+                        <span className="text-xs font-bold text-slate-300 block mb-2">{event.label}</span>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="0"
+                            value={globalSettings[`point_event_${event.id}`] ?? event.default}
+                            onChange={e => handleSaveGlobalSetting(`point_event_${event.id}`, Number(e.target.value))}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-md px-3 py-2 text-sm text-slate-200 outline-none focus:border-emerald-500"
+                          />
+                          <span className="text-[10px] font-bold text-emerald-300">PTS</span>
+                        </div>
+                        <p className="mt-2 text-[11px] leading-relaxed text-slate-500">{event.desc}</p>
+                      </label>
+                    ))}
+                  </div>
+
+                  <h3 className="mb-3 text-xs font-black uppercase tracking-wide text-rose-300">Point Costs</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {[
+                      { id: 'claim_lead', label: 'Claim Public Lead', default: 10, desc: 'Deducted when a user claims one lead from the public pool.' }
+                    ].map((event) => (
+                      <label key={event.id} className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
+                        <span className="text-xs font-bold text-slate-300 block mb-2">{event.label}</span>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="0"
+                            value={globalSettings[`point_cost_${event.id}`] ?? event.default}
+                            onChange={e => handleSaveGlobalSetting(`point_cost_${event.id}`, Number(e.target.value))}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-md px-3 py-2 text-sm text-slate-200 outline-none focus:border-rose-500"
+                          />
+                          <span className="text-[10px] font-bold text-rose-300">PTS</span>
+                        </div>
+                        <p className="mt-2 text-[11px] leading-relaxed text-slate-500">{event.desc}</p>
+                      </label>
+                    ))}
+                  </div>
                 </div>
               </div>
 

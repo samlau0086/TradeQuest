@@ -610,6 +610,12 @@ async function adjustUserPoints(userId: string, amount: number, reason: string, 
   return { id, amount: normalizedAmount, balanceAfter, reason, source, referenceId, metadata };
 }
 
+async function getGlobalSettingNumber(key: string, fallback: number) {
+  const result = await pool.query('SELECT value FROM global_settings WHERE key = $1', [key]);
+  const value = Number(result.rows[0]?.value ?? fallback);
+  return Number.isFinite(value) ? value : fallback;
+}
+
 const defaultAi = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 async function callAI(prompt: string, llmConfig: any, isJson: boolean = false) {
@@ -5236,9 +5242,7 @@ Return JSON only:
     try {
       const { id } = req.params;
       
-      const claimCostRes = await pool.query('SELECT value FROM global_settings WHERE key = $1', ['point_cost_claim_lead']);
-      const parsedClaimCost = Number(claimCostRes.rows[0]?.value ?? 10);
-      const CLAIM_COST = Number.isFinite(parsedClaimCost) ? Math.max(0, parsedClaimCost) : 10;
+      const CLAIM_COST = Math.max(0, await getGlobalSettingNumber('point_cost_claim_lead', 10));
       const userRes = await pool.query('SELECT points FROM users WHERE id = $1', [req.user.uid]);
       if (userRes.rows.length === 0 || userRes.rows[0].points < CLAIM_COST) {
         return res.status(400).json({ error: `Not enough points to claim a public lead (cost: ${CLAIM_COST} points)` });
@@ -5312,10 +5316,12 @@ Return JSON only:
       }
       
       if (addedCount > 0) {
-        await adjustUserPoints(req.user.uid, addedCount * 5, `Imported ${addedCount} public leads`, 'import_public_leads', null, { count: addedCount });
+        const importReward = Math.max(0, await getGlobalSettingNumber('point_event_import_lead', 5));
+        await adjustUserPoints(req.user.uid, addedCount * importReward, `Imported ${addedCount} public leads`, 'import_public_leads', null, { count: addedCount });
       }
       
-      res.json({ success: true, count: addedCount, pointsAdded: addedCount * 5 });
+      const importReward = Math.max(0, await getGlobalSettingNumber('point_event_import_lead', 5));
+      res.json({ success: true, count: addedCount, pointsAdded: addedCount * importReward });
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: 'Failed to import leads' });
@@ -5382,7 +5388,8 @@ Return JSON only:
         [id, req.body.isPublic ? null : req.user.uid, name, company, req.body.address || null, req.body.state || null, req.body.city || null, country, status, JSON.stringify(tags || []), lastContact || null, !!isDormant, JSON.stringify(contactMethods || []), JSON.stringify(contacts || []), primaryContactId || null, JSON.stringify(comments || []), req.body.preferredLanguage || null, req.body.preferredTimeRange || null, req.body.agentWorkflowId || null]
       );
 
-      await adjustUserPoints(req.user.uid, 5, 'Created client', 'client_create', id, { clientId: id });
+      const createClientReward = Math.max(0, await getGlobalSettingNumber('point_event_add_client', 5));
+      await adjustUserPoints(req.user.uid, createClientReward, 'Created client', 'client_create', id, { clientId: id });
       if (!req.body.isPublic) {
         await triggerAgentHubEvent(req.user.uid, 'client_created', {
           clientId: id,
@@ -5393,7 +5400,7 @@ Return JSON only:
         }).catch(err => console.warn('Agent Hub client_created trigger failed', err));
       }
 
-      res.json({ success: true, pointsAdded: 5 });
+      res.json({ success: true, pointsAdded: createClientReward });
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: 'Failed to insert client' });
@@ -5456,7 +5463,10 @@ Return JSON only:
         await pool.query(`UPDATE clients SET ${setClauses.join(', ')} WHERE id = $1 AND user_id = $2`, values);
         
         if (pointsToAward > 0) {
-            await adjustUserPoints(req.user.uid, pointsToAward, 'Enriched client profile', 'client_update', id, { clientId: id, updatedFields: Object.keys(updates) });
+            const profileRewardMultiplier = Math.max(0, await getGlobalSettingNumber('point_event_enrich_client', 1));
+            const adjustedPoints = Math.round(pointsToAward * profileRewardMultiplier);
+            await adjustUserPoints(req.user.uid, adjustedPoints, 'Enriched client profile', 'client_update', id, { clientId: id, updatedFields: Object.keys(updates) });
+            pointsToAward = adjustedPoints;
         }
         await triggerAgentHubEvent(req.user.uid, 'client_updated', {
           clientId: id,
@@ -5598,9 +5608,10 @@ No markdown wrappers, just valid JSON.`;
       }
       
       // Award points for enrichment via edit request
-      await adjustUserPoints(req.user.uid, 5, 'Submitted client edit request', 'client_edit_request', id, { clientId: id });
+      const editRequestReward = Math.max(0, await getGlobalSettingNumber('point_event_edit_request', 5));
+      await adjustUserPoints(req.user.uid, editRequestReward, 'Submitted client edit request', 'client_edit_request', id, { clientId: id });
 
-      res.json({ success: true, pointsAdded: 5 });
+      res.json({ success: true, pointsAdded: editRequestReward });
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: 'Failed to create edit request' });
@@ -5659,7 +5670,7 @@ No markdown wrappers, just valid JSON.`;
   // Public Settings
   app.get('/api/settings/public', authenticateToken, async (req: any, res) => {
     try {
-      const result = await pool.query('SELECT * FROM global_settings WHERE key LIKE \'exp_%\' OR key LIKE \'point_cost_%\' OR key IN (\'agent_polling_interval_seconds\', \'agent_polling_interval_hours\', \'currency_rates\', \'default_quote_currency\', \'currency_rates_updated_at\')');
+      const result = await pool.query('SELECT * FROM global_settings WHERE key LIKE \'exp_%\' OR key LIKE \'point_cost_%\' OR key LIKE \'point_event_%\' OR key IN (\'agent_polling_interval_seconds\', \'agent_polling_interval_hours\', \'currency_rates\', \'default_quote_currency\', \'currency_rates_updated_at\')');
       const settings = result.rows.reduce((acc, row) => ({ ...acc, [row.key]: typeof row.value === 'string' ? JSON.parse(row.value) : row.value }), {});
       res.json(settings);
     } catch (e) {
