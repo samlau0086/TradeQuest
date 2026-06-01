@@ -32,7 +32,6 @@ function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { met
   const [loading, setLoading] = useState(false);
   const [loadingPurpose, setLoadingPurpose] = useState(false);
   const [activeTab, setActiveTab] = useState<'compose' | 'history'>('compose');
-  const [showWhatsAppChat, setShowWhatsAppChat] = useState(false);
   const { addLog, logs, emails, userTitle, outboxConfigs, addEmail, llmConfigs, activeLLMId, llmMappings, language, setView, selectEmail, selectClient, selectDeal, notify, incrementAgentHubTaskCount } = useStore();
   const [selectedOutboxId, setSelectedOutboxId] = useState<string>(outboxConfigs?.[0]?.id || '');
 
@@ -48,6 +47,18 @@ function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { met
     preferredLanguage: client.preferredLanguage,
     country: client.country,
   });
+
+  if (method.type === 'whatsapp') {
+    return (
+      <div onClick={e => e.stopPropagation()}>
+        <WhatsAppChatModal
+          client={client}
+          phone={method.value}
+          onClose={onClose}
+        />
+      </div>
+    );
+  }
 
   const generatePurpose = async () => {
     setLoadingPurpose(true);
@@ -126,9 +137,6 @@ function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { met
       });
       addLog(client.id, `Sent Email via app: ${purpose || 'Follow up'}`, newEmailId);
       notify('Email sent successfully.', 'success');
-    } else if (method.type === 'whatsapp') {
-      setShowWhatsAppChat(true);
-      return;
     } else if (method.type === 'wechat') {
       navigator.clipboard.writeText(text);
       // WeChat doesn't have a reliable web url scheme that takes pre-filled text like WhatsApp
@@ -142,17 +150,6 @@ function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { met
 
   return (
     <div className="mt-2 p-3 bg-slate-900 border border-slate-700/50 rounded-lg space-y-3 cursor-default" onClick={e => e.stopPropagation()}>
-       {showWhatsAppChat && (
-         <WhatsAppChatModal
-           client={client}
-           phone={method.value}
-           initialMessage={draft || purpose}
-           onClose={() => {
-             setShowWhatsAppChat(false);
-             onClose();
-           }}
-         />
-       )}
        {method.type === 'email' && (
          <div className="flex items-center gap-4 border-b border-slate-800 pb-2 mb-3">
            <button 
@@ -227,7 +224,7 @@ function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { met
              <button onClick={onClose} className="px-3 py-1 text-xs text-slate-400 hover:text-slate-200 transition-colors">Cancel</button>
              <button onClick={handleAction} className="px-3 py-1 bg-cyan-600 text-white rounded text-xs font-medium hover:bg-cyan-500 flex items-center gap-1 transition-colors">
                <Send className="w-3 h-3"/> 
-               {method.type === 'whatsapp' ? 'Open WhatsApp' : method.type === 'wechat' ? 'Copy for WeChat' : 'Copy Text'}
+               {method.type === 'wechat' ? 'Copy for WeChat' : 'Copy Text'}
              </button>
            </div>
          </>
@@ -274,35 +271,6 @@ function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { met
           </div>
        )}
 
-       {method.type === 'whatsapp' && (
-         <div className="mt-4 space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-           <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider sticky top-0 bg-slate-900/90 py-1 z-10 backdrop-blur-sm">Follow-up History</h4>
-           <div className="space-y-3 relative before:absolute before:inset-0 before:ml-[9px] before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-800 before:to-transparent">
-             {logs.filter(l => l.clientId === client.id && l.type === 'whatsapp').length === 0 ? (
-               <p className="text-xs text-slate-500 italic pl-6 relative">No follow-up history yet.</p>
-             ) : (
-               logs.filter(l => l.clientId === client.id && l.type === 'whatsapp').sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(log => (
-                 <div key={log.id} className="relative flex items-start pl-6 group">
-                   <div className="absolute left-[5px] top-1 flex items-center justify-center w-2.5 h-2.5 rounded-full border-2 border-cyan-500/30 bg-cyan-500"></div>
-                   <div className="flex flex-col gap-1.5 w-full bg-slate-800/30 p-2.5 rounded-lg border border-slate-700/30 group-hover:border-slate-700/60 transition-colors">
-                     <div className="flex items-center justify-between gap-4">
-                       <span className="text-[11px] font-medium text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded truncate">
-                         {log.metadata?.purpose || 'General Follow-up'}
-                       </span>
-                       <time className="text-[10px] text-slate-500 font-mono whitespace-nowrap">
-                         {new Date(log.date).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                       </time>
-                     </div>
-                     <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap break-words">
-                       {log.metadata?.text || log.content}
-                     </p>
-                   </div>
-                 </div>
-               ))
-             )}
-           </div>
-         </div>
-       )}
     </div>
   );
 }
@@ -934,7 +902,7 @@ export function ClientDetails() {
                               <span className="text-sm text-slate-300 font-medium truncate">{cm.value}</span>
                             </div>
                             <span className="text-xs font-medium text-cyan-400 shrink-0 ml-2">
-                              {isExpanded ? 'Close' : 'Action'}
+                              {isExpanded ? 'Close' : cm.type === 'whatsapp' ? 'Chat' : 'Action'}
                             </span>
                           </button>
                           {isExpanded && (

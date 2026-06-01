@@ -4,6 +4,39 @@ import { useAuthStore } from '../authStore';
 import { Briefcase, Clock, Activity, Wand2, Loader2, Mail, Users, UserPlus, RefreshCw } from 'lucide-react';
 import { cn } from '../lib/utils';
 
+const daysSince = (value?: string) => {
+  const time = value ? new Date(value).getTime() : 0;
+  if (!time || Number.isNaN(time)) return null;
+  return Math.max(0, Math.floor((Date.now() - time) / (1000 * 60 * 60 * 24)));
+};
+
+const buildLocalAnalysis = (clients: Client[], view: string): DormantClientAnalysis[] => {
+  return clients.map(client => {
+    const days = daysSince(client.lastContact);
+    const status = client.status || 'Unknown';
+    const tags = client.tags?.length ? client.tags.join(', ') : 'no tags';
+    if (view === 'dormant') {
+      return {
+        clientId: client.id,
+        reason: days === null ? 'No recent contact date is available.' : `No recorded contact for ${days} day(s); current status is ${status}.`,
+        suggestedAction: 'Send a short reactivation message with one clear question and update the next follow-up date.'
+      };
+    }
+    if (view === 'leads') {
+      return {
+        clientId: client.id,
+        reason: `New lead from ${client.country || 'unknown country'} with tags: ${tags}.`,
+        suggestedAction: 'Open the profile, verify key contact details, then send a personalized first-touch message.'
+      };
+    }
+    return {
+      clientId: client.id,
+      reason: `Pipeline client is currently ${status}${days === null ? '' : ` and was last contacted ${days} day(s) ago`}.`,
+      suggestedAction: 'Review the latest conversation and propose the next concrete action, such as a quote, sample update, or meeting.'
+    };
+  });
+};
+
 export function ActionableClients() {
   const { 
     view, 
@@ -19,11 +52,12 @@ export function ActionableClients() {
     llmConfigs,
     activeLLMId,
     llmMappings,
+    language,
     notify
   } = useStore();
   
   const [analyzing, setAnalyzing] = useState(false);
-  const activeLLMConfig = llmConfigs.find(l => l.id === (llmMappings['analysis'] || activeLLMId)) || null;
+  const activeLLMConfig = llmConfigs.find(l => l.id === (llmMappings['analysis'] || llmMappings['context_suggestion'] || activeLLMId)) || llmConfigs[0] || null;
 
   let targetClients: Client[] = [];
   let title = '';
@@ -69,6 +103,11 @@ export function ActionableClients() {
   const handleAIAnalyze = async () => {
     setAnalyzing(true);
     try {
+      if (!activeLLMConfig) {
+        setAnalysisList(buildLocalAnalysis(targetClients, view));
+        notify(language === 'zh' ? '未配置 AI 分析模型，已生成本地分析建议。' : 'No AI analysis model is configured. Local analysis was generated instead.', 'warning');
+        return;
+      }
       let analysisContext = "analyze these clients";
       if (view === 'dormant') {
         analysisContext = "describe why they might be dormant and suggest an action to wake them up.";
@@ -82,6 +121,7 @@ export function ActionableClients() {
       Clients:
       ${targetClients.map(c => `- ID: ${c.id}, Name: ${c.name} (${c.company}) from ${c.country}. Status: ${c.status}. Tags: ${c.tags.join(', ')}. Last contact: ${c.lastContact}`).join('\n')}
       
+      Internal output language: ${language === 'zh' ? 'Chinese' : 'English'}.
       Output exactly as a JSON array (no markdown code blocks, just raw JSON) of objects with keys: "clientId" (matching the given ID), "reason" (short string), "suggestedAction" (short string).
       `;
       
@@ -93,22 +133,37 @@ export function ActionableClients() {
         },
         body: JSON.stringify({ 
           command: prompt, 
-          context: {},
+          context: {
+            systemLanguage: language === 'zh' ? 'Chinese' : 'English',
+            module: 'dashboard_client_analysis',
+            view
+          },
           llmConfig: activeLLMConfig
         })
       });
 
-      if (!res.ok) throw new Error('Failed to analyze');
-      const data = await res.json();
-      let jsonData = data.response.trim();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to analyze');
+      let jsonData = String(data.result || data.response || '').trim();
+      if (!jsonData) throw new Error('AI returned an empty analysis.');
       if (jsonData.startsWith('\`\`\`json')) jsonData = jsonData.slice(7);
+      if (jsonData.startsWith('\`\`\`')) jsonData = jsonData.slice(3);
       if (jsonData.endsWith('\`\`\`')) jsonData = jsonData.slice(0, -3);
+      const jsonMatch = jsonData.match(/\[[\s\S]*\]/);
+      if (jsonMatch) jsonData = jsonMatch[0];
       
       const parsed = JSON.parse(jsonData) as DormantClientAnalysis[];
+      if (!Array.isArray(parsed)) throw new Error('AI analysis was not a JSON array.');
       setAnalysisList(parsed);
-    } catch(err) {
+    } catch(err: any) {
       console.error(err);
-      notify('Failed to analyze clients.', 'error');
+      setAnalysisList(buildLocalAnalysis(targetClients, view));
+      notify(
+        language === 'zh'
+          ? `AI 分析失败，已生成本地分析建议：${err?.message || '未知错误'}`
+          : `AI analysis failed. Local analysis was generated instead: ${err?.message || 'Unknown error'}`,
+        'warning'
+      );
     } finally {
       setAnalyzing(false);
     }
