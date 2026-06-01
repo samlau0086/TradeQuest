@@ -9,7 +9,7 @@ interface SuggestionOption {
   label: string;
   description: string;
   icon?: React.ReactNode;
-  onClick: () => void;
+  onClick: () => void | Promise<void>;
   disabled?: boolean;
 }
 
@@ -27,10 +27,10 @@ interface AgentContextSuggestionsProps {
   clientName?: string;
   hasClient?: boolean;
   hasKnowledge?: boolean;
-  onDraftReply: () => void;
-  onAddComment?: () => void;
-  onCreateLead?: () => void;
-  onAddToKnowledge?: () => void;
+  onDraftReply: () => void | Promise<void>;
+  onAddComment?: () => void | Promise<void>;
+  onCreateLead?: () => void | Promise<void>;
+  onAddToKnowledge?: () => void | Promise<void>;
   onSaveAnalysis?: (key: string, insight: AgentContextSuggestionInsight) => void | Promise<void>;
 }
 
@@ -81,11 +81,14 @@ export function AgentContextSuggestions({
     activeLLMId,
     agentContextAnalysisConfig,
     updateAgentContextAnalysisConfig,
-    incrementAgentHubTaskCount
+    incrementAgentHubTaskCount,
+    notify
   } = useStore();
   const t = useTranslation(language);
   const [aiInsight, setAiInsight] = useState<{ intent: string; customerContext: string; knowledgeContext: string } | null>(null);
   const [loadingInsight, setLoadingInsight] = useState(false);
+  const [runningOptionId, setRunningOptionId] = useState<string | null>(null);
+  const [optionStatus, setOptionStatus] = useState<string | null>(null);
   const agent = useMemo(() => {
     const preferredId = channel === 'whatsapp' ? 'whatsapp_agent' : 'follow_up_agent';
     return agentHubAgents.find(item => item.id === preferredId)
@@ -191,7 +194,10 @@ ${body || 'N/A'}`,
     return () => controller.abort();
   }, [cacheKey, cachedInsight, resolvedAnalysisMode, llmConfig?.id, text, channel, subject, body, clientName, hasClient, hasKnowledge, language, fallbackIntent]);
 
-  const recordOption = (label: string, run: () => void) => {
+  const recordOption = async (optionId: string, label: string, run: () => void | Promise<void>) => {
+    if (runningOptionId) return;
+    setRunningOptionId(optionId);
+    setOptionStatus(language === 'zh' ? `正在执行：${label}...` : `Running: ${label}...`);
     if (agent) {
       incrementAgentHubTaskCount(agent.id);
       addAgentRunRecord({
@@ -204,7 +210,18 @@ ${body || 'N/A'}`,
         actualResult: canAutoExecute ? 'Option executed from the context suggestion panel.' : 'Manual option selected from the context suggestion panel.'
       });
     }
-    run();
+    try {
+      await Promise.resolve(run());
+      setOptionStatus(language === 'zh' ? `${label} 已完成。` : `${label} completed.`);
+      notify(language === 'zh' ? `${label} 已完成。` : `${label} completed.`, 'success');
+      window.setTimeout(() => setOptionStatus(null), 2500);
+    } catch (error: any) {
+      const message = error?.message || (language === 'zh' ? `${label} 执行失败。` : `${label} failed.`);
+      setOptionStatus(message);
+      notify(message, 'error');
+    } finally {
+      setRunningOptionId(null);
+    }
   };
 
   const options: SuggestionOption[] = [
@@ -213,7 +230,7 @@ ${body || 'N/A'}`,
       label: t('Draft AI Reply'),
       description: t('Generate a reply using the current message, client context, and RAG.'),
       icon: <Sparkles className="w-4 h-4" />,
-      onClick: () => recordOption('Draft AI Reply', onDraftReply)
+      onClick: () => recordOption('draft_reply', t('Draft AI Reply'), onDraftReply)
     }
   ];
 
@@ -223,7 +240,7 @@ ${body || 'N/A'}`,
       label: t('Add Internal Comment'),
       description: t('Create an internal note with the detected intent and suggested next step.'),
       icon: <MessageSquare className="w-4 h-4" />,
-      onClick: () => recordOption('Add Internal Comment', onAddComment)
+      onClick: () => recordOption('add_comment', t('Add Internal Comment'), onAddComment)
     });
   }
 
@@ -233,7 +250,7 @@ ${body || 'N/A'}`,
       label: t('Create Lead'),
       description: t('Create or link a customer record before follow-up.'),
       icon: <UserPlus className="w-4 h-4" />,
-      onClick: () => recordOption('Create Lead', onCreateLead)
+      onClick: () => recordOption('create_lead', t('Create Lead'), onCreateLead)
     });
   }
 
@@ -244,7 +261,7 @@ ${body || 'N/A'}`,
       description: t('Save this conversation as reusable customer context.'),
       icon: <Bot className="w-4 h-4" />,
       disabled: hasKnowledge,
-      onClick: () => recordOption('Add to RAG', onAddToKnowledge)
+      onClick: () => recordOption('add_knowledge', t('Add to RAG'), onAddToKnowledge)
     });
   }
 
@@ -309,15 +326,21 @@ ${body || 'N/A'}`,
           <button
             key={option.id}
             onClick={option.onClick}
-            disabled={option.disabled}
+            disabled={option.disabled || !!runningOptionId}
             title={option.description}
             className="inline-flex items-center gap-2 rounded-md border border-blue-500/40 bg-blue-600/10 px-3 py-2 text-sm font-bold text-blue-200 hover:bg-blue-600/20 disabled:border-slate-700 disabled:bg-slate-900 disabled:text-slate-500"
           >
-            {option.icon}
+            {runningOptionId === option.id ? <Loader2 className="w-4 h-4 animate-spin" /> : option.icon}
             {option.label}
           </button>
         ))}
       </div>
+      {optionStatus && (
+        <div className="mt-3 inline-flex items-center gap-2 rounded-md border border-blue-500/20 bg-slate-950/70 px-3 py-2 text-xs text-blue-100">
+          {runningOptionId ? <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-300" /> : <ShieldCheck className="w-3.5 h-3.5 text-emerald-300" />}
+          {optionStatus}
+        </div>
+      )}
     </section>
   );
 }
