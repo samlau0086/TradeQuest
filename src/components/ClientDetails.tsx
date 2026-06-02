@@ -443,7 +443,7 @@ export function ClientDetails() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [confirmDeleteTarget, setConfirmDeleteTarget] = useState(false);
-  const [eventView, setEventView] = useState<'timeline' | 'list'>('timeline');
+  const [eventView, setEventView] = useState<'timeline' | 'list' | 'growth'>('timeline');
 
   // Agent State
   const [agentLoading, setAgentLoading] = useState(false);
@@ -461,6 +461,14 @@ export function ClientDetails() {
     return log.metadata?.leadId === leadRecord.id || log.metadata?.dealId === leadRecord.id;
   });
   const sortedLeadLogs = [...leadLogs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const growthLogs = leadLogs.filter(l => {
+    if (l.content.startsWith('Saved Draft:')) return false;
+    if (l.relatedEmailId) {
+      const relatedEmail = emails.find(e => e.id === l.relatedEmailId);
+      if (relatedEmail && relatedEmail.type === 'draft') return false;
+    }
+    return true;
+  });
   const leadScore = leadRecord ? leadRecord.leadScore : client?.leadScore;
   const summaryText = leadRecord
     ? leadRecord.leadSummary
@@ -781,6 +789,13 @@ export function ClientDetails() {
                       >
                         Event List
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => setEventView('growth')}
+                        className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${eventView === 'growth' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                      >
+                        Growth Logs
+                      </button>
                     </div>
                     <span className="text-xs text-slate-500">{sortedLeadLogs.length} events</span>
                   </div>
@@ -816,7 +831,7 @@ export function ClientDetails() {
                       )}
                     </div>
                   </div>
-                ) : (
+                ) : eventView === 'list' ? (
                   <div className="grid gap-3 md:grid-cols-2">
                     {sortedLeadLogs.map(log => (
                       <div key={log.id} className="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
@@ -838,6 +853,55 @@ export function ClientDetails() {
                       </div>
                     )}
                   </div>
+                ) : (
+                  <div className="space-y-3">
+                    {growthLogs.map(log => (
+                      <div key={log.id} className="group rounded-lg border border-slate-800 bg-slate-900/70 p-4">
+                        <div className="mb-2 flex items-start justify-between gap-3">
+                          <time className="text-[11px] font-medium text-slate-500">
+                            {new Date(log.date).toLocaleDateString()} {new Date(log.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </time>
+                          <button
+                            type="button"
+                            onClick={() => deleteLog(log.id)}
+                            title="Delete"
+                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-slate-500 hover:text-red-300 hover:bg-red-500/10"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <div className="text-xs text-slate-300">
+                          {log.relatedEmailId ? (
+                            <button
+                              onClick={() => {
+                                selectEmail(log.relatedEmailId || null);
+                                selectDeal(null);
+                                selectClient(null);
+                                setView('inbox');
+                              }}
+                              className="text-cyan-400 hover:text-cyan-300 hover:underline flex items-center gap-1 text-left"
+                            >
+                              <Mail className="w-3 h-3 shrink-0" />
+                              <span>{log.content}</span>
+                            </button>
+                          ) : (
+                            log.content
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {client.isDormant && (
+                      <div className="rounded-lg border border-orange-500/30 bg-orange-950/20 p-4 text-xs font-bold text-orange-400">
+                        <Snowflake className="mr-2 inline h-3.5 w-3.5" />
+                        Status changed to Dormant
+                      </div>
+                    )}
+                    {growthLogs.length === 0 && !client.isDormant && (
+                      <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-6 text-center text-sm text-slate-500">
+                        No growth logs yet.
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
@@ -854,6 +918,26 @@ export function ClientDetails() {
                     No pending approval items.
                   </div>
                 )}
+              </div>
+
+              {/* Status Pipeline change */}
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
+                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2">
+                  <Workflow className="w-4 h-4" /> Pipeline Stage
+                </h3>
+                <select 
+                  value={leadRecord?.status || client.status} 
+                  onChange={(e) => {
+                    const status = e.target.value as ClientStatus;
+                    if (leadRecord) updateDeal(leadRecord.id, { status });
+                    else updateClientStatus(client.id, status);
+                  }}
+                  className="w-full bg-slate-800 border border-slate-700 text-sm text-white rounded-lg p-2 focus:ring-2 ring-cyan-500 outline-none"
+                >
+                  {['Leads', 'Contacted', 'Sample Sent', 'Negotiating', 'Closed Won'].map(s => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
               </div>
 
               <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
@@ -890,6 +974,232 @@ export function ClientDetails() {
                 </div>
               </div>
 
+              {/* AI Radar */}
+              <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-2">
+                    <Thermometer className="w-4 h-4" /> AI Radar
+                  </h3>
+                  {!aiData && !loading && (
+                    <button onClick={handleAnalyze} className="text-[10px] bg-cyan-900/40 text-cyan-400 hover:bg-cyan-900 px-2 py-1 rounded">
+                      Analyze
+                    </button>
+                  )}
+                  {loading && <Loader2 className="w-3 h-3 text-cyan-400 animate-spin" />}
+                </div>
+
+                {aiData ? (
+                  <div className="space-y-4 animate-in fade-in zoom-in duration-300">
+                    <div className="grid grid-cols-1 gap-3">
+                      <div className="bg-slate-900 rounded-lg p-3 border border-cyan-500/20">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-[10px] text-cyan-400 font-bold uppercase">Lead Score</span>
+                          <span className="text-lg font-bold text-white">{Number(aiData.leadScore ?? aiData.temperature ?? 0)}/100</span>
+                        </div>
+                      </div>
+                      {(aiData.leadSummary || summaryText) && (
+                        <div className="bg-slate-900 rounded-lg p-3 border border-slate-700">
+                          <span className="text-[10px] text-slate-500 font-bold uppercase">{leadRecord ? 'Lead Summary' : 'Customer Summary'}</span>
+                          <p className="text-xs text-slate-300 mt-1 leading-relaxed">{aiData.leadSummary || summaryText}</p>
+                        </div>
+                      )}
+                      {(aiData.leadNextStep || nextStepText) && (
+                        <div className="bg-cyan-950/30 rounded-lg p-3 border border-cyan-500/20">
+                          <span className="text-[10px] text-cyan-400 font-bold uppercase">Best Next Step</span>
+                          <p className="text-sm text-white mt-1 font-medium">{aiData.leadNextStep || nextStepText}</p>
+                        </div>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs font-medium">
+                        <span className={aiData.sentiment === 'COLD' ? 'text-blue-400' : 'text-slate-400'}>Cold</span>
+                        <span className={aiData.sentiment === 'HOT' ? 'text-orange-400' : 'text-slate-400'}>Hot</span>
+                      </div>
+                      <div className="h-2 w-full bg-slate-900 rounded-full overflow-hidden flex">
+                        <div 
+                          className={cn("h-full rounded-full transition-all duration-1000", 
+                            aiData.temperature > 70 ? "bg-orange-500 shadow-[0_0_10px_orange]" : 
+                            aiData.temperature > 30 ? "bg-amber-400" : "bg-blue-400"
+                          )}
+                          style={{ width: `${aiData.temperature}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-900 rounded-lg p-3 relative">
+                      <Sparkles className="w-4 h-4 text-amber-400 absolute top-3 left-3" />
+                      <p className="text-xs text-slate-300 pl-6 leading-relaxed">
+                        <span className="font-bold text-slate-500 block mb-1">Generated Icebreaker:</span>
+                        "{aiData.icebreaker}"
+                      </p>
+                      <div className="mt-2 flex justify-end">
+                        <button className="text-[10px] flex items-center gap-1 bg-cyan-600 text-white px-2 py-1 rounded hover:bg-cyan-500 transition-colors">
+                          <Send className="w-3 h-3" /> Insert
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <span className="font-bold text-[10px] text-slate-500 block mb-1 uppercase">AI Intelligence</span>
+                      <p className="text-xs text-slate-400 leading-relaxed italic border-l-2 border-slate-700 pl-2">
+                        {aiData.summary}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-6 text-slate-500 text-sm">
+                    {leadScore !== undefined ? (
+                      <div className="space-y-3 text-left">
+                        <div className="flex items-center justify-between bg-slate-900 rounded-lg p-3 border border-cyan-500/20">
+                          <span className="text-[10px] text-cyan-400 font-bold uppercase">Lead Score</span>
+                          <span className="text-lg font-bold text-white">{leadScore}/100</span>
+                        </div>
+                        {summaryText && <p className="text-xs text-slate-300 leading-relaxed">{summaryText}</p>}
+                        {nextStepText && <p className="text-sm text-white font-medium">Next: {nextStepText}</p>}
+                      </div>
+                    ) : 'AI analysis requires target scan.'}
+                  </div>
+                )}
+              </div>
+
+              {/* Contacts */}
+              {displayContacts.some(contact => (contact.contactMethods || []).length > 0) && (
+                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
+                  <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2">
+                    Contacts
+                  </h3>
+                  <div className="space-y-3">
+                    {displayContacts.map((contact) => (
+                      <div key={contact.id} className="bg-slate-900/50 border border-slate-800 rounded-xl p-3">
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <div>
+                            <div className="text-sm font-bold text-slate-200 flex items-center gap-2">
+                              {contact.name || client.name}
+                              {contact.isPrimary && <span className="text-[10px] uppercase px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">Key</span>}
+                            </div>
+                            {contact.title && <div className="text-[11px] text-slate-500 mt-0.5">{contact.title}</div>}
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          {(contact.contactMethods || []).map((cm, idx) => {
+                            const Icon = CONTACT_ICONS[cm.type] || Mail;
+                            const expandKey = `${contact.id}_${idx}`;
+                            const isExpanded = expandedContactIdx === expandKey;
+                            return (
+                              <div key={expandKey} className="bg-slate-800/50 border border-slate-700/50 rounded-lg overflow-hidden transition-all">
+                                <button
+                                  onClick={() => setExpandedContactIdx(isExpanded ? null : expandKey)}
+                                  className="w-full flex items-center justify-between p-2 hover:bg-slate-800 transition-colors"
+                                >
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    <div className={cn("p-1.5 rounded-md shrink-0", cm.type === 'whatsapp' ? 'bg-green-500/20 text-green-400' : 'bg-slate-700 text-slate-300')}>
+                                      <Icon className="w-4 h-4" />
+                                    </div>
+                                    <span className="text-sm text-slate-300 font-medium truncate">{cm.value}</span>
+                                  </div>
+                                  <span className="text-xs font-medium text-cyan-400 shrink-0 ml-2">
+                                    {isExpanded ? 'Close' : cm.type === 'whatsapp' ? 'Chat' : 'Action'}
+                                  </span>
+                                </button>
+                                {isExpanded && (
+                                  <div className="px-2 pb-2">
+                                    <ContactActionBox
+                                      method={cm}
+                                      client={client}
+                                      onClose={() => setExpandedContactIdx(null)}
+                                      onOpenEmailCompose={(email) => {
+                                        setComposeRecipient(email);
+                                        setShowEmailCompose(true);
+                                        setExpandedContactIdx(null);
+                                      }}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* AI Auto Agent */}
+              <div className="bg-gradient-to-br from-indigo-950/20 to-slate-900 border border-indigo-900/50 rounded-xl p-4 relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
+                  <Settings className="w-24 h-24 text-indigo-400" />
+                </div>
+                <div className="flex items-center justify-between mb-4 relative z-10">
+                  <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-wider flex items-center gap-2">
+                    <Sparkles className="w-4 h-4" /> AI Follow-Up Agent
+                  </h3>
+                  <button 
+                    onClick={() => setAgentSettingsOpen(true)}
+                    className="text-slate-400 hover:text-white transition-colors p-1"
+                    title="Agent Settings"
+                  >
+                    <Settings className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="space-y-4 relative z-10">
+                  {!client.agentEnabled ? (
+                    <div className="text-center py-4">
+                      <p className="text-slate-400 text-xs mb-3">Automate follow-ups and analyze client journey using AI.</p>
+                      <button 
+                        onClick={() => setAgentSettingsOpen(true)}
+                        className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-3 py-1.5 rounded-lg inline-flex items-center gap-2 transition-colors font-medium border border-indigo-500 shadow-lg shadow-indigo-900/20"
+                      >
+                        <Workflow className="w-3 h-3" /> Enable Agent
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between border-b border-indigo-900/50 pb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-indigo-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+                          </span>
+                          <span className="text-xs font-medium text-indigo-300">Agent Active</span>
+                        </div>
+                        <span className="text-[10px] uppercase font-bold text-slate-500 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                          Mode: {client.agentMode === 'auto_email' ? 'Auto Email' : 'Prompt Only'}
+                        </span>
+                      </div>
+
+                      <div className="space-y-3">
+                        {client.agentSummary && (
+                          <div className="bg-slate-900/80 rounded-lg p-3 border border-indigo-900/30">
+                            <h4 className="text-[10px] text-indigo-400 font-bold uppercase mb-1">Long-term summary</h4>
+                            <p className="text-xs text-slate-300 leading-relaxed">{client.agentSummary}</p>
+                          </div>
+                        )}
+
+                        {client.agentNextStep && (
+                          <div className="bg-indigo-900/20 rounded-lg p-3 border border-indigo-500/20">
+                            <h4 className="text-[10px] text-indigo-400 font-bold uppercase mb-1">Suggested Next Step</h4>
+                            <p className="text-sm font-medium text-white">{client.agentNextStep}</p>
+                          </div>
+                        )}
+                        
+                        <div className="flex justify-end pt-2">
+                          <button 
+                            onClick={handleRunAgent}
+                            disabled={agentLoading}
+                            className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs px-3 py-1.5 rounded font-medium flex items-center gap-2 transition-colors shadow shadow-indigo-900/20"
+                          >
+                            {agentLoading ? <Loader2 className="w-3 h-3 animate-spin"/> : <Sparkles className="w-3 h-3" />}
+                            Run Agent
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
               <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
                 <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
                   <Tag className="w-4 h-4" /> Conversation Notes
@@ -901,328 +1211,13 @@ export function ClientDetails() {
                   {(!client.tags || client.tags.length === 0) && <span className="text-sm text-slate-500">No tags yet.</span>}
                 </div>
               </div>
-            </div>
-          </div>
-        
-        {/* Status Pipeline change */}
-        <div>
-          <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2">
-            <Workflow className="w-4 h-4" /> Pipeline Stage
-          </h3>
-          <select 
-            value={leadRecord?.status || client.status} 
-            onChange={(e) => {
-              const status = e.target.value as ClientStatus;
-              if (leadRecord) updateDeal(leadRecord.id, { status });
-              else updateClientStatus(client.id, status);
-            }}
-            className="w-full bg-slate-800 border border-slate-700 text-sm text-white rounded-lg p-2 focus:ring-2 ring-cyan-500 outline-none"
-          >
-            {['Leads', 'Contacted', 'Sample Sent', 'Negotiating', 'Closed Won'].map(s => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* Contacts */}
-        {displayContacts.some(contact => (contact.contactMethods || []).length > 0) && (
-          <div>
-            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2">
-               Contacts
-            </h3>
-            <div className="space-y-3">
-              {displayContacts.map((contact) => (
-                <div key={contact.id} className="bg-slate-900/50 border border-slate-800 rounded-xl p-3">
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <div>
-                      <div className="text-sm font-bold text-slate-200 flex items-center gap-2">
-                        {contact.name || client.name}
-                        {contact.isPrimary && <span className="text-[10px] uppercase px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">Key</span>}
-                      </div>
-                      {contact.title && <div className="text-[11px] text-slate-500 mt-0.5">{contact.title}</div>}
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    {(contact.contactMethods || []).map((cm, idx) => {
-                      const Icon = CONTACT_ICONS[cm.type] || Mail;
-                      const expandKey = `${contact.id}_${idx}`;
-                      const isExpanded = expandedContactIdx === expandKey;
-                      return (
-                        <div key={expandKey} className="bg-slate-800/50 border border-slate-700/50 rounded-lg overflow-hidden transition-all">
-                          <button
-                            onClick={() => setExpandedContactIdx(isExpanded ? null : expandKey)}
-                            className="w-full flex items-center justify-between p-2 hover:bg-slate-800 transition-colors"
-                          >
-                            <div className="flex items-center gap-3 min-w-0">
-                              <div className={cn("p-1.5 rounded-md shrink-0", cm.type === 'whatsapp' ? 'bg-green-500/20 text-green-400' : 'bg-slate-700 text-slate-300')}>
-                                <Icon className="w-4 h-4" />
-                              </div>
-                              <span className="text-sm text-slate-300 font-medium truncate">{cm.value}</span>
-                            </div>
-                            <span className="text-xs font-medium text-cyan-400 shrink-0 ml-2">
-                              {isExpanded ? 'Close' : cm.type === 'whatsapp' ? 'Chat' : 'Action'}
-                            </span>
-                          </button>
-                          {isExpanded && (
-                            <div className="px-2 pb-2">
-                              <ContactActionBox
-                                method={cm}
-                                client={client}
-                                onClose={() => setExpandedContactIdx(null)}
-                                onOpenEmailCompose={(email) => {
-                                  setComposeRecipient(email);
-                                  setShowEmailCompose(true);
-                                  setExpandedContactIdx(null);
-                                }}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* AI Auto Agent */}
-        <div className="bg-gradient-to-br from-indigo-950/20 to-slate-900 border border-indigo-900/50 rounded-xl p-4 relative overflow-hidden">
-          <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
-            <Settings className="w-24 h-24 text-indigo-400" />
-          </div>
-          <div className="flex items-center justify-between mb-4 relative z-10">
-            <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-wider flex items-center gap-2">
-              <Sparkles className="w-4 h-4" /> AI Follow-Up Agent
-            </h3>
-            <button 
-              onClick={() => setAgentSettingsOpen(true)}
-              className="text-slate-400 hover:text-white transition-colors p-1"
-              title="Agent Settings"
-            >
-              <Settings className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div className="space-y-4 relative z-10">
-            {!client.agentEnabled ? (
-              <div className="text-center py-4">
-                <p className="text-slate-400 text-xs mb-3">Automate follow-ups and analyze client journey using AI.</p>
-                <button 
-                  onClick={() => setAgentSettingsOpen(true)}
-                  className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-3 py-1.5 rounded-lg inline-flex items-center gap-2 transition-colors font-medium border border-indigo-500 shadow-lg shadow-indigo-900/20"
-                >
-                  <Workflow className="w-3 h-3" /> Enable Agent
-                </button>
-              </div>
-            ) : (
-              <>
-                <div className="flex items-center justify-between border-b border-indigo-900/50 pb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="flex h-2 w-2">
-                      <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-indigo-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
-                    </span>
-                    <span className="text-xs font-medium text-indigo-300">Agent Active</span>
-                  </div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
-                    Mode: {client.agentMode === 'auto_email' ? 'Auto Email' : 'Prompt Only'}
-                  </span>
-                </div>
-
-                <div className="space-y-3">
-                  {client.agentSummary && (
-                    <div className="bg-slate-900/80 rounded-lg p-3 border border-indigo-900/30">
-                      <h4 className="text-[10px] text-indigo-400 font-bold uppercase mb-1">Long-term summary</h4>
-                      <p className="text-xs text-slate-300 leading-relaxed">{client.agentSummary}</p>
-                    </div>
-                  )}
-
-                  {client.agentNextStep && (
-                    <div className="bg-indigo-900/20 rounded-lg p-3 border border-indigo-500/20">
-                      <h4 className="text-[10px] text-indigo-400 font-bold uppercase mb-1">Suggested Next Step</h4>
-                      <p className="text-sm font-medium text-white">{client.agentNextStep}</p>
-                    </div>
-                  )}
-                  
-                  <div className="flex justify-end pt-2">
-                    <button 
-                      onClick={handleRunAgent}
-                      disabled={agentLoading}
-                      className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs px-3 py-1.5 rounded font-medium flex items-center gap-2 transition-colors shadow shadow-indigo-900/20"
-                    >
-                      {agentLoading ? <Loader2 className="w-3 h-3 animate-spin"/> : <Sparkles className="w-3 h-3" />}
-                      Run Agent
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* AI Radar */}
-        <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-2">
-              <Thermometer className="w-4 h-4" /> AI Radar
-            </h3>
-            {!aiData && !loading && (
-              <button onClick={handleAnalyze} className="text-[10px] bg-cyan-900/40 text-cyan-400 hover:bg-cyan-900 px-2 py-1 rounded">
-                Analyze
-              </button>
-            )}
-            {loading && <Loader2 className="w-3 h-3 text-cyan-400 animate-spin" />}
-          </div>
-
-          {aiData ? (
-            <div className="space-y-4 animate-in fade-in zoom-in duration-300">
-              <div className="grid grid-cols-1 gap-3">
-                <div className="bg-slate-900 rounded-lg p-3 border border-cyan-500/20">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-[10px] text-cyan-400 font-bold uppercase">Lead Score</span>
-                    <span className="text-lg font-bold text-white">{Number(aiData.leadScore ?? aiData.temperature ?? 0)}/100</span>
-                  </div>
-                </div>
-                {(aiData.leadSummary || summaryText) && (
-                  <div className="bg-slate-900 rounded-lg p-3 border border-slate-700">
-                    <span className="text-[10px] text-slate-500 font-bold uppercase">{leadRecord ? 'Lead Summary' : 'Customer Summary'}</span>
-                    <p className="text-xs text-slate-300 mt-1 leading-relaxed">{aiData.leadSummary || summaryText}</p>
-                  </div>
-                )}
-                {(aiData.leadNextStep || nextStepText) && (
-                  <div className="bg-cyan-950/30 rounded-lg p-3 border border-cyan-500/20">
-                    <span className="text-[10px] text-cyan-400 font-bold uppercase">Best Next Step</span>
-                    <p className="text-sm text-white mt-1 font-medium">{aiData.leadNextStep || nextStepText}</p>
-                  </div>
-                )}
-              </div>
-              {/* Thermometer */}
-              <div className="space-y-1">
-                <div className="flex justify-between text-xs font-medium">
-                  <span className={aiData.sentiment === 'COLD' ? 'text-blue-400' : 'text-slate-400'}>Cold</span>
-                  <span className={aiData.sentiment === 'HOT' ? 'text-orange-400' : 'text-slate-400'}>Hot</span>
-                </div>
-                <div className="h-2 w-full bg-slate-900 rounded-full overflow-hidden flex">
-                  <div 
-                    className={cn("h-full rounded-full transition-all duration-1000", 
-                      aiData.temperature > 70 ? "bg-orange-500 shadow-[0_0_10px_orange]" : 
-                      aiData.temperature > 30 ? "bg-amber-400" : "bg-blue-400"
-                    )}
-                    style={{ width: `${aiData.temperature}%` }}
-                  />
-                </div>
-              </div>
-
-              {/* Icebreaker */}
-              <div className="bg-slate-900 rounded-lg p-3 relative">
-                <Sparkles className="w-4 h-4 text-amber-400 absolute top-3 left-3" />
-                <p className="text-xs text-slate-300 pl-6 leading-relaxed">
-                  <span className="font-bold text-slate-500 block mb-1">Generated Icebreaker:</span>
-                  "{aiData.icebreaker}"
-                </p>
-                <div className="mt-2 flex justify-end">
-                  <button className="text-[10px] flex items-center gap-1 bg-cyan-600 text-white px-2 py-1 rounded hover:bg-cyan-500 transition-colors">
-                    <Send className="w-3 h-3" /> Insert
-                  </button>
-                </div>
-              </div>
-
-              {/* Summary */}
-              <div>
-                 <span className="font-bold text-[10px] text-slate-500 block mb-1 uppercase">AI Intelligence</span>
-                 <p className="text-xs text-slate-400 leading-relaxed italic border-l-2 border-slate-700 pl-2">
-                   {aiData.summary}
-                 </p>
-              </div>
-            </div>
-          ) : (
-            <div className="text-center py-6 text-slate-500 text-sm">
-              {leadScore !== undefined ? (
-                <div className="space-y-3 text-left">
-                  <div className="flex items-center justify-between bg-slate-900 rounded-lg p-3 border border-cyan-500/20">
-                    <span className="text-[10px] text-cyan-400 font-bold uppercase">Lead Score</span>
-                    <span className="text-lg font-bold text-white">{leadScore}/100</span>
-                  </div>
-                  {summaryText && <p className="text-xs text-slate-300 leading-relaxed">{summaryText}</p>}
-                  {nextStepText && <p className="text-sm text-white font-medium">Next: {nextStepText}</p>}
-                </div>
-              ) : 'AI analysis requires target scan.'}
-            </div>
-          )}
-        </div>
 
         {/* Client Knowledge Base */}
-        <div className="mb-8">
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
           <KnowledgeBaseManager clientId={client.id} />
         </div>
-
-        {/* Growth Logs */}
-        <div>
-          <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-            <History className="w-4 h-4" /> Growth Logs
-          </h3>
-          <div className="space-y-3 relative before:absolute before:inset-0 before:ml-2 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-800 before:to-transparent">
-            {leadLogs.filter(l => {
-              if (l.content.startsWith('Saved Draft:')) return false;
-              if (l.relatedEmailId) {
-                const relatedEmail = useStore.getState().emails.find(e => e.id === l.relatedEmailId);
-                if (relatedEmail && relatedEmail.type === 'draft') return false;
-              }
-              return true;
-            }).map(log => (
-              <div key={log.id} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
-                <div className="flex items-center justify-center w-5 h-5 rounded-full border border-slate-700 bg-slate-900 text-slate-500 shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2">
-                  <div className="w-1.5 h-1.5 bg-slate-500 rounded-full"></div>
-                </div>
-                <div className="w-[calc(100%-2.5rem)] md:w-[calc(50%-1.5rem)] p-3 rounded-lg bg-slate-800/50 border border-slate-800 shadow-sm relative">
-                  <div className="flex items-start justify-between gap-3 mb-1">
-                    <time className="text-[10px] text-slate-500 font-medium block">
-                      {new Date(log.date).toLocaleDateString()} {new Date(log.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </time>
-                    <button
-                      type="button"
-                      onClick={() => deleteLog(log.id)}
-                      title="Delete"
-                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-slate-500 hover:text-red-300 hover:bg-red-500/10"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  <div className="text-xs text-slate-300">
-                    {log.relatedEmailId ? (
-                      <button 
-                        onClick={() => {
-                          selectEmail(log.relatedEmailId || null);
-                          selectDeal(null);
-                          selectClient(null);
-                          setView('inbox');
-                        }}
-                        className="text-cyan-400 hover:text-cyan-300 hover:underline flex items-center gap-1 text-left"
-                      >
-                        <Mail className="w-3 h-3 shrink-0" />
-                        <span>{log.content}</span>
-                      </button>
-                    ) : (
-                      log.content
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-            {client.isDormant && (
-               <div className="relative flex items-center group">
-                 <div className="flex items-center justify-center w-5 h-5 rounded-full border border-orange-500/30 bg-orange-950 text-orange-500 shadow shrink-0">
-                   <Snowflake className="w-3 h-3" />
-                 </div>
-                 <div className="pl-3 w-[calc(100%-2.5rem)]">
-                   <div className="text-xs font-bold text-orange-500 mb-1">Status changed to Dormant</div>
-                 </div>
-               </div>
-            )}
+            </div>
           </div>
-        </div>
 
         {/* Comments Section */}
         <div className="border-t border-slate-800 pt-6 pb-20">
