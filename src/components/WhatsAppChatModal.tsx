@@ -6,6 +6,7 @@ import { useTranslation } from '../lib/i18n';
 import { AgentContextSuggestions } from './AgentContextSuggestions';
 import { getCustomerOutputLanguage } from '../lib/language';
 import { ClientFormModal } from './ClientFormModal';
+import { AddContactToClientModal } from './AddContactToClientModal';
 
 interface WhatsAppHubClient {
   id: string;
@@ -83,6 +84,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [sending, setSending] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [isCreatingLead, setIsCreatingLead] = useState(false);
+  const [isAddingContactToClient, setIsAddingContactToClient] = useState(false);
   const syncInFlightRef = useRef(false);
   const targetPhone = useMemo(() => isChatId(phone) ? phone.trim() : cleanPhone(phone), [phone]);
   const activeClient = useMemo(() => {
@@ -316,8 +318,8 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     }
   };
 
-  const handleLeadCreated = async (newClientId: string) => {
-    const newClient = useStore.getState().clients.find(item => item.id === newClientId);
+  const linkConversationToClient = async (clientId: string) => {
+    const linkedClient = useStore.getState().clients.find(item => item.id === clientId);
     if (conversation?.id) {
       try {
         const response = await fetch(`/api/whatsapp-hub/conversations/${conversation.id}`, {
@@ -327,9 +329,9 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
             Authorization: `Bearer ${localStorage.getItem('token')}`
           },
           body: JSON.stringify({
-            clientId: newClientId,
-            clientName: newClient?.name || targetPhone,
-            clientCompany: newClient?.company || ''
+            clientId,
+            clientName: linkedClient?.name || targetPhone,
+            clientCompany: linkedClient?.company || ''
           })
         });
         const data = await response.json().catch(() => ({}));
@@ -340,11 +342,15 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     }
     setConversation(prev => prev ? {
       ...prev,
-      clientId: newClientId,
-      clientName: newClient?.name || targetPhone,
-      clientCompany: newClient?.company || ''
+      clientId,
+      clientName: linkedClient?.name || targetPhone,
+      clientCompany: linkedClient?.company || ''
     } : prev);
-    selectClient(newClientId);
+    selectClient(clientId);
+  };
+
+  const handleLeadCreated = async (newClientId: string) => {
+    await linkConversationToClient(newClientId);
     setIsCreatingLead(false);
   };
 
@@ -561,14 +567,24 @@ Return only the message text.`,
               <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                 <span>{targetPhone}</span>
                 {!activeClient && (
-                  <button
-                    type="button"
-                    onClick={() => setIsCreatingLead(true)}
-                    className="inline-flex items-center gap-1 rounded bg-slate-800/70 px-1.5 py-0.5 font-bold text-cyan-400 hover:bg-slate-700 hover:text-cyan-300"
-                  >
-                    <UserPlus className="w-3 h-3" />
-                    New Lead
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setIsCreatingLead(true)}
+                      className="inline-flex items-center gap-1 rounded bg-slate-800/70 px-1.5 py-0.5 font-bold text-cyan-400 hover:bg-slate-700 hover:text-cyan-300"
+                    >
+                      <UserPlus className="w-3 h-3" />
+                      New Lead
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsAddingContactToClient(true)}
+                      className="inline-flex items-center gap-1 rounded bg-slate-800/70 px-1.5 py-0.5 font-bold text-emerald-400 hover:bg-slate-700 hover:text-emerald-300"
+                    >
+                      <User className="w-3 h-3" />
+                      Add to Existing Client
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -843,6 +859,16 @@ Return only the message text.`,
             }]
           }}
           onSave={handleLeadCreated}
+        />
+      )}
+      {isAddingContactToClient && (
+        <AddContactToClientModal
+          contactMethod={{ type: 'whatsapp', value: targetPhone }}
+          displayName={conversation?.clientName || targetPhone}
+          onClose={() => setIsAddingContactToClient(false)}
+          onLinked={async (clientId) => {
+            await linkConversationToClient(clientId);
+          }}
         />
       )}
     </div>

@@ -11,6 +11,7 @@ import { MediaSelectorModal } from './MediaSelectorModal';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle, useDefaultLayout } from 'react-resizable-panels';
 import { WhatsAppChatModal } from './WhatsAppChatModal';
 import { AgentContextSuggestions } from './AgentContextSuggestions';
+import { AddContactToClientModal } from './AddContactToClientModal';
 import { getCustomerOutputLanguage } from '../lib/language';
 
 interface InboxWhatsAppConversation {
@@ -135,6 +136,7 @@ export function Inbox() {
   const [commentAttachments, setCommentAttachments] = useState<File[]>([]);
   const [showCommentAttachmentModal, setShowCommentAttachmentModal] = useState(false);
   const [isCreatingLead, setIsCreatingLead] = useState(false);
+  const [isAddingContactToClient, setIsAddingContactToClient] = useState(false);
   const [addingToRag, setAddingToRag] = useState(false);
   const [addedToRagId, setAddedToRagId] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -463,6 +465,9 @@ export function Inbox() {
 
   const selectedEmail = emails.find(e => e.id === selectedEmailId);
   const selectedEmailIsInbound = selectedEmail ? isInboundCustomerEmail(selectedEmail) : false;
+  const selectedEmailContactAddress = selectedEmail
+    ? (selectedEmailIsInbound ? selectedEmail.sender : selectedEmail.recipient)
+    : '';
   const selectedEmailClient = selectedEmail?.clientId ? clients.find(client => client.id === selectedEmail.clientId) : null;
   const latestInboundEmailForSelectedClient = selectedEmailClient
     ? emails
@@ -1361,9 +1366,14 @@ export function Inbox() {
                            {clients.find(c => c.id === selectedEmail.clientId)?.name || 'Linked'}
                          </span>
                        ) : (
-                         <button onClick={handleCreateLead} className="text-cyan-500 flex items-center gap-1 hover:text-cyan-400 bg-slate-800/50 rounded px-1.5 py-0.5">
-                           <UserPlus className="w-3 h-3" /> New Lead
-                         </button>
+                         <>
+                           <button onClick={handleCreateLead} className="text-cyan-500 flex items-center gap-1 hover:text-cyan-400 bg-slate-800/50 rounded px-1.5 py-0.5">
+                             <UserPlus className="w-3 h-3" /> New Lead
+                           </button>
+                           <button onClick={() => setIsAddingContactToClient(true)} className="text-emerald-400 flex items-center gap-1 hover:text-emerald-300 bg-slate-800/50 rounded px-1.5 py-0.5">
+                             <User className="w-3 h-3" /> Add to Existing Client
+                           </button>
+                         </>
                         )}
                     </div>
                     {isInboundCustomerEmail(selectedEmail) && (selectedEmail.senderIp || selectedEmail.senderCountry) && (
@@ -1674,6 +1684,18 @@ export function Inbox() {
           onSave={(newClientId) => {
             editEmail(selectedEmail.id, { clientId: newClientId });
             selectClient(newClientId);
+          }}
+        />
+      )}
+
+      {isAddingContactToClient && selectedEmail && selectedEmailContactAddress && (
+        <AddContactToClientModal
+          contactMethod={{ type: 'email', value: selectedEmailContactAddress }}
+          displayName={selectedEmail.senderName || selectedEmailContactAddress}
+          onClose={() => setIsAddingContactToClient(false)}
+          onLinked={(clientId) => {
+            editEmail(selectedEmail.id, { clientId });
+            selectClient(clientId);
           }}
         />
       )}
