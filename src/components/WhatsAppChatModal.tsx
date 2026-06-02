@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarClock, FileText, FolderOpen, Loader2, MessageCircle, Paperclip, Plus, Send, Smile, Sparkles, Tag, User, X } from 'lucide-react';
+import { CalendarClock, FileText, FolderOpen, Loader2, MessageCircle, Paperclip, Plus, Send, Smile, Sparkles, Tag, User, UserPlus, X } from 'lucide-react';
 import { Client, Comment, MediaItem, useStore } from '../store';
 import { MediaSelectorModal } from './MediaSelectorModal';
 import { useTranslation } from '../lib/i18n';
 import { AgentContextSuggestions } from './AgentContextSuggestions';
 import { getCustomerOutputLanguage } from '../lib/language';
+import { ClientFormModal } from './ClientFormModal';
 
 interface WhatsAppHubClient {
   id: string;
@@ -81,6 +82,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [isCreatingLead, setIsCreatingLead] = useState(false);
   const syncInFlightRef = useRef(false);
   const targetPhone = useMemo(() => isChatId(phone) ? phone.trim() : cleanPhone(phone), [phone]);
   const activeClient = useMemo(() => {
@@ -314,6 +316,38 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     }
   };
 
+  const handleLeadCreated = async (newClientId: string) => {
+    const newClient = useStore.getState().clients.find(item => item.id === newClientId);
+    if (conversation?.id) {
+      try {
+        const response = await fetch(`/api/whatsapp-hub/conversations/${conversation.id}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify({
+            clientId: newClientId,
+            clientName: newClient?.name || targetPhone,
+            clientCompany: newClient?.company || ''
+          })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Failed to link WhatsApp conversation');
+      } catch (error: any) {
+        notify(error.message || 'Failed to link WhatsApp conversation.', 'warning');
+      }
+    }
+    setConversation(prev => prev ? {
+      ...prev,
+      clientId: newClientId,
+      clientName: newClient?.name || targetPhone,
+      clientCompany: newClient?.company || ''
+    } : prev);
+    selectClient(newClientId);
+    setIsCreatingLead(false);
+  };
+
   const generateWhatsAppMessage = async (seedPrompt = body.trim()) => {
     const prompt = seedPrompt.trim();
     if (!prompt) {
@@ -524,7 +558,19 @@ Return only the message text.`,
               ) : (
                 <div className="font-bold text-white">{conversation?.clientName || targetPhone}</div>
               )}
-              <div className="text-xs text-slate-500">{targetPhone}</div>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                <span>{targetPhone}</span>
+                {!activeClient && (
+                  <button
+                    type="button"
+                    onClick={() => setIsCreatingLead(true)}
+                    className="inline-flex items-center gap-1 rounded bg-slate-800/70 px-1.5 py-0.5 font-bold text-cyan-400 hover:bg-slate-700 hover:text-cyan-300"
+                  >
+                    <UserPlus className="w-3 h-3" />
+                    New Lead
+                  </button>
+                )}
+              </div>
             </div>
           </div>
           <button onClick={onClose} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg">
@@ -776,6 +822,27 @@ Return only the message text.`,
           }}
           onClose={() => setShowMediaSelector(false)}
           allowedTypes={[]}
+        />
+      )}
+      {isCreatingLead && (
+        <ClientFormModal
+          onClose={() => setIsCreatingLead(false)}
+          initialData={{
+            name: conversation?.clientName || targetPhone,
+            company: conversation?.clientCompany || 'Unknown',
+            country: 'Unknown',
+            status: 'Leads',
+            tags: ['whatsapp'],
+            contactMethods: [{ type: 'whatsapp', value: targetPhone }],
+            contacts: [{
+              id: `contact_${Date.now()}`,
+              name: conversation?.clientName || targetPhone,
+              title: '',
+              isPrimary: true,
+              contactMethods: [{ type: 'whatsapp', value: targetPhone }]
+            }]
+          }}
+          onSave={handleLeadCreated}
         />
       )}
     </div>
