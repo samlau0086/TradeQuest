@@ -27,6 +27,7 @@ interface AgentContextSuggestionsProps {
   clientName?: string;
   hasClient?: boolean;
   hasKnowledge?: boolean;
+  hasCustomerMessage?: boolean;
   onDraftReply: () => void | Promise<void>;
   onAddComment?: () => void | Promise<void>;
   onCreateLead?: () => void | Promise<void>;
@@ -66,6 +67,7 @@ export function AgentContextSuggestions({
   clientName,
   hasClient,
   hasKnowledge,
+  hasCustomerMessage,
   onDraftReply,
   onAddComment,
   onCreateLead,
@@ -95,6 +97,7 @@ export function AgentContextSuggestions({
       || agentHubAgents.find(item => item.tools.some(tool => tool.startsWith(channel) || tool.includes('send')));
   }, [agentHubAgents, channel]);
 
+  const customerMessageAvailable = hasCustomerMessage !== false;
   const text = `${subject} ${body}`.trim();
   const fallbackIntent = inferIntent(text);
   const intent = aiInsight?.intent || fallbackIntent;
@@ -102,7 +105,7 @@ export function AgentContextSuggestions({
   const canAutoExecute = automationReady && agent.guardrail === 'auto';
   const executionLabel = canAutoExecute ? t('Auto-ready') : automationReady ? t('Review-gated automation') : t('Manual options');
   const llmConfig = llmConfigs.find(llm => llm.id === (llmMappings.agent_context_suggestions || activeLLMId)) || null;
-  const cachedInsight = persistedInsightKey === cacheKey ? persistedInsight : undefined;
+  const cachedInsight = customerMessageAvailable && persistedInsightKey === cacheKey ? persistedInsight : undefined;
   const resolvedAnalysisMode: AgentContextAnalysisMode =
     (clientId && agentContextAnalysisConfig.clientModes[clientId])
     || (emailAddress && agentContextAnalysisConfig.emailModes[emailAddress.toLowerCase()])
@@ -131,7 +134,24 @@ export function AgentContextSuggestions({
     }
   };
 
+  const buildNoCustomerMessageInsight = (): AgentContextSuggestionInsight => ({
+    intent: language === 'zh' ? '等待客户回复' : 'Awaiting customer reply',
+    customerContext: language === 'zh'
+      ? '客户尚未发送入站消息，不能基于我方已发送内容判断客户意图。'
+      : 'No inbound customer message has been received, so our outbound messages are not treated as customer intent.',
+    knowledgeContext: language === 'zh'
+      ? '当前只能参考客户档案、产品和知识库；建议等待客户回复，或发送低压跟进。'
+      : 'Only CRM, product, and knowledge context are available; wait for a customer reply or send a light follow-up.',
+    analyzedAt: new Date().toISOString(),
+    modelId: llmConfig?.id
+  });
+
   const runAnalysis = (signal?: AbortSignal) => {
+    if (!customerMessageAvailable) {
+      setAiInsight(buildNoCustomerMessageInsight());
+      setLoadingInsight(false);
+      return Promise.resolve();
+    }
     if (!llmConfig || !text || !cacheKey) {
       setAiInsight(null);
       return Promise.resolve();
@@ -146,6 +166,11 @@ export function AgentContextSuggestions({
       signal,
       body: JSON.stringify({
         command: `Analyze this ${channel} conversation for a CRM agent context panel. Return only JSON with keys: intent, customerContext, knowledgeContext. Keep each value short and actionable. Use ${language === 'zh' ? 'Chinese' : 'English'}.
+
+Important direction rule:
+- Infer customer intent only from inbound customer messages.
+- Outbound messages sent by our team are background context only.
+- If there is no inbound customer message, say the customer intent is unknown and do not treat our outbound text as a customer request.
 
 Subject/contact: ${subject || clientName || 'N/A'}
 Message:
@@ -179,6 +204,11 @@ ${body || 'N/A'}`,
   };
 
   useEffect(() => {
+    if (!customerMessageAvailable) {
+      setAiInsight(buildNoCustomerMessageInsight());
+      setLoadingInsight(false);
+      return;
+    }
     if (cachedInsight) {
       setAiInsight(cachedInsight);
       setLoadingInsight(false);
@@ -192,7 +222,7 @@ ${body || 'N/A'}`,
     const controller = new AbortController();
     void runAnalysis(controller.signal);
     return () => controller.abort();
-  }, [cacheKey, cachedInsight, resolvedAnalysisMode, llmConfig?.id, text, channel, subject, body, clientName, hasClient, hasKnowledge, language, fallbackIntent]);
+  }, [cacheKey, cachedInsight, resolvedAnalysisMode, llmConfig?.id, text, channel, subject, body, clientName, hasClient, hasKnowledge, hasCustomerMessage, language, fallbackIntent]);
 
   const recordOption = async (optionId: string, label: string, run: () => void | Promise<void>) => {
     if (runningOptionId) return;

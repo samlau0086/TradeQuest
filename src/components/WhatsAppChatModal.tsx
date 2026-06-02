@@ -115,6 +115,25 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   })), [products]);
   const latestInboundMessage = messages.filter(message => message.direction === 'inbound').slice(-1)[0];
   const latestOutboundMessage = messages.filter(message => message.direction === 'outbound').slice(-1)[0];
+  const recentInboundMessages = messages.filter(message => message.direction === 'inbound').slice(-6);
+  const recentOutboundMessages = messages.filter(message => message.direction === 'outbound').slice(-6);
+  const agentContextCacheKey = latestInboundMessage
+    ? `whatsapp:${targetPhone}:inbound:${latestInboundMessage.id}`
+    : `whatsapp:${targetPhone}:no-inbound`;
+  const agentContextBody = recentInboundMessages.length > 0
+    ? [
+        'Customer inbound WhatsApp messages only. Use these to infer customer intent:',
+        ...recentInboundMessages.map(message => `inbound customer: ${message.body}`),
+        '',
+        'Our outbound WhatsApp messages are background only. Do not infer customer intent from these:',
+        ...recentOutboundMessages.map(message => `outbound team: ${message.body}`)
+      ].join('\n')
+    : [
+        'NO_INBOUND_CUSTOMER_MESSAGES',
+        'The customer has not sent any inbound WhatsApp messages in this conversation.',
+        'Our outbound WhatsApp messages are prior outreach only and must not be used as evidence of customer intent:',
+        ...recentOutboundMessages.map(message => `outbound team: ${message.body}`)
+      ].join('\n');
   const outboundLanguage = getCustomerOutputLanguage({
     lastCommunicationText: latestInboundMessage?.body,
     preferredLanguage: activeClient?.preferredLanguage,
@@ -590,16 +609,17 @@ Return only the message text.`,
           ))}
           <AgentContextSuggestions
             channel="whatsapp"
-            cacheKey={`whatsapp:${targetPhone}:${messages[messages.length - 1]?.id || 'empty'}`}
+            cacheKey={agentContextCacheKey}
             clientId={conversation?.clientId || activeClient?.id}
             whatsappNumber={targetPhone}
-            persistedInsight={conversation?.agentContextAnalysisKey === `whatsapp:${targetPhone}:${messages[messages.length - 1]?.id || 'empty'}` ? conversation?.agentContextAnalysis : undefined}
+            persistedInsight={conversation?.agentContextAnalysisKey === agentContextCacheKey ? conversation?.agentContextAnalysis : undefined}
             persistedInsightKey={conversation?.agentContextAnalysisKey}
             subject={conversation?.clientName || activeClient?.name || targetPhone}
-            body={messages.slice(-6).map(message => `${message.direction}: ${message.body}`).join('\n')}
+            body={agentContextBody}
             clientName={conversation?.clientName || activeClient?.name}
             hasClient={!!(conversation?.clientId || activeClient?.id)}
             hasKnowledge={!!activeClient}
+            hasCustomerMessage={recentInboundMessages.length > 0}
             onDraftReply={() => generateWhatsAppMessage(
               body.trim() || (latestInboundMessage
                 ? `Reply to the latest inbound customer WhatsApp message from ${conversation?.clientName || activeClient?.name || targetPhone}: ${latestInboundMessage.body}`
