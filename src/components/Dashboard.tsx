@@ -97,25 +97,41 @@ function FunnelBarChart({ rows, emptyLabel }: { rows: { label: string; value: nu
     return <div className="h-48 flex items-center justify-center text-sm text-slate-500">{emptyLabel}</div>;
   }
 
+  const displayWidths = rows.map(row => row.value > 0 ? Math.max(16, (row.value / maxValue) * 100) : 10);
+
   return (
-    <div className="space-y-4">
-      {rows.map(row => {
-        const widthPercent = Math.max(4, (row.value / maxValue) * 100);
-        const share = row.rate ?? (total > 0 ? Math.round((row.value / total) * 100) : 0);
+    <div className="space-y-1 py-2">
+      {rows.map((row, index) => {
+        const widthPercent = displayWidths[index];
+        const nextWidth = displayWidths[index + 1] ?? Math.max(10, widthPercent * 0.72);
+        const bottomInset = Math.max(0, ((widthPercent - nextWidth) / widthPercent) * 50);
+        const share = row.rate ?? Math.round((row.value / maxValue) * 100);
         return (
-          <div key={row.label}>
-            <div className="flex items-center justify-between text-xs mb-1.5">
-              <span className="text-slate-400">{row.label}</span>
-              <span className="font-bold text-slate-200">{row.value}</span>
-            </div>
-            <div className="relative h-3 rounded-full border border-slate-800 bg-slate-900">
-              <div className={cn('group relative h-full rounded-full transition-all duration-700', row.color)} style={{ width: `${widthPercent}%` }}>
-                <HoverTooltip>
-                  <div className="font-bold">{row.label}</div>
-                  <div className="text-slate-400">{row.value} · {share}%</div>
-                </HoverTooltip>
+          <div key={row.label} className="group relative flex justify-center">
+            <div
+              className={cn(
+                'relative h-12 min-w-[92px] border border-slate-950/40 shadow-sm transition-all duration-700 group-hover:brightness-110',
+                row.color
+              )}
+              style={{
+                width: `${widthPercent}%`,
+                clipPath: `polygon(0 0, 100% 0, ${100 - bottomInset}% 100%, ${bottomInset}% 100%)`
+              }}
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-white/10 via-transparent to-black/15" />
+              <div className="absolute inset-0 flex items-center justify-between gap-3 px-5 text-xs text-white">
+                <div className="min-w-0">
+                  <div className="truncate font-bold drop-shadow">{row.label}</div>
+                  <div className="text-[10px] text-white/75">{share}%</div>
+                </div>
+                <div className="shrink-0 text-sm font-black drop-shadow">{row.value}</div>
               </div>
             </div>
+            <HoverTooltip>
+              <div className="font-bold">{row.label}</div>
+              <div className="text-slate-400">{row.value} deals</div>
+              <div className="text-slate-500">{share}% of top funnel</div>
+            </HoverTooltip>
           </div>
         );
       })}
