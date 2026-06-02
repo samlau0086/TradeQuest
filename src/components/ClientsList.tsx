@@ -8,7 +8,8 @@ import { UploadCSVModal } from './UploadCSVModal';
 import { WorldMap } from './WorldMap';
 
 type ViewMode = 'list' | 'map';
-type LeadScoreSort = 'desc' | 'asc';
+type SortColumn = 'leadScore' | 'recentEvent';
+type SortDirection = 'desc' | 'asc';
 
 const CONTACT_ICONS: any = {
   email: Mail,
@@ -30,7 +31,7 @@ const getLeadScoreVisual = (score?: number) => {
   import Papa from 'papaparse';
 
   export function ClientsList() {
-    const { clients, selectClient, deleteClient, addClient, language } = useStore();
+    const { clients, logs, selectClient, deleteClient, addClient, language } = useStore();
     const t = useTranslation(language);
     const [search, setSearch] = useState('');
     const [searchTags, setSearchTags] = useState<string[]>([]);
@@ -39,7 +40,8 @@ const getLeadScoreVisual = (score?: number) => {
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [deleteClientId, setDeleteClientId] = useState<string | null>(null);
     const [viewMode, setViewMode] = useState<ViewMode>('list');
-    const [leadScoreSort, setLeadScoreSort] = useState<LeadScoreSort>('desc');
+    const [sortColumn, setSortColumn] = useState<SortColumn>('leadScore');
+    const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
     const handleCSVUpload = (file: File) => {
       Papa.parse(file, {
@@ -105,15 +107,52 @@ const getLeadScoreVisual = (score?: number) => {
     return match;
   });
 
+  const latestEventByClient = useMemo(() => {
+    const latest: Record<string, { date: string; content: string }> = {};
+    logs.forEach(log => {
+      if (!log.clientId || !log.date) return;
+      const currentTime = latest[log.clientId] ? new Date(latest[log.clientId].date).getTime() : 0;
+      const nextTime = new Date(log.date).getTime();
+      if (Number.isFinite(nextTime) && nextTime > currentTime) {
+        latest[log.clientId] = { date: log.date, content: log.content || '' };
+      }
+    });
+    return latest;
+  }, [logs]);
+
+  const getRecentEventTime = (client: typeof clients[number]) => {
+    const rawDate = latestEventByClient[client.id]?.date || client.lastContact;
+    const time = rawDate ? new Date(rawDate).getTime() : 0;
+    return Number.isFinite(time) ? time : 0;
+  };
+
+  const toggleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection(current => current === 'desc' ? 'asc' : 'desc');
+      return;
+    }
+    setSortColumn(column);
+    setSortDirection('desc');
+  };
+
   const sortedClients = useMemo(() => (
     [...filteredClients].sort((a, b) => {
-      const aScore = Number(a.leadScore) || 0;
-      const bScore = Number(b.leadScore) || 0;
-      return leadScoreSort === 'desc' ? bScore - aScore : aScore - bScore;
+      let result = 0;
+      if (sortColumn === 'recentEvent') {
+        result = getRecentEventTime(a) - getRecentEventTime(b);
+      } else {
+        const aScore = Number(a.leadScore) || 0;
+        const bScore = Number(b.leadScore) || 0;
+        result = aScore - bScore;
+      }
+      if (result === 0) result = a.name.localeCompare(b.name);
+      return sortDirection === 'desc' ? -result : result;
     })
-  ), [filteredClients, leadScoreSort]);
+  ), [filteredClients, latestEventByClient, sortColumn, sortDirection]);
 
   const leadScoreHeaderLabel = language === 'zh' ? '线索分值' : 'Lead Score';
+
+  const recentEventHeaderLabel = language === 'zh' ? '最近事件时间' : 'Recent Event';
 
   return (
     <div className="flex-1 flex flex-col bg-slate-900 border-l border-slate-800">
@@ -199,12 +238,23 @@ const getLeadScoreVisual = (score?: number) => {
                   <th className="px-4 py-3">
                     <button
                       type="button"
-                      onClick={() => setLeadScoreSort(current => current === 'desc' ? 'asc' : 'desc')}
+                      onClick={() => toggleSort('leadScore')}
                       className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-left font-bold text-slate-400 hover:bg-slate-800 hover:text-cyan-300"
                       title={language === 'zh' ? '按线索分值排序' : 'Sort by lead score'}
                     >
                       {leadScoreHeaderLabel}
-                      <span className="text-[10px] text-cyan-400">{leadScoreSort === 'desc' ? '↓' : '↑'}</span>
+                      <span className="text-[10px] text-cyan-400">{sortColumn === 'leadScore' ? (sortDirection === 'desc' ? '↓' : '↑') : ''}</span>
+                    </button>
+                  </th>
+                  <th className="px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort('recentEvent')}
+                      className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-left font-bold text-slate-400 hover:bg-slate-800 hover:text-cyan-300"
+                      title={language === 'zh' ? '按最近事件时间排序' : 'Sort by recent event time'}
+                    >
+                      {recentEventHeaderLabel}
+                      <span className="text-[10px] text-cyan-400">{sortColumn === 'recentEvent' ? (sortDirection === 'desc' ? '↓' : '↑') : ''}</span>
                     </button>
                   </th>
                   <th className="px-4 py-3">{t('tagsLabel').split(' ')[0]}</th>
@@ -215,6 +265,10 @@ const getLeadScoreVisual = (score?: number) => {
                 {sortedClients.map(client => {
                   const scoreVisual = getLeadScoreVisual(client.leadScore);
                   const leadScore = Math.max(0, Math.min(100, Number(client.leadScore) || 0));
+                  const recentEvent = latestEventByClient[client.id];
+                  const recentEventDate = recentEvent?.date || client.lastContact;
+                  const recentEventTime = recentEventDate ? new Date(recentEventDate) : null;
+                  const recentEventIsValid = !!recentEventTime && Number.isFinite(recentEventTime.getTime());
                   return (
                   <tr key={client.id} className="hover:bg-slate-800/30 transition-colors group">
                     <td className="px-4 py-3">
@@ -248,6 +302,20 @@ const getLeadScoreVisual = (score?: number) => {
                         </div>
                       </div>
                     </td>
+                    <td className="px-4 py-3 text-slate-400">
+                      {recentEventIsValid ? (
+                        <div className="min-w-[170px]">
+                          <div className="text-xs font-bold text-slate-200">
+                            {recentEventTime.toLocaleString()}
+                          </div>
+                          <div className="mt-1 max-w-[220px] truncate text-[11px] text-slate-500" title={recentEvent?.content || ''}>
+                            {recentEvent?.content || (language === 'zh' ? '最近联系' : 'Last contact')}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-slate-600">-</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1 flex-wrap">
                         {client.tags.slice(0, 2).map(t => (
@@ -277,7 +345,7 @@ const getLeadScoreVisual = (score?: number) => {
                 })}
                 {sortedClients.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="text-center py-8 text-slate-500">
+                    <td colSpan={8} className="text-center py-8 text-slate-500">
                       {t('noClientsFound')}
                     </td>
                   </tr>
