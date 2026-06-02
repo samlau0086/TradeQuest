@@ -106,14 +106,19 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [generating, setGenerating] = useState(false);
   const [isCreatingLead, setIsCreatingLead] = useState(false);
   const [isAddingContactToClient, setIsAddingContactToClient] = useState(false);
+  const [mappingEdit, setMappingEdit] = useState<{ chatId: string; phone: string; saving?: boolean } | null>(null);
   const syncInFlightRef = useRef(false);
+  const rawChatId = conversation?.rawChatId || (isChatId(targetPhone) ? targetPhone : '');
+  const mappedPhone = conversation?.contactPhone || (!isChatId(targetPhone) ? targetPhone : '');
+  const displayPhone = mappedPhone || targetPhone;
+  const messageLookupTarget = mappedPhone || targetPhone;
   const activeClient = useMemo(() => {
     if (client) return client;
     if (conversation?.clientId) return clients.find(item => item.id === conversation.clientId) || null;
     return clients.find(item => item.contactMethods?.some(method => (
-      !isChatId(targetPhone) && ['whatsapp', 'phone'].includes(method.type) && cleanPhone(method.value).endsWith(targetPhone.slice(-8))
+      mappedPhone && ['whatsapp', 'phone'].includes(method.type) && cleanPhone(method.value).endsWith(mappedPhone.slice(-8))
     ))) || null;
-  }, [client, conversation?.clientId, clients, targetPhone]);
+  }, [client, conversation?.clientId, clients, mappedPhone]);
   const relatedDeals = useMemo(() => (
     activeClient
       ? deals
@@ -174,7 +179,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
         `Product context: ${productSnippets.map(product => `${product.name}: ${product.salesPoints || product.description || ''}`).join(' | ') || 'N/A'}`
       ].join('\n')
     : [
-        `Unlinked WhatsApp conversation: ${targetPhone}`,
+        `Unlinked WhatsApp conversation: ${displayPhone}`,
         `Product context: ${productSnippets.map(product => `${product.name}: ${product.salesPoints || product.description || ''}`).join(' | ') || 'N/A'}`,
         `Relevant knowledge snippets: ${localKnowledgeSnippets.map(item => `${item.title}: ${item.content}`).join(' | ') || 'N/A'}`
       ].join('\n');
@@ -192,9 +197,12 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const loadCachedMessages = async (options: { notifyErrors?: boolean } = {}) => {
     if (!targetPhone) return;
     try {
+      const messageQuery = isChatId(messageLookupTarget)
+        ? `chatId=${encodeURIComponent(messageLookupTarget)}`
+        : `targetPhone=${encodeURIComponent(messageLookupTarget)}`;
       const [clientsRes, messagesRes] = await Promise.all([
         fetch('/api/whatsapp-hub/clients', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }),
-        fetch(`/api/whatsapp-hub/messages?targetPhone=${encodeURIComponent(targetPhone)}&limit=200`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
+        fetch(`/api/whatsapp-hub/messages?${messageQuery}&limit=200`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
       ]);
       const clientsData = await clientsRes.json();
       const messagesData = await messagesRes.json();
@@ -206,11 +214,11 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
       writeCachedWhatsAppMessages(targetPhone, nextMessages);
       const sticky = (messagesData.messages || []).find((message: WhatsAppHubMessage) => message.direction === 'outbound' && message.client_id)?.client_id;
       if (sticky) setSelectedClientId(sticky);
-      const conversationsRes = await fetch(`/api/whatsapp-hub/conversations?search=${encodeURIComponent(targetPhone)}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+      const conversationsRes = await fetch(`/api/whatsapp-hub/conversations?search=${encodeURIComponent(messageLookupTarget)}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
       const conversationsData = await conversationsRes.json();
       if (conversationsRes.ok) {
         const matched = (conversationsData.conversations || []).find((item: WhatsAppConversation) => (
-          item.targetPhone === targetPhone || item.contactPhone === targetPhone || item.rawChatId === targetPhone || item.conversationKey === targetPhone
+          item.targetPhone === messageLookupTarget || item.contactPhone === messageLookupTarget || item.rawChatId === targetPhone || item.conversationKey === messageLookupTarget
         ));
         if (matched) setConversation(matched);
       }
@@ -232,7 +240,9 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
           'Content-Type': 'application/json',
           Authorization: `Bearer ${localStorage.getItem('token')}`
         },
-        body: JSON.stringify({ targetPhone, limit: 500 })
+        body: JSON.stringify(isChatId(messageLookupTarget)
+          ? { chatId: messageLookupTarget, limit: 500 }
+          : { targetPhone: messageLookupTarget, limit: 500 })
       });
       if (syncRes.ok) {
         await loadCachedMessages({ notifyErrors: false });
@@ -262,7 +272,41 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   useEffect(() => {
     setMessages(readCachedWhatsAppMessages(targetPhone));
     loadData();
-  }, [targetPhone]);
+  }, [targetPhone, mappedPhone]);
+
+  const confirmChatIdMapping = async () => {
+    if (!mappingEdit?.chatId) return;
+    const phone = cleanPhone(mappingEdit.phone);
+    if (!phone) {
+      notify('Phone is required to map this WhatsApp chatId.', 'warning');
+      return;
+    }
+    setMappingEdit(prev => prev ? { ...prev, saving: true } : prev);
+    try {
+      const response = await fetch('/api/whatsapp-hub/contact-mappings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          conversationId: conversation?.id,
+          chatId: mappingEdit.chatId,
+          phone,
+          clientId: activeClient?.id
+        })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Failed to update WhatsApp chatId mapping.');
+      if (data.conversation) setConversation(data.conversation);
+      setMappingEdit(null);
+      notify('WhatsApp chatId mapping updated.', 'success');
+      await loadData({ sync: false });
+    } catch (error: any) {
+      notify(error.message || 'Failed to update WhatsApp chatId mapping.', 'error');
+      setMappingEdit(prev => prev ? { ...prev, saving: false } : prev);
+    }
+  };
 
   const defaultScheduleDateTime = () => {
     const date = new Date(Date.now() + 15 * 60 * 1000);
@@ -353,7 +397,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
           },
           body: JSON.stringify({
             clientId,
-            clientName: linkedClient?.name || targetPhone,
+            clientName: linkedClient?.name || displayPhone,
             clientCompany: linkedClient?.company || ''
           })
         });
@@ -366,7 +410,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     setConversation(prev => prev ? {
       ...prev,
       clientId,
-      clientName: linkedClient?.name || targetPhone,
+      clientName: linkedClient?.name || displayPhone,
       clientCompany: linkedClient?.company || ''
     } : prev);
     selectClient(clientId);
@@ -461,7 +505,7 @@ Return only the message text.`,
             recentWhatsAppMessages: recentMessages,
             latestInboundCustomerMessage: latestInboundMessage?.body || '',
             latestOutboundOurMessage: latestOutboundMessage?.body || '',
-            targetPhone,
+            targetPhone: displayPhone,
             outboundLanguage,
             clientPreferredLanguage: activeClient?.preferredLanguage || null,
             systemLanguage: language === 'zh' ? 'Chinese' : 'English'
@@ -484,7 +528,7 @@ Return only the message text.`,
   };
 
   const sendMessage = async () => {
-    if ((!body.trim() && !selectedFile && !selectedMedia) || !targetPhone) return;
+    if ((!body.trim() && !selectedFile && !selectedMedia) || !displayPhone) return;
     setSending(true);
     try {
       let media: any;
@@ -529,7 +573,7 @@ Return only the message text.`,
           Authorization: `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify({
-          to: targetPhone,
+          to: displayPhone,
           body,
           media,
           clientId: selectedClientId || undefined,
@@ -585,10 +629,10 @@ Return only the message text.`,
                   {activeClient.name}
                 </button>
               ) : (
-                <div className="font-bold text-white">{conversation?.clientName || targetPhone}</div>
+                <div className="font-bold text-white">{conversation?.clientName || displayPhone}</div>
               )}
               <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                <span>{targetPhone}</span>
+                <span>{displayPhone}</span>
                 {!activeClient && (
                   <>
                     <button
@@ -616,6 +660,54 @@ Return only the message text.`,
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {rawChatId && (
+          <div className="px-4 py-2 border-b border-slate-800 bg-slate-950/70">
+            {mappingEdit ? (
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-mono text-slate-500 truncate max-w-[220px]" title={mappingEdit.chatId}>
+                  {mappingEdit.chatId}
+                </span>
+                <span className="text-slate-600">-&gt;</span>
+                <input
+                  value={mappingEdit.phone}
+                  onChange={event => setMappingEdit(prev => prev ? { ...prev, phone: event.target.value } : prev)}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter') confirmChatIdMapping();
+                    if (event.key === 'Escape') setMappingEdit(null);
+                  }}
+                  placeholder="Enter mobile number"
+                  className="min-w-[180px] flex-1 rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-100 outline-none focus:border-green-400"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={confirmChatIdMapping}
+                  disabled={mappingEdit.saving || !cleanPhone(mappingEdit.phone)}
+                  className="rounded bg-green-600 px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-green-500 disabled:bg-slate-800 disabled:text-slate-500"
+                >
+                  {mappingEdit.saving ? 'Saving' : 'Confirm'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMappingEdit(null)}
+                  className="rounded bg-slate-800 px-2.5 py-1.5 text-[10px] font-bold text-slate-300 hover:bg-slate-700"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onDoubleClick={() => setMappingEdit({ chatId: rawChatId, phone: mappedPhone || '' })}
+                title="Double-click to edit chatId to mobile mapping"
+                className="block max-w-full truncate rounded px-1 py-1 text-left text-[11px] font-mono text-slate-500 hover:bg-slate-900 hover:text-slate-300"
+              >
+                {mappedPhone ? `${mappedPhone} (${rawChatId} -> ${mappedPhone})` : rawChatId}
+              </button>
+            )}
+          </div>
+        )}
 
         <div className="p-3 border-b border-slate-800 flex items-center gap-3">
           <select
@@ -716,10 +808,10 @@ Return only the message text.`,
             channel="whatsapp"
             cacheKey={agentContextCacheKey}
             clientId={conversation?.clientId || activeClient?.id}
-            whatsappNumber={targetPhone}
+            whatsappNumber={displayPhone}
             persistedInsight={conversation?.agentContextAnalysisKey === agentContextCacheKey ? conversation?.agentContextAnalysis : undefined}
             persistedInsightKey={conversation?.agentContextAnalysisKey}
-            subject={conversation?.clientName || activeClient?.name || targetPhone}
+            subject={conversation?.clientName || activeClient?.name || displayPhone}
             body={agentContextBody}
             additionalContext={agentContextAdditionalContext}
             clientName={conversation?.clientName || activeClient?.name}
@@ -728,10 +820,10 @@ Return only the message text.`,
             hasCustomerMessage={recentInboundMessages.length > 0}
             onDraftReply={() => generateWhatsAppMessage(
               body.trim() || (latestInboundMessage
-                ? `Reply to the latest inbound customer WhatsApp message from ${conversation?.clientName || activeClient?.name || targetPhone}: ${latestInboundMessage.body}`
-                : `Draft a polite WhatsApp follow-up to ${conversation?.clientName || activeClient?.name || targetPhone}. There is no inbound customer message yet, so do not answer our own outbound messages.`)
+                ? `Reply to the latest inbound customer WhatsApp message from ${conversation?.clientName || activeClient?.name || displayPhone}: ${latestInboundMessage.body}`
+                : `Draft a polite WhatsApp follow-up to ${conversation?.clientName || activeClient?.name || displayPhone}. There is no inbound customer message yet, so do not answer our own outbound messages.`)
             )}
-            onAddComment={() => addConversationComment(`Agent suggestion: review WhatsApp conversation with ${conversation?.clientName || activeClient?.name || targetPhone} and prepare the next best reply.`)}
+            onAddComment={() => addConversationComment(`Agent suggestion: review WhatsApp conversation with ${conversation?.clientName || activeClient?.name || displayPhone} and prepare the next best reply.`)}
             onSaveAnalysis={async (key, insight) => {
               if (!conversation?.id) return;
               const response = await fetch(`/api/whatsapp-hub/conversations/${conversation.id}`, {
@@ -867,18 +959,18 @@ Return only the message text.`,
         <ClientFormModal
           onClose={() => setIsCreatingLead(false)}
           initialData={{
-            name: conversation?.clientName || targetPhone,
+            name: conversation?.clientName || displayPhone,
             company: conversation?.clientCompany || 'Unknown',
             country: 'Unknown',
             status: 'Leads',
             tags: ['whatsapp'],
-            contactMethods: [{ type: 'whatsapp', value: targetPhone }],
+            contactMethods: [{ type: 'whatsapp', value: displayPhone }],
             contacts: [{
               id: `contact_${Date.now()}`,
-              name: conversation?.clientName || targetPhone,
+              name: conversation?.clientName || displayPhone,
               title: '',
               isPrimary: true,
-              contactMethods: [{ type: 'whatsapp', value: targetPhone }]
+              contactMethods: [{ type: 'whatsapp', value: displayPhone }]
             }]
           }}
           onSave={handleLeadCreated}
@@ -886,8 +978,8 @@ Return only the message text.`,
       )}
       {isAddingContactToClient && (
         <AddContactToClientModal
-          contactMethod={{ type: 'whatsapp', value: targetPhone }}
-          displayName={conversation?.clientName || targetPhone}
+          contactMethod={{ type: 'whatsapp', value: displayPhone }}
+          displayName={conversation?.clientName || displayPhone}
           onClose={() => setIsAddingContactToClient(false)}
           onLinked={async (clientId) => {
             await linkConversationToClient(clientId);
