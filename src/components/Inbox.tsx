@@ -121,7 +121,7 @@ function getInboxFilterForEmail(email: EmailMessage): 'inbox' | 'sent' | 'schedu
 }
 
 export function Inbox() {
-  const { emails, markEmailRead, clients, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail, notify, language, llmConfigs, activeLLMId, llmMappings } = useStore();
+  const { emails, markEmailRead, clients, logs, deals, knowledgeBase, products, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail, notify, language, llmConfigs, activeLLMId, llmMappings } = useStore();
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'inbox-layout' });
   const [filter, setFilter] = useState<'inbox' | 'sent' | 'scheduled' | 'drafts'>('inbox');
   const [emailListMode, setEmailListMode] = useState<'list' | 'conversation'>('list');
@@ -481,6 +481,26 @@ export function Inbox() {
           : ''
       ].filter(Boolean).join('\n\n')
     : '';
+  const selectedEmailAgentAdditionalContext = selectedEmailClient
+    ? [
+        `Client profile: ${selectedEmailClient.name || ''} ${selectedEmailClient.company || ''} ${selectedEmailClient.country || ''}`.trim(),
+        `Preferred language: ${selectedEmailClient.preferredLanguage || 'N/A'}`,
+        `AI customer summary: ${selectedEmailClient.agentSummary || selectedEmailClient.leadSummary || 'N/A'}`,
+        `Best next action: ${selectedEmailClient.agentNextStep || selectedEmailClient.leadNextStep || 'N/A'}`,
+        `Lead score: ${selectedEmailClient.leadScore ?? 'N/A'}`,
+        `Tags: ${(selectedEmailClient.tags || []).join(', ') || 'N/A'}`,
+        `Recent internal comments: ${(selectedEmailClient.comments || []).slice(-5).map(comment => comment.content).join(' | ') || 'N/A'}`,
+        `Recent CRM activity: ${logs.filter(log => log.clientId === selectedEmailClient.id).slice(0, 10).map(log => `${log.date}: ${log.content}`).join(' | ') || 'N/A'}`,
+        `Other email history: ${emails.filter(email => email.clientId === selectedEmailClient.id && email.id !== selectedEmail?.id).slice(0, 6).map(email => `${email.type} ${email.date}: ${email.subject} - ${extractLatestEmailText(email.body || '').slice(0, 220)}`).join(' | ') || 'N/A'}`,
+        `Related leads/deals: ${deals.filter(deal => deal.clientId === selectedEmailClient.id).slice(0, 5).map(deal => `${deal.name} (${deal.status}) score ${deal.leadScore ?? 'N/A'} summary: ${deal.leadSummary || 'N/A'} next: ${deal.leadNextStep || 'N/A'}`).join(' | ') || 'N/A'}`,
+        `Relevant knowledge snippets: ${knowledgeBase.filter(item => !item.clientId || item.clientId === selectedEmailClient.id).slice(0, 6).map(item => `${item.title}: ${item.content?.slice(0, 500)}`).join(' | ') || 'N/A'}`,
+        `Product context: ${products.slice(0, 8).map(product => `${product.name}: ${product.salesPoints || product.description || ''}`).join(' | ') || 'N/A'}`
+      ].join('\n')
+    : [
+        `Unlinked email contact: ${selectedEmail ? (selectedEmailIsInbound ? selectedEmail.sender : selectedEmail.recipient) : 'N/A'}`,
+        `Product context: ${products.slice(0, 8).map(product => `${product.name}: ${product.salesPoints || product.description || ''}`).join(' | ') || 'N/A'}`,
+        `Relevant knowledge snippets: ${knowledgeBase.slice(0, 6).map(item => `${item.title}: ${item.content?.slice(0, 500)}`).join(' | ') || 'N/A'}`
+      ].join('\n');
   useEffect(() => {
     if (!selectedEmail) return;
     const nextFilter = getInboxFilterForEmail(selectedEmail);
@@ -1510,9 +1530,11 @@ export function Inbox() {
                  persistedInsightKey={selectedEmail.agentContextAnalysisKey}
                  subject={selectedEmail.subject}
                  body={selectedEmailAgentContextBody}
+                 additionalContext={selectedEmailAgentAdditionalContext}
                  clientName={selectedEmail.clientId ? clients.find(c => c.id === selectedEmail.clientId)?.name : undefined}
                  hasClient={!!selectedEmail.clientId}
                  hasKnowledge={addedToRagId === selectedEmail.id}
+                 hasCustomerMessage={selectedEmailIsInbound || !!latestInboundEmailForSelectedClient}
                  onDraftReply={() => {
                    const replySourceEmail = isInboundCustomerEmail(selectedEmail)
                      ? selectedEmail

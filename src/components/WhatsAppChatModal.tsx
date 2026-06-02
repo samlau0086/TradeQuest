@@ -134,6 +134,26 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
         'Our outbound WhatsApp messages are prior outreach only and must not be used as evidence of customer intent:',
         ...recentOutboundMessages.map(message => `outbound team: ${message.body}`)
       ].join('\n');
+  const agentContextAdditionalContext = activeClient
+    ? [
+        `Client profile: ${activeClient.name || ''} ${activeClient.company || ''} ${activeClient.country || ''}`.trim(),
+        `Preferred language: ${activeClient.preferredLanguage || 'N/A'}`,
+        `AI customer summary: ${activeClient.agentSummary || activeClient.leadSummary || 'N/A'}`,
+        `Best next action: ${activeClient.agentNextStep || activeClient.leadNextStep || 'N/A'}`,
+        `Lead score: ${activeClient.leadScore ?? 'N/A'}`,
+        `Tags: ${(activeClient.tags || []).join(', ') || 'N/A'}`,
+        `Recent internal comments: ${(activeClient.comments || []).slice(-5).map(comment => comment.content).join(' | ') || 'N/A'}`,
+        `Recent CRM activity: ${logs.filter(log => log.clientId === activeClient.id).slice(0, 10).map(log => `${log.date}: ${log.content}`).join(' | ') || 'N/A'}`,
+        `Recent email history: ${emails.filter(email => email.clientId === activeClient.id).slice(0, 6).map(email => `${email.type} ${email.date}: ${email.subject} - ${(email.body || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 220)}`).join(' | ') || 'N/A'}`,
+        `Related leads/deals: ${relatedDeals.map(deal => `${deal.name} (${deal.status}) score ${deal.leadScore ?? 'N/A'} summary: ${deal.leadSummary || 'N/A'} next: ${deal.leadNextStep || 'N/A'}`).join(' | ') || 'N/A'}`,
+        `Relevant knowledge snippets: ${localKnowledgeSnippets.map(item => `${item.title}: ${item.content}`).join(' | ') || 'N/A'}`,
+        `Product context: ${productSnippets.map(product => `${product.name}: ${product.salesPoints || product.description || ''}`).join(' | ') || 'N/A'}`
+      ].join('\n')
+    : [
+        `Unlinked WhatsApp conversation: ${targetPhone}`,
+        `Product context: ${productSnippets.map(product => `${product.name}: ${product.salesPoints || product.description || ''}`).join(' | ') || 'N/A'}`,
+        `Relevant knowledge snippets: ${localKnowledgeSnippets.map(item => `${item.title}: ${item.content}`).join(' | ') || 'N/A'}`
+      ].join('\n');
   const outboundLanguage = getCustomerOutputLanguage({
     lastCommunicationText: latestInboundMessage?.body,
     preferredLanguage: activeClient?.preferredLanguage,
@@ -616,6 +636,7 @@ Return only the message text.`,
             persistedInsightKey={conversation?.agentContextAnalysisKey}
             subject={conversation?.clientName || activeClient?.name || targetPhone}
             body={agentContextBody}
+            additionalContext={agentContextAdditionalContext}
             clientName={conversation?.clientName || activeClient?.name}
             hasClient={!!(conversation?.clientId || activeClient?.id)}
             hasKnowledge={!!activeClient}
