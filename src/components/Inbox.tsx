@@ -43,6 +43,26 @@ interface WhatsAppContactOption {
   searchText: string;
 }
 
+const WHATSAPP_CONVERSATION_CACHE_KEY = 'tradequest.whatsapp.conversations.cache.v1';
+
+function readCachedWhatsAppConversations(): InboxWhatsAppConversation[] {
+  try {
+    const raw = sessionStorage.getItem(WHATSAPP_CONVERSATION_CACHE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedWhatsAppConversations(conversations: InboxWhatsAppConversation[]) {
+  try {
+    sessionStorage.setItem(WHATSAPP_CONVERSATION_CACHE_KEY, JSON.stringify(conversations.slice(0, 300)));
+  } catch {
+    // Session storage is an optional speed cache only.
+  }
+}
+
 function decodeHtmlEntities(value: string) {
   const textarea = document.createElement('textarea');
   textarea.innerHTML = value;
@@ -151,13 +171,14 @@ export function Inbox() {
   const [todoNote, setTodoNote] = useState('');
   const [tagModalEmail, setTagModalEmail] = useState<string | null>(null);
   const [tagInput, setTagInput] = useState('');
-  const [whatsappConversations, setWhatsappConversations] = useState<InboxWhatsAppConversation[]>([]);
+  const [whatsappConversations, setWhatsappConversations] = useState<InboxWhatsAppConversation[]>(() => readCachedWhatsAppConversations());
   const [selectedWhatsAppPhone, setSelectedWhatsAppPhone] = useState<string | null>(null);
   const [selectedWhatsAppClientId, setSelectedWhatsAppClientId] = useState<string | null>(null);
   const [isStartingWhatsApp, setIsStartingWhatsApp] = useState(false);
   const [newWhatsAppPhone, setNewWhatsAppPhone] = useState('');
   const [showWhatsAppContactPicker, setShowWhatsAppContactPicker] = useState(false);
   const [mappingEdit, setMappingEdit] = useState<{ conversationId: string; chatId: string; phone: string; saving?: boolean } | null>(null);
+  const [isWhatsAppBackgroundSyncing, setIsWhatsAppBackgroundSyncing] = useState(false);
   const whatsappSyncInFlightRef = useRef(false);
 
   const [confirmDialog, setConfirmDialog] = useState<{message: string, onConfirm: () => void} | null>(null);
@@ -170,14 +191,19 @@ export function Inbox() {
     return () => document.removeEventListener('click', closeMenu);
   }, []);
 
-  const fetchCachedWhatsAppConversations = async (activeSearch = search) => {
+  const updateWhatsAppConversationState = (conversations: InboxWhatsAppConversation[]) => {
+    setWhatsappConversations(conversations);
+    writeCachedWhatsAppConversations(conversations);
+  };
+
+  const fetchCachedWhatsAppConversations = async () => {
     try {
-      const res = await fetch(`/api/whatsapp-hub/conversations?search=${encodeURIComponent(activeSearch)}`, {
+      const res = await fetch('/api/whatsapp-hub/conversations', {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        setWhatsappConversations(data.conversations || []);
+        updateWhatsAppConversationState(data.conversations || []);
       }
     } catch (error) {
       console.warn('WhatsApp conversations unavailable in unified inbox', error);
@@ -187,6 +213,7 @@ export function Inbox() {
   const syncWhatsAppConversations = async (activeSearch = search) => {
     if (whatsappSyncInFlightRef.current) return;
     whatsappSyncInFlightRef.current = true;
+    setIsWhatsAppBackgroundSyncing(true);
     try {
       const res = await fetch('/api/whatsapp-hub/sync', {
         method: 'POST',
@@ -197,25 +224,24 @@ export function Inbox() {
         body: JSON.stringify({ limit: 500 })
       });
       if (res.ok) {
-        await fetchCachedWhatsAppConversations(activeSearch);
+        await fetchCachedWhatsAppConversations();
       }
     } catch (error) {
       console.warn('WhatsApp background sync unavailable in unified inbox', error);
     } finally {
+      setIsWhatsAppBackgroundSyncing(false);
       whatsappSyncInFlightRef.current = false;
     }
   };
 
   const loadWhatsAppConversations = async () => {
-    const activeSearch = search;
-    await fetchCachedWhatsAppConversations(activeSearch);
-    void syncWhatsAppConversations(activeSearch);
+    await fetchCachedWhatsAppConversations();
+    void syncWhatsAppConversations(search);
   };
 
   useEffect(() => {
-    const timeout = window.setTimeout(loadWhatsAppConversations, 350);
-    return () => window.clearTimeout(timeout);
-  }, [search]);
+    void loadWhatsAppConversations();
+  }, []);
 
   const filteredEmails = emails.filter(e => {
     // Support both new ('inbox'/'sent') and legacy ('inbound'/'outbound') types
@@ -573,7 +599,11 @@ export function Inbox() {
           });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(data.error || 'Failed to delete WhatsApp conversation.');
-          setWhatsappConversations(prev => prev.filter(item => item.id !== conversation.id));
+          setWhatsappConversations(prev => {
+            const next = prev.filter(item => item.id !== conversation.id);
+            writeCachedWhatsAppConversations(next);
+            return next;
+          });
           if (selectedWhatsAppPhone === conversation.targetPhone) setSelectedWhatsAppPhone(null);
           notify('WhatsApp conversation deleted.', 'success');
         } catch (error) {
@@ -613,7 +643,9 @@ export function Inbox() {
         const conversation = data.conversation;
         if (!conversation) return next;
         const withoutMapped = next.filter(item => item.id !== conversation.id);
-        return [conversation, ...withoutMapped];
+        const merged = [conversation, ...withoutMapped];
+        writeCachedWhatsAppConversations(merged);
+        return merged;
       });
       if (selectedWhatsAppPhone === mappingEdit.chatId || selectedWhatsAppPhone === mappingEdit.phone) {
         setSelectedWhatsAppPhone(phone);
@@ -874,6 +906,8 @@ export function Inbox() {
               <span className="truncate">
                 {isSyncing
                   ? 'Auto syncing emails...'
+                  : isWhatsAppBackgroundSyncing
+                    ? 'Refreshing WhatsApp in background...'
                   : syncError
                     ? `Auto sync waiting: ${syncError}`
                     : 'Background auto sync is enabled'}

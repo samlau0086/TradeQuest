@@ -58,6 +58,26 @@ const isChatId = (value: string) => /@(?:lid|c\.us|g\.us|broadcast)$/i.test(valu
 
 const isInlineMedia = (mimeType: string) => mimeType.startsWith('image/') || mimeType.startsWith('video/');
 
+const whatsappMessageCacheKey = (targetPhone: string) => `tradequest.whatsapp.messages.cache.v1.${targetPhone}`;
+
+function readCachedWhatsAppMessages(targetPhone: string): WhatsAppHubMessage[] {
+  try {
+    const raw = sessionStorage.getItem(whatsappMessageCacheKey(targetPhone));
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedWhatsAppMessages(targetPhone: string, messages: WhatsAppHubMessage[]) {
+  try {
+    sessionStorage.setItem(whatsappMessageCacheKey(targetPhone), JSON.stringify(messages.slice(-300)));
+  } catch {
+    // Session storage is only a speed cache.
+  }
+}
+
 const dataUrlToFile = async (dataUrl: string, name: string, mimeType: string) => {
   const response = await fetch(dataUrl);
   const blob = await response.blob();
@@ -68,7 +88,8 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const { notify, addLog, selectClient, language, llmConfigs, activeLLMId, llmMappings, logs, emails, clients, deals, knowledgeBase, products, incrementAgentHubTaskCount } = useStore();
   const t = useTranslation(language);
   const [hubClients, setHubClients] = useState<WhatsAppHubClient[]>([]);
-  const [messages, setMessages] = useState<WhatsAppHubMessage[]>([]);
+  const targetPhone = useMemo(() => isChatId(phone) ? phone.trim() : cleanPhone(phone), [phone]);
+  const [messages, setMessages] = useState<WhatsAppHubMessage[]>(() => readCachedWhatsAppMessages(targetPhone));
   const [conversation, setConversation] = useState<WhatsAppConversation | null>(initialConversation || null);
   const [selectedClientId, setSelectedClientId] = useState('');
   const [body, setBody] = useState(initialMessage);
@@ -86,7 +107,6 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [isCreatingLead, setIsCreatingLead] = useState(false);
   const [isAddingContactToClient, setIsAddingContactToClient] = useState(false);
   const syncInFlightRef = useRef(false);
-  const targetPhone = useMemo(() => isChatId(phone) ? phone.trim() : cleanPhone(phone), [phone]);
   const activeClient = useMemo(() => {
     if (client) return client;
     if (conversation?.clientId) return clients.find(item => item.id === conversation.clientId) || null;
@@ -181,7 +201,9 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
       if (!clientsRes.ok) throw new Error(clientsData.error || 'Failed to load WhatsApp clients');
       if (!messagesRes.ok) throw new Error(messagesData.error || 'Failed to load WhatsApp messages');
       setHubClients(clientsData.clients || []);
-      setMessages((messagesData.messages || []).slice().reverse());
+      const nextMessages = (messagesData.messages || []).slice().reverse();
+      setMessages(nextMessages);
+      writeCachedWhatsAppMessages(targetPhone, nextMessages);
       const sticky = (messagesData.messages || []).find((message: WhatsAppHubMessage) => message.direction === 'outbound' && message.client_id)?.client_id;
       if (sticky) setSelectedClientId(sticky);
       const conversationsRes = await fetch(`/api/whatsapp-hub/conversations?search=${encodeURIComponent(targetPhone)}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
@@ -238,6 +260,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   };
 
   useEffect(() => {
+    setMessages(readCachedWhatsAppMessages(targetPhone));
     loadData();
   }, [targetPhone]);
 
