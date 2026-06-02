@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useStore } from '../store';
-import { Trophy, Star, History, Flame, ArrowUpCircle, Award, Target, CheckCircle2, ChevronDown, Clock, Mail, Users, DollarSign, BarChart3, Activity, Send, Globe2, Sparkles, RefreshCw, Lightbulb } from 'lucide-react';
+import { Trophy, Star, History, Flame, ArrowUpCircle, Award, Target, CheckCircle2, ChevronDown, Clock, Mail, Users, DollarSign, BarChart3, Activity, Send, MessageCircle, Sparkles, RefreshCw, Lightbulb } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useTranslation } from '../lib/i18n';
 import { useAuthStore } from '../authStore';
@@ -14,6 +14,13 @@ type DashboardDailySummary = {
   recommendations: string[];
   generatedAt: string;
   fallback?: boolean;
+};
+
+type WhatsAppLoadStats = {
+  conversations: number;
+  inbound: number;
+  outbound: number;
+  unlinked: number;
 };
 
 function MetricCard({ icon, label, value, subtext, tone = 'cyan' }: { icon: React.ReactNode; label: string; value: string | number; subtext?: string; tone?: 'cyan' | 'emerald' | 'amber' | 'rose' }) {
@@ -378,12 +385,13 @@ function ContributionHeatmap({
 }
 
 export function Dashboard() {
-  const { userExp, userLevel, userTitle, currentStreak, dailyQuests, expLogs, setView, skipQuest, language, emails, clients, deals, quotes, logs, leadCampaigns, publicClients, llmConfigs, activeLLMId, llmMappings, notify } = useStore();
+  const { userExp, userLevel, userTitle, currentStreak, dailyQuests, expLogs, setView, skipQuest, language, emails, clients, deals, quotes, logs, publicClients, fetchPublicClients, llmConfigs, activeLLMId, llmMappings, notify } = useStore();
   const { profile, token } = useAuthStore();
   const t = useTranslation(language);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [dailySummary, setDailySummary] = useState<DashboardDailySummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const [whatsAppLoad, setWhatsAppLoad] = useState<WhatsAppLoadStats>({ conversations: 0, inbound: 0, outbound: 0, unlinked: 0 });
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -395,6 +403,43 @@ export function Dashboard() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  useEffect(() => {
+    fetchPublicClients();
+  }, [fetchPublicClients]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    const loadWhatsAppStats = async () => {
+      try {
+        const [conversationsRes, messagesRes] = await Promise.all([
+          fetch('/api/whatsapp-hub/conversations', { headers: { Authorization: `Bearer ${token}` } }),
+          fetch('/api/whatsapp-hub/messages?limit=500', { headers: { Authorization: `Bearer ${token}` } })
+        ]);
+        const conversationsData = await conversationsRes.json().catch(() => ({}));
+        const messagesData = await messagesRes.json().catch(() => ({}));
+        if (cancelled) return;
+        const conversations = Array.isArray(conversationsData.conversations) ? conversationsData.conversations : [];
+        const messages = Array.isArray(messagesData.messages) ? messagesData.messages : [];
+        setWhatsAppLoad({
+          conversations: conversations.length,
+          inbound: messages.filter((message: any) => message.direction === 'inbound').length,
+          outbound: messages.filter((message: any) => message.direction === 'outbound').length,
+          unlinked: conversations.filter((conversation: any) => !conversation.clientId).length
+        });
+      } catch {
+        if (!cancelled) setWhatsAppLoad({ conversations: 0, inbound: 0, outbound: 0, unlinked: 0 });
+      }
+    };
+    loadWhatsAppStats();
+    const interval = window.setInterval(loadWhatsAppStats, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
     };
   }, []);
 
@@ -449,7 +494,6 @@ export function Dashboard() {
       ...emails.map(email => email.date),
       ...deals.map(deal => deal.createdAt),
       ...quotes.map(quote => quote.createdAt),
-      ...leadCampaigns.map(campaign => campaign.createdAt),
       ...expLogs.map(log => log.date)
     ].filter(Boolean);
 
@@ -485,11 +529,11 @@ export function Dashboard() {
       { label: t('Scheduled'), value: emails.filter(email => email.type === 'scheduled').length, color: 'stroke-amber-400' }
     ];
 
-    const campaignRows = [
-      { label: t('Imported Leads'), value: leadCampaigns.reduce((sum, campaign) => sum + (campaign.importedCount || 0), 0), color: 'bg-emerald-500' },
-      { label: t('Active Campaigns'), value: leadCampaigns.filter(campaign => campaign.status === 'running').length, color: 'bg-cyan-500' },
-      { label: t('Saved Campaigns'), value: leadCampaigns.length, color: 'bg-violet-500' },
-      { label: t('Public Pool'), value: publicClients.length, color: 'bg-amber-500' }
+    const whatsappRows = [
+      { label: language === 'zh' ? '会话' : 'Conversations', value: whatsAppLoad.conversations, color: 'stroke-emerald-400' },
+      { label: t('Inbound'), value: whatsAppLoad.inbound, color: 'stroke-cyan-400' },
+      { label: t('Sent'), value: whatsAppLoad.outbound, color: 'stroke-green-400' },
+      { label: language === 'zh' ? '未关联' : 'Unlinked', value: whatsAppLoad.unlinked, color: 'stroke-amber-400' }
     ];
 
     const dealValue = deals.reduce((sum, deal) => sum + (Number(deal.value) || 0), 0);
@@ -503,7 +547,7 @@ export function Dashboard() {
       dealStageRows,
       activityTrend,
       emailRows,
-      campaignRows,
+      whatsappRows,
       dealValue,
       wonValue,
       openTodos,
@@ -512,7 +556,7 @@ export function Dashboard() {
       contributionDays,
       contributionTotal
     };
-  }, [clients, deals, emails, expLogs, leadCampaigns, logs, publicClients, quotes, t]);
+  }, [clients, deals, emails, expLogs, language, logs, publicClients, quotes, t, whatsAppLoad]);
 
   const todayKey = formatDateKey(new Date());
   const summaryCacheKey = `tradequest:dashboard-daily-summary:${profile?.id || profile?.email || 'local'}:${language}:${todayKey}`;
@@ -537,7 +581,7 @@ export function Dashboard() {
     pipeline: operations.clientStageRows.map(row => ({ stage: row.label, count: row.value })),
     dealPipeline: operations.dealStageRows.map(row => ({ stage: row.label, count: row.value })),
     activityTrend: operations.activityTrend.map(point => ({ date: point.meta, events: point.value })),
-    acquisition: operations.campaignRows.map(row => ({ label: row.label, value: row.value })),
+    whatsapp: operations.whatsappRows.map(row => ({ label: row.label, value: row.value })),
     upcomingTodos: upcomingTodos.slice(0, 5).map(email => ({
       subject: email.subject,
       contact: email.sender || email.recipient,
@@ -746,7 +790,7 @@ export function Dashboard() {
             <MetricCard icon={<Users className="w-5 h-5" />} label={t('Total Clients')} value={clients.length} subtext={t('{count}% closed-won conversion').replace('{count}', String(operations.conversionRate))} tone="cyan" />
             <MetricCard icon={<DollarSign className="w-5 h-5" />} label={t('Pipeline Value')} value={`$${operations.dealValue.toLocaleString()}`} subtext={t('Won: {value}').replace('{value}', `$${operations.wonValue.toLocaleString()}`)} tone="emerald" />
             <MetricCard icon={<Mail className="w-5 h-5" />} label={t('Unread Emails')} value={operations.emailRows[0].value} subtext={t('{count} open follow-up todos').replace('{count}', String(operations.openTodos))} tone={operations.emailRows[0].value > 0 ? 'amber' : 'cyan'} />
-            <MetricCard icon={<Globe2 className="w-5 h-5" />} label={t('Public Pool')} value={publicClients.length} subtext={t('{count} saved campaigns').replace('{count}', String(leadCampaigns.length))} tone="rose" />
+            <MetricCard icon={<Users className="w-5 h-5" />} label={t('Public Pool')} value={publicClients.length} subtext={t('{count} public pool leads').replace('{count}', String(publicClients.length))} tone="rose" />
           </div>
 
           <ContributionHeatmap days={operations.contributionDays} total={operations.contributionTotal} t={t} />
@@ -785,11 +829,11 @@ export function Dashboard() {
             <div className="bg-slate-950/50 rounded-2xl p-6 border border-slate-800 shadow-sm">
               <div className="flex items-center justify-between mb-5">
                 <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
-                  <Globe2 className="w-4 h-4 text-violet-400" /> {t('Acquisition Funnel')}
+                  <MessageCircle className="w-4 h-4 text-emerald-400" /> {language === 'zh' ? 'WhatsApp 负载' : 'WhatsApp Load'}
                 </h3>
-                <button onClick={() => setView('public-pool')} className="text-xs text-cyan-400 hover:text-cyan-300 font-bold">{t('Public Pool')}</button>
+                <button onClick={() => setView('inbox')} className="text-xs text-cyan-400 hover:text-cyan-300 font-bold">{t('Open Inbox')}</button>
               </div>
-              <FunnelBarChart rows={operations.campaignRows} emptyLabel={t('No lead acquisition data yet.')} />
+              <DonutChart rows={operations.whatsappRows} emptyLabel={language === 'zh' ? '暂无 WhatsApp 活动。' : 'No WhatsApp activity yet.'} />
             </div>
           </div>
         </section>
