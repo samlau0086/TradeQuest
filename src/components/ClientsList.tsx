@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useStore, ContactMethod } from '../store';
 import { cn } from '../lib/utils';
 import { Mail, Phone, MessageCircle, Send, Edit2, Trash2, Plus, Download, Upload, List as ListIcon, Map as MapIcon, X, Search } from 'lucide-react';
@@ -8,6 +8,7 @@ import { UploadCSVModal } from './UploadCSVModal';
 import { WorldMap } from './WorldMap';
 
 type ViewMode = 'list' | 'map';
+type LeadScoreSort = 'desc' | 'asc';
 
 const CONTACT_ICONS: any = {
   email: Mail,
@@ -15,6 +16,15 @@ const CONTACT_ICONS: any = {
   messenger: MessageCircle,
   telegram: Send,
   phone: Phone,
+};
+
+const getLeadScoreVisual = (score?: number) => {
+  const normalizedScore = Math.max(0, Math.min(100, Number(score) || 0));
+  if (normalizedScore >= 81) return { level: 'Lv.5', label: '爆发', icon: '⚡', className: 'border-yellow-500/40 bg-yellow-500/10 text-yellow-300' };
+  if (normalizedScore >= 61) return { level: 'Lv.4', label: '炽热', icon: '🔥', className: 'border-orange-500/40 bg-orange-500/10 text-orange-300' };
+  if (normalizedScore >= 41) return { level: 'Lv.3', label: '温热', icon: '🫧', className: 'border-cyan-500/40 bg-cyan-500/10 text-cyan-300' };
+  if (normalizedScore >= 21) return { level: 'Lv.2', label: '初冷', icon: '💧', className: 'border-blue-500/40 bg-blue-500/10 text-blue-300' };
+  return { level: 'Lv.1', label: '极冷', icon: '❄️', className: 'border-slate-500/40 bg-slate-500/10 text-slate-300' };
 };
 
   import Papa from 'papaparse';
@@ -29,6 +39,7 @@ const CONTACT_ICONS: any = {
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [deleteClientId, setDeleteClientId] = useState<string | null>(null);
     const [viewMode, setViewMode] = useState<ViewMode>('list');
+    const [leadScoreSort, setLeadScoreSort] = useState<LeadScoreSort>('desc');
 
     const handleCSVUpload = (file: File) => {
       Papa.parse(file, {
@@ -93,6 +104,16 @@ const CONTACT_ICONS: any = {
     }
     return match;
   });
+
+  const sortedClients = useMemo(() => (
+    [...filteredClients].sort((a, b) => {
+      const aScore = Number(a.leadScore) || 0;
+      const bScore = Number(b.leadScore) || 0;
+      return leadScoreSort === 'desc' ? bScore - aScore : aScore - bScore;
+    })
+  ), [filteredClients, leadScoreSort]);
+
+  const leadScoreHeaderLabel = language === 'zh' ? '线索分值' : 'Lead Score';
 
   return (
     <div className="flex-1 flex flex-col bg-slate-900 border-l border-slate-800">
@@ -175,12 +196,26 @@ const CONTACT_ICONS: any = {
                   <th className="px-4 py-3">{t('company')}</th>
                   <th className="px-4 py-3">{t('location')}</th>
                   <th className="px-4 py-3">{t('contactMethod')}</th>
+                  <th className="px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => setLeadScoreSort(current => current === 'desc' ? 'asc' : 'desc')}
+                      className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-left font-bold text-slate-400 hover:bg-slate-800 hover:text-cyan-300"
+                      title={language === 'zh' ? '按线索分值排序' : 'Sort by lead score'}
+                    >
+                      {leadScoreHeaderLabel}
+                      <span className="text-[10px] text-cyan-400">{leadScoreSort === 'desc' ? '↓' : '↑'}</span>
+                    </button>
+                  </th>
                   <th className="px-4 py-3">{t('tagsLabel').split(' ')[0]}</th>
                   <th className="px-4 py-3 text-right">{t('actions')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/50">
-                {filteredClients.map(client => (
+                {sortedClients.map(client => {
+                  const scoreVisual = getLeadScoreVisual(client.leadScore);
+                  const leadScore = Math.max(0, Math.min(100, Number(client.leadScore) || 0));
+                  return (
                   <tr key={client.id} className="hover:bg-slate-800/30 transition-colors group">
                     <td className="px-4 py-3">
                       <button onClick={() => selectClient(client.id)} className="hover:text-cyan-400 hover:underline text-left font-bold text-slate-200">
@@ -197,6 +232,21 @@ const CONTACT_ICONS: any = {
                           {client.contactMethods.length > 1 && <span className="text-[10px] bg-slate-700 px-1 rounded">+{client.contactMethods.length - 1}</span>}
                         </span>
                       )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3 min-w-[150px]">
+                        <span className={cn('inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-bold whitespace-nowrap', scoreVisual.className)}>
+                          <span>{scoreVisual.icon}</span>
+                          <span>{scoreVisual.level}</span>
+                          <span>{scoreVisual.label}</span>
+                        </span>
+                        <div className="min-w-[48px] text-right">
+                          <div className="text-sm font-black text-slate-100">{leadScore}</div>
+                          <div className="mt-1 h-1.5 w-12 overflow-hidden rounded-full bg-slate-800">
+                            <div className={cn('h-full rounded-full', leadScore >= 81 ? 'bg-yellow-400' : leadScore >= 61 ? 'bg-orange-400' : leadScore >= 41 ? 'bg-cyan-400' : leadScore >= 21 ? 'bg-blue-400' : 'bg-slate-500')} style={{ width: `${leadScore}%` }} />
+                          </div>
+                        </div>
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1 flex-wrap">
@@ -223,10 +273,11 @@ const CONTACT_ICONS: any = {
                       </div>
                     </td>
                   </tr>
-                ))}
-                {filteredClients.length === 0 && (
+                  );
+                })}
+                {sortedClients.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="text-center py-8 text-slate-500">
+                    <td colSpan={7} className="text-center py-8 text-slate-500">
                       {t('noClientsFound')}
                     </td>
                   </tr>
