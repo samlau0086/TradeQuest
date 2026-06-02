@@ -85,10 +85,26 @@ const dataUrlToFile = async (dataUrl: string, name: string, mimeType: string) =>
   return new File([blob], name, { type: mimeType || blob.type || 'application/octet-stream' });
 };
 
-const getWhatsAppMessageMedia = (message: WhatsAppHubMessage) => {
+const resolveWhatsAppMediaUrl = (url: string, hubBaseUrl?: string) => {
+  const rawUrl = String(url || '').trim();
+  const baseUrl = String(hubBaseUrl || '').replace(/\/+$/, '');
+  if (!rawUrl) return '';
+  if (rawUrl.startsWith('/')) return baseUrl ? `${baseUrl}${rawUrl}` : rawUrl;
+  try {
+    const parsed = new URL(rawUrl);
+    if (baseUrl && parsed.pathname.startsWith('/uploads/') && parsed.origin === window.location.origin) {
+      return `${baseUrl}${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+  } catch {
+    // Non-URL values are left untouched.
+  }
+  return rawUrl;
+};
+
+const getWhatsAppMessageMedia = (message: WhatsAppHubMessage, hubBaseUrl?: string) => {
   const payload = message.payload || {};
   const media = payload.media || payload.file || payload.attachment || {};
-  const url = media.url || media.mediaUrl || media.fileUrl || payload.mediaUrl || payload.fileUrl || payload.url || '';
+  const url = resolveWhatsAppMediaUrl(media.url || media.mediaUrl || media.fileUrl || payload.mediaUrl || payload.fileUrl || payload.url || '', hubBaseUrl);
   const mimeType = media.mimeType || media.type || payload.mimeType || payload.type || '';
   const name = media.originalName || media.filename || media.name || payload.originalName || payload.filename || payload.name || message.message_type || 'Media';
   const lowerMime = String(mimeType || '').toLowerCase();
@@ -100,7 +116,7 @@ const getWhatsAppMessageMedia = (message: WhatsAppHubMessage) => {
 };
 
 export function WhatsAppChatModal({ client, phone, conversation: initialConversation, initialMessage = '', embedded = false, onClose }: Props) {
-  const { notify, addLog, selectClient, language, llmConfigs, activeLLMId, llmMappings, logs, emails, clients, deals, knowledgeBase, products, incrementAgentHubTaskCount } = useStore();
+  const { notify, addLog, selectClient, language, llmConfigs, activeLLMId, llmMappings, logs, emails, clients, deals, knowledgeBase, products, whatsappHubConfig, incrementAgentHubTaskCount } = useStore();
   const t = useTranslation(language);
   const [hubClients, setHubClients] = useState<WhatsAppHubClient[]>([]);
   const targetPhone = useMemo(() => isChatId(phone) ? phone.trim() : cleanPhone(phone), [phone]);
@@ -849,7 +865,7 @@ Return only the message text.`,
             <div className="text-center text-slate-500 text-sm py-10">{t('noWhatsAppMessages')}</div>
           )}
           {messages.map(message => {
-            const media = getWhatsAppMessageMedia(message);
+            const media = getWhatsAppMessageMedia(message, whatsappHubConfig.baseUrl);
             return (
             <div key={message.id} className={`flex ${message.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[78%] overflow-hidden rounded-2xl px-4 py-2 text-sm ${message.direction === 'outbound' ? 'bg-green-600 text-white' : 'bg-slate-800 text-slate-100'}`}>
