@@ -88,7 +88,7 @@ function BarListChart({ rows, emptyLabel }: { rows: { label: string; value: numb
   );
 }
 
-function FunnelBarChart({ rows, emptyLabel }: { rows: { label: string; value: number; color: string }[]; emptyLabel: string }) {
+function FunnelBarChart({ rows, emptyLabel }: { rows: { label: string; value: number; color: string; rate?: number }[]; emptyLabel: string }) {
   const maxValue = Math.max(1, ...rows.map(row => row.value));
   const total = rows.reduce((sum, row) => sum + row.value, 0);
   const hasData = rows.some(row => row.value > 0);
@@ -101,7 +101,7 @@ function FunnelBarChart({ rows, emptyLabel }: { rows: { label: string; value: nu
     <div className="space-y-4">
       {rows.map(row => {
         const widthPercent = Math.max(4, (row.value / maxValue) * 100);
-        const share = total > 0 ? Math.round((row.value / total) * 100) : 0;
+        const share = row.rate ?? (total > 0 ? Math.round((row.value / total) * 100) : 0);
         return (
           <div key={row.label}>
             <div className="flex items-center justify-between text-xs mb-1.5">
@@ -479,6 +479,18 @@ export function Dashboard() {
       color: ['bg-sky-500', 'bg-cyan-500', 'bg-amber-500', 'bg-fuchsia-500', 'bg-emerald-500'][index]
     }));
 
+    const dealFunnelBase = deals.length || 1;
+    const dealFunnelRows = PIPELINE_STAGES.map((stage, index) => {
+      const includedStages = PIPELINE_STAGES.slice(index);
+      const value = deals.filter(deal => includedStages.includes(deal.status)).length;
+      return {
+        label: t(stage),
+        value,
+        rate: Math.round((value / dealFunnelBase) * 100),
+        color: ['bg-sky-500', 'bg-cyan-500', 'bg-amber-500', 'bg-fuchsia-500', 'bg-emerald-500'][index]
+      };
+    });
+
     const activityTrend = dayKeys.map((key, index) => {
       const date = new Date(`${key}T00:00:00`);
       return {
@@ -545,6 +557,7 @@ export function Dashboard() {
     return {
       clientStageRows,
       dealStageRows,
+      dealFunnelRows,
       activityTrend,
       emailRows,
       whatsappRows,
@@ -804,6 +817,16 @@ export function Dashboard() {
                 <button onClick={() => setView('kanban')} className="text-xs text-cyan-400 hover:text-cyan-300 font-bold">{t('View Kanban')}</button>
               </div>
               <BarListChart rows={operations.clientStageRows} emptyLabel={t('No client pipeline data yet.')} />
+            </div>
+
+            <div className="bg-slate-950/50 rounded-2xl p-6 border border-slate-800 shadow-sm">
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4 text-violet-400" /> {language === 'zh' ? 'Deals 漏斗' : 'Deals Funnel'}
+                </h3>
+                <button onClick={() => setView('kanban')} className="text-xs text-cyan-400 hover:text-cyan-300 font-bold">{t('View Kanban')}</button>
+              </div>
+              <FunnelBarChart rows={operations.dealFunnelRows} emptyLabel={language === 'zh' ? '暂无 Deals 数据。' : 'No deals data yet.'} />
             </div>
 
             <div className="bg-slate-950/50 rounded-2xl p-6 border border-slate-800 shadow-sm">
