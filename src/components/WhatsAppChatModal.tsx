@@ -134,6 +134,13 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
       mappedPhone && ['whatsapp', 'phone'].includes(method.type) && cleanPhone(method.value).endsWith(mappedPhone.slice(-8))
     ))) || null;
   }, [client, conversation?.clientId, clients, mappedPhone]);
+  const mappingHubClientId = useMemo(() => (
+    selectedClientId
+    || messages.find(message => message.direction === 'outbound' && message.client_id)?.client_id
+    || hubClients.find(item => item.status === 'online')?.id
+    || hubClients[0]?.id
+    || ''
+  ), [hubClients, messages, selectedClientId]);
   const relatedDeals = useMemo(() => (
     activeClient
       ? deals
@@ -311,6 +318,10 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
       notify('Phone is required to map this WhatsApp chatId.', 'warning');
       return;
     }
+    if (!mappingHubClientId) {
+      notify('Please select or connect a WhatsApp Hub client before confirming this mapping.', 'warning');
+      return;
+    }
     setMappingEdit(prev => prev ? { ...prev, saving: true } : prev);
     try {
       const response = await fetch('/api/whatsapp-hub/contact-mappings', {
@@ -323,7 +334,8 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
           conversationId: conversation?.id,
           chatId: mappingEdit.chatId,
           phone,
-          clientId: activeClient?.id
+          hubClientId: mappingHubClientId,
+          crmClientId: activeClient?.id
         })
       });
       const data = await response.json().catch(() => ({}));

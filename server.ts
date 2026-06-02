@@ -2652,12 +2652,13 @@ No markdown wrappers, just valid JSON.`;
     try {
       const phone = normalizeWhatsAppPhone(req.body?.phone);
       const chatId = String(req.body?.chatId || '').trim();
-      const clientId = req.body?.clientId ? String(req.body.clientId) : undefined;
+      const requestedHubClientId = req.body?.hubClientId || req.body?.clientId;
+      const hubClientId = requestedHubClientId ? String(requestedHubClientId) : '';
+      const crmClientId = req.body?.crmClientId ? String(req.body.crmClientId) : undefined;
       const conversationId = req.body?.conversationId ? String(req.body.conversationId) : '';
-      if (!phone || !chatId) return res.status(400).json({ error: 'Phone and chatId are required' });
+      if (!phone || !chatId || !hubClientId) return res.status(400).json({ error: 'Phone, WhatsApp Hub clientId, and chatId are required' });
 
-      const hubPayload: any = { phone, chatId };
-      if (clientId) hubPayload.clientId = clientId;
+      const hubPayload: any = { phone, chatId, clientId: hubClientId };
       const hubResult = await callWhatsAppHub(req.user.uid, '/api/contact-mappings', {
         method: 'PUT',
         body: JSON.stringify(hubPayload)
@@ -2678,12 +2679,12 @@ No markdown wrappers, just valid JSON.`;
           req.user.uid,
           chatId,
           phone,
-          clientId || null,
+          crmClientId || null,
           JSON.stringify({ hub: mappingResult, updatedBy: req.user.email || req.user.uid })
         ]
       );
 
-      const existingByPhone = await ensureWhatsAppConversation(req.user.uid, phone, null, new Date().toISOString(), {
+      const existingByPhone = await ensureWhatsAppConversation(req.user.uid, phone, crmClientId || null, new Date().toISOString(), {
         contactPhone: phone,
         rawChatId: chatId,
         conversationKey: phone,
@@ -2723,7 +2724,7 @@ No markdown wrappers, just valid JSON.`;
              conversation_key = $1,
              client_id = COALESCE(client_id, $5)
          WHERE user_id = $3 AND (raw_chat_id = $2 OR target_phone = $2 OR conversation_key = $2 OR contact_phone = $1)`,
-        [phone, chatId, req.user.uid, existingByPhone.id, clientId || existingByPhone.clientId || null]
+        [phone, chatId, req.user.uid, existingByPhone.id, crmClientId || existingByPhone.clientId || null]
       );
       await pool.query(
         `UPDATE whatsapp_conversations
@@ -2735,7 +2736,7 @@ No markdown wrappers, just valid JSON.`;
              deleted_at = NULL,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $3 AND user_id = $4`,
-        [phone, chatId, existingByPhone.id, req.user.uid, clientId || existingByPhone.clientId || null]
+        [phone, chatId, existingByPhone.id, req.user.uid, crmClientId || existingByPhone.clientId || null]
       );
 
       const refreshed = await pool.query(
