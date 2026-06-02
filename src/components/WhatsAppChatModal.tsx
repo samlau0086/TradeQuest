@@ -57,6 +57,7 @@ const cleanPhone = (value: string) => value.replace(/[^0-9]/g, '');
 const isChatId = (value: string) => /@(?:lid|c\.us|g\.us|broadcast)$/i.test(value || '');
 
 const isInlineMedia = (mimeType: string) => mimeType.startsWith('image/') || mimeType.startsWith('video/');
+const WHATSAPP_ACTIVE_CHAT_POLL_MS = 12_000;
 
 const whatsappMessageCacheKey = (targetPhone: string) => `tradequest.whatsapp.messages.cache.v1.${targetPhone}`;
 
@@ -273,6 +274,21 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     setMessages(readCachedWhatsAppMessages(targetPhone));
     loadData();
   }, [targetPhone, mappedPhone]);
+
+  useEffect(() => {
+    const poll = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      void syncLatestMessages();
+    }, WHATSAPP_ACTIVE_CHAT_POLL_MS);
+    const handleFocus = () => {
+      void syncLatestMessages();
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.clearInterval(poll);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [targetPhone, messageLookupTarget]);
 
   const confirmChatIdMapping = async () => {
     if (!mappingEdit?.chatId) return;

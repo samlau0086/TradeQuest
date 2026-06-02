@@ -44,6 +44,7 @@ interface WhatsAppContactOption {
 }
 
 const WHATSAPP_CONVERSATION_CACHE_KEY = 'tradequest.whatsapp.conversations.cache.v1';
+const WHATSAPP_CONVERSATION_POLL_MS = 20_000;
 
 function readCachedWhatsAppConversations(): InboxWhatsAppConversation[] {
   try {
@@ -241,6 +242,21 @@ export function Inbox() {
   useEffect(() => {
     void loadWhatsAppConversations();
   }, []);
+
+  useEffect(() => {
+    const poll = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      void syncWhatsAppConversations(search);
+    }, WHATSAPP_CONVERSATION_POLL_MS);
+    const handleFocus = () => {
+      void syncWhatsAppConversations(search);
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.clearInterval(poll);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [search]);
 
   const filteredEmails = emails.filter(e => {
     // Support both new ('inbox'/'sent') and legacy ('inbound'/'outbound') types
