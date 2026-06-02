@@ -3720,7 +3720,7 @@ No markdown wrappers, just valid JSON.`;
            OR EXISTS (
              SELECT 1
              FROM jsonb_array_elements(COALESCE(contacts, '[]'::jsonb)) contact,
-                  jsonb_array_elements(COALESCE(contact->'contactMethods', '[]'::jsonb)) elem
+                  jsonb_array_elements(COALESCE(contact->'contactMethods', contact->'contact_methods', '[]'::jsonb)) elem
              WHERE lower(elem->>'type') = 'email'
                AND lower(trim(elem->>'value')) = $2
            )
@@ -3730,6 +3730,31 @@ No markdown wrappers, just valid JSON.`;
       [userId, normalizedEmail]
     );
     return result.rows[0]?.id || null;
+  };
+
+  const backfillEmailClientLinks = async (userId: string, limit = 500) => {
+    const result = await pool.query(
+      `SELECT id, sender, recipient
+       FROM emails
+       WHERE user_id = $1
+         AND pending_delete = FALSE
+         AND client_id IS NULL
+       ORDER BY date DESC
+       LIMIT $2`,
+      [userId, limit]
+    );
+    let linked = 0;
+    for (const email of result.rows) {
+      const matchedClientId = await findClientIdForEmailAddress(userId, email.sender)
+        || await findClientIdForEmailAddress(userId, email.recipient);
+      if (!matchedClientId) continue;
+      const update = await pool.query(
+        'UPDATE emails SET client_id = $1 WHERE id = $2 AND user_id = $3 AND client_id IS NULL',
+        [matchedClientId, email.id, userId]
+      );
+      linked += update.rowCount || 0;
+    }
+    return linked;
   };
 
   const stripAgentJson = (raw: string) => {
@@ -6890,6 +6915,7 @@ No markdown wrappers, just valid JSON.`;
         await client.logout();
       }
 
+      const linkedExistingEmails = await backfillEmailClientLinks(req.user.uid);
       if (syncedEmails.length > 0) {
         await sendExternalNotification(req.user.uid, {
           event: 'email_received',
@@ -6904,7 +6930,7 @@ No markdown wrappers, just valid JSON.`;
           emailIds: syncedEmails
         }).catch(err => console.warn('Agent Hub email_received trigger failed', err));
       }
-      res.json({ success: true, count: syncedEmails.length });
+      res.json({ success: true, count: syncedEmails.length, linkedExistingEmails });
     } catch (e: any) {
       console.error('Email Sync Failed:', e);
       res.status(500).json({ error: e.message || 'Failed to sync emails' });
@@ -6914,6 +6940,7 @@ No markdown wrappers, just valid JSON.`;
   // Emails API
   app.get('/api/emails', authenticateToken, async (req: any, res) => {
     try {
+      await backfillEmailClientLinks(req.user.uid);
       const result = await pool.query(`
         SELECT e.*, 
           COALESCE((SELECT json_agg(t.*) FROM email_tracking t WHERE t.email_id = e.id), '[]'::json) as tracking_events

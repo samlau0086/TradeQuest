@@ -416,6 +416,7 @@ export function Inbox() {
     setIsSyncing(true);
     setSyncError(null);
     let totalSynced = 0;
+    let totalLinked = 0;
     try {
       const token = localStorage.getItem('token');
       for (const config of configs) {
@@ -428,19 +429,20 @@ export function Inbox() {
         if (res.ok) {
           const data = await res.json();
           totalSynced += data.count || 0;
+          totalLinked += data.linkedExistingEmails || 0;
         } else if (!options.silent) {
           const data = await res.json().catch(() => ({}));
           throw new Error(data.error || 'Failed to sync emails.');
         }
       }
-      if (totalSynced > 0) {
+      if (totalSynced > 0 || totalLinked > 0) {
         useStore.getState().fetchEmails();
       } else if (!options.silent) {
         useStore.getState().fetchEmails();
       }
       loadWhatsAppConversations();
       setLastSyncAt(new Date().toISOString());
-      if (!options.silent) notify(`Sync complete. Fetched ${totalSynced} new email(s).`, 'success');
+      if (!options.silent) notify(`Sync complete. Fetched ${totalSynced} new email(s), linked ${totalLinked} existing email(s).`, 'success');
     } catch (e) {
       console.error(e);
       setSyncError(e instanceof Error ? e.message : 'Error syncing emails.');
