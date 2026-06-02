@@ -1655,6 +1655,28 @@ No markdown wrappers, just valid JSON.`;
     return result.rows[0]?.id || null;
   };
 
+  const getWhatsAppPayloadObject = (payload: any) => (
+    payload && typeof payload === 'object' && !Array.isArray(payload) ? { ...payload } : {}
+  );
+
+  const isWhatsAppMediaType = (messageType?: string) => {
+    const type = String(messageType || '').toLowerCase();
+    return Boolean(type && !['chat', 'text', 'message'].includes(type));
+  };
+
+  const hasWhatsAppMediaPayload = (payload: any, messageType?: string) => {
+    const normalizedPayload = getWhatsAppPayloadObject(payload);
+    return Boolean(
+      normalizedPayload.hasMedia
+      || normalizedPayload.media
+      || normalizedPayload.file
+      || normalizedPayload.attachment
+      || normalizedPayload.mediaUrl
+      || normalizedPayload.fileUrl
+      || isWhatsAppMediaType(messageType)
+    );
+  };
+
   const ensureWhatsAppConversation = async (
     userId: string,
     target: string,
@@ -1715,11 +1737,19 @@ No markdown wrappers, just valid JSON.`;
     const direction = message.direction || 'inbound';
     const hubClientId = message.client_id || message.hubClientId || null;
     const body = message.body || '';
+    const incomingPayload = getWhatsAppPayloadObject(message.payload);
+    const explicitMedia = message.media || message.file || message.attachment || incomingPayload.media || incomingPayload.file || incomingPayload.attachment;
+    if (explicitMedia && !incomingPayload.media) incomingPayload.media = explicitMedia;
+    if (explicitMedia) incomingPayload.hasMedia = true;
+    const incomingMessageType = message.message_type || message.type || (hasWhatsAppMediaPayload(incomingPayload) ? 'media' : 'chat');
+    const incomingHasMedia = hasWhatsAppMediaPayload(incomingPayload, incomingMessageType);
+    let storagePayload = incomingPayload;
+    let storageMessageType = incomingMessageType;
     const timeMs = new Date(messageTime).getTime();
     const isHubEcho = Boolean(message.id && !String(message.id).startsWith('wa_local_'));
     if (isHubEcho && direction === 'outbound') {
       const duplicateRes = await pool.query(
-        `SELECT id
+        `SELECT id, message_type, payload
          FROM whatsapp_messages
          WHERE user_id = $1
            AND conversation_id = $2
@@ -1739,7 +1769,30 @@ No markdown wrappers, just valid JSON.`;
          LIMIT 1`,
         [userId, conversation.id, hubClientId, body, messageId, Number.isFinite(timeMs) ? new Date(timeMs).toISOString() : messageTime]
       );
-      if (duplicateRes.rows[0]?.id) messageId = duplicateRes.rows[0].id;
+      const duplicate = duplicateRes.rows[0];
+      if (duplicate?.id) {
+        messageId = duplicate.id;
+        const duplicatePayload = getWhatsAppPayloadObject(duplicate.payload);
+        if (!incomingHasMedia && hasWhatsAppMediaPayload(duplicatePayload, duplicate.message_type)) {
+          storagePayload = {
+            ...storagePayload,
+            ...duplicatePayload,
+            hasMedia: true,
+            mediaPreservedFromLocalEcho: true,
+            hubSyncedAsText: true
+          };
+          storageMessageType = duplicate.message_type || 'media';
+        }
+      }
+    }
+    if (isHubEcho) {
+      storagePayload = {
+        ...storagePayload,
+        localEcho: false,
+        syncedFromHub: true,
+        hubMessageId: String(message.id)
+      };
+      delete storagePayload.pendingTaskId;
     }
     await pool.query(
       `INSERT INTO whatsapp_messages
@@ -1754,8 +1807,20 @@ No markdown wrappers, just valid JSON.`;
          raw_chat_id = COALESCE(EXCLUDED.raw_chat_id, whatsapp_messages.raw_chat_id),
          conversation_key = COALESCE(EXCLUDED.conversation_key, whatsapp_messages.conversation_key),
          body = EXCLUDED.body,
-         message_type = EXCLUDED.message_type,
-         payload = EXCLUDED.payload,
+         message_type = CASE
+           WHEN (whatsapp_messages.payload->>'hasMedia') = 'true'
+             AND NOT ((EXCLUDED.payload->>'hasMedia') = 'true')
+             AND EXCLUDED.message_type IN ('chat', 'text', 'message')
+           THEN whatsapp_messages.message_type
+           ELSE EXCLUDED.message_type
+         END,
+         payload = CASE
+           WHEN (whatsapp_messages.payload->>'hasMedia') = 'true'
+             AND NOT ((EXCLUDED.payload->>'hasMedia') = 'true')
+             AND EXCLUDED.message_type IN ('chat', 'text', 'message')
+           THEN (whatsapp_messages.payload - 'pendingTaskId') || jsonb_build_object('localEcho', false, 'syncedFromHub', true, 'hubMessageId', EXCLUDED.id, 'mediaPreservedFromLocalEcho', true, 'hubSyncedAsText', true)
+           ELSE EXCLUDED.payload
+         END,
          source_created_at = EXCLUDED.source_created_at,
          received_at = EXCLUDED.received_at`,
       [
@@ -1769,8 +1834,8 @@ No markdown wrappers, just valid JSON.`;
         message.recipient || '',
         targetPhone,
         body,
-        message.message_type || message.type || 'chat',
-        JSON.stringify(message.payload || {}),
+        storageMessageType,
+        JSON.stringify(storagePayload),
         message.created_at || messageTime,
         message.received_at || null,
         identity.contactPhone || null,
