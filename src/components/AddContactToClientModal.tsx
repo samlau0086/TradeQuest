@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Check, Search, UserPlus, X } from 'lucide-react';
 import { Client, ContactMethod, useStore } from '../store';
 import { useTranslation } from '../lib/i18n';
@@ -26,6 +26,10 @@ export function AddContactToClientModal({ contactMethod, displayName, onClose, o
   const t = useTranslation(language);
   const [query, setQuery] = useState('');
   const [selectedClientId, setSelectedClientId] = useState('');
+  const [targetMode, setTargetMode] = useState<'key' | 'existing' | 'new'>('key');
+  const [selectedContactId, setSelectedContactId] = useState('');
+  const [newContactName, setNewContactName] = useState(displayName || contactMethod.value);
+  const [newContactTitle, setNewContactTitle] = useState('');
   const [saving, setSaving] = useState(false);
 
   const visibleClients = useMemo(() => {
@@ -45,6 +49,18 @@ export function AddContactToClientModal({ contactMethod, displayName, onClose, o
   }, [clients, query]);
 
   const selectedClient = clients.find(client => client.id === selectedClientId);
+  const selectedClientContacts = selectedClient?.contacts || [];
+  const keyContactId = selectedClient?.primaryContactId
+    || selectedClientContacts.find(contact => contact.isPrimary)?.id
+    || selectedClientContacts[0]?.id
+    || '';
+
+  useEffect(() => {
+    setTargetMode('key');
+    setSelectedContactId('');
+    setNewContactName(displayName || contactMethod.value);
+    setNewContactTitle('');
+  }, [selectedClientId, displayName, contactMethod.value]);
 
   const handleSave = async () => {
     if (!selectedClient || saving) return;
@@ -54,20 +70,30 @@ export function AddContactToClientModal({ contactMethod, displayName, onClose, o
         ? selectedClient.contactMethods || []
         : [...(selectedClient.contactMethods || []), contactMethod];
       const contacts = selectedClient.contacts || [];
-      const primaryContactId = selectedClient.primaryContactId || contacts.find(contact => contact.isPrimary)?.id || contacts[0]?.id;
-      const nextContacts = contacts.length > 0
-        ? contacts.map((contact, index) => {
-            const shouldAttach = contact.id === primaryContactId || (!primaryContactId && index === 0);
-            if (!shouldAttach || methodExists(contact.contactMethods, contactMethod)) return contact;
-            return { ...contact, contactMethods: [...(contact.contactMethods || []), contactMethod] };
-          })
-        : [{
-            id: `contact_${Date.now()}`,
-            name: selectedClient.name || displayName || contactMethod.value,
-            title: '',
-            isPrimary: true,
+      const primaryContactId = keyContactId;
+      const targetContactId = targetMode === 'key' ? primaryContactId : selectedContactId;
+      let nextContacts = contacts;
+
+      if (targetMode === 'new' || contacts.length === 0) {
+        const newContactId = `contact_${Date.now()}`;
+        nextContacts = [
+          ...contacts,
+          {
+            id: newContactId,
+            name: newContactName.trim() || displayName || contactMethod.value,
+            title: newContactTitle.trim(),
+            isPrimary: contacts.length === 0,
             contactMethods: [contactMethod]
-          }];
+          }
+        ];
+      } else {
+        const attachId = targetContactId || primaryContactId || contacts[0]?.id;
+        nextContacts = contacts.map((contact, index) => {
+          const shouldAttach = contact.id === attachId || (!attachId && index === 0);
+          if (!shouldAttach || methodExists(contact.contactMethods, contactMethod)) return contact;
+          return { ...contact, contactMethods: [...(contact.contactMethods || []), contactMethod] };
+        });
+      }
 
       editClient(selectedClient.id, {
         contactMethods: nextContactMethods,
@@ -136,6 +162,82 @@ export function AddContactToClientModal({ contactMethod, displayName, onClose, o
               </div>
             )}
           </div>
+
+          {selectedClient && (
+            <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+              <div className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-400">
+                {language === 'zh' ? '添加到联系人' : 'Add to Contact'}
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <button
+                  type="button"
+                  onClick={() => setTargetMode('key')}
+                  className={`rounded-lg border px-3 py-2 text-left text-xs font-bold ${
+                    targetMode === 'key' ? 'border-cyan-500 bg-cyan-500/10 text-cyan-200' : 'border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {language === 'zh' ? 'Key Contact' : 'Key Contact'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTargetMode('existing')}
+                  disabled={selectedClientContacts.length === 0}
+                  className={`rounded-lg border px-3 py-2 text-left text-xs font-bold ${
+                    targetMode === 'existing' ? 'border-cyan-500 bg-cyan-500/10 text-cyan-200' : 'border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-200 disabled:text-slate-600'
+                  }`}
+                >
+                  {language === 'zh' ? '其他联系人' : 'Existing Contact'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTargetMode('new')}
+                  className={`rounded-lg border px-3 py-2 text-left text-xs font-bold ${
+                    targetMode === 'new' ? 'border-cyan-500 bg-cyan-500/10 text-cyan-200' : 'border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {language === 'zh' ? '新增联系人' : 'New Contact'}
+                </button>
+              </div>
+
+              {targetMode === 'key' && (
+                <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-400">
+                  {selectedClientContacts.find(contact => contact.id === keyContactId)?.name || selectedClient.name}
+                </div>
+              )}
+
+              {targetMode === 'existing' && (
+                <select
+                  value={selectedContactId}
+                  onChange={event => setSelectedContactId(event.target.value)}
+                  className="mt-3 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                >
+                  <option value="">{language === 'zh' ? '选择联系人...' : 'Select a contact...'}</option>
+                  {selectedClientContacts.map(contact => (
+                    <option key={contact.id} value={contact.id}>
+                      {contact.name || selectedClient.name}{contact.title ? ` - ${contact.title}` : ''}{contact.id === keyContactId ? ' (Key)' : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {targetMode === 'new' && (
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <input
+                    value={newContactName}
+                    onChange={event => setNewContactName(event.target.value)}
+                    placeholder={language === 'zh' ? '联系人姓名' : 'Contact name'}
+                    className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                  />
+                  <input
+                    value={newContactTitle}
+                    onChange={event => setNewContactTitle(event.target.value)}
+                    placeholder={language === 'zh' ? '职位/称谓，可选' : 'Title, optional'}
+                    className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                  />
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-3 border-t border-slate-800 px-5 py-4">
@@ -144,7 +246,7 @@ export function AddContactToClientModal({ contactMethod, displayName, onClose, o
           </button>
           <button
             onClick={handleSave}
-            disabled={!selectedClient || saving}
+            disabled={!selectedClient || saving || (targetMode === 'existing' && !selectedContactId)}
             className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-bold text-white hover:bg-cyan-500 disabled:bg-slate-800 disabled:text-slate-500"
           >
             <UserPlus className="h-4 w-4" />
