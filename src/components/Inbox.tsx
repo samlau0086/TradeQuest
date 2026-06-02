@@ -192,7 +192,7 @@ export function Inbox() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${localStorage.getItem('token')}`
         },
-        body: JSON.stringify({ limit: 100 })
+        body: JSON.stringify({ limit: 500 })
       });
       if (res.ok) {
         await fetchCachedWhatsAppConversations(activeSearch);

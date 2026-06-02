@@ -15,6 +15,18 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
 const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret_key";
+const WHATSAPP_HUB_MAX_MESSAGE_SYNC_LIMIT = 500;
+const WHATSAPP_HISTORY_RECOVERY_LOOKBACK_MS = Math.max(
+  0,
+  Number(process.env.WHATSAPP_HISTORY_RECOVERY_LOOKBACK_HOURS || 24 * 30) * 60 * 60 * 1000
+);
+
+const applyWhatsAppHistoryRecoveryLookback = (since: string) => {
+  if (!since || !WHATSAPP_HISTORY_RECOVERY_LOOKBACK_MS) return since;
+  const sinceTime = new Date(since).getTime();
+  if (!Number.isFinite(sinceTime)) return since;
+  return new Date(Math.max(0, sinceTime - WHATSAPP_HISTORY_RECOVERY_LOOKBACK_MS)).toISOString();
+};
 
 const COUNTRY_LANGUAGE_OVERRIDES: Record<string, string> = {
   china: 'Chinese',
@@ -1758,7 +1770,7 @@ No markdown wrappers, just valid JSON.`;
     if (options.targetPhone) params.set('targetPhone', options.targetPhone);
     if (options.chatId) params.set('chatId', options.chatId);
     if (options.since) params.set('since', options.since);
-    params.set('limit', String(Math.min(Math.max(options.limit || 100, 1), 200)));
+    params.set('limit', String(Math.min(Math.max(options.limit || 100, 1), WHATSAPP_HUB_MAX_MESSAGE_SYNC_LIMIT)));
     const data = await callWhatsAppHub(userId, `/api/messages?${params.toString()}`);
     const messages = Array.isArray(data.messages) ? data.messages : [];
     for (const message of messages) {
@@ -2043,7 +2055,7 @@ No markdown wrappers, just valid JSON.`;
           `SELECT MAX(COALESCE(source_created_at, created_at)) AS latest_at FROM whatsapp_messages WHERE ${where}`,
           values
         );
-        since = latest.rows[0]?.latest_at ? new Date(latest.rows[0].latest_at).toISOString() : '';
+        since = latest.rows[0]?.latest_at ? applyWhatsAppHistoryRecoveryLookback(new Date(latest.rows[0].latest_at).toISOString()) : '';
       }
       const count = await syncWhatsAppHubMessages(req.user.uid, {
         targetPhone: chatId ? undefined : targetPhone,

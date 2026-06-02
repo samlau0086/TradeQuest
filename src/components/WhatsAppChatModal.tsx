@@ -208,7 +208,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
           'Content-Type': 'application/json',
           Authorization: `Bearer ${localStorage.getItem('token')}`
         },
-        body: JSON.stringify({ targetPhone, limit: 100 })
+        body: JSON.stringify({ targetPhone, limit: 500 })
       });
       if (syncRes.ok) {
         await loadCachedMessages({ notifyErrors: false });
