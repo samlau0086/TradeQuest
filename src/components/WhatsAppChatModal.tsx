@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarClock, FileText, FolderOpen, Loader2, MessageCircle, Paperclip, Plus, Send, Smile, Sparkles, Tag, User, UserPlus, X } from 'lucide-react';
+import { CalendarClock, Download, FileText, FolderOpen, Loader2, MessageCircle, Paperclip, Plus, Send, Smile, Sparkles, Tag, User, UserPlus, X } from 'lucide-react';
 import { Client, Comment, MediaItem, useStore } from '../store';
 import { MediaSelectorModal } from './MediaSelectorModal';
 import { useTranslation } from '../lib/i18n';
@@ -83,6 +83,20 @@ const dataUrlToFile = async (dataUrl: string, name: string, mimeType: string) =>
   const response = await fetch(dataUrl);
   const blob = await response.blob();
   return new File([blob], name, { type: mimeType || blob.type || 'application/octet-stream' });
+};
+
+const getWhatsAppMessageMedia = (message: WhatsAppHubMessage) => {
+  const payload = message.payload || {};
+  const media = payload.media || payload.file || payload.attachment || {};
+  const url = media.url || media.mediaUrl || media.fileUrl || payload.mediaUrl || payload.fileUrl || payload.url || '';
+  const mimeType = media.mimeType || media.type || payload.mimeType || payload.type || '';
+  const name = media.originalName || media.filename || media.name || payload.originalName || payload.filename || payload.name || message.message_type || 'Media';
+  const lowerMime = String(mimeType || '').toLowerCase();
+  const lowerName = String(name || url || '').toLowerCase();
+  const isImage = lowerMime.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(lowerName);
+  const isVideo = lowerMime.startsWith('video/') || /\.(mp4|webm|mov|m4v|ogg)$/i.test(lowerName);
+  const hasMedia = Boolean(payload.hasMedia || url || media.url || message.message_type !== 'chat');
+  return { hasMedia, url, mimeType, name, isImage, isVideo };
 };
 
 export function WhatsAppChatModal({ client, phone, conversation: initialConversation, initialMessage = '', embedded = false, onClose }: Props) {
@@ -804,22 +818,46 @@ Return only the message text.`,
           {messages.length === 0 && !loading && (
             <div className="text-center text-slate-500 text-sm py-10">{t('noWhatsAppMessages')}</div>
           )}
-          {messages.map(message => (
+          {messages.map(message => {
+            const media = getWhatsAppMessageMedia(message);
+            return (
             <div key={message.id} className={`flex ${message.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[78%] rounded-2xl px-4 py-2 text-sm ${message.direction === 'outbound' ? 'bg-green-600 text-white' : 'bg-slate-800 text-slate-100'}`}>
-                {(message.payload?.hasMedia || message.message_type !== 'chat') && (
-                  <div className="flex items-center gap-2 text-xs opacity-80 mb-1">
-                    <FileText className="w-3 h-3" />
-                    {message.payload?.filename || message.payload?.type || message.message_type || t('mediaMessage')}
+              <div className={`max-w-[78%] overflow-hidden rounded-2xl px-4 py-2 text-sm ${message.direction === 'outbound' ? 'bg-green-600 text-white' : 'bg-slate-800 text-slate-100'}`}>
+                {media.hasMedia && (
+                  <div className="mb-2">
+                    {media.url && media.isImage ? (
+                      <a href={media.url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-white/15 bg-black/20">
+                        <img src={media.url} alt={media.name} className="max-h-72 w-full max-w-sm object-contain" loading="lazy" />
+                      </a>
+                    ) : media.url && media.isVideo ? (
+                      <video src={media.url} controls className="max-h-72 w-full max-w-sm rounded-xl border border-white/15 bg-black/40" />
+                    ) : media.url ? (
+                      <a
+                        href={media.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-3 rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-xs hover:bg-black/30"
+                      >
+                        <FileText className="h-4 w-4 shrink-0" />
+                        <span className="min-w-0 flex-1 truncate">{media.name}</span>
+                        <Download className="h-4 w-4 shrink-0 opacity-80" />
+                      </a>
+                    ) : (
+                      <div className="flex items-center gap-2 text-xs opacity-80">
+                        <FileText className="w-3 h-3" />
+                        {media.name || t('mediaMessage')}
+                      </div>
+                    )}
                   </div>
                 )}
-                <div>{message.body}</div>
+                {message.body && <div className="whitespace-pre-wrap break-words">{message.body}</div>}
                 <div className="text-[10px] opacity-70 mt-1">
                   {message.client_id} · {new Date(message.created_at || message.received_at || Date.now()).toLocaleString()}
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
           <AgentContextSuggestions
             channel="whatsapp"
             cacheKey={agentContextCacheKey}
