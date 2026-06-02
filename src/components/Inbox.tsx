@@ -1302,6 +1302,7 @@ export function Inbox() {
               </div>
             )}
             <WhatsAppChatModal
+              key={activeWhatsAppConversation?.id || selectedWhatsAppPhone}
               embedded
               phone={selectedWhatsAppPhone}
               client={activeWhatsAppClient}

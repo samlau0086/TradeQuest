@@ -123,6 +123,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [isAddingContactToClient, setIsAddingContactToClient] = useState(false);
   const [mappingEdit, setMappingEdit] = useState<{ chatId: string; phone: string; saving?: boolean } | null>(null);
   const syncInFlightRef = useRef(false);
+  const loadRequestRef = useRef(0);
   const rawChatId = conversation?.rawChatId || (isChatId(targetPhone) ? targetPhone : '');
   const mappedPhone = conversation?.contactPhone || (!isChatId(targetPhone) ? targetPhone : '');
   const displayPhone = mappedPhone || targetPhone;
@@ -216,12 +217,15 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     return llmConfigs.find(llm => llm.id === id) || null;
   };
 
-  const loadCachedMessages = async (options: { notifyErrors?: boolean } = {}) => {
-    if (!targetPhone) return;
+  const loadCachedMessages = async (options: { notifyErrors?: boolean; requestId?: number } = {}) => {
+    const requestId = options.requestId ?? loadRequestRef.current;
+    const expectedTargetPhone = targetPhone;
+    const expectedLookupTarget = messageLookupTarget;
+    if (!expectedTargetPhone) return;
     try {
-      const messageQuery = isChatId(messageLookupTarget)
-        ? `chatId=${encodeURIComponent(messageLookupTarget)}`
-        : `targetPhone=${encodeURIComponent(messageLookupTarget)}`;
+      const messageQuery = isChatId(expectedLookupTarget)
+        ? `chatId=${encodeURIComponent(expectedLookupTarget)}`
+        : `targetPhone=${encodeURIComponent(expectedLookupTarget)}`;
       const [clientsRes, messagesRes] = await Promise.all([
         fetch('/api/whatsapp-hub/clients', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }),
         fetch(`/api/whatsapp-hub/messages?${messageQuery}&limit=200`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
@@ -230,17 +234,19 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
       const messagesData = await messagesRes.json();
       if (!clientsRes.ok) throw new Error(clientsData.error || 'Failed to load WhatsApp clients');
       if (!messagesRes.ok) throw new Error(messagesData.error || 'Failed to load WhatsApp messages');
+      if (requestId !== loadRequestRef.current || expectedTargetPhone !== targetPhone || expectedLookupTarget !== messageLookupTarget) return;
       setHubClients(clientsData.clients || []);
       const nextMessages = (messagesData.messages || []).slice().reverse();
       setMessages(nextMessages);
-      writeCachedWhatsAppMessages(targetPhone, nextMessages);
+      writeCachedWhatsAppMessages(expectedTargetPhone, nextMessages);
       const sticky = (messagesData.messages || []).find((message: WhatsAppHubMessage) => message.direction === 'outbound' && message.client_id)?.client_id;
       if (sticky) setSelectedClientId(sticky);
-      const conversationsRes = await fetch(`/api/whatsapp-hub/conversations?search=${encodeURIComponent(messageLookupTarget)}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+      const conversationsRes = await fetch(`/api/whatsapp-hub/conversations?search=${encodeURIComponent(expectedLookupTarget)}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
       const conversationsData = await conversationsRes.json();
+      if (requestId !== loadRequestRef.current || expectedTargetPhone !== targetPhone || expectedLookupTarget !== messageLookupTarget) return;
       if (conversationsRes.ok) {
         const matched = (conversationsData.conversations || []).find((item: WhatsAppConversation) => (
-          item.targetPhone === messageLookupTarget || item.contactPhone === messageLookupTarget || item.rawChatId === targetPhone || item.conversationKey === messageLookupTarget
+          item.targetPhone === expectedLookupTarget || item.contactPhone === expectedLookupTarget || item.rawChatId === expectedTargetPhone || item.conversationKey === expectedLookupTarget
         ));
         if (matched) setConversation(matched);
       }
@@ -252,7 +258,8 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     }
   };
 
-  const syncLatestMessages = async () => {
+  const syncLatestMessages = async (requestId = loadRequestRef.current) => {
+    const expectedLookupTarget = messageLookupTarget;
     if (!targetPhone || syncInFlightRef.current) return;
     syncInFlightRef.current = true;
     try {
@@ -262,12 +269,12 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
           'Content-Type': 'application/json',
           Authorization: `Bearer ${localStorage.getItem('token')}`
         },
-        body: JSON.stringify(isChatId(messageLookupTarget)
-          ? { chatId: messageLookupTarget, limit: 500 }
-          : { targetPhone: messageLookupTarget, limit: 500 })
+        body: JSON.stringify(isChatId(expectedLookupTarget)
+          ? { chatId: expectedLookupTarget, limit: 500 }
+          : { targetPhone: expectedLookupTarget, limit: 500 })
       });
-      if (syncRes.ok) {
-        await loadCachedMessages({ notifyErrors: false });
+      if (syncRes.ok && requestId === loadRequestRef.current && expectedLookupTarget === messageLookupTarget) {
+        await loadCachedMessages({ notifyErrors: false, requestId });
       }
     } catch (error) {
       console.warn('WhatsApp background sync unavailable in chat modal', error);
@@ -277,24 +284,35 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   };
 
   const loadData = async (options: { sync?: boolean } = {}) => {
+    const requestId = loadRequestRef.current;
     if (!targetPhone) return;
     setLoading(true);
     try {
-      await loadCachedMessages({ notifyErrors: true });
-      if (options.sync !== false) {
-        void syncLatestMessages();
+      await loadCachedMessages({ notifyErrors: true, requestId });
+      if (options.sync !== false && requestId === loadRequestRef.current) {
+        void syncLatestMessages(requestId);
       }
     } catch {
       // loadCachedMessages already surfaced a user-facing notification.
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestRef.current) setLoading(false);
     }
   };
 
   useEffect(() => {
+    loadRequestRef.current += 1;
+    syncInFlightRef.current = false;
     setMessages(readCachedWhatsAppMessages(targetPhone));
+    setConversation(initialConversation || null);
+    setSelectedClientId('');
+    setBody(initialMessage);
+    setTagInput('');
+    setCommentInput('');
+    setSelectedFile(null);
+    setSelectedMedia(null);
+    setMappingEdit(null);
     loadData();
-  }, [targetPhone, mappedPhone]);
+  }, [targetPhone, initialConversation?.id, initialMessage]);
 
   useEffect(() => {
     const poll = window.setInterval(() => {
