@@ -1969,6 +1969,66 @@ No markdown wrappers, just valid JSON.`;
     return { ...data, selectedClientId: clientId, quota };
   };
 
+  const sendEmailViaOutboxConfig = async (config: any, input: {
+    sender: string;
+    senderName?: string;
+    recipient: string;
+    subject: string;
+    html: string;
+    cc?: string;
+    bcc?: string;
+  }) => {
+    if (!config) throw new Error('No outbox configuration is available for email.send');
+    if (!input.recipient || !input.subject || !input.html) throw new Error('Missing email recipient, subject, or body');
+    const fromEmail = input.sender || config.fromEmail;
+    if (!fromEmail) throw new Error('No sender email is configured for email.send');
+    const fromName = input.senderName || config.fromName || 'AutoAgent';
+    if (config.type === 'smtp') {
+      const transporter = nodemailer.createTransport({
+        host: config.host,
+        port: config.port ? parseInt(config.port) : (config.secure ? 465 : 587),
+        secure: (config.port && parseInt(config.port) === 465) ? true : !!config.secure,
+        tls: { rejectUnauthorized: false },
+        auth: {
+          user: config.username,
+          pass: config.password
+        }
+      });
+      await transporter.sendMail({
+        from: `"${fromName}" <${fromEmail}>`,
+        to: input.recipient,
+        cc: input.cc || undefined,
+        bcc: input.bcc || undefined,
+        subject: input.subject,
+        html: input.html
+      });
+      return { provider: 'smtp' };
+    }
+    if (config.type === 'resend' && config.apiKey) {
+      const resendRes = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${config.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          from: `"${fromName}" <${fromEmail}>`,
+          to: input.recipient,
+          cc: input.cc ? input.cc.split(',').map((value: string) => value.trim()).filter(Boolean) : undefined,
+          bcc: input.bcc ? input.bcc.split(',').map((value: string) => value.trim()).filter(Boolean) : undefined,
+          subject: input.subject,
+          html: input.html
+        })
+      });
+      if (!resendRes.ok) {
+        const errorText = await resendRes.text();
+        throw new Error(`Resend API error: ${errorText}`);
+      }
+      return { provider: 'resend' };
+    }
+    throw new Error(`Unsupported outbox type for email.send: ${config.type || 'unknown'}`);
+  };
+
   const scheduleWhatsAppMessage = async (userId: string, payload: any) => {
     const id = `wa_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
     const to = normalizeWhatsAppPhone(payload.to);
@@ -3801,6 +3861,9 @@ No markdown wrappers, just valid JSON.`;
     if (tools.includes('lead.acquire')) {
       return executeLeadAcquisitionAgentRun(userId, settings, run, agent);
     }
+    if (tools.includes('email.draft') && !tools.includes('email.send')) {
+      return executeEmailDraftAgentRun(userId, settings, run, agent);
+    }
     const canSendEmail = tools.includes('email.send');
     const canSendWhatsApp = tools.includes('whatsapp.send');
     const canLog = tools.includes('client.log') || tools.includes('lead.log');
@@ -3878,6 +3941,7 @@ No markdown wrappers, just valid JSON.`;
     let skipped = 0;
     let failed = 0;
     const details: string[] = [];
+    const executedTools = new Set<string>();
     if (subjectOnly && subjectClientIds.size === 0) {
       details.push(isZh
         ? '事件主体模式：未找到事件关联的客户/线索主体，已跳过全局扫描。'
@@ -3941,6 +4005,11 @@ No markdown wrappers, just valid JSON.`;
           llmConfig,
           5
         );
+        if (tools.includes('client.read')) executedTools.add('client.read');
+        if (tools.includes('email.read')) executedTools.add('email.read');
+        if (tools.includes('product.read')) executedTools.add('product.read');
+        if (tools.includes('knowledge.search')) executedTools.add('knowledge.search');
+        if (tools.includes('knowledge.read')) executedTools.add('knowledge.read');
 
         const latestCustomerMessage = emailsRes.rows.find((email: any) => ['inbox', 'inbound'].includes(email.type)) || emailsRes.rows[0];
         const outboundLanguage = getCustomerOutputLanguage({
@@ -4020,11 +4089,20 @@ Return JSON only:
         const sent: string[] = [];
         if (canSendEmail && ['email', 'both'].includes(parsed.channel) && parsed.emailBody && emailAddress) {
           const emailId = `e${Date.now()}${Math.floor(Math.random() * 1000)}`;
+          const emailSubject = parsed.emailSubject || `Hello from ${senderName}`;
+          await sendEmailViaOutboxConfig(outbox, {
+            sender,
+            senderName,
+            recipient: emailAddress,
+            subject: emailSubject,
+            html: parsed.emailBody
+          });
           await pool.query(
             `INSERT INTO emails (id, user_id, client_id, sender, sender_name, recipient, subject, body, date, read, type, outbox_config_id)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, 'sent', $10)`,
-            [emailId, userId, client.id, sender, senderName, emailAddress, parsed.emailSubject || `Hello from ${senderName}`, parsed.emailBody, nowIso, outbox.id || null]
+            [emailId, userId, client.id, sender, senderName, emailAddress, emailSubject, parsed.emailBody, nowIso, outbox.id || null]
           );
+          executedTools.add('email.send');
           sent.push(`email:${emailAddress}`);
         }
 
@@ -4035,6 +4113,7 @@ Return JSON only:
             body: parsed.whatsappBody,
             metadata: { source: 'agent-hub-executor', agentId: agent.id, clientId: client.id }
           });
+          executedTools.add('whatsapp.send');
           sent.push(`whatsapp:${to}`);
         }
 
@@ -4050,6 +4129,10 @@ Return JSON only:
              VALUES ($1, $2, $3, $4, $5, $6)`,
             [`l${Date.now()}${Math.floor(Math.random() * 1000)}`, client.id, nowIso, `Agent ${agent.id} executed ice-breaking outreach via ${sent.join(', ')}. Language: ${parsed.language || outboundLanguage}. ${parsed.clientNote || parsed.nextAction || ''}`, sent.some(item => item.startsWith('whatsapp')) ? 'whatsapp' : 'email', JSON.stringify({ agentId: agent.id, sent, language: parsed.language || outboundLanguage })]
           );
+          if (tools.includes('client.log')) executedTools.add('client.log');
+          if (tools.includes('lead.log')) executedTools.add('lead.log');
+          if (tools.includes('client.comment')) executedTools.add('client.comment');
+          if (tools.includes('lead.comment')) executedTools.add('lead.comment');
         }
 
         if (canUpdateClient) {
@@ -4059,6 +4142,10 @@ Return JSON only:
             `UPDATE clients SET status = $1, last_contact = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
             [statusUpdate, nowIso.slice(0, 10), client.id]
           );
+          if (tools.includes('client.update')) executedTools.add('client.update');
+          if (tools.includes('lead.update')) executedTools.add('lead.update');
+          if (tools.includes('client.stage')) executedTools.add('client.stage');
+          if (tools.includes('lead.stage')) executedTools.add('lead.stage');
         }
 
         acted += 1;
@@ -4074,10 +4161,24 @@ Return JSON only:
       : `Workflow completed: scanned ${scanned} client(s), acted on ${acted}, skipped ${skipped}, failed ${failed}. ${details.slice(0, 8).join(' ')}`;
     run.status = failed > 0 && acted === 0 ? 'failed' : 'completed';
     run.completedAt = new Date().toISOString();
+    const actionLikeTools = new Set([
+      'email.send', 'email.schedule', 'email.reply', 'whatsapp.send', 'quote.create', 'quote.update',
+      'client.update', 'client.comment', 'client.log', 'client.stage', 'lead.update', 'lead.comment', 'lead.log', 'lead.stage'
+    ]);
     run.steps = (run.steps || []).map((step: any) => ({
       ...step,
-      status: run.status === 'failed' ? 'failed' : 'completed',
-      result: resultText,
+      status: run.status === 'failed'
+        ? 'failed'
+        : executedTools.has(step.tool)
+          ? 'completed'
+          : actionLikeTools.has(step.tool)
+            ? 'skipped'
+            : 'completed',
+      result: executedTools.has(step.tool)
+        ? resultText
+        : actionLikeTools.has(step.tool)
+          ? (isZh ? '该工具本次没有执行具体动作。' : 'This tool did not execute a concrete action in this run.')
+          : resultText,
       error: run.status === 'failed' ? resultText : undefined
     }));
 
@@ -5347,6 +5448,151 @@ Return JSON only:
     agent.lastRunAt = new Date().toISOString();
     agent.updatedAt = new Date().toISOString();
     return { scanned: foundLeads.length, acted: imported, skipped: Math.max(0, foundLeads.length - imported), failed: 0, details: [resultText] };
+  };
+
+  const executeEmailDraftAgentRun = async (userId: string, settings: any, run: any, agent: any) => {
+    const isZh = settings.language === 'zh';
+    const tools = Array.isArray(agent.tools) ? agent.tools : [];
+    const firstStep = run.steps?.[0] || {};
+    const eventPayload = firstStep.payload?.eventPayload || {};
+    const emailIds = Array.isArray(eventPayload.emailIds) ? eventPayload.emailIds.map(String) : [];
+    const llmId = settings.llmMappings?.agent_harness || settings.llmMappings?.drafting || settings.activeLLMId;
+    const llmConfig = llmId ? (settings.llmConfigs || []).find((config: any) => config.id === llmId) : null;
+    if (!llmConfig) throw new Error(isZh ? '未配置邮件起草模型。' : 'Email drafting model is not configured.');
+
+    const emailQuery = emailIds.length > 0
+      ? `SELECT * FROM emails WHERE user_id = $1 AND id = ANY($2::text[]) AND client_id IS NOT NULL ORDER BY date DESC`
+      : `SELECT * FROM emails WHERE user_id = $1 AND type IN ('inbox', 'inbound') AND client_id IS NOT NULL ORDER BY date DESC LIMIT 5`;
+    const emailParams = emailIds.length > 0 ? [userId, emailIds] : [userId];
+    const emailsRes = await pool.query(emailQuery, emailParams);
+    const inboundEmails = emailsRes.rows.filter((email: any) => ['inbox', 'inbound'].includes(email.type));
+    const sourceEmail = inboundEmails[0] || emailsRes.rows[0];
+    if (!sourceEmail?.client_id) throw new Error(isZh ? '没有找到可用于起草回复的已关联入站邮件。' : 'No linked inbound email found for drafting.');
+
+    const clientRes = await pool.query(`SELECT * FROM clients WHERE user_id = $1 AND id = $2 LIMIT 1`, [userId, sourceEmail.client_id]);
+    const client = clientRes.rows[0];
+    if (!client) throw new Error(isZh ? '没有找到邮件关联的客户。' : 'Linked client was not found.');
+
+    const relatedEmailsRes = await pool.query(
+      `SELECT sender, recipient, subject, body, date, type FROM emails WHERE user_id = $1 AND client_id = $2 ORDER BY date DESC LIMIT 10`,
+      [userId, client.id]
+    );
+    const productsRes = tools.includes('product.read')
+      ? await pool.query(`SELECT sku, name, description, sales_points, bulk_prices FROM products WHERE user_id = $1 ORDER BY created_at DESC LIMIT 12`, [userId])
+      : { rows: [] };
+    const kbRes = (tools.includes('knowledge.search') || tools.includes('knowledge.read'))
+      ? await searchKnowledgeBase(userId, client.id, `${sourceEmail.subject || ''} ${sourceEmail.body || ''}`.slice(0, 1200), llmConfig, 8).catch(() => ({ rows: [] as any[] }))
+      : { rows: [] };
+    const outboundLanguage = getCustomerOutputLanguage({
+      lastCommunicationText: sourceEmail.body,
+      preferredLanguage: client.preferred_language,
+      country: client.country
+    });
+    const outbox = (settings.outboxConfigs || [])[0] || {};
+    const sender = outbox.fromEmail || 'AutoAgent';
+    const senderName = outbox.fromName || 'AutoAgent';
+    const baseSubject = String(sourceEmail.subject || 'Follow up').replace(/^Re:\s*/i, '');
+
+    const prompt = `Draft a customer-facing email reply and save-ready draft content.
+Agent name: ${agent.name}
+Agent instructions:
+${agent.instructions || ''}
+
+Source inbound email:
+${JSON.stringify({
+  from: sourceEmail.sender,
+  subject: sourceEmail.subject,
+  body: sourceEmail.body,
+  date: sourceEmail.date
+}, null, 2)}
+
+Client:
+${JSON.stringify({
+  id: client.id,
+  name: client.name,
+  company: client.company,
+  country: client.country,
+  status: client.status,
+  preferredLanguage: client.preferred_language,
+  agentSummary: client.agent_summary,
+  agentNextStep: client.agent_next_step,
+  leadSummary: client.lead_summary,
+  leadNextStep: client.lead_next_step,
+  contacts: parseJsonArray(client.contacts),
+  contactMethods: parseJsonArray(client.contact_methods)
+}, null, 2)}
+
+Recent email history:
+${JSON.stringify(relatedEmailsRes.rows, null, 2)}
+
+Products:
+${JSON.stringify(productsRes.rows, null, 2)}
+
+Knowledge:
+${(kbRes.rows || []).map((kb: any) => `[${kb.title}]\n${kb.content}`).join('\n\n')}
+
+Rules:
+${buildLanguagePolicy({ systemLanguage: settings.language, customerLanguage: outboundLanguage })}
+- Customer-facing draft subject and body must use the customer-facing language.
+- Do not include the user's email signature. The sending layer appends signatures.
+- Do not send the email. Create draft content only.
+- Keep the body professional, specific, and useful.
+
+Return JSON only:
+{
+  "subject": "email subject",
+  "body": "HTML email body without signature",
+  "internalNote": "short internal note in system language"
+}`;
+
+    const parsed = stripAgentJson(await callAI(prompt, llmConfig, true));
+    const subject = String(parsed.subject || `Re: ${baseSubject}`).trim();
+    const body = String(parsed.body || '').trim();
+    if (!body) throw new Error(isZh ? 'AI 未生成邮件正文。' : 'AI did not generate an email body.');
+
+    const duplicateRes = await pool.query(
+      `SELECT id FROM emails
+       WHERE user_id = $1
+         AND client_id = $2
+         AND type = 'draft'
+         AND recipient = $3
+         AND subject = $4
+         AND date >= NOW() - INTERVAL '24 hours'
+       ORDER BY date DESC
+       LIMIT 1`,
+      [userId, client.id, sourceEmail.sender, subject]
+    );
+    let draftId = duplicateRes.rows[0]?.id;
+    if (!draftId) {
+      draftId = `e${Date.now()}${Math.floor(Math.random() * 1000)}`;
+      await pool.query(
+        `INSERT INTO emails (id, user_id, client_id, sender, sender_name, recipient, subject, body, date, read, type, outbox_config_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, 'draft', $10)`,
+        [draftId, userId, client.id, sender, senderName, sourceEmail.sender, subject, body, new Date().toISOString(), outbox.id || null]
+      );
+    }
+
+    const resultText = isZh
+      ? `邮件草稿已创建：客户 ${client.id}，收件人 ${sourceEmail.sender}，草稿 ${draftId}，主题「${subject}」。`
+      : `Email draft created: client ${client.id}, recipient ${sourceEmail.sender}, draft ${draftId}, subject "${subject}".`;
+    run.status = 'completed';
+    run.completedAt = new Date().toISOString();
+    run.steps = (run.steps || []).map((step: any) => ({
+      ...step,
+      status: 'completed',
+      result: step.tool === 'email.draft' ? resultText : (isZh ? '已读取起草所需上下文。' : 'Read context required for drafting.')
+    }));
+    const record = (settings.agentRunRecords || []).find((item: any) => item.relatedRunId === run.id && item.relatedRunType === 'harness');
+    if (record) {
+      record.status = 'completed';
+      record.actualResult = resultText;
+      record.completedAt = new Date().toISOString();
+      record.updatedAt = new Date().toISOString();
+    }
+    agent.tasksCompleted = (agent.tasksCompleted || 0) + 1;
+    agent.lastRunAt = new Date().toISOString();
+    agent.updatedAt = new Date().toISOString();
+    return { scanned: 1, acted: 1, skipped: 0, failed: 0, details: [resultText], draftId };
   };
 
   const executeInsightAgentRun = async (userId: string, settings: any, run: any, agent: any) => {
