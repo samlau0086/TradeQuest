@@ -1687,6 +1687,7 @@ No markdown wrappers, just valid JSON.`;
              id = $5
              OR id LIKE 'wa_local_%'
              OR payload->>'pendingTaskId' IS NOT NULL
+             OR ABS(EXTRACT(EPOCH FROM (COALESCE(source_created_at, created_at) - $6::timestamptz))) <= 15
            )
            AND ABS(EXTRACT(EPOCH FROM (COALESCE(source_created_at, created_at) - $6::timestamptz))) <= 900
          ORDER BY
@@ -1733,6 +1734,22 @@ No markdown wrappers, just valid JSON.`;
         identity.rawChatId || null,
         identity.conversationKey || targetPhone
       ]
+    );
+    await pool.query(
+      `DELETE FROM whatsapp_messages
+       WHERE user_id = $1
+         AND id <> $2
+         AND conversation_id = $3
+         AND direction = 'outbound'
+         AND COALESCE(hub_client_id, '') = COALESCE($4, '')
+         AND COALESCE(body, '') = COALESCE($5, '')
+         AND ABS(EXTRACT(EPOCH FROM (COALESCE(source_created_at, created_at) - $6::timestamptz))) <= 15
+         AND (
+           id LIKE 'wa_local_%'
+           OR payload->>'pendingTaskId' IS NOT NULL
+           OR payload->>'localEcho' = 'true'
+         )`,
+      [userId, messageId, conversation.id, hubClientId, body, Number.isFinite(timeMs) ? new Date(timeMs).toISOString() : messageTime]
     );
   };
 
@@ -1785,6 +1802,45 @@ No markdown wrappers, just valid JSON.`;
     created_at: row.source_created_at || row.created_at,
     received_at: row.received_at
   });
+
+  const getWhatsAppRowTime = (row: any) => new Date(row.source_created_at || row.created_at || row.received_at || 0).getTime();
+  const normalizeWhatsAppBodyForDedupe = (value: string) => String(value || '').replace(/\s+/g, ' ').trim();
+  const isLocalEchoWhatsAppRow = (row: any) => (
+    String(row.id || '').startsWith('wa_local_')
+    || Boolean(row.payload?.localEcho)
+    || Boolean(row.payload?.pendingTaskId)
+  );
+  const isBetterWhatsAppDedupeRow = (candidate: any, existing: any) => {
+    const candidateLocal = isLocalEchoWhatsAppRow(candidate);
+    const existingLocal = isLocalEchoWhatsAppRow(existing);
+    if (candidateLocal !== existingLocal) return !candidateLocal;
+    if (candidate.raw_chat_id && !existing.raw_chat_id) return true;
+    if (candidate.contact_phone && !existing.contact_phone) return true;
+    return getWhatsAppRowTime(candidate) > getWhatsAppRowTime(existing);
+  };
+  const areDuplicateWhatsAppRows = (a: any, b: any) => {
+    if (a.direction !== 'outbound' || b.direction !== 'outbound') return false;
+    if (normalizeWhatsAppBodyForDedupe(a.body) !== normalizeWhatsAppBodyForDedupe(b.body)) return false;
+    if (String(a.hub_client_id || '') !== String(b.hub_client_id || '')) return false;
+    const aConversation = a.conversation_id || a.conversation_key || a.target_phone || a.contact_phone || a.raw_chat_id;
+    const bConversation = b.conversation_id || b.conversation_key || b.target_phone || b.contact_phone || b.raw_chat_id;
+    if (aConversation && bConversation && aConversation !== bConversation) return false;
+    return Math.abs(getWhatsAppRowTime(a) - getWhatsAppRowTime(b)) <= 15 * 1000;
+  };
+  const dedupeWhatsAppMessageRows = (rows: any[]) => {
+    const kept: any[] = [];
+    rows.forEach(row => {
+      const duplicateIndex = kept.findIndex(existing => areDuplicateWhatsAppRows(row, existing));
+      if (duplicateIndex === -1) {
+        kept.push(row);
+        return;
+      }
+      if (isBetterWhatsAppDedupeRow(row, kept[duplicateIndex])) {
+        kept[duplicateIndex] = row;
+      }
+    });
+    return kept.sort((a, b) => getWhatsAppRowTime(b) - getWhatsAppRowTime(a));
+  };
 
   const mapWhatsAppConversationRow = (row: any) => ({
     id: row.id,
@@ -1960,7 +2016,7 @@ No markdown wrappers, just valid JSON.`;
          LIMIT $${values.length}`,
         values
       );
-      res.json({ messages: result.rows.map(mapWhatsAppMessageRow) });
+      res.json({ messages: dedupeWhatsAppMessageRows(result.rows).map(mapWhatsAppMessageRow) });
     } catch (e: any) {
       res.status(e.status || 500).json({ error: e.message || 'Failed to fetch WhatsApp messages' });
     }
