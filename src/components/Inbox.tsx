@@ -327,9 +327,15 @@ export function Inbox() {
     const findClientForEmail = (email: EmailMessage) => {
       if (email.clientId) return clients.find(client => client.id === email.clientId) || null;
       const addresses = [email.sender, email.recipient].map(value => value?.toLowerCase()).filter(Boolean);
-      return clients.find(client => client.contactMethods?.some(method => (
-        method.type === 'email' && addresses.includes(method.value.toLowerCase())
-      ))) || null;
+      return clients.find(client => {
+        const methods = [
+          ...(client.contactMethods || []),
+          ...(client.contacts || []).flatMap(contact => contact.contactMethods || [])
+        ];
+        return methods.some(method => (
+          method.type === 'email' && addresses.includes(method.value.trim().toLowerCase())
+        ));
+      }) || null;
     };
     const contactAddress = (email: EmailMessage) => {
       if (email.type === 'inbox' || email.type === 'inbound') return email.sender;

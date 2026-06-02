@@ -3701,6 +3701,37 @@ No markdown wrappers, just valid JSON.`;
     return match?.value || '';
   };
 
+  const normalizeEmailAddress = (value: any) => String(value || '').trim().toLowerCase();
+
+  const findClientIdForEmailAddress = async (userId: string, emailAddress: string) => {
+    const normalizedEmail = normalizeEmailAddress(emailAddress);
+    if (!normalizedEmail) return null;
+    const result = await pool.query(
+      `SELECT id
+       FROM clients
+       WHERE user_id = $1
+         AND (
+           EXISTS (
+             SELECT 1
+             FROM jsonb_array_elements(COALESCE(contact_methods, '[]'::jsonb)) elem
+             WHERE lower(elem->>'type') = 'email'
+               AND lower(trim(elem->>'value')) = $2
+           )
+           OR EXISTS (
+             SELECT 1
+             FROM jsonb_array_elements(COALESCE(contacts, '[]'::jsonb)) contact,
+                  jsonb_array_elements(COALESCE(contact->'contactMethods', '[]'::jsonb)) elem
+             WHERE lower(elem->>'type') = 'email'
+               AND lower(trim(elem->>'value')) = $2
+           )
+         )
+       ORDER BY updated_at DESC NULLS LAST
+       LIMIT 1`,
+      [userId, normalizedEmail]
+    );
+    return result.rows[0]?.id || null;
+  };
+
   const stripAgentJson = (raw: string) => {
     const cleaned = String(raw || '').replace(/```json|```/g, '').trim();
     const start = cleaned.indexOf('{');
@@ -4498,6 +4529,18 @@ Return JSON only:
   app.get('/api/deals', authenticateToken, async (req: any, res) => {
     try {
       const result = await pool.query('SELECT * FROM deals WHERE user_id = $1 AND pending_delete = FALSE ORDER BY updated_at DESC', [req.user.uid]);
+      for (const row of result.rows) {
+        if (row.client_id) continue;
+        const matchedClientId = await findClientIdForEmailAddress(req.user.uid, row.sender)
+          || await findClientIdForEmailAddress(req.user.uid, row.recipient);
+        if (matchedClientId) {
+          row.client_id = matchedClientId;
+          await pool.query(
+            'UPDATE emails SET client_id = $1 WHERE id = $2 AND user_id = $3 AND client_id IS NULL',
+            [matchedClientId, row.id, req.user.uid]
+          );
+        }
+      }
       res.json(result.rows.map(row => ({
         id: row.id,
         clientId: row.client_id,
@@ -6666,16 +6709,7 @@ No markdown wrappers, just valid JSON.`;
             const senderGeo = extractSenderGeoFromHeaders(parsed.headers);
             
             const fromEmail = parsed.from?.value?.[0]?.address || '';
-            const clientRes = await pool.query(`
-              SELECT id FROM clients 
-              WHERE user_id = $1 
-                AND EXISTS (
-                  SELECT 1 FROM jsonb_array_elements(contact_methods) elem 
-                  WHERE elem->>'type' = 'email' AND elem->>'value' = $2
-                ) 
-              LIMIT 1
-            `, [req.user.uid, fromEmail]);
-            const clientId = clientRes.rows.length > 0 ? clientRes.rows[0].id : null;
+            const clientId = await findClientIdForEmailAddress(req.user.uid, fromEmail);
 
             let messageIdStr = parsed.messageId || `msg_${username}_${msg.uid}`;
             messageIdStr = messageIdStr.substring(0, 128);
@@ -6781,16 +6815,7 @@ No markdown wrappers, just valid JSON.`;
           const senderGeo = extractSenderGeoFromHeaders(parsed.headers);
           
           const fromEmail = parsed.from?.value?.[0]?.address || '';
-          const clientRes = await pool.query(`
-            SELECT id FROM clients 
-            WHERE user_id = $1 
-              AND EXISTS (
-                SELECT 1 FROM jsonb_array_elements(contact_methods) elem 
-                WHERE elem->>'type' = 'email' AND elem->>'value' = $2
-              ) 
-            LIMIT 1
-          `, [req.user.uid, fromEmail]);
-          const clientId = clientRes.rows.length > 0 ? clientRes.rows[0].id : null;
+          const clientId = await findClientIdForEmailAddress(req.user.uid, fromEmail);
 
           // Try to use messageId to prevent duplicates, fallback to uid
           let messageIdStr = parsed.messageId;
@@ -6950,24 +6975,8 @@ No markdown wrappers, just valid JSON.`;
 
         let clientIdToUse = email.client_id;
         if (!clientIdToUse) {
-           // check if any client has this email as contact method
-           const clientRes = await pool.query(`
-             SELECT id FROM clients 
-             WHERE user_id = $1 
-             AND (
-               contact_methods @> $2::jsonb
-               OR contact_methods @> $3::jsonb
-             )
-             LIMIT 1
-           `, [
-             req.user.uid, 
-             JSON.stringify([{ type: "email", value: email.sender }]),
-             JSON.stringify([{ type: "email", value: email.recipient }])
-           ]);
-           
-           if (clientRes.rows.length > 0) {
-             clientIdToUse = clientRes.rows[0].id;
-           }
+          clientIdToUse = await findClientIdForEmailAddress(req.user.uid, email.sender)
+            || await findClientIdForEmailAddress(req.user.uid, email.recipient);
         }
 
         if (clientIdToUse) {
