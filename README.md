@@ -22,6 +22,9 @@ Foreign Trade CRM is an AI-powered CRM for foreign trade teams. It combines clie
 - Leads can have their own score, summary, next step, team comments, growth logs, stage, tags, and timeline.
 - Contacts are first-class records under clients/leads. A customer can have multiple contacts, and contacts can have multiple communication methods.
 - Key contact can be selected or changed.
+- When an email address or WhatsApp number is not matched to an existing client, users can either create a New Lead or add the contact method to an existing client.
+- Adding to an existing client supports three targets: key contact, another existing contact, or a newly created contact under that client.
+- Client/lead details include two event views: Event Timeline for a vertical chronological timeline and Event List for a card-style event list.
 - Public lead pool supports import, claim, delete, and superadmin bulk delete.
 - Lead acquisition channels normalize imported fields such as country, city, state, email, phone, website, and company where the source provides them.
 - Outscraper country aliases such as `United States of America` are normalized to `United States`.
@@ -30,6 +33,8 @@ Foreign Trade CRM is an AI-powered CRM for foreign trade teams. It combines clie
 
 - Email and WhatsApp messages are integrated into one inbox.
 - Inbox supports inbox, sent, drafts, scheduled messages, conversational view, customer grouping, tags, comments, and channel icons.
+- Unmatched email senders/recipients and WhatsApp numbers provide both `New Lead` and `Add to Existing Client` actions.
+- `Add to Existing Client` adds the current email/WhatsApp contact method to the selected client and the selected contact target, then links the message or conversation to that client.
 - WhatsApp conversations are persisted in the CRM database and loaded incrementally.
 - Deleted WhatsApp conversations/messages stay deleted locally and should not reappear unless new messages arrive or a new outbound message is sent.
 - Email sync runs in the background even when the user is not inside the inbox. Default sync interval is 1 hour and can be configured per email server.
@@ -42,6 +47,9 @@ Foreign Trade CRM is an AI-powered CRM for foreign trade teams. It combines clie
 
 - WhatsApp Actor Hub is integrated into the unified inbox instead of a separate navigation module.
 - Supports multiple WhatsApp clients.
+- CRM stores WhatsApp messages locally and uses WhatsApp Actor Hub as the sync source for new or recovered messages.
+- Hub history recovery on client reconnect is supported by CRM overlap sync: CRM looks back from the latest local message before syncing, requests up to 500 Hub messages, and relies on upsert/deduplication to avoid duplicates.
+- The default recovery lookback window is 30 days and can be configured with `WHATSAPP_HISTORY_RECOVERY_LOOKBACK_HOURS`.
 - Sending can use a selected client or a random client. After one message is sent to a customer, that customer is sticky to the last used client unless manually changed.
 - Supports text, emoji, media, files, scheduled sending, and retry when the selected client is unavailable.
 - Scheduled WhatsApp messages send immediately when a usable client becomes available after the scheduled time.
@@ -79,6 +87,8 @@ Foreign Trade CRM is an AI-powered CRM for foreign trade teams. It combines clie
 - Supported provider presets include OpenAI, OpenRouter, Gemini, and custom OpenAI-compatible endpoints.
 - Functional modules can use different models, such as drafting, analysis, embedding, Agent Harness, prompt building, tool selection, context suggestions, WhatsApp drafting, and Global Agent.
 - Default options avoid hard-coded Gemini assumptions when Gemini is not configured.
+- Agent Context & Suggestions analyzes the current customer inbound message plus broader CRM context, including AI summaries, best next step, score, comments, activity logs, other-channel communication history, products, and RAG snippets.
+- Outbound messages sent by the team are treated as background context only and are not used as evidence of customer intent.
 
 ## Agent Hub
 
@@ -328,6 +338,32 @@ Typical notification events:
 - Agent action requires review.
 - Agent execution fails.
 - Scheduled send is delayed or resumed.
+- Daily operating summary.
+- Long inactive login reminder.
+
+## Recent Functional Notes / 近期功能说明
+
+### English
+
+- Event records in client/lead details support two tabs: `Event Timeline` and `Event List`.
+- `Event Timeline` shows events as a vertical time axis. `Event List` keeps the card/list-style view.
+- Unmatched email addresses and WhatsApp numbers support both `New Lead` and `Add to Existing Client`.
+- `Add to Existing Client` can add the contact method to the key contact, a selected existing contact, or a newly created contact under the selected client.
+- WhatsApp messages are persisted in the CRM database. WhatsApp Actor Hub is used as the sync source, including recovered history after a client reconnects.
+- CRM sync uses a recovery lookback window and upsert/deduplication so recovered Hub messages can be imported without duplicating existing local messages.
+- Agent Context & Suggestions reads the current inbound message together with customer profile, AI summary, best next step, score, comments, logs, other-channel history, products, and RAG context.
+- Team outbound messages are only background context. They should not be interpreted as customer intent.
+
+### 中文
+
+- 客户/线索详情中的事件记录支持两个 Tab：`Event Timeline` 和 `Event List`。
+- `Event Timeline` 使用纵向时间轴展示事件；`Event List` 保留卡片式列表视图。
+- 未匹配到客户的邮箱地址或 WhatsApp 号码，同时支持 `New Lead` 和 `Add to Existing Client`。
+- `Add to Existing Client` 可以把当前联系方式添加到 Key Contact、某个已有联系人，或在选定客户下新建联系人。
+- WhatsApp 消息会保存到 CRM 数据库；WhatsApp Actor Hub 作为同步来源，包括 client 恢复连接后补拉的历史消息。
+- CRM 同步会使用恢复回看窗口，并通过 upsert/去重避免恢复消息重复入库。
+- 智能体上下文与建议会读取当前客户入站消息，同时结合客户资料、AI 摘要、最佳下一步、评分、评论、日志、其他渠道沟通历史、产品和 RAG 上下文。
+- 我方发送的 outbound 消息只作为背景上下文，不应被解释为客户意图。
 
 ## Deployment
 

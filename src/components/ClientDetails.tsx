@@ -443,6 +443,7 @@ export function ClientDetails() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [confirmDeleteTarget, setConfirmDeleteTarget] = useState(false);
+  const [eventView, setEventView] = useState<'timeline' | 'list'>('timeline');
 
   // Agent State
   const [agentLoading, setAgentLoading] = useState(false);
@@ -459,6 +460,7 @@ export function ClientDetails() {
     if (!leadRecord) return true;
     return log.metadata?.leadId === leadRecord.id || log.metadata?.dealId === leadRecord.id;
   });
+  const sortedLeadLogs = [...leadLogs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   const leadScore = leadRecord ? leadRecord.leadScore : client?.leadScore;
   const summaryText = leadRecord
     ? leadRecord.leadSummary
@@ -759,28 +761,84 @@ export function ClientDetails() {
               </div>
 
               <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
-                <div className="flex items-center justify-between gap-3 mb-5">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
                   <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
                     <History className="w-4 h-4" /> Event Timeline
                   </h3>
-                  <span className="text-xs text-slate-500">{leadLogs.length} events</span>
+                  <div className="flex items-center gap-3">
+                    <div className="inline-flex rounded-lg border border-slate-800 bg-slate-900 p-1">
+                      <button
+                        type="button"
+                        onClick={() => setEventView('timeline')}
+                        className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${eventView === 'timeline' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                      >
+                        Event Timeline
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEventView('list')}
+                        className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${eventView === 'list' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                      >
+                        Event List
+                      </button>
+                    </div>
+                    <span className="text-xs text-slate-500">{sortedLeadLogs.length} events</span>
+                  </div>
                 </div>
-                <div className="grid gap-3 md:grid-cols-2">
-                  {leadLogs.slice(0, 4).map(log => (
-                    <div key={log.id} className="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
-                      <div className="flex items-center gap-2 text-[11px] text-slate-500 mb-2">
-                        <Clock3 className="w-3.5 h-3.5" />
-                        {new Date(log.date).toLocaleString()}
+
+                {eventView === 'timeline' ? (
+                  <div className="relative pl-6">
+                    <div className="absolute bottom-2 left-[9px] top-2 w-px bg-slate-800" />
+                    <div className="space-y-4">
+                      {sortedLeadLogs.map((log, index) => (
+                        <div key={log.id} className="relative">
+                          <div className={`absolute -left-[23px] top-1.5 flex h-5 w-5 items-center justify-center rounded-full border ${index === 0 ? 'border-cyan-400 bg-cyan-500/20' : 'border-slate-700 bg-slate-950'}`}>
+                            <div className={`h-2 w-2 rounded-full ${index === 0 ? 'bg-cyan-300' : 'bg-slate-500'}`} />
+                          </div>
+                          <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
+                            <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                              <Clock3 className="h-3.5 w-3.5" />
+                              <span>{new Date(log.date).toLocaleString()}</span>
+                              {log.type && (
+                                <span className="rounded border border-slate-700 bg-slate-950 px-1.5 py-0.5 uppercase tracking-wide text-slate-400">
+                                  {log.type}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm text-slate-200 leading-relaxed">{log.content}</p>
+                          </div>
+                        </div>
+                      ))}
+                      {sortedLeadLogs.length === 0 && (
+                        <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-6 text-center text-sm text-slate-500">
+                          No timeline events yet.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {sortedLeadLogs.map(log => (
+                      <div key={log.id} className="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 mb-2">
+                          <Clock3 className="w-3.5 h-3.5" />
+                          {new Date(log.date).toLocaleString()}
+                          {log.type && (
+                            <span className="rounded border border-slate-700 bg-slate-950 px-1.5 py-0.5 uppercase tracking-wide text-slate-400">
+                              {log.type}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-slate-200 leading-relaxed">{log.content}</p>
                       </div>
-                      <p className="text-sm text-slate-200 leading-relaxed">{log.content}</p>
-                    </div>
-                  ))}
-                  {leadLogs.length === 0 && (
-                    <div className="md:col-span-2 rounded-lg border border-slate-800 bg-slate-900/50 p-6 text-center text-sm text-slate-500">
-                      No timeline events yet.
-                    </div>
-                  )}
-                </div>
+                    ))}
+                    {sortedLeadLogs.length === 0 && (
+                      <div className="md:col-span-2 rounded-lg border border-slate-800 bg-slate-900/50 p-6 text-center text-sm text-slate-500">
+                        No events yet.
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
