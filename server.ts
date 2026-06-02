@@ -2132,6 +2132,245 @@ No markdown wrappers, just valid JSON.`;
     return { provider, enriched };
   };
 
+  const toStringList = (value: any): string[] => {
+    if (!value) return [];
+    const list = Array.isArray(value) ? value : String(value).split(',');
+    return Array.from(new Set(list.map((item: any) => String(item || '').trim()).filter(Boolean)));
+  };
+
+  const mergeStringLists = (...values: any[]) => Array.from(new Set(values.flatMap(toStringList)));
+
+  const createAgentClientRecord = async (userId: string, input: any) => {
+    const id = input.id || `c${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const contactMethods = Array.isArray(input.contactMethods) ? input.contactMethods : [
+      ...(input.email ? [{ type: 'email', value: input.email }] : []),
+      ...(input.phone ? [{ type: 'phone', value: input.phone }] : []),
+      ...(input.whatsapp ? [{ type: 'whatsapp', value: input.whatsapp }] : [])
+    ];
+    const contacts = Array.isArray(input.contacts) ? input.contacts : [];
+    await pool.query(
+      `INSERT INTO clients (id, user_id, name, company, address, state, city, country, status, tags, last_contact, is_dormant, contact_methods, contacts, primary_contact_id, comments, preferred_language, preferred_time_range, agent_workflow_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, 'Leads'), $10, NULL, FALSE, $11, $12, $13, $14, $15, $16, $17)
+       ON CONFLICT (id) DO NOTHING
+       RETURNING id`,
+      [
+        id,
+        userId,
+        String(input.name || input.company || 'New Client').slice(0, 255),
+        input.company || '',
+        input.address || null,
+        input.state || null,
+        input.city || null,
+        normalizeCrmCountry(input.country) || input.country || null,
+        input.status || 'Leads',
+        JSON.stringify(toStringList(input.tags)),
+        JSON.stringify(contactMethods),
+        JSON.stringify(contacts),
+        input.primaryContactId || contacts.find((contact: any) => contact?.isPrimary)?.id || contacts[0]?.id || null,
+        JSON.stringify(Array.isArray(input.comments) ? input.comments : []),
+        input.preferredLanguage || null,
+        input.preferredTimeRange || null,
+        input.agentWorkflowId || null
+      ]
+    );
+    await triggerAgentHubEvent(userId, 'client_created', {
+      clientId: id,
+      name: input.name || input.company || 'New Client',
+      company: input.company || '',
+      country: input.country || '',
+      status: input.status || 'Leads'
+    }).catch(err => console.warn('Agent Hub client_created trigger failed', err));
+    return id;
+  };
+
+  const tagAgentClientRecord = async (userId: string, clientId: string, tags: any) => {
+    const current = await pool.query(`SELECT tags FROM clients WHERE id = $1 AND user_id = $2 LIMIT 1`, [clientId, userId]);
+    if (current.rows.length === 0) throw new Error('Client not found for client.tag');
+    const nextTags = mergeStringLists(current.rows[0].tags, tags);
+    await pool.query(`UPDATE clients SET tags = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND user_id = $3`, [JSON.stringify(nextTags), clientId, userId]);
+    return nextTags;
+  };
+
+  const createAgentLeadRecord = async (userId: string, clientId: string | null, input: any) => {
+    const id = input.id || `d${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const contactInfo = {
+      ...(input.contactInfo || {}),
+      tags: toStringList(input.tags),
+      email: input.email || input.contactInfo?.email,
+      phone: input.phone || input.contactInfo?.phone,
+      whatsapp: input.whatsapp || input.contactInfo?.whatsapp,
+      country: normalizeCrmCountry(input.country) || input.country || input.contactInfo?.country
+    };
+    await pool.query(
+      `INSERT INTO deals (id, user_id, client_id, name, value, status, contact_info, comments, lead_score, lead_summary, lead_next_step, lead_scoring_signature, lead_scoring_analyzed_at)
+       VALUES ($1, $2, $3, $4, $5, COALESCE($6, 'Leads'), $7, $8, $9, $10, $11, NULL, NULL)
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        id,
+        userId,
+        clientId || input.clientId || null,
+        String(input.name || input.company || 'New Lead').slice(0, 255),
+        Number(input.value || 0),
+        input.status || 'Leads',
+        JSON.stringify(contactInfo),
+        JSON.stringify(Array.isArray(input.comments) ? input.comments : []),
+        Number.isFinite(Number(input.leadScore)) ? Number(input.leadScore) : null,
+        input.leadSummary || null,
+        input.leadNextStep || null
+      ]
+    );
+    await triggerAgentHubEvent(userId, 'lead_created', {
+      leadId: id,
+      clientId: clientId || input.clientId || null,
+      name: input.name || input.company || 'New Lead',
+      value: Number(input.value || 0),
+      status: input.status || 'Leads'
+    }).catch(err => console.warn('Agent Hub lead_created trigger failed', err));
+    return id;
+  };
+
+  const tagAgentLeadRecord = async (userId: string, leadId: string, tags: any) => {
+    const current = await pool.query(`SELECT contact_info FROM deals WHERE id = $1 AND user_id = $2 LIMIT 1`, [leadId, userId]);
+    if (current.rows.length === 0) throw new Error('Lead not found for lead.tag');
+    const contactInfo = current.rows[0].contact_info || {};
+    const nextTags = mergeStringLists(contactInfo.tags, tags);
+    await pool.query(
+      `UPDATE deals SET contact_info = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND user_id = $3`,
+      [JSON.stringify({ ...contactInfo, tags: nextTags }), leadId, userId]
+    );
+    return nextTags;
+  };
+
+  const createOrUpdateAgentProduct = async (userId: string, input: any, allowCreate = true) => {
+    const lookup = input.id || input.sku || input.name;
+    const existing = lookup
+      ? await pool.query(
+        `SELECT id FROM products WHERE user_id = $1 AND (id = $2 OR sku = $2 OR LOWER(name) = LOWER($2)) ORDER BY updated_at DESC LIMIT 1`,
+        [userId, String(lookup)]
+      )
+      : { rows: [] };
+    const id = existing.rows[0]?.id || input.id || `p${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    if (existing.rows[0]) {
+      await pool.query(
+        `UPDATE products
+         SET sku = COALESCE($1, sku),
+             name = COALESCE($2, name),
+             description = COALESCE($3, description),
+             sales_points = COALESCE($4, sales_points),
+             image_url = COALESCE($5, image_url),
+             bulk_prices = COALESCE($6::jsonb, bulk_prices),
+             comments = COALESCE($7::jsonb, comments),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $8 AND user_id = $9`,
+        [
+          input.sku || null,
+          input.name || null,
+          input.description || null,
+          input.salesPoints || input.sales_points || null,
+          input.imageUrl || input.image_url || null,
+          input.bulkPrices !== undefined ? JSON.stringify(input.bulkPrices || []) : null,
+          input.comments !== undefined ? JSON.stringify(input.comments || []) : null,
+          id,
+          userId
+        ]
+      );
+      return { id, mode: 'updated' };
+    }
+    if (!allowCreate) throw new Error('Product not found for product.update');
+    await pool.query(
+      `INSERT INTO products (id, user_id, sku, name, description, sales_points, image_url, bulk_prices, comments)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        id,
+        userId,
+        input.sku || null,
+        String(input.name || input.sku || 'New Product').slice(0, 255),
+        input.description || '',
+        input.salesPoints || input.sales_points || '',
+        input.imageUrl || input.image_url || '',
+        JSON.stringify(input.bulkPrices || []),
+        JSON.stringify(input.comments || [])
+      ]
+    );
+    return { id, mode: 'created' };
+  };
+
+  const createOrUpdateAgentKnowledge = async (userId: string, input: any, llmConfig: any, allowCreate = true) => {
+    const title = String(input.title || 'Agent Knowledge').trim().slice(0, 255);
+    const content = String(input.content || input.summary || '').trim();
+    if (!content) throw new Error('Knowledge content is required');
+    const lookup = input.id || input.title;
+    const existing = lookup
+      ? await pool.query(
+        `SELECT id FROM knowledge_base WHERE user_id = $1 AND (id = $2 OR LOWER(title) = LOWER($2)) ORDER BY updated_at DESC LIMIT 1`,
+        [userId, String(lookup)]
+      )
+      : { rows: [] };
+    const embedding = await generateEmbedding(content, llmConfig);
+    if (existing.rows[0]) {
+      if (embedding) {
+        await pool.query(
+          `UPDATE knowledge_base SET title = $1, content = $2, client_id = COALESCE($3, client_id), embedding = $4, updated_at = CURRENT_TIMESTAMP WHERE id = $5 AND user_id = $6`,
+          [title, content, input.clientId || null, formatVector(embedding), existing.rows[0].id, userId]
+        );
+      } else {
+        await pool.query(
+          `UPDATE knowledge_base SET title = $1, content = $2, client_id = COALESCE($3, client_id), updated_at = CURRENT_TIMESTAMP WHERE id = $4 AND user_id = $5`,
+          [title, content, input.clientId || null, existing.rows[0].id, userId]
+        );
+      }
+      return { id: existing.rows[0].id, mode: 'updated' };
+    }
+    if (!allowCreate) throw new Error('Knowledge item not found for knowledge.update');
+    const id = input.id || `kb_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    if (embedding) {
+      await pool.query(
+        `INSERT INTO knowledge_base (id, user_id, client_id, title, content, embedding) VALUES ($1, $2, $3, $4, $5, $6)`,
+        [id, userId, input.clientId || null, title, content, formatVector(embedding)]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO knowledge_base (id, user_id, client_id, title, content) VALUES ($1, $2, $3, $4, $5)`,
+        [id, userId, input.clientId || null, title, content]
+      );
+    }
+    return { id, mode: 'created' };
+  };
+
+  const annotateAgentEmail = async (userId: string, emailIds: string[], tags: any, comment: any, agentName: string) => {
+    if (emailIds.length === 0) return { tagged: 0, commented: 0 };
+    let tagged = 0;
+    let commented = 0;
+    for (const emailId of emailIds) {
+      const current = await pool.query(`SELECT tags, comments FROM emails WHERE id = $1 AND user_id = $2 LIMIT 1`, [emailId, userId]);
+      if (current.rows.length === 0) continue;
+      const updates: string[] = [];
+      const values: any[] = [];
+      let idx = 1;
+      const nextTags = mergeStringLists(current.rows[0].tags, tags);
+      if (nextTags.length > parseJsonArray(current.rows[0].tags).length) {
+        updates.push(`tags = $${idx++}`);
+        values.push(JSON.stringify(nextTags));
+        tagged += 1;
+      }
+      const content = String(comment || '').trim();
+      if (content) {
+        const nextComments = [
+          ...parseJsonArray(current.rows[0].comments),
+          { id: `emc_${Date.now()}_${Math.floor(Math.random() * 1000)}`, author: agentName || 'Agent', content, createdAt: new Date().toISOString(), replies: [] }
+        ];
+        updates.push(`comments = $${idx++}`);
+        values.push(JSON.stringify(nextComments));
+        commented += 1;
+      }
+      if (updates.length > 0) {
+        values.push(emailId, userId);
+        await pool.query(`UPDATE emails SET ${updates.join(', ')} WHERE id = $${idx++} AND user_id = $${idx}`, values);
+      }
+    }
+    return { tagged, commented };
+  };
+
   const scheduleWhatsAppMessage = async (userId: string, payload: any) => {
     const id = `wa_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
     const to = normalizeWhatsAppPhone(payload.to);
@@ -3976,11 +4215,21 @@ No markdown wrappers, just valid JSON.`;
     const canEnrichLead = tools.includes('lead.enrich');
     const canTagConversation = tools.includes('conversation.tag');
     const canCommentConversation = tools.includes('conversation.comment');
+    const canTagEmail = tools.includes('email.tag');
+    const canCommentEmail = tools.includes('email.comment');
+    const canCreateProduct = tools.includes('product.create');
+    const canUpdateProduct = tools.includes('product.update');
+    const canCreateKnowledge = tools.includes('knowledge.create');
+    const canUpdateKnowledge = tools.includes('knowledge.update');
+    const canCreateClient = tools.includes('client.create');
+    const canTagClient = tools.includes('client.tag');
+    const canCreateLead = tools.includes('lead.create');
+    const canTagLead = tools.includes('lead.tag');
     const canAnalyze = tools.some((tool: string) => ['lead.analyze', 'lead.score', 'client.summarize', 'next_step.recommend', 'product.read', 'knowledge.search', 'knowledge.read'].includes(tool));
-    if (!canSendEmail && !canScheduleEmail && !canSendWhatsApp && !canLog && !canUpdateClient && !canCreateQuote && !canEnrichLead && !canTagConversation && !canCommentConversation && canAnalyze) {
+    if (!canSendEmail && !canScheduleEmail && !canSendWhatsApp && !canLog && !canUpdateClient && !canCreateQuote && !canEnrichLead && !canTagConversation && !canCommentConversation && !canTagEmail && !canCommentEmail && !canCreateProduct && !canUpdateProduct && !canCreateKnowledge && !canUpdateKnowledge && !canCreateClient && !canTagClient && !canCreateLead && !canTagLead && canAnalyze) {
       return executeInsightAgentRun(userId, settings, run, agent);
     }
-    if (!canSendEmail && !canScheduleEmail && !canSendWhatsApp && !canLog && !canUpdateClient && !canCreateQuote && !canEnrichLead && !canTagConversation && !canCommentConversation) {
+    if (!canSendEmail && !canScheduleEmail && !canSendWhatsApp && !canLog && !canUpdateClient && !canCreateQuote && !canEnrichLead && !canTagConversation && !canCommentConversation && !canTagEmail && !canCommentEmail && !canCreateProduct && !canUpdateProduct && !canCreateKnowledge && !canUpdateKnowledge && !canCreateClient && !canTagClient && !canCreateLead && !canTagLead) {
       throw new Error('Agent has no executable tools configured');
     }
 
@@ -4083,7 +4332,7 @@ No markdown wrappers, just valid JSON.`;
         }
 
         const emailsRes = await pool.query(
-          `SELECT sender, recipient, subject, body, date, type
+          `SELECT id, sender, recipient, subject, body, date, type
            FROM emails
            WHERE client_id = $1 AND user_id = $2
            ORDER BY date DESC
@@ -4165,6 +4414,9 @@ ${buildLanguagePolicy({ systemLanguage: settings.language, customerLanguage: out
 - If email.schedule is allowed and delayed sending is better than immediate sending, set scheduledAt to an ISO timestamp.
 - If quote.create is allowed and a quote draft is useful, provide quote.items using product-backed line items when possible.
 - If conversation.tag or conversation.comment is allowed, provide WhatsApp conversation tags/comments only when they add useful operational context.
+- If product.create/update or knowledge.create/update is allowed, provide concise records to create or update.
+- If client.create/lead.create or client.tag/lead.tag is allowed, provide validated records or tags only when useful.
+- If email.tag/email.comment is allowed, provide tags/comments for the related email thread.
 - If sensitive promotion/complaint/legal-risk content would be needed, set requiresApproval true and do not produce send-ready content.
 - Keep email concise and professional. Keep WhatsApp natural and shorter.
 
@@ -4183,6 +4435,14 @@ Return JSON only:
     "fees": [],
     "comments": []
   },
+  "products": [{ "id": "optional", "sku": "optional", "name": "product name", "description": "description", "salesPoints": "sales points", "bulkPrices": [] }],
+  "knowledgeItems": [{ "id": "optional", "clientId": "optional", "title": "title", "content": "content" }],
+  "clients": [{ "name": "client name", "company": "company", "country": "country", "tags": [], "email": "optional", "phone": "optional", "whatsapp": "optional" }],
+  "leads": [{ "clientId": "optional", "name": "lead name", "value": 0, "status": "Leads", "tags": [], "email": "optional", "phone": "optional" }],
+  "clientTags": ["optional client tags"],
+  "leadTags": ["optional lead tags"],
+  "emailTags": ["optional email tags"],
+  "emailComment": "optional internal email comment",
   "conversationTags": ["optional WhatsApp conversation tags"],
   "conversationComment": "optional internal WhatsApp conversation comment",
   "clientNote": "internal CRM note/log",
@@ -4192,7 +4452,7 @@ Return JSON only:
 }`;
 
         const parsed = stripAgentJson(await callAI(prompt, llmConfig, true));
-        const hasNonChannelAction = canEnrichLead || canCreateQuote || canTagConversation || canCommentConversation || canLog || canUpdateClient;
+        const hasNonChannelAction = canEnrichLead || canCreateQuote || canTagConversation || canCommentConversation || canTagEmail || canCommentEmail || canCreateProduct || canUpdateProduct || canCreateKnowledge || canUpdateKnowledge || canCreateClient || canTagClient || canCreateLead || canTagLead || canLog || canUpdateClient;
         if (parsed.requiresApproval || (parsed.channel === 'none' && !hasNonChannelAction)) {
           if (canLog) {
             await pool.query(
@@ -4308,6 +4568,81 @@ Return JSON only:
           }
         }
 
+        if (canCreateClient && Array.isArray(parsed.clients)) {
+          for (const clientInput of parsed.clients.slice(0, 3)) {
+            const createdClientId = await createAgentClientRecord(userId, clientInput);
+            executedTools.add('client.create');
+            concreteActions.push(`client:${createdClientId}`);
+          }
+        }
+
+        if (canTagClient && toStringList(parsed.clientTags).length > 0) {
+          const nextTags = await tagAgentClientRecord(userId, client.id, parsed.clientTags);
+          executedTools.add('client.tag');
+          concreteActions.push(`client-tags:${nextTags.join(',')}`);
+        }
+
+        if (canCreateLead && Array.isArray(parsed.leads)) {
+          for (const leadInput of parsed.leads.slice(0, 5)) {
+            const createdLeadId = await createAgentLeadRecord(userId, leadInput.clientId || client.id, leadInput);
+            executedTools.add('lead.create');
+            concreteActions.push(`lead:${createdLeadId}`);
+          }
+        }
+
+        if (canTagLead && toStringList(parsed.leadTags).length > 0) {
+          const candidateLeadIds = [
+            leadId,
+            payloadLeadId,
+            ...(Array.isArray(parsed.leadIds) ? parsed.leadIds : [])
+          ].filter(Boolean).map((id: any) => String(id));
+          if (candidateLeadIds.length === 0) {
+            const latestLead = await pool.query(
+              `SELECT id FROM deals WHERE user_id = $1 AND client_id = $2 ORDER BY updated_at DESC LIMIT 1`,
+              [userId, client.id]
+            );
+            if (latestLead.rows[0]?.id) candidateLeadIds.push(latestLead.rows[0].id);
+          }
+          for (const targetLeadId of Array.from(new Set(candidateLeadIds)).slice(0, 5)) {
+            const nextTags = await tagAgentLeadRecord(userId, targetLeadId, parsed.leadTags);
+            executedTools.add('lead.tag');
+            concreteActions.push(`lead-tags:${targetLeadId}:${nextTags.join(',')}`);
+          }
+        }
+
+        if ((canCreateProduct || canUpdateProduct) && Array.isArray(parsed.products)) {
+          for (const productInput of parsed.products.slice(0, 5)) {
+            const result = await createOrUpdateAgentProduct(userId, productInput, canCreateProduct);
+            executedTools.add(result.mode === 'created' ? 'product.create' : 'product.update');
+            concreteActions.push(`product-${result.mode}:${result.id}`);
+          }
+        }
+
+        if ((canCreateKnowledge || canUpdateKnowledge) && Array.isArray(parsed.knowledgeItems)) {
+          for (const knowledgeInput of parsed.knowledgeItems.slice(0, 5)) {
+            const result = await createOrUpdateAgentKnowledge(userId, knowledgeInput, llmConfig, canCreateKnowledge);
+            executedTools.add(result.mode === 'created' ? 'knowledge.create' : 'knowledge.update');
+            concreteActions.push(`knowledge-${result.mode}:${result.id}`);
+          }
+        }
+
+        if ((canTagEmail || canCommentEmail) && (toStringList(parsed.emailTags).length > 0 || String(parsed.emailComment || '').trim())) {
+          const targetEmailIds = Array.from(new Set([
+            ...emailIds.map((id: any) => String(id)),
+            ...emailsRes.rows.slice(0, 3).map((email: any) => String(email.id)).filter(Boolean)
+          ]));
+          const annotation = await annotateAgentEmail(
+            userId,
+            targetEmailIds,
+            canTagEmail ? parsed.emailTags : [],
+            canCommentEmail ? parsed.emailComment : '',
+            agent.name
+          );
+          if (annotation.tagged > 0) executedTools.add('email.tag');
+          if (annotation.commented > 0) executedTools.add('email.comment');
+          if (annotation.tagged > 0 || annotation.commented > 0) concreteActions.push(`email-annotations:${annotation.tagged}/${annotation.commented}`);
+        }
+
         if ((canTagConversation || canCommentConversation) && whatsappAddress) {
           const conversation = await upsertWhatsAppConversationAutomation(userId, client, whatsappAddress);
           if (conversation && canTagConversation && Array.isArray(parsed.conversationTags) && parsed.conversationTags.length > 0) {
@@ -4418,6 +4753,8 @@ Return JSON only:
     run.completedAt = new Date().toISOString();
     const actionLikeTools = new Set([
       'email.send', 'email.schedule', 'email.reply', 'whatsapp.send', 'quote.create', 'quote.update',
+      'email.tag', 'email.comment', 'product.create', 'product.update', 'knowledge.create', 'knowledge.update',
+      'client.create', 'client.tag', 'lead.create', 'lead.tag',
       'conversation.tag', 'conversation.comment', 'client.update', 'client.comment', 'client.log', 'client.stage',
       'lead.update', 'lead.comment', 'lead.log', 'lead.stage', 'lead.enrich'
     ]);

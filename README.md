@@ -307,6 +307,20 @@ Global Agent action types used by Agent Execution Policy:
 
 `create_lead_campaign`, `run_lead_campaign`, `create_followup_workflow`, `process_customer_reply`, `send_email`, `send_whatsapp`, `update_client_stage`, `add_client_comment`, `enrich_client_data`, `create_deal`, `create_quote`, `prioritize_leads`, `review_pipeline`.
 
+## Agent Tool Executor Roadmap
+
+Agent Harness now has concrete backend executors for non-delete write tools such as `email.tag`, `email.comment`, `product.create`, `product.update`, `knowledge.create`, `knowledge.update`, `client.create`, `client.tag`, `lead.create`, and `lead.tag`.
+
+The main remaining executor gaps are destructive delete/archive tools:
+
+- `email.delete`.
+- `product.delete`.
+- `knowledge.delete`.
+- `client.delete`.
+- `lead.delete`.
+
+These delete actions should be connected gradually with explicit risk checks, approval policy support, audit logs, and recovery or rollback rules.
+
 ## Lead Acquisition and Enrichment Channels
 
 The system can be configured to use these channels:
@@ -724,6 +738,20 @@ Agent Execution Policy 控制哪些动作可以自动执行，哪些必须审核
 Agent Execution Policy 使用的 Global Agent action type：
 
 `create_lead_campaign`, `run_lead_campaign`, `create_followup_workflow`, `process_customer_reply`, `send_email`, `send_whatsapp`, `update_client_stage`, `add_client_comment`, `enrich_client_data`, `create_deal`, `create_quote`, `prioritize_leads`, `review_pipeline`。
+
+## Agent 工具执行器路线图
+
+Agent Harness 目前已经为非删除类写入工具补充了具体后端执行器，包括 `email.tag`、`email.comment`、`product.create`、`product.update`、`knowledge.create`、`knowledge.update`、`client.create`、`client.tag`、`lead.create` 和 `lead.tag`。
+
+当前主要待补完整执行器为破坏性删除/归档类工具：
+
+- `email.delete`。
+- `product.delete`。
+- `knowledge.delete`。
+- `client.delete`。
+- `lead.delete`。
+
+这些删除动作后续应按风险和审批策略逐步接入，并配套审核策略、审计日志以及恢复或回滚规则。
 
 ## 获客与数据富集渠道
 
