@@ -2029,6 +2029,109 @@ No markdown wrappers, just valid JSON.`;
     throw new Error(`Unsupported outbox type for email.send: ${config.type || 'unknown'}`);
   };
 
+  const getNextQuoteNumber = async (userId: string, prefix = 'Q') => {
+    const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const quotePrefix = `${prefix}-${datePart}-`;
+    const result = await pool.query(`SELECT count(id) FROM quotes WHERE user_id = $1 AND quote_number LIKE $2`, [userId, `${quotePrefix}%`]);
+    const next = Number(result.rows[0]?.count || 0) + 1;
+    return `${quotePrefix}${String(next).padStart(3, '0')}`;
+  };
+
+  const upsertWhatsAppConversationAutomation = async (userId: string, client: any, phone: string) => {
+    const to = normalizeWhatsAppPhone(phone);
+    if (!to) return null;
+    const conversationId = `wac_${Buffer.from(`${userId}:${to}`).toString('base64url').slice(0, 48)}`;
+    const result = await pool.query(
+      `INSERT INTO whatsapp_conversations (id, user_id, target_phone, client_id, last_message_at, conversation_key)
+       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, $3)
+       ON CONFLICT (user_id, target_phone)
+       DO UPDATE SET
+         client_id = COALESCE(whatsapp_conversations.client_id, EXCLUDED.client_id),
+         updated_at = CURRENT_TIMESTAMP,
+         deleted_at = NULL
+       RETURNING *`,
+      [conversationId, userId, to, client?.id || null]
+    );
+    return result.rows[0];
+  };
+
+  const enrichClientFromConfiguredProvider = async (userId: string, settings: any, client: any) => {
+    const channelConfigs = settings.leadDataChannelConfigs || {};
+    const providers = Object.entries(channelConfigs)
+      .map(([provider, config]: [string, any]) => ({ provider, config }))
+      .filter(item => item.config?.enabled && item.config?.enrichEndpoint && item.config?.apiKey);
+    if (providers.length === 0) {
+      throw new Error('No configured enrichment provider is available for lead.enrich');
+    }
+    const { provider, config } = providers[0];
+    const leadPayload = {
+      id: client.id,
+      name: client.name,
+      company: client.company,
+      country: client.country,
+      address: client.address,
+      contactMethods: parseJsonArray(client.contact_methods),
+      contacts: parseJsonArray(client.contacts)
+    };
+    const enrichRes = await fetch(config.enrichEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.apiKey || ''}`,
+        'X-API-Key': config.apiKey || ''
+      },
+      body: JSON.stringify({ leads: [leadPayload], lead: leadPayload })
+    });
+    if (!enrichRes.ok) {
+      const errorText = await enrichRes.text();
+      throw new Error(`${provider} enrichment failed: ${errorText}`);
+    }
+    const data = await enrichRes.json();
+    const enriched = Array.isArray(data?.leads) ? data.leads[0] : Array.isArray(data?.data) ? data.data[0] : data?.lead || data;
+    if (!enriched || typeof enriched !== 'object') throw new Error(`${provider} enrichment returned no usable data`);
+
+    const nextContactMethods = [
+      ...parseJsonArray(client.contact_methods),
+      ...(Array.isArray(enriched.contactMethods) ? enriched.contactMethods : []),
+      ...(enriched.email ? [{ type: 'email', value: enriched.email }] : []),
+      ...(enriched.phone ? [{ type: 'phone', value: enriched.phone }] : []),
+      ...(enriched.whatsapp ? [{ type: 'whatsapp', value: enriched.whatsapp }] : [])
+    ].filter((method: any, index: number, arr: any[]) => {
+      const key = `${String(method.type || '').toLowerCase()}:${String(method.value || '').trim().toLowerCase()}`;
+      return method.value && arr.findIndex((item: any) => `${String(item.type || '').toLowerCase()}:${String(item.value || '').trim().toLowerCase()}` === key) === index;
+    });
+    const mergedTags = Array.from(new Set([
+      ...parseJsonArray(client.tags),
+      ...(Array.isArray(enriched.tags) ? enriched.tags : [])
+    ].map((tag: any) => String(tag).trim()).filter(Boolean)));
+    const descriptionParts = [
+      client.agent_summary || client.lead_summary || '',
+      enriched.description || enriched.summary || enriched.companyDescription || ''
+    ].filter(Boolean);
+    await pool.query(
+      `UPDATE clients
+       SET company = COALESCE($1, company),
+           address = COALESCE($2, address),
+           country = COALESCE($3, country),
+           contact_methods = $4,
+           tags = $5,
+           agent_summary = COALESCE(NULLIF($6, ''), agent_summary),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $7 AND user_id = $8`,
+      [
+        enriched.company || enriched.companyName || null,
+        enriched.address || enriched.location || null,
+        normalizeCrmCountry(enriched.country) || null,
+        JSON.stringify(nextContactMethods),
+        JSON.stringify(mergedTags),
+        descriptionParts.join('\n\n').slice(0, 3000),
+        client.id,
+        userId
+      ]
+    );
+    return { provider, enriched };
+  };
+
   const scheduleWhatsAppMessage = async (userId: string, payload: any) => {
     const id = `wa_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
     const to = normalizeWhatsAppPhone(payload.to);
@@ -3865,14 +3968,19 @@ No markdown wrappers, just valid JSON.`;
       return executeEmailDraftAgentRun(userId, settings, run, agent);
     }
     const canSendEmail = tools.includes('email.send');
+    const canScheduleEmail = tools.includes('email.schedule');
     const canSendWhatsApp = tools.includes('whatsapp.send');
     const canLog = tools.includes('client.log') || tools.includes('lead.log');
     const canUpdateClient = tools.includes('client.update') || tools.includes('lead.update');
+    const canCreateQuote = tools.includes('quote.create');
+    const canEnrichLead = tools.includes('lead.enrich');
+    const canTagConversation = tools.includes('conversation.tag');
+    const canCommentConversation = tools.includes('conversation.comment');
     const canAnalyze = tools.some((tool: string) => ['lead.analyze', 'lead.score', 'client.summarize', 'next_step.recommend', 'product.read', 'knowledge.search', 'knowledge.read'].includes(tool));
-    if (!canSendEmail && !canSendWhatsApp && !canLog && !canUpdateClient && canAnalyze) {
+    if (!canSendEmail && !canScheduleEmail && !canSendWhatsApp && !canLog && !canUpdateClient && !canCreateQuote && !canEnrichLead && !canTagConversation && !canCommentConversation && canAnalyze) {
       return executeInsightAgentRun(userId, settings, run, agent);
     }
-    if (!canSendEmail && !canSendWhatsApp && !canLog && !canUpdateClient) {
+    if (!canSendEmail && !canScheduleEmail && !canSendWhatsApp && !canLog && !canUpdateClient && !canCreateQuote && !canEnrichLead && !canTagConversation && !canCommentConversation) {
       throw new Error('Agent has no executable tools configured');
     }
 
@@ -4054,6 +4162,9 @@ ${buildLanguagePolicy({ systemLanguage: settings.language, customerLanguage: out
 - Internal CRM fields include clientNote, clientUpdate, nextAction, run summaries, skip reasons, and risk notes.
 - Customer-facing fields include emailSubject, emailBody, whatsappBody, quote/proposal text, and any message visible to the customer.
 - Do not duplicate prior outreach. If no useful ice-breaking action is appropriate, set channel to "none".
+- If email.schedule is allowed and delayed sending is better than immediate sending, set scheduledAt to an ISO timestamp.
+- If quote.create is allowed and a quote draft is useful, provide quote.items using product-backed line items when possible.
+- If conversation.tag or conversation.comment is allowed, provide WhatsApp conversation tags/comments only when they add useful operational context.
 - If sensitive promotion/complaint/legal-risk content would be needed, set requiresApproval true and do not produce send-ready content.
 - Keep email concise and professional. Keep WhatsApp natural and shorter.
 
@@ -4064,6 +4175,16 @@ Return JSON only:
   "emailSubject": "subject if email is needed",
   "emailBody": "HTML or plain text body if email is needed",
   "whatsappBody": "WhatsApp body if WhatsApp is needed",
+  "scheduledAt": "optional ISO timestamp for scheduled email",
+  "quote": {
+    "currency": "USD",
+    "paymentTerms": "optional payment terms",
+    "items": [{ "name": "product or service", "description": "optional", "quantity": 1, "unitPrice": 0, "notes": "optional" }],
+    "fees": [],
+    "comments": []
+  },
+  "conversationTags": ["optional WhatsApp conversation tags"],
+  "conversationComment": "optional internal WhatsApp conversation comment",
   "clientNote": "internal CRM note/log",
   "clientUpdate": { "status": "optional CRM status" },
   "requiresApproval": false,
@@ -4071,7 +4192,8 @@ Return JSON only:
 }`;
 
         const parsed = stripAgentJson(await callAI(prompt, llmConfig, true));
-        if (parsed.requiresApproval || parsed.channel === 'none') {
+        const hasNonChannelAction = canEnrichLead || canCreateQuote || canTagConversation || canCommentConversation || canLog || canUpdateClient;
+        if (parsed.requiresApproval || (parsed.channel === 'none' && !hasNonChannelAction)) {
           if (canLog) {
             await pool.query(
               `INSERT INTO logs (id, client_id, date, content, type, metadata)
@@ -4087,23 +4209,44 @@ Return JSON only:
         }
 
         const sent: string[] = [];
-        if (canSendEmail && ['email', 'both'].includes(parsed.channel) && parsed.emailBody && emailAddress) {
+        const concreteActions: string[] = [];
+        let updatedClient = false;
+        if (canEnrichLead) {
+          const enrichment = await enrichClientFromConfiguredProvider(userId, settings, client);
+          executedTools.add('lead.enrich');
+          concreteActions.push(`enriched:${enrichment.provider}`);
+        }
+        if ((canSendEmail || canScheduleEmail) && ['email', 'both'].includes(parsed.channel) && parsed.emailBody && emailAddress) {
           const emailId = `e${Date.now()}${Math.floor(Math.random() * 1000)}`;
           const emailSubject = parsed.emailSubject || `Hello from ${senderName}`;
-          await sendEmailViaOutboxConfig(outbox, {
-            sender,
-            senderName,
-            recipient: emailAddress,
-            subject: emailSubject,
-            html: parsed.emailBody
-          });
-          await pool.query(
-            `INSERT INTO emails (id, user_id, client_id, sender, sender_name, recipient, subject, body, date, read, type, outbox_config_id)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, 'sent', $10)`,
-            [emailId, userId, client.id, sender, senderName, emailAddress, emailSubject, parsed.emailBody, nowIso, outbox.id || null]
-          );
-          executedTools.add('email.send');
-          sent.push(`email:${emailAddress}`);
+          const scheduledAt = parsed.scheduledAt ? new Date(parsed.scheduledAt) : null;
+          const scheduleDate = scheduledAt && scheduledAt.getTime() > Date.now() + 30_000
+            ? scheduledAt
+            : (!canSendEmail && canScheduleEmail ? new Date(Date.now() + 15 * 60 * 1000) : null);
+          if (canScheduleEmail && scheduleDate) {
+            await pool.query(
+              `INSERT INTO emails (id, user_id, client_id, sender, sender_name, recipient, subject, body, date, scheduled_at, read, type, outbox_config_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, 'scheduled', $11)`,
+              [emailId, userId, client.id, sender, senderName, emailAddress, emailSubject, parsed.emailBody, nowIso, scheduleDate.toISOString(), outbox.id || null]
+            );
+            executedTools.add('email.schedule');
+            concreteActions.push(`scheduled-email:${emailAddress}`);
+          } else {
+            await sendEmailViaOutboxConfig(outbox, {
+              sender,
+              senderName,
+              recipient: emailAddress,
+              subject: emailSubject,
+              html: parsed.emailBody
+            });
+            await pool.query(
+              `INSERT INTO emails (id, user_id, client_id, sender, sender_name, recipient, subject, body, date, read, type, outbox_config_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, 'sent', $10)`,
+              [emailId, userId, client.id, sender, senderName, emailAddress, emailSubject, parsed.emailBody, nowIso, outbox.id || null]
+            );
+            executedTools.add('email.send');
+            sent.push(`email:${emailAddress}`);
+          }
         }
 
         if (canSendWhatsApp && ['whatsapp', 'both'].includes(parsed.channel) && parsed.whatsappBody && whatsappAddress) {
@@ -4117,7 +4260,119 @@ Return JSON only:
           sent.push(`whatsapp:${to}`);
         }
 
-        if (sent.length === 0) {
+        if (canCreateQuote) {
+          const quoteInput = parsed.quote && typeof parsed.quote === 'object' ? parsed.quote : {};
+          const rawItems = Array.isArray(quoteInput.items) ? quoteInput.items : [];
+          const fallbackProduct = productsRes.rows[0];
+          const quoteItems = (rawItems.length > 0 ? rawItems : fallbackProduct ? [{
+            name: fallbackProduct.name,
+            description: fallbackProduct.description || fallbackProduct.sales_points || '',
+            quantity: 1,
+            unitPrice: Number(Array.isArray(fallbackProduct.bulk_prices) ? fallbackProduct.bulk_prices[0]?.price : 0) || 0,
+            notes: fallbackProduct.sku ? `SKU: ${fallbackProduct.sku}` : ''
+          }] : []).map((item: any) => {
+            const quantity = Math.max(1, Number(item.quantity || 1));
+            const unitPrice = Math.max(0, Number(item.unitPrice || item.price || 0));
+            return {
+              name: String(item.name || item.productName || 'Product').slice(0, 255),
+              description: item.description || '',
+              quantity,
+              unitPrice,
+              total: quantity * unitPrice,
+              notes: item.notes || '',
+              isManualPrice: true
+            };
+          });
+          if (quoteItems.length > 0) {
+            const quoteId = `q${Date.now()}${Math.floor(Math.random() * 1000)}`;
+            const quoteNumber = quoteInput.quoteNumber || await getNextQuoteNumber(userId, 'AIQ');
+            await pool.query(
+              `INSERT INTO quotes (id, user_id, client_id, quote_number, currency, payment_terms, payment_term_id, advance_ratio, balance_ratio, status, items, fees, comments)
+               VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, 'Draft', $9, $10, $11)`,
+              [
+                quoteId,
+                userId,
+                client.id,
+                quoteNumber,
+                quoteInput.currency || 'USD',
+                quoteInput.paymentTerms || '',
+                Number(quoteInput.advanceRatio || 0),
+                Number(quoteInput.balanceRatio || 0),
+                JSON.stringify(quoteItems),
+                JSON.stringify(Array.isArray(quoteInput.fees) ? quoteInput.fees : []),
+                JSON.stringify(Array.isArray(quoteInput.comments) ? quoteInput.comments : [])
+              ]
+            );
+            executedTools.add('quote.create');
+            concreteActions.push(`quote:${quoteNumber}`);
+          }
+        }
+
+        if ((canTagConversation || canCommentConversation) && whatsappAddress) {
+          const conversation = await upsertWhatsAppConversationAutomation(userId, client, whatsappAddress);
+          if (conversation && canTagConversation && Array.isArray(parsed.conversationTags) && parsed.conversationTags.length > 0) {
+            const nextTags = Array.from(new Set([
+              ...parseJsonArray(conversation.tags),
+              ...parsed.conversationTags
+            ].map((tag: any) => String(tag).trim()).filter(Boolean)));
+            await pool.query(
+              `UPDATE whatsapp_conversations SET tags = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND user_id = $3`,
+              [JSON.stringify(nextTags), conversation.id, userId]
+            );
+            executedTools.add('conversation.tag');
+            concreteActions.push(`conversation-tags:${nextTags.join(',')}`);
+          }
+          if (conversation && canCommentConversation && String(parsed.conversationComment || '').trim()) {
+            const comment = {
+              id: `wac_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+              author: agent.name || 'Agent',
+              content: String(parsed.conversationComment).trim(),
+              createdAt: nowIso,
+              replies: []
+            };
+            await pool.query(
+              `UPDATE whatsapp_conversations
+               SET comments = COALESCE(comments, '[]'::jsonb) || $1::jsonb,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE id = $2 AND user_id = $3`,
+              [JSON.stringify([comment]), conversation.id, userId]
+            );
+            executedTools.add('conversation.comment');
+            concreteActions.push('conversation-comment');
+          }
+        }
+
+        if (canLog && sent.length === 0 && String(parsed.clientNote || parsed.nextAction || '').trim()) {
+          await pool.query(
+            `INSERT INTO logs (id, client_id, date, content, type, metadata)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [`l${Date.now()}${Math.floor(Math.random() * 1000)}`, client.id, nowIso, `Agent ${agent.id} note: ${parsed.clientNote || parsed.nextAction}`, 'general', JSON.stringify({ agentId: agent.id, action: 'internal_note' })]
+          );
+          if (tools.includes('client.log')) executedTools.add('client.log');
+          if (tools.includes('lead.log')) executedTools.add('lead.log');
+          if (tools.includes('client.comment')) executedTools.add('client.comment');
+          if (tools.includes('lead.comment')) executedTools.add('lead.comment');
+          concreteActions.push('internal-note');
+        }
+
+        if (canUpdateClient && parsed.clientUpdate?.status) {
+          const allowedStatuses = ['Leads', 'Contacted', 'Sample Sent', 'Negotiating', 'Closed Won'];
+          const statusUpdate = allowedStatuses.includes(parsed.clientUpdate.status) ? parsed.clientUpdate.status : null;
+          if (statusUpdate && statusUpdate !== client.status) {
+            await pool.query(
+              `UPDATE clients SET status = $1, last_contact = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
+              [statusUpdate, nowIso.slice(0, 10), client.id]
+            );
+            updatedClient = true;
+            if (tools.includes('client.update')) executedTools.add('client.update');
+            if (tools.includes('lead.update')) executedTools.add('lead.update');
+            if (tools.includes('client.stage')) executedTools.add('client.stage');
+            if (tools.includes('lead.stage')) executedTools.add('lead.stage');
+            concreteActions.push(`status:${statusUpdate}`);
+          }
+        }
+
+        if (sent.length === 0 && concreteActions.length === 0) {
           skipped += 1;
           details.push(isZh ? `${client.id}：未生成匹配渠道的内容。` : `${client.id}: no matching channel content generated.`);
           continue;
@@ -4127,7 +4382,7 @@ Return JSON only:
           await pool.query(
             `INSERT INTO logs (id, client_id, date, content, type, metadata)
              VALUES ($1, $2, $3, $4, $5, $6)`,
-            [`l${Date.now()}${Math.floor(Math.random() * 1000)}`, client.id, nowIso, `Agent ${agent.id} executed ice-breaking outreach via ${sent.join(', ')}. Language: ${parsed.language || outboundLanguage}. ${parsed.clientNote || parsed.nextAction || ''}`, sent.some(item => item.startsWith('whatsapp')) ? 'whatsapp' : 'email', JSON.stringify({ agentId: agent.id, sent, language: parsed.language || outboundLanguage })]
+            [`l${Date.now()}${Math.floor(Math.random() * 1000)}`, client.id, nowIso, `Agent ${agent.id} executed workflow actions: ${[...sent, ...concreteActions].join(', ')}. Language: ${parsed.language || outboundLanguage}. ${parsed.clientNote || parsed.nextAction || ''}`, sent.some(item => item.startsWith('whatsapp')) ? 'whatsapp' : sent.some(item => item.startsWith('email')) ? 'email' : 'general', JSON.stringify({ agentId: agent.id, sent, actions: concreteActions, language: parsed.language || outboundLanguage })]
           );
           if (tools.includes('client.log')) executedTools.add('client.log');
           if (tools.includes('lead.log')) executedTools.add('lead.log');
@@ -4135,7 +4390,7 @@ Return JSON only:
           if (tools.includes('lead.comment')) executedTools.add('lead.comment');
         }
 
-        if (canUpdateClient) {
+        if (canUpdateClient && !updatedClient) {
           const allowedStatuses = ['Leads', 'Contacted', 'Sample Sent', 'Negotiating', 'Closed Won'];
           const statusUpdate = allowedStatuses.includes(parsed.clientUpdate?.status) ? parsed.clientUpdate.status : (client.status === 'Leads' ? 'Contacted' : client.status);
           await pool.query(
@@ -4149,7 +4404,7 @@ Return JSON only:
         }
 
         acted += 1;
-        details.push(isZh ? `${client.id}：已发送 ${sent.join(', ')}。` : `${client.id}: sent ${sent.join(', ')}.`);
+        details.push(isZh ? `${client.id}：已执行 ${[...sent, ...concreteActions].join(', ')}。` : `${client.id}: executed ${[...sent, ...concreteActions].join(', ')}.`);
       } catch (error: any) {
         failed += 1;
         details.push(isZh ? `${client.id}：失败 - ${error?.message || '未知错误'}。` : `${client.id}: failed - ${error?.message || 'unknown error'}.`);
@@ -4163,7 +4418,8 @@ Return JSON only:
     run.completedAt = new Date().toISOString();
     const actionLikeTools = new Set([
       'email.send', 'email.schedule', 'email.reply', 'whatsapp.send', 'quote.create', 'quote.update',
-      'client.update', 'client.comment', 'client.log', 'client.stage', 'lead.update', 'lead.comment', 'lead.log', 'lead.stage'
+      'conversation.tag', 'conversation.comment', 'client.update', 'client.comment', 'client.log', 'client.stage',
+      'lead.update', 'lead.comment', 'lead.log', 'lead.stage', 'lead.enrich'
     ]);
     run.steps = (run.steps || []).map((step: any) => ({
       ...step,
