@@ -570,6 +570,21 @@ async function initDB() {
       CREATE INDEX IF NOT EXISTS idx_whatsapp_conversations_user_updated
       ON whatsapp_conversations (user_id, updated_at DESC);
 
+      CREATE TABLE IF NOT EXISTS whatsapp_contact_mappings (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        chat_id VARCHAR(255) NOT NULL,
+        phone VARCHAR(64) NOT NULL,
+        client_id VARCHAR(128) REFERENCES clients(id) ON DELETE SET NULL,
+        metadata JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, chat_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_whatsapp_contact_mappings_user_phone
+      ON whatsapp_contact_mappings (user_id, phone);
+
       -- Migrate existing clients to a default deal if none exist for that client
       INSERT INTO deals (id, user_id, client_id, name, status, created_at, updated_at)
       SELECT 
@@ -1587,9 +1602,25 @@ No markdown wrappers, just valid JSON.`;
     return isLikelyWhatsAppChatId(raw) ? raw : normalizeWhatsAppPhone(raw);
   };
 
-  const extractWhatsAppMessageIdentity = (message: any) => {
+  const findWhatsAppContactMapping = async (userId: string, chatId: string) => {
+    const raw = String(chatId || '').trim();
+    if (!raw) return null;
+    const result = await pool.query(
+      `SELECT chat_id, phone, client_id
+       FROM whatsapp_contact_mappings
+       WHERE user_id = $1 AND chat_id = $2
+       LIMIT 1`,
+      [userId, raw]
+    );
+    return result.rows[0] || null;
+  };
+
+  const extractWhatsAppMessageIdentity = async (userId: string, message: any) => {
     const rawChatId = String(message.raw_chat_id || message.chat_id || message.chatId || message.payload?.contact?.id || '').trim();
+    const mapping = await findWhatsAppContactMapping(userId, rawChatId);
     const contactPhone = normalizeWhatsAppPhone(
+      mapping?.phone
+      ||
       message.contact_phone
       || message.contactPhone
       || message.conversation_key
@@ -1661,7 +1692,7 @@ No markdown wrappers, just valid JSON.`;
   };
 
   const upsertWhatsAppMessage = async (userId: string, message: any) => {
-    const identity = extractWhatsAppMessageIdentity(message);
+    const identity = await extractWhatsAppMessageIdentity(userId, message);
     const targetPhone = identity.conversationKey;
     if (!targetPhone) return;
     const messageTime = message.created_at || message.received_at || new Date().toISOString();
@@ -1783,12 +1814,14 @@ No markdown wrappers, just valid JSON.`;
     const data = await callWhatsAppHub(userId, `/api/chats?limit=${Math.min(Math.max(limit, 1), 500)}`).catch(() => ({ chats: [] }));
     const chats = Array.isArray(data.chats) ? data.chats : [];
     for (const chat of chats) {
-      const conversationKey = normalizeWhatsAppConversationKey(chat.conversation_key || chat.conversation_id || chat.contact_phone || chat.chat_id);
+      const rawChatId = String(chat.raw_chat_id || chat.chat_id || '').trim();
+      const mapping = await findWhatsAppContactMapping(userId, rawChatId);
+      const conversationKey = normalizeWhatsAppConversationKey(mapping?.phone || chat.conversation_key || chat.conversation_id || chat.contact_phone || chat.chat_id);
       if (!conversationKey) continue;
-      const contactPhone = normalizeWhatsAppPhone(chat.contact_phone || (!isLikelyWhatsAppChatId(conversationKey) ? conversationKey : ''));
+      const contactPhone = normalizeWhatsAppPhone(mapping?.phone || chat.contact_phone || (!isLikelyWhatsAppChatId(conversationKey) ? conversationKey : ''));
       await ensureWhatsAppConversation(userId, conversationKey, null, chat.last_message_at || new Date().toISOString(), {
         contactPhone,
-        rawChatId: chat.raw_chat_id || chat.chat_id || '',
+        rawChatId,
         conversationKey,
         restoreDeleted: false
       });
@@ -2560,10 +2593,35 @@ No markdown wrappers, just valid JSON.`;
 
       const hubPayload: any = { phone, chatId };
       if (clientId) hubPayload.clientId = clientId;
-      const mappingResult = await callWhatsAppHub(req.user.uid, '/api/contact-mappings', {
-        method: 'PUT',
-        body: JSON.stringify(hubPayload)
-      });
+      let mappingResult: any = { phone, chatId, source: 'crm-local' };
+      try {
+        const hubResult = await callWhatsAppHub(req.user.uid, '/api/contact-mappings', {
+          method: 'PUT',
+          body: JSON.stringify(hubPayload)
+        });
+        mappingResult = hubResult.mapping || hubResult || mappingResult;
+      } catch (hubError: any) {
+        console.warn('WhatsApp Hub contact mapping update failed; keeping CRM-local mapping only:', hubError?.message || hubError);
+      }
+
+      await pool.query(
+        `INSERT INTO whatsapp_contact_mappings (id, user_id, chat_id, phone, client_id, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (user_id, chat_id)
+         DO UPDATE SET
+           phone = EXCLUDED.phone,
+           client_id = COALESCE(EXCLUDED.client_id, whatsapp_contact_mappings.client_id),
+           metadata = EXCLUDED.metadata,
+           updated_at = CURRENT_TIMESTAMP`,
+        [
+          `wamap_${Buffer.from(`${req.user.uid}:${chatId}`).toString('base64url').slice(0, 80)}`,
+          req.user.uid,
+          chatId,
+          phone,
+          clientId || null,
+          JSON.stringify({ hub: mappingResult, updatedBy: req.user.email || req.user.uid })
+        ]
+      );
 
       const existingByPhone = await ensureWhatsAppConversation(req.user.uid, phone, null, new Date().toISOString(), {
         contactPhone: phone,
@@ -2598,12 +2656,14 @@ No markdown wrappers, just valid JSON.`;
 
       await pool.query(
         `UPDATE whatsapp_messages
-         SET target_phone = $1,
+         SET conversation_id = $4,
+             target_phone = $1,
              contact_phone = $1,
              raw_chat_id = COALESCE(raw_chat_id, $2),
-             conversation_key = $1
+             conversation_key = $1,
+             client_id = COALESCE(client_id, $5)
          WHERE user_id = $3 AND (raw_chat_id = $2 OR target_phone = $2 OR conversation_key = $2 OR contact_phone = $1)`,
-        [phone, chatId, req.user.uid]
+        [phone, chatId, req.user.uid, existingByPhone.id, clientId || existingByPhone.clientId || null]
       );
       await pool.query(
         `UPDATE whatsapp_conversations
@@ -2611,10 +2671,11 @@ No markdown wrappers, just valid JSON.`;
              raw_chat_id = $2,
              conversation_key = $1,
              target_phone = $1,
+             client_id = COALESCE(client_id, $5),
              deleted_at = NULL,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $3 AND user_id = $4`,
-        [phone, chatId, existingByPhone.id, req.user.uid]
+        [phone, chatId, existingByPhone.id, req.user.uid, clientId || existingByPhone.clientId || null]
       );
 
       const refreshed = await pool.query(

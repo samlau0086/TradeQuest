@@ -954,7 +954,8 @@ export function Inbox() {
           {filteredWhatsAppConversations.map(conversation => {
             const displayPhone = conversation.contactPhone || conversation.targetPhone;
             const rawChatId = conversation.rawChatId || (/@(?:lid|c\.us|g\.us)$/i.test(conversation.targetPhone) ? conversation.targetPhone : '');
-            const needsPhoneMapping = !!rawChatId && !conversation.contactPhone;
+            const hasChatIdMapping = !!rawChatId;
+            const needsPhoneMapping = hasChatIdMapping && !conversation.contactPhone;
             const isEditingMapping = mappingEdit?.conversationId === conversation.id;
             const client = conversation.clientId ? clients.find(c => c.id === conversation.clientId) : matchWhatsAppClient(displayPhone);
             return (
@@ -995,16 +996,16 @@ export function Inbox() {
                   <div className="text-[10px] text-green-400 font-bold uppercase mb-1">
                     WhatsApp {conversation.lastDirection === 'outbound' ? 'sent' : 'inbox'}
                   </div>
-                  {(needsPhoneMapping || isEditingMapping) && (
+                  {(hasChatIdMapping || isEditingMapping) && (
                     <div
-                      className="mb-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2"
+                      className={cn("mb-2 rounded-lg border p-2", needsPhoneMapping ? "border-amber-500/30 bg-amber-500/10" : "border-slate-700 bg-slate-950/60")}
                       onClick={event => event.stopPropagation()}
                     >
-                      <div className="mb-1 text-[10px] font-bold uppercase text-amber-300">
-                        chatId needs phone mapping
+                      <div className={cn("mb-1 text-[10px] font-bold uppercase", needsPhoneMapping ? "text-amber-300" : "text-slate-400")}>
+                        {needsPhoneMapping ? 'chatId needs phone mapping' : 'chatId mapped to phone'}
                       </div>
                       <div className="mb-2 truncate text-[10px] text-slate-500" title={rawChatId}>
-                        {rawChatId}
+                        {rawChatId}{conversation.contactPhone ? ` -> ${conversation.contactPhone}` : ''}
                       </div>
                       {isEditingMapping ? (
                         <div className="flex items-center gap-2">
@@ -1034,10 +1035,10 @@ export function Inbox() {
                       ) : (
                         <button
                           type="button"
-                          onClick={() => setMappingEdit({ conversationId: conversation.id, chatId: rawChatId, phone: '' })}
-                          className="rounded border border-amber-500/40 px-2 py-1 text-[10px] font-bold text-amber-200 hover:bg-amber-500/20"
+                          onClick={() => setMappingEdit({ conversationId: conversation.id, chatId: rawChatId, phone: conversation.contactPhone || '' })}
+                          className={cn("rounded border px-2 py-1 text-[10px] font-bold", needsPhoneMapping ? "border-amber-500/40 text-amber-200 hover:bg-amber-500/20" : "border-slate-600 text-slate-300 hover:bg-slate-800")}
                         >
-                          Edit as phone
+                          {needsPhoneMapping ? 'Edit as phone' : 'Edit mapping'}
                         </button>
                       )}
                     </div>
