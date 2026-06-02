@@ -2593,16 +2593,11 @@ No markdown wrappers, just valid JSON.`;
 
       const hubPayload: any = { phone, chatId };
       if (clientId) hubPayload.clientId = clientId;
-      let mappingResult: any = { phone, chatId, source: 'crm-local' };
-      try {
-        const hubResult = await callWhatsAppHub(req.user.uid, '/api/contact-mappings', {
-          method: 'PUT',
-          body: JSON.stringify(hubPayload)
-        });
-        mappingResult = hubResult.mapping || hubResult || mappingResult;
-      } catch (hubError: any) {
-        console.warn('WhatsApp Hub contact mapping update failed; keeping CRM-local mapping only:', hubError?.message || hubError);
-      }
+      const hubResult = await callWhatsAppHub(req.user.uid, '/api/contact-mappings', {
+        method: 'PUT',
+        body: JSON.stringify(hubPayload)
+      });
+      const mappingResult: any = hubResult.mapping || hubResult || { phone, chatId };
 
       await pool.query(
         `INSERT INTO whatsapp_contact_mappings (id, user_id, chat_id, phone, client_id, metadata)
