@@ -445,6 +445,9 @@ export function ClientDetails() {
 
   const [confirmDeleteTarget, setConfirmDeleteTarget] = useState(false);
   const [eventView, setEventView] = useState<'timeline' | 'list' | 'growth'>('timeline');
+  const [timelineExpanded, setTimelineExpanded] = useState(false);
+  const [eventListExpanded, setEventListExpanded] = useState(false);
+  const [growthLogsExpanded, setGrowthLogsExpanded] = useState(false);
 
   // Agent State
   const [agentLoading, setAgentLoading] = useState(false);
@@ -470,6 +473,9 @@ export function ClientDetails() {
     }
     return true;
   });
+  const visibleTimelineLogs = timelineExpanded ? sortedLeadLogs : sortedLeadLogs.slice(0, 10);
+  const visibleEventListLogs = eventListExpanded ? sortedLeadLogs : sortedLeadLogs.slice(0, 20);
+  const visibleGrowthLogs = growthLogsExpanded ? growthLogs : growthLogs.slice(0, 10);
   const leadScore = leadRecord ? leadRecord.leadScore : client?.leadScore;
   const relatedQuotes = client
     ? quotes.filter(quote => leadRecord ? quote.leadId === leadRecord.id : quote.clientId === client.id)
@@ -813,7 +819,7 @@ export function ClientDetails() {
                   <div className="relative pl-6">
                     <div className="absolute bottom-2 left-[9px] top-2 w-px bg-slate-800" />
                     <div className="space-y-4">
-                      {sortedLeadLogs.map((log, index) => (
+                      {visibleTimelineLogs.map((log, index) => (
                         <div key={log.id} className="relative">
                           <div className={`absolute -left-[23px] top-1.5 flex h-5 w-5 items-center justify-center rounded-full border ${index === 0 ? 'border-cyan-400 bg-cyan-500/20' : 'border-slate-700 bg-slate-950'}`}>
                             <div className={`h-2 w-2 rounded-full ${index === 0 ? 'bg-cyan-300' : 'bg-slate-500'}`} />
@@ -837,11 +843,20 @@ export function ClientDetails() {
                           No timeline events yet.
                         </div>
                       )}
+                      {sortedLeadLogs.length > 10 && (
+                        <button
+                          type="button"
+                          onClick={() => setTimelineExpanded(prev => !prev)}
+                          className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs font-bold text-cyan-300 transition-colors hover:bg-cyan-500/20"
+                        >
+                          {timelineExpanded ? 'Show less' : `Expand to more (${sortedLeadLogs.length - 10})`}
+                        </button>
+                      )}
                     </div>
                   </div>
                 ) : eventView === 'list' ? (
                   <div className="grid gap-3 md:grid-cols-2">
-                    {sortedLeadLogs.map(log => (
+                    {visibleEventListLogs.map(log => (
                       <div key={log.id} className="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
                         <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 mb-2">
                           <Clock3 className="w-3.5 h-3.5" />
@@ -860,10 +875,19 @@ export function ClientDetails() {
                         No events yet.
                       </div>
                     )}
+                    {sortedLeadLogs.length > 20 && (
+                      <button
+                        type="button"
+                        onClick={() => setEventListExpanded(prev => !prev)}
+                        className="md:col-span-2 w-max rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs font-bold text-cyan-300 transition-colors hover:bg-cyan-500/20"
+                      >
+                        {eventListExpanded ? 'Show less' : `Expand to more (${sortedLeadLogs.length - 20})`}
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {growthLogs.map(log => (
+                    {visibleGrowthLogs.map(log => (
                       <div key={log.id} className="group rounded-lg border border-slate-800 bg-slate-900/70 p-4">
                         <div className="mb-2 flex items-start justify-between gap-3">
                           <time className="text-[11px] font-medium text-slate-500">
@@ -908,6 +932,15 @@ export function ClientDetails() {
                       <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-6 text-center text-sm text-slate-500">
                         No growth logs yet.
                       </div>
+                    )}
+                    {growthLogs.length > 10 && (
+                      <button
+                        type="button"
+                        onClick={() => setGrowthLogsExpanded(prev => !prev)}
+                        className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs font-bold text-cyan-300 transition-colors hover:bg-cyan-500/20"
+                      >
+                        {growthLogsExpanded ? 'Show less' : `Expand to more (${growthLogs.length - 10})`}
+                      </button>
                     )}
                   </div>
                 )}
