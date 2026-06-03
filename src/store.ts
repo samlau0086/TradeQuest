@@ -107,6 +107,7 @@ export interface Quote {
   id: string;
   quoteNumber: string;
   clientId: string | null;
+  leadId?: string | null;
   currency?: string;
   paymentTerms: string;
   paymentTermId?: string;

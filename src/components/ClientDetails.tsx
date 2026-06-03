@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useStore, ClientStatus, Client, ContactMethod, Comment } from '../store';
 import { useAuthStore } from '../authStore';
-import { X, Thermometer, Flame, Snowflake, Sparkles, Send, Loader2, Workflow, History, Mail, MessageCircle, Phone, Edit, Trash2, Paperclip, MessageSquare, Settings, Globe2, ArrowLeft, Building2, MapPin, BadgeDollarSign, Tag, Clock3, CheckCircle2 } from 'lucide-react';
+import { X, Thermometer, Flame, Snowflake, Sparkles, Send, Loader2, Workflow, History, Mail, MessageCircle, Phone, Edit, Trash2, Paperclip, MessageSquare, Settings, Globe2, ArrowLeft, Building2, MapPin, BadgeDollarSign, Tag, Clock3, CheckCircle2, FileText } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ClientFormModal } from './ClientFormModal';
 
@@ -25,6 +25,7 @@ import { ComposeEmail } from './Inbox';
 import { WhatsAppChatModal } from './WhatsAppChatModal';
 import { getCustomerOutputLanguage } from '../lib/language';
 import { buildLeadScoringSignature } from '../lib/leadScoring';
+import { formatCurrency } from '../lib/currency';
 
 function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { method: ContactMethod, client: Client, onClose: () => void, onOpenEmailCompose?: (email: string) => void }) {
   const [purpose, setPurpose] = useState('');
@@ -415,7 +416,7 @@ function AgentSettingsModal({ client, onClose }: { client: Client, onClose: () =
 }
 
 export function ClientDetails() {
-  const { clients, deals, selectedClientId, selectedDealId, selectClient, selectDeal, updateClientStatus, updateDeal, deleteClient, editClient, addComment, addReply, deleteLog, llmConfigs, activeLLMId, llmMappings, setView, selectEmail, logs, emails, incrementAgentHubTaskCount, notify, language } = useStore();
+  const { clients, deals, quotes, selectedClientId, selectedDealId, selectClient, selectDeal, updateClientStatus, updateDeal, deleteClient, editClient, addComment, addReply, deleteLog, llmConfigs, activeLLMId, llmMappings, setView, selectEmail, logs, emails, incrementAgentHubTaskCount, notify, language, currencyRates } = useStore();
   
   const getLLMConfig = (module: string) => {
     const id = llmMappings[module] || activeLLMId;
@@ -470,6 +471,13 @@ export function ClientDetails() {
     return true;
   });
   const leadScore = leadRecord ? leadRecord.leadScore : client?.leadScore;
+  const relatedQuotes = client
+    ? quotes.filter(quote => leadRecord ? quote.leadId === leadRecord.id : quote.clientId === client.id)
+    : [];
+  const openQuote = (quoteId: string) => {
+    localStorage.setItem('tradequest:openQuoteId', quoteId);
+    setView('quotes');
+  };
   const summaryText = leadRecord
     ? leadRecord.leadSummary
     : (client?.agentSummary || client?.leadSummary);
@@ -971,6 +979,46 @@ export function ClientDetails() {
                       <div className="text-sm text-slate-300 leading-relaxed">{client.agentContext || summaryText || 'No description yet.'}</div>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
+                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+                  <FileText className="w-4 h-4" /> Quotes
+                </h3>
+                <div className="space-y-2">
+                  {relatedQuotes.map(quote => {
+                    const subtotal = quote.items.reduce((sum, item) => sum + (item.total || item.quantity * item.unitPrice || 0), 0);
+                    const feesTotal = quote.fees.reduce((sum, fee) => sum + (fee.amount || 0), 0);
+                    return (
+                      <button
+                        key={quote.id}
+                        type="button"
+                        onClick={() => openQuote(quote.id)}
+                        className="w-full rounded-lg border border-slate-800 bg-slate-900/60 p-3 text-left transition-colors hover:border-indigo-500/50 hover:bg-slate-900"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-mono text-sm font-bold text-slate-100">{quote.quoteNumber}</span>
+                          <span className="rounded border border-slate-700 bg-slate-950 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-400">
+                            {quote.status}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex items-center justify-between gap-3 text-xs">
+                          <span className="text-slate-500">
+                            {quote.leadId && leadRecord ? leadRecord.name : (leadRecord ? 'Client quote' : 'Client quote')}
+                          </span>
+                          <span className="font-bold text-indigo-300">
+                            {formatCurrency(subtotal + feesTotal, quote.currency || 'USD', currencyRates)}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {relatedQuotes.length === 0 && (
+                    <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-500">
+                      {leadRecord ? 'No quotes linked to this lead yet.' : 'No quotes linked to this client yet.'}
+                    </div>
+                  )}
                 </div>
               </div>
 

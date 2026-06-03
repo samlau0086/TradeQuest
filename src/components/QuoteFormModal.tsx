@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useStore, Quote, QuoteItem, QuoteFee } from '../store';
 import { useTranslation } from '../lib/i18n';
-import { X, Plus, Trash2 } from 'lucide-react';
+import { X, Plus, Trash2, Search, ChevronDown } from 'lucide-react';
 import { formatCurrency, normalizeCurrency } from '../lib/currency';
 
 interface QuoteFormModalProps {
@@ -11,13 +11,96 @@ interface QuoteFormModalProps {
   onSave?: (id: string) => void;
 }
 
+function SearchSelect({
+  label,
+  value,
+  options,
+  placeholder,
+  emptyLabel,
+  onChange
+}: {
+  label: string;
+  value: string;
+  options: { id: string; label: string; sublabel?: string }[];
+  placeholder: string;
+  emptyLabel: string;
+  onChange: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const selected = options.find(option => option.id === value);
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return options.slice(0, 8);
+    return options.filter(option => `${option.label} ${option.sublabel || ''}`.toLowerCase().includes(q)).slice(0, 8);
+  }, [options, query]);
+
+  return (
+    <div className="space-y-1 relative">
+      <label className="text-xs font-bold text-slate-400 uppercase">{label}</label>
+      <button
+        type="button"
+        onClick={() => setOpen(prev => !prev)}
+        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-left text-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 flex items-center justify-between gap-2"
+      >
+        <span className={selected ? 'truncate' : 'truncate text-slate-500'}>{selected?.label || placeholder}</span>
+        <ChevronDown className="h-4 w-4 text-slate-500 shrink-0" />
+      </button>
+      {open && (
+        <div className="absolute z-50 mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 shadow-2xl overflow-hidden">
+          <div className="relative border-b border-slate-800">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+            <input
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder={placeholder}
+              className="w-full bg-transparent py-2 pl-9 pr-3 text-sm text-slate-200 outline-none"
+              autoFocus
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              onChange('');
+              setQuery('');
+              setOpen(false);
+            }}
+            className="w-full px-3 py-2 text-left text-sm text-slate-500 hover:bg-slate-900"
+          >
+            {emptyLabel}
+          </button>
+          <div className="max-h-56 overflow-y-auto">
+            {filtered.map(option => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => {
+                  onChange(option.id);
+                  setQuery('');
+                  setOpen(false);
+                }}
+                className="w-full px-3 py-2 text-left hover:bg-slate-900"
+              >
+                <div className="truncate text-sm font-medium text-slate-200">{option.label}</div>
+                {option.sublabel && <div className="truncate text-xs text-slate-500">{option.sublabel}</div>}
+              </button>
+            ))}
+            {filtered.length === 0 && <div className="px-3 py-3 text-center text-xs text-slate-500">No matches</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function QuoteFormModal({ onClose, quoteId, initialData, onSave }: QuoteFormModalProps) {
-  const { quotes, clients, products, addQuote, updateQuote, language, paymentTerms: configuredPaymentTerms, notify, currencyRates, defaultQuoteCurrency } = useStore();
+  const { quotes, clients, deals, products, addQuote, updateQuote, language, paymentTerms: configuredPaymentTerms, notify, currencyRates, defaultQuoteCurrency } = useStore();
   const t = useTranslation(language);
   const existingQuote = quoteId ? quotes.find(q => q.id === quoteId) : null;
 
   const [quoteNumber, setQuoteNumber] = useState(existingQuote?.quoteNumber || initialData?.quoteNumber || '');
   const [clientId, setClientId] = useState(existingQuote?.clientId || initialData?.clientId || '');
+  const [leadId, setLeadId] = useState(existingQuote?.leadId || initialData?.leadId || '');
   const [paymentTerms, setPaymentTerms] = useState(existingQuote?.paymentTerms || initialData?.paymentTerms || '');
   const [paymentTermId, setPaymentTermId] = useState(existingQuote?.paymentTermId || initialData?.paymentTermId || '');
   const [advanceRatio, setAdvanceRatio] = useState(existingQuote?.advanceRatio || initialData?.advanceRatio || 0);
@@ -31,6 +114,26 @@ export function QuoteFormModal({ onClose, quoteId, initialData, onSave }: QuoteF
   const [fees, setFees] = useState<QuoteFee[]>(
     existingQuote?.fees || initialData?.fees || []
   );
+
+  const clientOptions = useMemo(() => clients.map(c => ({
+    id: c.id,
+    label: c.company || c.name,
+    sublabel: [c.name !== (c.company || c.name) ? c.name : '', c.country].filter(Boolean).join(' · ')
+  })), [clients]);
+  const leadOptions = useMemo(() => deals.map(deal => {
+    const client = clients.find(c => c.id === deal.clientId);
+    return {
+      id: deal.id,
+      label: deal.name || `${client?.company || client?.name || 'Lead'} - ${deal.status}`,
+      sublabel: [client?.company || client?.name, deal.status, deal.value ? formatCurrency(Number(deal.value), currency, currencyRates) : ''].filter(Boolean).join(' · ')
+    };
+  }), [clients, currency, currencyRates, deals]);
+
+  const handleLeadChange = (nextLeadId: string) => {
+    setLeadId(nextLeadId);
+    const selectedLead = deals.find(deal => deal.id === nextLeadId);
+    if (selectedLead?.clientId) setClientId(selectedLead.clientId);
+  };
 
   useEffect(() => {
     if (!existingQuote && !quoteNumber) {
@@ -55,6 +158,7 @@ export function QuoteFormModal({ onClose, quoteId, initialData, onSave }: QuoteF
     const quoteData = {
       quoteNumber,
       clientId: clientId || null,
+      leadId: leadId || null,
       currency,
       paymentTerms,
       paymentTermId,
@@ -175,20 +279,32 @@ export function QuoteFormModal({ onClose, quoteId, initialData, onSave }: QuoteF
         </div>
 
         <div className="p-6 overflow-y-auto space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
             <div className="space-y-1">
               <label className="text-xs font-bold text-slate-400 uppercase">{t('quoteNoReq')}</label>
               <input value={quoteNumber} onChange={e => setQuoteNumber(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-400 uppercase">{t('client')}</label>
-              <select value={clientId} onChange={e => setClientId(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
-                <option value="">{t('generalQuote')}</option>
-                {clients.map(c => (
-                  <option key={c.id} value={c.id}>{c.company || c.name}</option>
-                ))}
-              </select>
-            </div>
+            <SearchSelect
+              label={language === 'zh' ? '关联 Lead' : 'Related Lead'}
+              value={leadId}
+              options={leadOptions}
+              placeholder={language === 'zh' ? '搜索 Lead...' : 'Search leads...'}
+              emptyLabel={language === 'zh' ? '不关联 Lead' : 'No related lead'}
+              onChange={handleLeadChange}
+            />
+            <SearchSelect
+              label={t('client')}
+              value={clientId}
+              options={clientOptions}
+              placeholder={language === 'zh' ? '搜索客户...' : 'Search clients...'}
+              emptyLabel={t('generalQuote')}
+              onChange={(nextClientId) => {
+                setClientId(nextClientId);
+                if (!nextClientId) setLeadId('');
+                const selectedLead = deals.find(deal => deal.id === leadId);
+                if (selectedLead && selectedLead.clientId !== nextClientId) setLeadId('');
+              }}
+            />
             <div className="space-y-1">
               <label className="text-xs font-bold text-slate-400 uppercase">Status</label>
               <select value={status} onChange={e => setStatus(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">

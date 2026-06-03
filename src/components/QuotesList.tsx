@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useStore } from '../store';
 import { useTranslation } from '../lib/i18n';
 import { FileText, Plus, Search, Download, Edit2, Trash2 } from 'lucide-react';
@@ -28,6 +28,14 @@ export function QuotesList({ embedded = false }: QuotesListProps) {
     setEditQuoteId(id);
     setShowModal(true);
   };
+
+  useEffect(() => {
+    const quoteId = localStorage.getItem('tradequest:openQuoteId');
+    if (quoteId && quotes.some(quote => quote.id === quoteId)) {
+      localStorage.removeItem('tradequest:openQuoteId');
+      handleEdit(quoteId);
+    }
+  }, [quotes]);
 
   const handleDelete = (id: string) => {
     setDeleteId(id);

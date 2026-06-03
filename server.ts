@@ -458,6 +458,7 @@ async function initDB() {
         id VARCHAR(128) PRIMARY KEY,
         user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
         client_id VARCHAR(128) REFERENCES clients(id) ON DELETE SET NULL,
+        lead_id VARCHAR(128) REFERENCES deals(id) ON DELETE SET NULL,
         quote_number VARCHAR(255) NOT NULL,
         currency VARCHAR(16) DEFAULT 'USD',
         payment_terms TEXT,
@@ -473,6 +474,7 @@ async function initDB() {
       );
 
       ALTER TABLE quotes ADD COLUMN IF NOT EXISTS payment_term_id VARCHAR(128);
+      ALTER TABLE quotes ADD COLUMN IF NOT EXISTS lead_id VARCHAR(128) REFERENCES deals(id) ON DELETE SET NULL;
       ALTER TABLE quotes ADD COLUMN IF NOT EXISTS currency VARCHAR(16) DEFAULT 'USD';
       ALTER TABLE quotes ADD COLUMN IF NOT EXISTS advance_ratio NUMERIC(5,2) DEFAULT 0;
       ALTER TABLE quotes ADD COLUMN IF NOT EXISTS balance_ratio NUMERIC(5,2) DEFAULT 0;
@@ -5624,7 +5626,7 @@ Return JSON only:
       
       const row = result.rows[0];
       res.json({
-        id: row.id, quoteNumber: row.quote_number, clientId: row.client_id, currency: row.currency || 'USD', paymentTerms: row.payment_terms,
+        id: row.id, quoteNumber: row.quote_number, clientId: row.client_id, leadId: row.lead_id, currency: row.currency || 'USD', paymentTerms: row.payment_terms,
         status: row.status, items: row.items, fees: row.fees, comments: row.comments, createdAt: row.created_at, updatedAt: row.updated_at,
         clientName: row.client_name, clientCompany: row.client_company, clientContactMethods: row.client_contact_methods,
         userName: row.user_name, userEmail: row.user_email
@@ -5638,7 +5640,7 @@ Return JSON only:
     try {
       const result = await pool.query('SELECT * FROM quotes WHERE user_id = $1 ORDER BY created_at DESC', [req.user.uid]);
       res.json(result.rows.map(row => ({
-        id: row.id, quoteNumber: row.quote_number, clientId: row.client_id, currency: row.currency || 'USD', paymentTerms: row.payment_terms,
+        id: row.id, quoteNumber: row.quote_number, clientId: row.client_id, leadId: row.lead_id, currency: row.currency || 'USD', paymentTerms: row.payment_terms,
         paymentTermId: row.payment_term_id, advanceRatio: row.advance_ratio ? parseFloat(row.advance_ratio) : 0, balanceRatio: row.balance_ratio ? parseFloat(row.balance_ratio) : 0,
         status: row.status, items: row.items, fees: row.fees, comments: row.comments, createdAt: row.created_at, updatedAt: row.updated_at
       })));
@@ -5649,11 +5651,11 @@ Return JSON only:
 
   app.post('/api/quotes', authenticateToken, async (req: any, res) => {
     try {
-      const { id, quoteNumber, clientId, currency, paymentTerms, paymentTermId, advanceRatio, balanceRatio, status, items, fees, comments } = req.body;
+      const { id, quoteNumber, clientId, leadId, currency, paymentTerms, paymentTermId, advanceRatio, balanceRatio, status, items, fees, comments } = req.body;
       const result = await pool.query(
-        `INSERT INTO quotes (id, user_id, client_id, quote_number, currency, payment_terms, payment_term_id, advance_ratio, balance_ratio, status, items, fees, comments)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
-        [id, req.user.uid, clientId || null, quoteNumber, currency || 'USD', paymentTerms, paymentTermId || null, advanceRatio || 0, balanceRatio || 0, status, JSON.stringify(items || []), JSON.stringify(fees || []), JSON.stringify(comments || [])]
+        `INSERT INTO quotes (id, user_id, client_id, lead_id, quote_number, currency, payment_terms, payment_term_id, advance_ratio, balance_ratio, status, items, fees, comments)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
+        [id, req.user.uid, clientId || null, leadId || null, quoteNumber, currency || 'USD', paymentTerms, paymentTermId || null, advanceRatio || 0, balanceRatio || 0, status, JSON.stringify(items || []), JSON.stringify(fees || []), JSON.stringify(comments || [])]
       );
       const pointsAdded = Math.max(0, await getGlobalSettingNumber('point_event_create_quote', 8));
       await adjustUserPoints(req.user.uid, pointsAdded, 'Created quote', 'create_quote', id, { quoteId: id, clientId: clientId || null });
@@ -5665,10 +5667,10 @@ Return JSON only:
 
   app.patch('/api/quotes/:id', authenticateToken, async (req: any, res) => {
     try {
-      const { quoteNumber, clientId, currency, paymentTerms, paymentTermId, advanceRatio, balanceRatio, status, items, fees, comments } = req.body;
+      const { quoteNumber, clientId, leadId, currency, paymentTerms, paymentTermId, advanceRatio, balanceRatio, status, items, fees, comments } = req.body;
       const updates = []; const values = []; let idx = 1;
-      const mapping = { quoteNumber: 'quote_number', clientId: 'client_id', currency: 'currency', paymentTerms: 'payment_terms', paymentTermId: 'payment_term_id', advanceRatio: 'advance_ratio', balanceRatio: 'balance_ratio', status: 'status', items: 'items', fees: 'fees', comments: 'comments' };
-      for (const [k, v] of Object.entries({ quoteNumber, clientId, currency, paymentTerms, paymentTermId, advanceRatio, balanceRatio, status, items, fees, comments })) {
+      const mapping = { quoteNumber: 'quote_number', clientId: 'client_id', leadId: 'lead_id', currency: 'currency', paymentTerms: 'payment_terms', paymentTermId: 'payment_term_id', advanceRatio: 'advance_ratio', balanceRatio: 'balance_ratio', status: 'status', items: 'items', fees: 'fees', comments: 'comments' };
+      for (const [k, v] of Object.entries({ quoteNumber, clientId, leadId, currency, paymentTerms, paymentTermId, advanceRatio, balanceRatio, status, items, fees, comments })) {
         if (v !== undefined) {
           updates.push(`${mapping[k as keyof typeof mapping]} = $${idx++}`);
           values.push(k === 'items' || k === 'fees' || k === 'comments' ? JSON.stringify(v) : v);
