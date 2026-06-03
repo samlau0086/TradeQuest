@@ -157,7 +157,7 @@ function getInboxFilterForEmail(email: EmailMessage): 'inbox' | 'sent' | 'schedu
 }
 
 export function Inbox() {
-  const { emails, markEmailRead, clients, logs, deals, knowledgeBase, products, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail, notify, language, llmConfigs, activeLLMId, llmMappings } = useStore();
+  const { emails, markEmailRead, clients, logs, deals, knowledgeBase, products, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail, notify, language, llmConfigs, activeLLMId, llmMappings, inboxFollowUpFilterRequest } = useStore();
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'inbox-layout' });
   const [filter, setFilter] = useState<'inbox' | 'sent' | 'scheduled' | 'drafts'>('inbox');
   const [channelFilter, setChannelFilter] = useState<'all' | 'email' | 'whatsapp'>('all');
@@ -262,6 +262,20 @@ export function Inbox() {
   useEffect(() => {
     void loadWhatsAppConversations();
   }, []);
+
+  useEffect(() => {
+    if (!inboxFollowUpFilterRequest) return;
+    setFilter('inbox');
+    setChannelFilter('all');
+    setEmailListMode('list');
+    setFollowUpOnly(true);
+    clearBulkSelection();
+    setIsComposing(false);
+    setIsStartingWhatsApp(false);
+    setSelectedWhatsAppPhone(null);
+    setSelectedWhatsAppClientId(null);
+    selectEmail(null);
+  }, [inboxFollowUpFilterRequest]);
 
   useEffect(() => {
     const poll = window.setInterval(() => {

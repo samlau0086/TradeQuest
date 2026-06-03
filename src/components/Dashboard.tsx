@@ -401,7 +401,7 @@ function ContributionHeatmap({
 }
 
 export function Dashboard() {
-  const { userExp, userLevel, userTitle, currentStreak, dailyQuests, expLogs, setView, skipQuest, language, emails, clients, deals, quotes, logs, publicClients, fetchPublicClients, llmConfigs, activeLLMId, llmMappings, notify } = useStore();
+  const { userExp, userLevel, userTitle, currentStreak, dailyQuests, expLogs, setView, openInboxFollowUps, skipQuest, language, emails, clients, deals, quotes, logs, publicClients, fetchPublicClients, llmConfigs, activeLLMId, llmMappings, notify } = useStore();
   const { profile, token } = useAuthStore();
   const t = useTranslation(language);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
@@ -821,6 +821,29 @@ export function Dashboard() {
             <MetricCard icon={<Mail className="w-5 h-5" />} label={t('Unread Emails')} value={operations.emailRows[0].value} subtext={t('{count} open follow-up todos').replace('{count}', String(operations.openTodos))} tone={operations.emailRows[0].value > 0 ? 'amber' : 'cyan'} />
             <MetricCard icon={<Users className="w-5 h-5" />} label={t('Public Pool')} value={publicClients.length} subtext={t('{count} public pool leads').replace('{count}', String(publicClients.length))} tone="rose" />
           </div>
+
+          <button
+            type="button"
+            onClick={openInboxFollowUps}
+            className="w-full rounded-2xl border border-emerald-900/40 bg-emerald-950/20 p-4 text-left shadow-sm transition-colors hover:border-emerald-500/50 hover:bg-emerald-950/30"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-emerald-900/40 bg-emerald-950/40 text-emerald-300">
+                  <Clock className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="text-sm font-black text-slate-100">{language === 'zh' ? '待跟进入口' : 'Follow-up Inbox'}</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {language === 'zh' ? '查看所有已设置待跟进的邮件和 WhatsApp 对话。' : 'Open all email and WhatsApp conversations with follow-up reminders.'}
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-200">
+                {operations.openTodos} {language === 'zh' ? '封邮件待跟进' : 'email todos'}
+              </div>
+            </div>
+          </button>
 
           <ContributionHeatmap days={operations.contributionDays} total={operations.contributionTotal} t={t} />
 

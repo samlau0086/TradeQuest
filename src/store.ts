@@ -755,6 +755,8 @@ export interface StoreState {
   
   view: ViewMode;
   setView: (view: ViewMode, options?: { replace?: boolean; skipUrl?: boolean }) => void;
+  inboxFollowUpFilterRequest: number;
+  openInboxFollowUps: () => void;
   
   kanbanSearch: string;
   setKanbanSearch: (search: string) => void;
@@ -1901,6 +1903,14 @@ export const useStore = create<StoreState>((set, get) => ({
   setView: (view, options) => {
     if (!options?.skipUrl) syncViewToUrl(view, { replace: options?.replace });
     set({ view });
+  },
+  inboxFollowUpFilterRequest: 0,
+  openInboxFollowUps: () => {
+    syncViewToUrl('inbox');
+    set((state) => ({
+      view: 'inbox',
+      inboxFollowUpFilterRequest: state.inboxFollowUpFilterRequest + 1
+    }));
   },
 
   kanbanSearch: '',
