@@ -1366,14 +1366,14 @@ Return only the message text.`,
             <button
               type="button"
               onClick={() => setWhatsAppOutboundAutoTranslateEnabled(autoTranslateKey, !whatsappOutboundAutoTranslateEnabled)}
-              className={`relative h-6 w-11 rounded-full border transition-colors ${
+              className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors ${
                 whatsappOutboundAutoTranslateEnabled
                   ? 'border-cyan-500/50 bg-cyan-500/30'
                   : 'border-slate-700 bg-slate-900'
               }`}
               title={language === 'zh' ? `仅为 ${displayPhone} 保存发送前翻译开关` : `Save translate-before-send for ${displayPhone}`}
             >
-              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${whatsappOutboundAutoTranslateEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+              <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${whatsappOutboundAutoTranslateEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
             </button>
           </div>
           <div className="flex gap-3">
