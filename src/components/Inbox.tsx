@@ -166,6 +166,10 @@ export function Inbox() {
   const [syncError, setSyncError] = useState<string | null>(null);
   const syncInFlightRef = useRef(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectedWhatsAppIds, setSelectedWhatsAppIds] = useState<Set<string>>(new Set());
+  const [bulkTagInput, setBulkTagInput] = useState('');
+  const [bulkNoteInput, setBulkNoteInput] = useState('');
+  const [bulkFollowUpAt, setBulkFollowUpAt] = useState('');
   const [expandedTrackingEmailIds, setExpandedTrackingEmailIds] = useState<Set<string>>(new Set());
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [todoModalEmail, setTodoModalEmail] = useState<string | null>(null);
@@ -417,6 +421,17 @@ export function Inbox() {
     }));
   }, [filteredEmails, clients]);
 
+  const visibleEmailIds = channelFilter !== 'whatsapp' ? filteredEmails.map(email => email.id) : [];
+  const visibleWhatsAppIds = channelFilter !== 'email' && filter === 'inbox' ? filteredWhatsAppConversations.map(conversation => conversation.id) : [];
+  const selectedCount = selectedIds.size + selectedWhatsAppIds.size;
+  const visibleCount = visibleEmailIds.length + visibleWhatsAppIds.length;
+  const allVisibleSelected = visibleCount > 0
+    && visibleEmailIds.every(id => selectedIds.has(id))
+    && visibleWhatsAppIds.every(id => selectedWhatsAppIds.has(id));
+  const someVisibleSelected = visibleEmailIds.some(id => selectedIds.has(id)) || visibleWhatsAppIds.some(id => selectedWhatsAppIds.has(id));
+  const selectedWhatsAppConversations = whatsappConversations.filter(conversation => selectedWhatsAppIds.has(conversation.id));
+  const whatsappFollowUpMarker = '__FOLLOW_UP__';
+
   const toggleSelection = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     const newSet = new Set(selectedIds);
@@ -425,25 +440,157 @@ export function Inbox() {
     setSelectedIds(newSet);
   };
 
+  const toggleWhatsAppSelection = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    const next = new Set(selectedWhatsAppIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedWhatsAppIds(next);
+  };
+
   const toggleSelectAll = () => {
-    if (selectedIds.size === filteredEmails.length && filteredEmails.length > 0) {
+    if (allVisibleSelected) {
       setSelectedIds(new Set());
+      setSelectedWhatsAppIds(new Set());
     } else {
-      setSelectedIds(new Set(filteredEmails.map(e => e.id)));
+      setSelectedIds(new Set(visibleEmailIds));
+      setSelectedWhatsAppIds(new Set(visibleWhatsAppIds));
     }
   };
 
+  const clearBulkSelection = () => {
+    setSelectedIds(new Set());
+    setSelectedWhatsAppIds(new Set());
+  };
+
+  const patchWhatsAppConversation = async (conversation: InboxWhatsAppConversation, updates: any) => {
+    const res = await fetch(`/api/whatsapp-hub/conversations/${conversation.id}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify(updates)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Failed to update WhatsApp conversation.');
+    return data.conversation || { ...conversation, ...updates };
+  };
+
+  const addWhatsAppConversationComment = async (conversation: InboxWhatsAppConversation, content: string) => {
+    const res = await fetch(`/api/whatsapp-hub/conversations/${conversation.id}/comments`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify({ content })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Failed to add WhatsApp comment.');
+    return data.comments || [...(conversation.comments || []), data.comment].filter(Boolean);
+  };
+
   const handleDeleteSelected = () => {
-    if (selectedIds.size === 0) return;
+    if (selectedCount === 0) return;
     setConfirmDialog({
-      message: `Are you sure you want to delete ${selectedIds.size} email(s)? Emails associated with a client will be soft-deleted pending admin review.`,
+      message: `Are you sure you want to delete ${selectedIds.size} email(s) and ${selectedWhatsAppIds.size} WhatsApp conversation(s)? Emails associated with a client will be soft-deleted pending admin review.`,
       onConfirm: async () => {
-        await useStore.getState().deleteEmails(Array.from(selectedIds));
-        setSelectedIds(new Set());
+        const emailIds = Array.from(selectedIds);
+        const whatsappIds = Array.from(selectedWhatsAppIds);
+        if (emailIds.length > 0) await useStore.getState().deleteEmails(emailIds);
+        for (const id of whatsappIds) {
+          const res = await fetch(`/api/whatsapp-hub/conversations/${encodeURIComponent(id)}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || 'Failed to delete WhatsApp conversation.');
+        }
+        updateWhatsAppConversationState(whatsappConversations.filter(conversation => !selectedWhatsAppIds.has(conversation.id)));
+        clearBulkSelection();
         if (selectedEmailId && selectedIds.has(selectedEmailId)) selectEmail(null);
+        if (activeWhatsAppConversation && selectedWhatsAppIds.has(activeWhatsAppConversation.id)) setSelectedWhatsAppPhone(null);
         setConfirmDialog(null);
+        notify('Selected conversations deleted.', 'success');
       }
     });
+  };
+
+  const handleBulkAddTag = async () => {
+    const tag = bulkTagInput.trim().replace(/^#/, '');
+    if (!tag || selectedCount === 0) return;
+    const normalizedTag = `#${tag}`;
+    selectedIds.forEach(id => {
+      const email = emails.find(item => item.id === id);
+      if (!email) return;
+      const tags = Array.from(new Set([...(email.tags || []), normalizedTag]));
+      editEmail(id, { tags });
+    });
+    const updatedWhatsApp = [...whatsappConversations];
+    for (const conversation of selectedWhatsAppConversations) {
+      const nextTags = Array.from(new Set([...(conversation.tags || []), tag]));
+      await patchWhatsAppConversation(conversation, { tags: nextTags });
+      const index = updatedWhatsApp.findIndex(item => item.id === conversation.id);
+      if (index >= 0) updatedWhatsApp[index] = { ...updatedWhatsApp[index], tags: nextTags };
+    }
+    updateWhatsAppConversationState(updatedWhatsApp);
+    setBulkTagInput('');
+    notify('Tag added to selected items.', 'success');
+  };
+
+  const handleBulkMarkImportant = async () => {
+    if (selectedCount === 0) return;
+    selectedIds.forEach(id => editEmail(id, { isImportant: true }));
+    const updatedWhatsApp = [...whatsappConversations];
+    for (const conversation of selectedWhatsAppConversations) {
+      const nextTags = Array.from(new Set([...(conversation.tags || []), 'important']));
+      await patchWhatsAppConversation(conversation, { tags: nextTags });
+      const index = updatedWhatsApp.findIndex(item => item.id === conversation.id);
+      if (index >= 0) updatedWhatsApp[index] = { ...updatedWhatsApp[index], tags: nextTags };
+    }
+    updateWhatsAppConversationState(updatedWhatsApp);
+    notify('Selected items marked important.', 'success');
+  };
+
+  const handleBulkAddComment = async () => {
+    const content = bulkNoteInput.trim();
+    if (!content || selectedCount === 0) return;
+    selectedIds.forEach(id => addEmailComment(id, content));
+    const updatedWhatsApp = [...whatsappConversations];
+    for (const conversation of selectedWhatsAppConversations) {
+      const comments = await addWhatsAppConversationComment(conversation, content);
+      const index = updatedWhatsApp.findIndex(item => item.id === conversation.id);
+      if (index >= 0) updatedWhatsApp[index] = { ...updatedWhatsApp[index], comments };
+    }
+    updateWhatsAppConversationState(updatedWhatsApp);
+    setBulkNoteInput('');
+    notify('Internal comment added to selected items.', 'success');
+  };
+
+  const handleBulkSetFollowUp = async () => {
+    if (!bulkFollowUpAt || selectedCount === 0) return;
+    const dueAt = new Date(bulkFollowUpAt).toISOString();
+    selectedIds.forEach(id => {
+      const email = emails.find(item => item.id === id);
+      editEmail(id, {
+        todoAt: dueAt,
+        todoNote: bulkNoteInput.trim() || `Follow up: ${email?.subject || email?.sender || id}`
+      });
+    });
+    const updatedWhatsApp = [...whatsappConversations];
+    for (const conversation of selectedWhatsAppConversations) {
+      const comments = await addWhatsAppConversationComment(conversation, `${whatsappFollowUpMarker}${JSON.stringify({
+        status: 'open',
+        dueAt,
+        note: bulkNoteInput.trim() || `Follow up WhatsApp conversation with ${conversation.clientName || conversation.targetPhone}.`
+      })}`);
+      const index = updatedWhatsApp.findIndex(item => item.id === conversation.id);
+      if (index >= 0) updatedWhatsApp[index] = { ...updatedWhatsApp[index], comments };
+    }
+    updateWhatsAppConversationState(updatedWhatsApp);
+    setBulkFollowUpAt('');
+    notify('Follow-up reminder set for selected items.', 'success');
   };
 
   const handleSync = async (options: { silent?: boolean } = {}) => {
@@ -929,29 +1076,75 @@ export function Inbox() {
         </div>
         
         <div className="flex-1 overflow-y-auto scrollbar-thin pb-48">
-          {filteredEmails.length > 0 && (
-            <div className="flex items-center justify-between p-2 px-4 border-b border-slate-800 bg-slate-900/50 text-xs text-slate-400">
-              <div className="flex items-center gap-2">
-                <input 
-                  type="checkbox"
-                  checked={selectedIds.size === filteredEmails.length && filteredEmails.length > 0}
-                  ref={input => {
-                    if (input) {
-                      input.indeterminate = selectedIds.size > 0 && selectedIds.size < filteredEmails.length;
-                    }
-                  }}
-                  onChange={toggleSelectAll}
-                  className="rounded border-slate-700 bg-slate-800 text-cyan-500 focus:ring-cyan-500"
-                />
-                <span>Select All</span>
+          {visibleCount > 0 && (
+            <div className="p-3 px-4 border-b border-slate-800 bg-slate-900/70 text-xs text-slate-400 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    ref={input => {
+                      if (input) input.indeterminate = someVisibleSelected && !allVisibleSelected;
+                    }}
+                    onChange={toggleSelectAll}
+                    className="rounded border-slate-700 bg-slate-800 text-cyan-500 focus:ring-cyan-500"
+                  />
+                  <span>Select All</span>
+                </label>
+                {selectedCount > 0 && (
+                  <div className="flex items-center gap-2">
+                    <span>Selected {selectedCount}</span>
+                    <button onClick={clearBulkSelection} className="text-slate-300 hover:text-white">Clear</button>
+                  </div>
+                )}
               </div>
-              {selectedIds.size > 0 && (
-                <button 
-                  onClick={handleDeleteSelected}
-                  className="px-2 py-1 bg-red-900/30 text-red-400 border border-red-900/50 hover:bg-red-900/60 rounded flex items-center gap-1 transition-colors"
-                >
-                  <Trash2 className="w-3.5 h-3.5" /> Delete
-                </button>
+              {selectedCount > 0 && (
+                <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-2 space-y-2">
+                  <div className="grid grid-cols-1 gap-2">
+                    <div className="flex gap-2">
+                      <input
+                        value={bulkTagInput}
+                        onChange={event => setBulkTagInput(event.target.value)}
+                        onKeyDown={event => { if (event.key === 'Enter') void handleBulkAddTag(); }}
+                        placeholder="Tag"
+                        className="min-w-0 flex-1 rounded border border-slate-800 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-cyan-500"
+                      />
+                      <button onClick={handleBulkAddTag} disabled={!bulkTagInput.trim()} className="inline-flex items-center gap-1 rounded border border-cyan-500/40 bg-cyan-500/10 px-2 py-1.5 font-bold text-cyan-200 hover:bg-cyan-500/20 disabled:border-slate-700 disabled:text-slate-500">
+                        <Tag className="h-3.5 w-3.5" /> Add Tag
+                      </button>
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        value={bulkNoteInput}
+                        onChange={event => setBulkNoteInput(event.target.value)}
+                        onKeyDown={event => { if (event.key === 'Enter') void handleBulkAddComment(); }}
+                        placeholder="Internal note"
+                        className="min-w-0 flex-1 rounded border border-slate-800 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-cyan-500"
+                      />
+                      <button onClick={handleBulkAddComment} disabled={!bulkNoteInput.trim()} className="inline-flex items-center gap-1 rounded border border-blue-500/40 bg-blue-500/10 px-2 py-1.5 font-bold text-blue-200 hover:bg-blue-500/20 disabled:border-slate-700 disabled:text-slate-500">
+                        <MessageSquare className="h-3.5 w-3.5" /> Note
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <input
+                        type="datetime-local"
+                        value={bulkFollowUpAt}
+                        min={new Date().toISOString().slice(0, 16)}
+                        onChange={event => setBulkFollowUpAt(event.target.value)}
+                        className="min-w-[170px] flex-1 rounded border border-slate-800 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500"
+                      />
+                      <button onClick={handleBulkSetFollowUp} disabled={!bulkFollowUpAt} className="inline-flex items-center gap-1 rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-1.5 font-bold text-emerald-200 hover:bg-emerald-500/20 disabled:border-slate-700 disabled:text-slate-500">
+                        <CalendarClock className="h-3.5 w-3.5" /> Follow-up
+                      </button>
+                      <button onClick={handleBulkMarkImportant} className="inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 font-bold text-amber-200 hover:bg-amber-500/20">
+                        <Star className="h-3.5 w-3.5" /> Important
+                      </button>
+                      <button onClick={handleDeleteSelected} className="inline-flex items-center gap-1 rounded border border-red-500/40 bg-red-500/10 px-2 py-1.5 font-bold text-red-200 hover:bg-red-500/20">
+                        <Trash2 className="h-3.5 w-3.5" /> Delete
+                      </button>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
           )}
@@ -970,6 +1163,17 @@ export function Inbox() {
                   selectedWhatsAppPhone === conversation.targetPhone ? "bg-green-950/20" : "hover:bg-slate-800/30"
                 )}
               >
+                <div
+                  className={cn("pt-0.5 transition-opacity", selectedWhatsAppIds.has(conversation.id) ? "opacity-100" : "opacity-0 group-hover:opacity-100")}
+                  onClick={(e) => toggleWhatsAppSelection(e, conversation.id)}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedWhatsAppIds.has(conversation.id)}
+                    onChange={() => {}}
+                    className="rounded border-slate-700 bg-slate-800 text-green-500 focus:ring-green-500"
+                  />
+                </div>
                 <div className="pt-0.5 flex-shrink-0">
                   <div className="w-7 h-7 rounded-full bg-green-950/50 border border-green-900/60 flex items-center justify-center">
                     <MessageCircle className="w-4 h-4 text-green-400" />
@@ -984,6 +1188,9 @@ export function Inbox() {
                       <span className="text-[10px] text-slate-500">
                         {conversation.lastMessageAt ? new Date(conversation.lastMessageAt).toLocaleDateString() : 'WhatsApp'}
                       </span>
+                      {(conversation.tags || []).includes('important') && (
+                        <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                      )}
                       <button
                         type="button"
                         onClick={(e) => {
