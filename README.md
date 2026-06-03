@@ -321,6 +321,10 @@ The main remaining executor gaps are destructive delete/archive tools:
 
 These delete actions should be connected gradually with explicit risk checks, approval policy support, audit logs, and recovery or rollback rules.
 
+Additional roadmap items:
+
+- Telegram Bot intelligent customer service: integrate Telegram Bot as a customer-service channel, support AI-powered auto-replies, conversation history, customer/lead linking, and human takeover so an operator can pause AI handling and continue the conversation manually.
+
 ## Lead Acquisition and Enrichment Channels
 
 The system can be configured to use these channels:
@@ -752,6 +756,10 @@ Agent Harness 目前已经为非删除类写入工具补充了具体后端执行
 - `lead.delete`。
 
 这些删除动作后续应按风险和审批策略逐步接入，并配套审核策略、审计日志以及恢复或回滚规则。
+
+其他路线图事项：
+
+- Telegram Bot 智能客服：接入 Telegram Bot 作为客户服务渠道，支持 AI 自动回复、会话记录、客户/Lead 关联，以及人工接管；人工接管后可暂停 AI 处理，由运营人员手动继续对话。
 
 ## 获客与数据富集渠道
 
