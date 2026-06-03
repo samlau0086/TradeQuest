@@ -15,6 +15,7 @@ export interface Deal {
   value: number;
   status: ClientStatus;
   comments?: Comment[];
+  productIds?: string[];
   leadScore?: number;
   leadSummary?: string;
   leadNextStep?: string;
@@ -192,6 +193,7 @@ export interface Client {
   contactMethods?: ContactMethod[];
   contacts?: ClientContact[];
   primaryContactId?: string;
+  productIds?: string[];
   comments?: Comment[];
   pendingEditRequest?: boolean;
   deletedBy?: string;

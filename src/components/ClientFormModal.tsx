@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore, Client, ClientStatus, ContactMethod, ClientContact } from '../store';
-import { X, Plus, Trash2, ChevronDown, Clock } from 'lucide-react';
+import { X, Plus, Trash2, ChevronDown, Clock, Package, Search } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useTranslation } from '../lib/i18n';
 
@@ -57,7 +57,7 @@ interface ClientFormModalProps {
 }
 
 export function ClientFormModal({ onClose, clientId, initialData, onSave, isPublicPool }: ClientFormModalProps) {
-  const { clients, addClient, editClient, importPublicLeads, language } = useStore();
+  const { clients, products, fetchProducts, addClient, editClient, importPublicLeads, language } = useStore();
   const t = useTranslation(language);
   const existingClient = clientId ? clients.find(c => c.id === clientId) : null;
 
@@ -80,6 +80,9 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
   const languageControlRef = useRef<HTMLDivElement>(null);
   const [languageDropdownRect, setLanguageDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const [preferredTimeRange, setPreferredTimeRange] = useState(existingClient?.preferredTimeRange || initialData?.preferredTimeRange || '');
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>(existingClient?.productIds || initialData?.productIds || []);
+  const [productSearch, setProductSearch] = useState('');
+  const [isProductSearchOpen, setIsProductSearchOpen] = useState(false);
   const [contactMethods, setContactMethods] = useState<ContactMethod[]>(existingClient?.contactMethods || initialData?.contactMethods || [{ type: 'email', value: '' }]);
   const buildInitialContacts = (): ClientContact[] => {
     const sourceContacts = existingClient?.contacts || initialData?.contacts || [];
@@ -111,6 +114,21 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
 
   const [isApplyMode, setIsApplyMode] = useState(false);
   const [activeTab, setActiveTab] = useState<'basic' | 'preferences' | 'contacts'>('basic');
+  const selectedProducts = products.filter(product => selectedProductIds.includes(product.id));
+  const productSearchTerm = productSearch.trim().toLowerCase();
+  const filteredProducts = products
+    .filter(product => !selectedProductIds.includes(product.id))
+    .filter(product => {
+      if (!productSearchTerm) return true;
+      return [product.name, product.sku, product.description, product.salesPoints]
+        .filter(Boolean)
+        .some(value => String(value).toLowerCase().includes(productSearchTerm));
+    })
+    .slice(0, 8);
+
+  useEffect(() => {
+    if (products.length === 0) fetchProducts();
+  }, [products.length, fetchProducts]);
 
   useEffect(() => {
     setContacts(prev => {
@@ -126,6 +144,7 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
     const handleClick = () => {
       setIsCountryOpen(false);
       setIsLanguageOpen(false);
+      setIsProductSearchOpen(false);
     };
     window.addEventListener('click', handleClick);
     return () => window.removeEventListener('click', handleClick);
@@ -201,6 +220,7 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
       contactMethods: validContactMethods,
       contacts: contactsWithPrimary,
       primaryContactId: primaryContact?.id,
+      productIds: selectedProductIds,
     };
 
     if (existingClient) {
@@ -236,6 +256,16 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
 
   const removeContactMethod = (index: number) => {
     setContactMethods(contactMethods.filter((_, i) => i !== index));
+  };
+
+  const addProduct = (productId: string) => {
+    setSelectedProductIds(prev => prev.includes(productId) ? prev : [...prev, productId]);
+    setProductSearch('');
+    setIsProductSearchOpen(false);
+  };
+
+  const removeProduct = (productId: string) => {
+    setSelectedProductIds(prev => prev.filter(id => id !== productId));
   };
 
   const isLocked = (val: string | undefined) => !!existingClient && !!val && !isApplyMode;
@@ -452,6 +482,55 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
             <div className="space-y-1">
               <label className="text-xs font-bold text-slate-400 uppercase">{t('tagsLabel')}</label>
               <input value={tags} onChange={e => setTags(e.target.value)} type="text" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500" placeholder="#HighValue, #CantonFair" />
+            </div>
+            <div className="space-y-1 relative" onClick={e => e.stopPropagation()}>
+              <label className="text-xs font-bold text-slate-400 uppercase">{language === 'zh' ? '关联产品' : 'Related Products'}</label>
+              <div className="min-h-[42px] rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 focus-within:border-cyan-500 focus-within:ring-1 focus-within:ring-cyan-500">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {selectedProducts.map(product => (
+                    <span key={product.id} className="inline-flex max-w-full items-center gap-1 rounded-md border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-xs font-medium text-cyan-200">
+                      <Package className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{product.name}</span>
+                      <button type="button" onClick={() => removeProduct(product.id)} className="text-cyan-300 hover:text-white">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                  <div className="relative min-w-[160px] flex-1">
+                    <Search className="pointer-events-none absolute left-1 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+                    <input
+                      value={productSearch}
+                      onChange={e => {
+                        setProductSearch(e.target.value);
+                        setIsProductSearchOpen(true);
+                      }}
+                      onFocus={() => setIsProductSearchOpen(true)}
+                      className="w-full bg-transparent py-1 pl-6 pr-2 text-sm text-slate-200 outline-none placeholder-slate-500"
+                      placeholder={selectedProductIds.length ? (language === 'zh' ? '继续搜索产品...' : 'Search more products...') : (language === 'zh' ? '搜索并选择多个产品...' : 'Search and select products...')}
+                    />
+                  </div>
+                </div>
+              </div>
+              {isProductSearchOpen && (
+                <div className="absolute z-[70] mt-2 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-700 bg-slate-800 py-1 shadow-2xl">
+                  {filteredProducts.length > 0 ? filteredProducts.map(product => (
+                    <button
+                      key={product.id}
+                      type="button"
+                      onClick={() => addProduct(product.id)}
+                      className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-slate-700"
+                    >
+                      <Package className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" />
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium text-slate-100">{product.name}</span>
+                        <span className="block truncate text-xs text-slate-400">{product.sku || product.salesPoints || product.description || 'No SKU'}</span>
+                      </span>
+                    </button>
+                  )) : (
+                    <div className="px-3 py-2 text-xs text-slate-500">{language === 'zh' ? '没有匹配的产品' : 'No matching products'}</div>
+                  )}
+                </div>
+              )}
             </div>
             <div className="space-y-1 relative" onClick={e => e.stopPropagation()}>
               <label className="text-xs font-bold text-slate-400 uppercase">Preferred Language {isLocked(existingClient?.preferredLanguage) && <span className="text-[10px] text-slate-500 ml-1">(Locked)</span>}</label>

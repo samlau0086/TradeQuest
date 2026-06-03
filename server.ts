@@ -310,6 +310,7 @@ async function initDB() {
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS preferred_time_range VARCHAR(255);
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS contacts JSONB DEFAULT '[]'::jsonb;
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS primary_contact_id VARCHAR(128);
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS product_ids JSONB DEFAULT '[]'::jsonb;
       UPDATE clients
       SET country = 'United States'
       WHERE LOWER(TRIM(COALESCE(country, ''))) IN ('us', 'usa', 'u.s.', 'u.s.a.', 'united states of america', 'america');
@@ -438,6 +439,7 @@ async function initDB() {
       ALTER TABLE deals ADD COLUMN IF NOT EXISTS lead_scoring_analyzed_at TIMESTAMP WITH TIME ZONE;
       ALTER TABLE deals ADD COLUMN IF NOT EXISTS pending_delete BOOLEAN DEFAULT FALSE;
       ALTER TABLE deals ADD COLUMN IF NOT EXISTS pending_edit_request BOOLEAN DEFAULT FALSE;
+      ALTER TABLE deals ADD COLUMN IF NOT EXISTS product_ids JSONB DEFAULT '[]'::jsonb;
 
       CREATE TABLE IF NOT EXISTS products (
         id VARCHAR(128) PRIMARY KEY,
@@ -2524,8 +2526,8 @@ ${JSON.stringify(productsRes.rows.map((product: any) => ({
       country: normalizeCrmCountry(input.country) || input.country || input.contactInfo?.country
     };
     await pool.query(
-      `INSERT INTO deals (id, user_id, client_id, name, value, status, contact_info, comments, lead_score, lead_summary, lead_next_step, lead_scoring_signature, lead_scoring_analyzed_at)
-       VALUES ($1, $2, $3, $4, $5, COALESCE($6, 'Leads'), $7, $8, $9, $10, $11, NULL, NULL)
+      `INSERT INTO deals (id, user_id, client_id, name, value, status, contact_info, comments, lead_score, lead_summary, lead_next_step, lead_scoring_signature, lead_scoring_analyzed_at, product_ids)
+       VALUES ($1, $2, $3, $4, $5, COALESCE($6, 'Leads'), $7, $8, $9, $10, $11, NULL, NULL, $12)
        ON CONFLICT (id) DO NOTHING`,
       [
         id,
@@ -2538,7 +2540,8 @@ ${JSON.stringify(productsRes.rows.map((product: any) => ({
         JSON.stringify(Array.isArray(input.comments) ? input.comments : []),
         Number.isFinite(Number(input.leadScore)) ? Number(input.leadScore) : null,
         input.leadSummary || null,
-        input.leadNextStep || null
+        input.leadNextStep || null,
+        JSON.stringify(Array.isArray(input.productIds) ? input.productIds : [])
       ]
     );
     await triggerAgentHubEvent(userId, 'lead_created', {
@@ -5909,6 +5912,7 @@ Return JSON only:
         leadNextStep: row.lead_next_step,
         leadScoringSignature: row.lead_scoring_signature,
         leadScoringAnalyzedAt: row.lead_scoring_analyzed_at,
+        productIds: row.product_ids || [],
         contactInfo: row.contact_info,
         createdAt: row.created_at,
         updatedAt: row.updated_at
@@ -5921,11 +5925,11 @@ Return JSON only:
 
   app.post('/api/deals', authenticateToken, async (req: any, res) => {
     try {
-      const { id, clientId, name, value, status, contactInfo, comments, leadScore, leadSummary, leadNextStep, leadScoringSignature, leadScoringAnalyzedAt } = req.body;
+      const { id, clientId, name, value, status, contactInfo, comments, productIds, leadScore, leadSummary, leadNextStep, leadScoringSignature, leadScoringAnalyzedAt } = req.body;
       const result = await pool.query(
-        `INSERT INTO deals (id, user_id, client_id, name, value, status, contact_info, comments, lead_score, lead_summary, lead_next_step, lead_scoring_signature, lead_scoring_analyzed_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
-        [id, req.user.uid, clientId || null, name, value || 0, status || 'Leads', contactInfo || {}, comments || [], leadScore ?? null, leadSummary || null, leadNextStep || null, leadScoringSignature || null, leadScoringAnalyzedAt || null]
+        `INSERT INTO deals (id, user_id, client_id, name, value, status, contact_info, comments, product_ids, lead_score, lead_summary, lead_next_step, lead_scoring_signature, lead_scoring_analyzed_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
+        [id, req.user.uid, clientId || null, name, value || 0, status || 'Leads', contactInfo || {}, comments || [], JSON.stringify(productIds || []), leadScore ?? null, leadSummary || null, leadNextStep || null, leadScoringSignature || null, leadScoringAnalyzedAt || null]
       );
       await triggerAgentHubEvent(req.user.uid, 'lead_created', {
         leadId: id,
@@ -5946,7 +5950,7 @@ Return JSON only:
   app.patch('/api/deals/:id', authenticateToken, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const { status, name, value, contactInfo, clientId, comments, leadScore, leadSummary, leadNextStep, leadScoringSignature, leadScoringAnalyzedAt } = req.body;
+      const { status, name, value, contactInfo, clientId, comments, productIds, leadScore, leadSummary, leadNextStep, leadScoringSignature, leadScoringAnalyzedAt } = req.body;
       
       const updates: string[] = [];
       const values: any[] = [];
@@ -5975,6 +5979,10 @@ Return JSON only:
       if (comments !== undefined) {
         updates.push(`comments = $${idx++}`);
         values.push(comments);
+      }
+      if (productIds !== undefined) {
+        updates.push(`product_ids = $${idx++}`);
+        values.push(JSON.stringify(productIds));
       }
       if (leadScore !== undefined) {
         updates.push(`lead_score = $${idx++}`);
@@ -6581,10 +6589,10 @@ Query: "${query}"`;
 
       const id = `c${Date.now()}${Math.floor(Math.random() * 1000)}`;
       await pool.query(
-        `INSERT INTO clients (id, user_id, name, company, address, state, city, country, status, tags, last_contact, is_dormant, contact_methods, contacts, primary_contact_id, comments)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
-        [id, null, lead.name, lead.company || '', lead.address || '', lead.state || '', lead.city || '', normalizeCrmCountry(lead.country) || '', 'Leads', JSON.stringify(lead.tags || []), null, false, JSON.stringify(lead.contactMethods || []), JSON.stringify(lead.contacts || []), lead.primaryContactId || null, JSON.stringify(lead.comments || [])]
-      );
+        `INSERT INTO clients (id, user_id, name, company, address, state, city, country, status, tags, last_contact, is_dormant, contact_methods, contacts, primary_contact_id, product_ids, comments)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+          [id, null, lead.name, lead.company || '', lead.address || '', lead.state || '', lead.city || '', normalizeCrmCountry(lead.country) || '', 'Leads', JSON.stringify(lead.tags || []), null, false, JSON.stringify(lead.contactMethods || []), JSON.stringify(lead.contacts || []), lead.primaryContactId || null, JSON.stringify(lead.productIds || []), JSON.stringify(lead.comments || [])]
+        );
       addedCount += 1;
     }
     return addedCount;
@@ -7158,6 +7166,7 @@ Return JSON only:
         contactMethods: row.contact_methods,
         contacts: row.contacts,
         primaryContactId: row.primary_contact_id,
+        productIds: row.product_ids || [],
         comments: row.comments,
         pendingEditRequest: row.pending_edit_request,
         deletedBy: row.deleted_by,
@@ -7197,6 +7206,7 @@ Return JSON only:
         contactMethods: row.contact_methods,
         contacts: row.contacts,
         primaryContactId: row.primary_contact_id,
+        productIds: row.product_ids || [],
         comments: row.comments,
         pendingEditRequest: row.pending_edit_request,
         deletedBy: row.deleted_by,
@@ -7337,7 +7347,7 @@ Return JSON only:
 
   app.post('/api/clients', authenticateToken, async (req: any, res) => {
     try {
-      const { id, name, company, country, status, tags, lastContact, isDormant, contactMethods, contacts, primaryContactId, comments } = req.body;
+      const { id, name, company, country, status, tags, lastContact, isDormant, contactMethods, contacts, primaryContactId, comments, productIds } = req.body;
       
       const incomingMethods = [
         ...(contactMethods || []),
@@ -7365,9 +7375,9 @@ Return JSON only:
       }
 
       await pool.query(
-        `INSERT INTO clients (id, user_id, name, company, address, state, city, country, status, tags, last_contact, is_dormant, contact_methods, contacts, primary_contact_id, comments, preferred_language, preferred_time_range, agent_workflow_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
-        [id, req.body.isPublic ? null : req.user.uid, name, company, req.body.address || null, req.body.state || null, req.body.city || null, country, status, JSON.stringify(tags || []), lastContact || null, !!isDormant, JSON.stringify(contactMethods || []), JSON.stringify(contacts || []), primaryContactId || null, JSON.stringify(comments || []), req.body.preferredLanguage || null, req.body.preferredTimeRange || null, req.body.agentWorkflowId || null]
+        `INSERT INTO clients (id, user_id, name, company, address, state, city, country, status, tags, last_contact, is_dormant, contact_methods, contacts, primary_contact_id, product_ids, comments, preferred_language, preferred_time_range, agent_workflow_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
+        [id, req.body.isPublic ? null : req.user.uid, name, company, req.body.address || null, req.body.state || null, req.body.city || null, country, status, JSON.stringify(tags || []), lastContact || null, !!isDormant, JSON.stringify(contactMethods || []), JSON.stringify(contacts || []), primaryContactId || null, JSON.stringify(productIds || []), JSON.stringify(comments || []), req.body.preferredLanguage || null, req.body.preferredTimeRange || null, req.body.agentWorkflowId || null]
       );
 
       const createClientReward = Math.max(0, await getGlobalSettingNumber('point_event_add_client', 5));
@@ -7408,6 +7418,7 @@ Return JSON only:
         leadScore: 'lead_score', leadSummary: 'lead_summary', leadNextStep: 'lead_next_step',
         leadScoringSignature: 'lead_scoring_signature', leadScoringAnalyzedAt: 'lead_scoring_analyzed_at',
         agentWorkflowId: 'agent_workflow_id', preferredLanguage: 'preferred_language',
+        productIds: 'product_ids',
         preferredTimeRange: 'preferred_time_range'
       };
       
@@ -7435,7 +7446,7 @@ Return JSON only:
       for (const [key, val] of Object.entries(updates)) {
         if (mapping[key]) {
           setClauses.push(`${mapping[key]} = $${valIdx}`);
-          values.push((key === 'tags' || key === 'comments' || key === 'contactMethods' || key === 'contacts') ? JSON.stringify(val) : val);
+          values.push((key === 'tags' || key === 'comments' || key === 'contactMethods' || key === 'contacts' || key === 'productIds') ? JSON.stringify(val) : val);
           valIdx++;
         }
       }

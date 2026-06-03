@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useStore, Deal, ClientStatus, ContactMethod } from '../store';
-import { X, Trash2, Plus, ChevronDown } from 'lucide-react';
+import { X, Trash2, Plus, ChevronDown, Package, Search } from 'lucide-react';
 import { useTranslation } from '../lib/i18n';
 import { COUNTRIES } from './ClientFormModal';
 
@@ -11,7 +11,7 @@ interface DealFormModalProps {
 }
 
 export function DealFormModal({ onClose, dealId, initialData }: DealFormModalProps) {
-  const { clients, deals, addDeal, updateDeal, deleteDeal, language } = useStore();
+  const { clients, deals, products, fetchProducts, addDeal, updateDeal, deleteDeal, language } = useStore();
   const t = useTranslation(language);
   const existingDeal = dealId ? deals.find(d => d.id === dealId) : null;
 
@@ -19,6 +19,9 @@ export function DealFormModal({ onClose, dealId, initialData }: DealFormModalPro
   const [name, setName] = useState(existingDeal?.name || initialData?.name || '');
   const [value, setValue] = useState(existingDeal?.value?.toString() || initialData?.value?.toString() || '');
   const [status, setStatus] = useState<ClientStatus>(existingDeal?.status || initialData?.status || 'Leads');
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>(existingDeal?.productIds || initialData?.productIds || []);
+  const [productSearch, setProductSearch] = useState('');
+  const [isProductSearchOpen, setIsProductSearchOpen] = useState(false);
   
   // Contact Info states
   const [contactName, setContactName] = useState(existingDeal?.contactInfo?.name || '');
@@ -29,9 +32,27 @@ export function DealFormModal({ onClose, dealId, initialData }: DealFormModalPro
   const [contactMethods, setContactMethods] = useState<ContactMethod[]>(existingDeal?.contactInfo?.contactMethods || [{ type: 'email', value: '' }]);
 
   const [linkExisting, setLinkExisting] = useState<boolean>(!!existingDeal?.clientId || (clients.length > 0 && !existingDeal));
+  const selectedProducts = products.filter(product => selectedProductIds.includes(product.id));
+  const productSearchTerm = productSearch.trim().toLowerCase();
+  const filteredProducts = products
+    .filter(product => !selectedProductIds.includes(product.id))
+    .filter(product => {
+      if (!productSearchTerm) return true;
+      return [product.name, product.sku, product.description, product.salesPoints]
+        .filter(Boolean)
+        .some(value => String(value).toLowerCase().includes(productSearchTerm));
+    })
+    .slice(0, 8);
 
-  React.useEffect(() => {
-    const handleClick = () => setIsCountryOpen(false);
+  useEffect(() => {
+    if (products.length === 0) fetchProducts();
+  }, [products.length, fetchProducts]);
+
+  useEffect(() => {
+    const handleClick = () => {
+      setIsCountryOpen(false);
+      setIsProductSearchOpen(false);
+    };
     window.addEventListener('click', handleClick);
     return () => window.removeEventListener('click', handleClick);
   }, []);
@@ -50,6 +71,16 @@ export function DealFormModal({ onClose, dealId, initialData }: DealFormModalPro
     setContactMethods(contactMethods.filter((_, i) => i !== index));
   };
 
+  const addProduct = (productId: string) => {
+    setSelectedProductIds(prev => prev.includes(productId) ? prev : [...prev, productId]);
+    setProductSearch('');
+    setIsProductSearchOpen(false);
+  };
+
+  const removeProduct = (productId: string) => {
+    setSelectedProductIds(prev => prev.filter(id => id !== productId));
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -58,6 +89,7 @@ export function DealFormModal({ onClose, dealId, initialData }: DealFormModalPro
       name,
       value: parseFloat(value) || 0,
       status,
+      productIds: selectedProductIds,
     };
 
     if (!linkExisting) {
@@ -215,6 +247,56 @@ export function DealFormModal({ onClose, dealId, initialData }: DealFormModalPro
           <div className="space-y-1">
             <label className="text-xs font-bold text-slate-400 uppercase">Deal Value ($)</label>
             <input value={value} onChange={e => setValue(e.target.value)} type="number" step="0.01" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500" placeholder="e.g. 5000" />
+          </div>
+
+          <div className="space-y-1 relative" onClick={e => e.stopPropagation()}>
+            <label className="text-xs font-bold text-slate-400 uppercase">{language === 'zh' ? '关联产品' : 'Related Products'}</label>
+            <div className="min-h-[42px] rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 focus-within:border-cyan-500 focus-within:ring-1 focus-within:ring-cyan-500">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {selectedProducts.map(product => (
+                  <span key={product.id} className="inline-flex max-w-full items-center gap-1 rounded-md border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-xs font-medium text-cyan-200">
+                    <Package className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{product.name}</span>
+                    <button type="button" onClick={() => removeProduct(product.id)} className="text-cyan-300 hover:text-white">
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+                <div className="relative min-w-[160px] flex-1">
+                  <Search className="pointer-events-none absolute left-1 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+                  <input
+                    value={productSearch}
+                    onChange={e => {
+                      setProductSearch(e.target.value);
+                      setIsProductSearchOpen(true);
+                    }}
+                    onFocus={() => setIsProductSearchOpen(true)}
+                    className="w-full bg-transparent py-1 pl-6 pr-2 text-sm text-slate-200 outline-none placeholder-slate-500"
+                    placeholder={selectedProductIds.length ? (language === 'zh' ? '继续搜索产品...' : 'Search more products...') : (language === 'zh' ? '搜索并选择多个产品...' : 'Search and select products...')}
+                  />
+                </div>
+              </div>
+            </div>
+            {isProductSearchOpen && (
+              <div className="absolute z-[70] mt-2 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-700 bg-slate-800 py-1 shadow-2xl">
+                {filteredProducts.length > 0 ? filteredProducts.map(product => (
+                  <button
+                    key={product.id}
+                    type="button"
+                    onClick={() => addProduct(product.id)}
+                    className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-slate-700"
+                  >
+                    <Package className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" />
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium text-slate-100">{product.name}</span>
+                      <span className="block truncate text-xs text-slate-400">{product.sku || product.salesPoints || product.description || 'No SKU'}</span>
+                    </span>
+                  </button>
+                )) : (
+                  <div className="px-3 py-2 text-xs text-slate-500">{language === 'zh' ? '没有匹配的产品' : 'No matching products'}</div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="space-y-1">
