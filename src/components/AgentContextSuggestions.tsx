@@ -412,7 +412,14 @@ ${additionalContext || 'N/A'}`,
             onClick={option.onClick}
             disabled={option.disabled || !!runningOptionId}
             title={option.description}
-            className="inline-flex items-center gap-2 rounded-md border border-blue-500/40 bg-blue-600/10 px-3 py-2 text-sm font-bold text-blue-200 hover:bg-blue-600/20 disabled:border-slate-700 disabled:bg-slate-900 disabled:text-slate-500"
+            className={cn(
+              "inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-bold transition-colors disabled:border-slate-700 disabled:bg-slate-900 disabled:text-slate-500",
+              option.variant === 'danger'
+                ? "border-red-500/40 bg-red-600/10 text-red-200 hover:bg-red-600/20"
+                : option.variant === 'success'
+                  ? "border-emerald-500/40 bg-emerald-600/10 text-emerald-200 hover:bg-emerald-600/20"
+                  : "border-blue-500/40 bg-blue-600/10 text-blue-200 hover:bg-blue-600/20"
+            )}
           >
             {runningOptionId === option.id ? <Loader2 className="w-4 h-4 animate-spin" /> : option.icon}
             {option.label}

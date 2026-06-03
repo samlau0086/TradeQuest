@@ -1572,6 +1572,25 @@ export function Inbox() {
                  )}
                  onCreateLead={!selectedEmail.clientId ? handleCreateLead : undefined}
                  onAddToKnowledge={selectedEmail.clientId ? handleAddToRag : undefined}
+                 onMarkFollowUp={() => {
+                   const nextTodoAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+                   editEmail(selectedEmail.id, {
+                     todoAt: nextTodoAt,
+                     todoNote: `Follow up: ${selectedEmail.subject || selectedEmail.sender}`
+                   });
+                   notify(language === 'zh' ? '已设置明日跟进提醒。' : 'Follow-up reminder set for tomorrow.', 'success');
+                 }}
+                 onDeleteItem={() => {
+                   setConfirmDialog({
+                     message: 'Are you sure you want to delete this email? Emails associated with a client will be soft-deleted pending admin review.',
+                     onConfirm: async () => {
+                       const id = selectedEmail.id;
+                       selectEmail(null);
+                       await useStore.getState().deleteEmails([id]);
+                       setConfirmDialog(null);
+                     }
+                   });
+                 }}
                  onSaveAnalysis={(key, insight) => editEmail(selectedEmail.id, {
                    agentContextAnalysis: insight,
                    agentContextAnalysisKey: key

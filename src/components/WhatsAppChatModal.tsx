@@ -976,6 +976,18 @@ Return only the message text.`,
                 : `Draft a polite WhatsApp follow-up to ${conversation?.clientName || activeClient?.name || displayPhone}. There is no inbound customer message yet, so do not answer our own outbound messages.`)
             )}
             onAddComment={() => addConversationComment(`Agent suggestion: review WhatsApp conversation with ${conversation?.clientName || activeClient?.name || displayPhone} and prepare the next best reply.`)}
+            onMarkFollowUp={() => addConversationComment(`Follow-up needed: review WhatsApp conversation with ${conversation?.clientName || activeClient?.name || displayPhone} within 24 hours.`)}
+            onDeleteItem={async () => {
+              if (!conversation?.id) throw new Error('No WhatsApp conversation is selected.');
+              const response = await fetch(`/api/whatsapp-hub/conversations/${encodeURIComponent(conversation.id)}`, {
+                method: 'DELETE',
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+              });
+              const data = await response.json().catch(() => ({}));
+              if (!response.ok) throw new Error(data.error || 'Failed to delete WhatsApp conversation.');
+              notify('WhatsApp conversation deleted.', 'success');
+              onClose();
+            }}
             onSaveAnalysis={async (key, insight) => {
               if (!conversation?.id) return;
               const response = await fetch(`/api/whatsapp-hub/conversations/${conversation.id}`, {
