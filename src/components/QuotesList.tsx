@@ -112,10 +112,6 @@ export function QuotesList({ embedded = false }: QuotesListProps) {
                       {quote.quoteNumber}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="font-mono text-slate-200">{formatCurrency(subtotal + fees, quote.currency || 'USD', currencyRates)}</div>
-                      <div className="text-[10px] text-slate-500">{quote.currency || 'USD'}</div>
-                    </td>
-                    <td className="px-4 py-3">
                       {quote.createdAt ? format(new Date(quote.createdAt), 'MMM d, yyyy') : '-'}
                     </td>
                     <td className="px-4 py-3">
@@ -127,6 +123,10 @@ export function QuotesList({ embedded = false }: QuotesListProps) {
                       ) : (
                         <span className="text-slate-500 italic">{t('generalNoClient')}</span>
                       )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="font-mono text-slate-200">{formatCurrency(subtotal + fees, quote.currency || 'USD', currencyRates)}</div>
+                      <div className="text-[10px] text-slate-500">{quote.currency || 'USD'}</div>
                     </td>
                     <td className="px-4 py-3">
                       <span className={cn(
