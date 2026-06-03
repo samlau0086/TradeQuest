@@ -4471,6 +4471,135 @@ No markdown wrappers, just valid JSON.`;
     return linked;
   };
 
+  const syncEmailInboxForUser = async (userId: string, inboxConfig: any) => {
+    const { simpleParser } = customRequire('mailparser');
+    const { id: inboxConfigId, type, host, port, secure, username, password } = inboxConfig || {};
+    if (!username || !password || !host || (type !== 'imap' && type !== 'pop3')) return { count: 0, linkedExistingEmails: 0 };
+    const syncedEmails: string[] = [];
+
+    const saveParsedEmail = async (parsed: any, fallbackId: string) => {
+      const senderGeo = extractSenderGeoFromHeaders(parsed.headers);
+      const fromEmail = parsed.from?.value?.[0]?.address || '';
+      const clientId = await findClientIdForEmailAddress(userId, fromEmail);
+      let messageIdStr = String(parsed.messageId || fallbackId || `msg_${username}_${Date.now()}`).substring(0, 128);
+      let htmlContent = parsed.html || parsed.textAsHtml;
+      let bodyStr = htmlContent
+        ? htmlContent
+        : (parsed.text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>');
+      bodyStr = String(bodyStr || '').replace(/\x00/g, '');
+      if (parsed.attachments) {
+        parsed.attachments.forEach((att: any) => {
+          if (att.cid && att.content) {
+            const dataUri = `data:${att.contentType};base64,${att.content.toString('base64')}`;
+            bodyStr = bodyStr.replace(new RegExp(`cid:${att.cid.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}`, 'gi'), dataUri);
+          }
+        });
+      }
+      const toAddress = Array.isArray(parsed.to)
+        ? parsed.to.flatMap((t: any) => t.value || []).map((v: any) => v.address).join(', ')
+        : parsed.to?.value?.map((v: any) => v.address).join(', ') || '';
+
+      const existingRes = await pool.query('SELECT id FROM emails WHERE id = $1 AND user_id = $2', [messageIdStr, userId]);
+      const deletedRes = await pool.query('SELECT id FROM deleted_emails WHERE id = $1 AND user_id = $2', [messageIdStr, userId]);
+      if (deletedRes.rows.length > 0) return;
+      if (existingRes.rows.length === 0) {
+        await pool.query(
+          `INSERT INTO emails (id, user_id, client_id, sender, sender_name, recipient, subject, body, date, read, type, inbox_config_id, sender_ip, sender_country, sender_geo)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, 'inbound', $10, $11, $12, $13)`,
+          [
+            messageIdStr,
+            userId,
+            clientId,
+            fromEmail,
+            parsed.from?.value?.[0]?.name || '',
+            toAddress,
+            parsed.subject || '(No Subject)',
+            bodyStr,
+            parsed.date ? new Date(parsed.date).toISOString() : new Date().toISOString(),
+            inboxConfigId || null,
+            senderGeo.senderIp || null,
+            senderGeo.senderCountry || null,
+            JSON.stringify(senderGeo.senderGeo || null)
+          ]
+        );
+        syncedEmails.push(messageIdStr);
+      } else {
+        await pool.query(
+          'UPDATE emails SET body = $1, sender_ip = COALESCE(sender_ip, $4), sender_country = COALESCE(sender_country, $5), sender_geo = COALESCE(sender_geo, $6::jsonb), client_id = COALESCE(client_id, $7) WHERE id = $2 AND user_id = $3',
+          [bodyStr, messageIdStr, userId, senderGeo.senderIp || null, senderGeo.senderCountry || null, JSON.stringify(senderGeo.senderGeo || null), clientId]
+        );
+      }
+    };
+
+    if (type === 'pop3') {
+      const client = new Pop3Command({
+        host,
+        port: port ? parseInt(port) : (secure ? 995 : 110),
+        tls: (port && parseInt(port) === 995) ? true : !!secure,
+        tlsOptions: { rejectUnauthorized: false },
+        user: username,
+        password
+      });
+      try {
+        const list = await client.UIDL();
+        const messages = Array.isArray(list) ? list.map((item: any) => {
+          if (Array.isArray(item)) return { num: item[0], uid: item[1] };
+          const parts = String(item).split(' ');
+          return { num: parts[0], uid: parts[1] };
+        }) : [];
+        for (const msg of messages.slice(-10)) {
+          const raw = await client.RETR(msg.num);
+          await saveParsedEmail(await simpleParser(raw), `msg_${username}_${msg.uid}`);
+        }
+      } finally {
+        await client.QUIT();
+      }
+    } else {
+      const client = new ImapFlow({
+        host,
+        port: port ? parseInt(port) : (secure ? 993 : 143),
+        secure: (port && parseInt(port) === 993) ? true : !!secure,
+        tls: { rejectUnauthorized: false },
+        auth: { user: username, pass: password },
+        logger: false
+      });
+      await client.connect();
+      const lock = await client.getMailboxLock('INBOX');
+      try {
+        const mb = await client.mailboxOpen('INBOX');
+        const total = mb.exists;
+        if (total > 0) {
+          const fetchRange = total > 50 ? `${total - 49}:*` : '1:*';
+          for await (const message of client.fetch(fetchRange, { source: true, uid: true })) {
+            if (!message.source) continue;
+            await saveParsedEmail(await simpleParser(message.source), `msg_${username}_${message.uid}`);
+          }
+        }
+      } finally {
+        lock.release();
+        await client.logout();
+      }
+    }
+
+    const linkedExistingEmails = await backfillEmailClientLinks(userId);
+    if (syncedEmails.length > 0) {
+      await sendExternalNotification(userId, {
+        event: 'email_received',
+        title: 'New email received',
+        body: `${syncedEmails.length} new email(s) synced from ${username}.`,
+        metadata: { count: syncedEmails.length, mailbox: username, type }
+      }).catch(err => console.warn('Email external notification failed', err));
+      await triggerAgentHubEvent(userId, 'email_received', {
+        count: syncedEmails.length,
+        mailbox: username,
+        type,
+        inboxConfigId: inboxConfigId || null,
+        emailIds: syncedEmails
+      }).catch(err => console.warn('Agent Hub email_received trigger failed', err));
+    }
+    return { count: syncedEmails.length, linkedExistingEmails };
+  };
+
   const stripAgentJson = (raw: string) => {
     const cleaned = String(raw || '').replace(/```json|```/g, '').trim();
     const start = cleaned.indexOf('{');
@@ -5497,6 +5626,62 @@ Return JSON only:
 
   // Run scheduled emails processor every 1 minute
   setInterval(processScheduledEmails, 60 * 1000);
+
+  const processBackgroundEmailSync = async () => {
+    try {
+      const usersRes = await pool.query(
+        `SELECT id, settings
+         FROM users
+         WHERE settings IS NOT NULL
+           AND jsonb_typeof(settings->'inboxConfigs') = 'array'
+           AND jsonb_array_length(settings->'inboxConfigs') > 0`
+      );
+      const now = Date.now();
+      for (const user of usersRes.rows) {
+        const settings = typeof user.settings === 'string' ? JSON.parse(user.settings || '{}') : (user.settings || {});
+        const inboxConfigs = Array.isArray(settings.inboxConfigs) ? settings.inboxConfigs : [];
+        const syncState = settings.emailBackgroundSyncState || {};
+        let changed = false;
+        for (const inboxConfig of inboxConfigs) {
+          if (!inboxConfig?.id || (inboxConfig.type !== 'imap' && inboxConfig.type !== 'pop3')) continue;
+          const intervalMinutes = Math.max(5, Number(inboxConfig.syncIntervalMinutes || 60) || 60);
+          const lastSyncAt = syncState[inboxConfig.id]?.lastSyncAt ? new Date(syncState[inboxConfig.id].lastSyncAt).getTime() : 0;
+          if (lastSyncAt && now - lastSyncAt < intervalMinutes * 60 * 1000) continue;
+          syncState[inboxConfig.id] = {
+            ...(syncState[inboxConfig.id] || {}),
+            lastSyncAt: new Date().toISOString(),
+            status: 'running'
+          };
+          changed = true;
+          try {
+            const result = await syncEmailInboxForUser(user.id, inboxConfig);
+            syncState[inboxConfig.id] = {
+              lastSyncAt: new Date().toISOString(),
+              status: 'completed',
+              count: result.count,
+              linkedExistingEmails: result.linkedExistingEmails
+            };
+          } catch (error: any) {
+            syncState[inboxConfig.id] = {
+              lastSyncAt: new Date().toISOString(),
+              status: 'failed',
+              error: error.message || 'Background email sync failed'
+            };
+            console.warn(`Background email sync failed for user ${user.id} inbox ${inboxConfig.id}`, error.message || error);
+          }
+          changed = true;
+        }
+        if (changed) {
+          settings.emailBackgroundSyncState = syncState;
+          await pool.query('UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [JSON.stringify(settings), user.id]);
+        }
+      }
+    } catch (error: any) {
+      console.warn('Background email sync scheduler failed', error.message || error);
+    }
+  };
+
+  setInterval(processBackgroundEmailSync, 60 * 1000);
 
   const processScheduledWhatsAppMessages = async () => {
     try {
