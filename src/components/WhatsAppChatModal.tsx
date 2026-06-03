@@ -970,6 +970,7 @@ Return only the message text.`,
             hasClient={!!(conversation?.clientId || activeClient?.id)}
             hasKnowledge={!!activeClient}
             hasCustomerMessage={recentInboundMessages.length > 0}
+            autoScrollOnOpen={embedded}
             onDraftReply={() => generateWhatsAppMessage(
               body.trim() || (latestInboundMessage
                 ? `Reply to the latest inbound customer WhatsApp message from ${conversation?.clientName || activeClient?.name || displayPhone}: ${latestInboundMessage.body}`

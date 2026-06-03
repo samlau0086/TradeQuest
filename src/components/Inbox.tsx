@@ -1551,6 +1551,7 @@ export function Inbox() {
                  hasClient={!!selectedEmail.clientId}
                  hasKnowledge={addedToRagId === selectedEmail.id}
                  hasCustomerMessage={selectedEmailIsInbound || !!latestInboundEmailForSelectedClient}
+                 autoScrollOnOpen
                  onDraftReply={() => {
                    const replySourceEmail = isInboundCustomerEmail(selectedEmail)
                      ? selectedEmail

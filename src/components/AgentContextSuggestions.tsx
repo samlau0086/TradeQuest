@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, CalendarClock, CornerDownRight, Loader2, MessageSquare, ShieldCheck, Sparkles, Trash2, UserPlus, Zap } from 'lucide-react';
 import { AgentContextAnalysisMode, AgentContextSuggestionInsight, useStore } from '../store';
 import { useTranslation } from '../lib/i18n';
@@ -36,6 +36,7 @@ interface AgentContextSuggestionsProps {
   onAddToKnowledge?: () => void | Promise<void>;
   onDeleteItem?: () => void | Promise<void>;
   onMarkFollowUp?: () => void | Promise<void>;
+  autoScrollOnOpen?: boolean;
   onSaveAnalysis?: (key: string, insight: AgentContextSuggestionInsight) => void | Promise<void>;
 }
 
@@ -80,6 +81,7 @@ export function AgentContextSuggestions({
   onAddToKnowledge,
   onDeleteItem,
   onMarkFollowUp,
+  autoScrollOnOpen,
   onSaveAnalysis
 }: AgentContextSuggestionsProps) {
   const {
@@ -99,6 +101,7 @@ export function AgentContextSuggestions({
   const [loadingInsight, setLoadingInsight] = useState(false);
   const [runningOptionId, setRunningOptionId] = useState<string | null>(null);
   const [optionStatus, setOptionStatus] = useState<string | null>(null);
+  const panelRef = useRef<HTMLElement | null>(null);
   const agent = useMemo(() => {
     const preferredId = channel === 'whatsapp' ? 'whatsapp_agent' : 'follow_up_agent';
     return agentHubAgents.find(item => item.id === preferredId)
@@ -126,6 +129,19 @@ export function AgentContextSuggestions({
     || defaultAnalysisMode
     || agentContextAnalysisConfig.globalMode
     || 'manual';
+
+  useEffect(() => {
+    if (!autoScrollOnOpen || !cacheKey) return;
+    const scrollToPanel = () => panelRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    const frame = window.requestAnimationFrame(scrollToPanel);
+    const shortTimer = window.setTimeout(scrollToPanel, 140);
+    const finalTimer = window.setTimeout(scrollToPanel, 420);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(shortTimer);
+      window.clearTimeout(finalTimer);
+    };
+  }, [autoScrollOnOpen, cacheKey]);
 
   const setCurrentAnalysisMode = (mode: AgentContextAnalysisMode) => {
     if (clientId) {
@@ -350,7 +366,7 @@ ${additionalContext || 'N/A'}`,
   }
 
   return (
-    <section className="mt-6 rounded-lg border border-blue-500/30 bg-blue-950/20 p-4">
+    <section ref={panelRef} className="mt-6 rounded-lg border border-blue-500/30 bg-blue-950/20 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-blue-300">
           <Bot className="w-4 h-4" />
