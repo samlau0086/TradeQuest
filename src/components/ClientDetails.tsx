@@ -482,6 +482,8 @@ export function ClientDetails() {
     : [];
   const openQuote = (quoteId: string) => {
     localStorage.setItem('tradequest:openQuoteId', quoteId);
+    selectDeal(null);
+    selectClient(null);
     setView('quotes');
   };
   const summaryText = leadRecord
