@@ -747,8 +747,8 @@ export interface StoreState {
   updateWhatsAppHubConfig: (updates: Partial<WhatsAppHubConfig>) => void;
   whatsappCustomerServiceAgentEnabled: boolean;
   setWhatsAppCustomerServiceAgentEnabled: (enabled: boolean) => void;
-  whatsappAutoTranslateEnabled: boolean;
-  setWhatsAppAutoTranslateEnabled: (enabled: boolean) => void;
+  whatsappAutoTranslateConfig: Record<string, boolean>;
+  setWhatsAppAutoTranslateEnabled: (key: string, enabled: boolean) => void;
   externalNotificationConfig: ExternalNotificationConfig;
   updateExternalNotificationConfig: (updates: Partial<ExternalNotificationConfig>) => void;
   sendExternalNotification: (payload: { event: ExternalNotificationEvent; title: string; body: string; url?: string; metadata?: any }) => Promise<void>;
@@ -1181,6 +1181,8 @@ const INITIAL_AGENT_CONTEXT_ANALYSIS_CONFIG: AgentContextAnalysisConfig = {
   emailModes: {},
   whatsappModes: {}
 };
+
+const INITIAL_WHATSAPP_AUTO_TRANSLATE_CONFIG: Record<string, boolean> = {};
 
 const INITIAL_LEAD_DATA_CHANNEL_CONFIGS: Record<LeadDataProvider, LeadDataChannelConfig> = {
   outscraper: { enabled: true, apiKey: localStorage.getItem('outscraperApiKey') || '' },
@@ -1866,8 +1868,17 @@ export const useStore = create<StoreState>((set, get) => ({
   })),
   whatsappCustomerServiceAgentEnabled: false,
   setWhatsAppCustomerServiceAgentEnabled: (enabled) => set({ whatsappCustomerServiceAgentEnabled: enabled }),
-  whatsappAutoTranslateEnabled: false,
-  setWhatsAppAutoTranslateEnabled: (enabled) => set({ whatsappAutoTranslateEnabled: enabled }),
+  whatsappAutoTranslateConfig: INITIAL_WHATSAPP_AUTO_TRANSLATE_CONFIG,
+  setWhatsAppAutoTranslateEnabled: (key, enabled) => set((state) => {
+    const normalizedKey = key.trim().toLowerCase();
+    if (!normalizedKey) return state;
+    return {
+      whatsappAutoTranslateConfig: {
+        ...state.whatsappAutoTranslateConfig,
+        [normalizedKey]: enabled
+      }
+    };
+  }),
   externalNotificationConfig: INITIAL_EXTERNAL_NOTIFICATION_CONFIG,
   updateExternalNotificationConfig: (updates) => set((state) => ({
     externalNotificationConfig: {
@@ -3043,7 +3054,9 @@ export const useStore = create<StoreState>((set, get) => ({
             ? { ...INITIAL_WHATSAPP_HUB_CONFIG, ...settings.whatsappHubConfig }
             : state.whatsappHubConfig,
           whatsappCustomerServiceAgentEnabled: settings.whatsappCustomerServiceAgentEnabled ?? state.whatsappCustomerServiceAgentEnabled,
-          whatsappAutoTranslateEnabled: settings.whatsappAutoTranslateEnabled ?? state.whatsappAutoTranslateEnabled,
+          whatsappAutoTranslateConfig: settings.whatsappAutoTranslateConfig
+            || settings.autoTranslateConfig?.whatsapp
+            || state.whatsappAutoTranslateConfig,
           externalNotificationConfig: settings.externalNotificationConfig
             ? {
                 ...INITIAL_EXTERNAL_NOTIFICATION_CONFIG,
@@ -3191,7 +3204,7 @@ useStore.subscribe((state, prevState) => {
     state.emailServerMappings !== prevState.emailServerMappings ||
     state.whatsappHubConfig !== prevState.whatsappHubConfig ||
     state.whatsappCustomerServiceAgentEnabled !== prevState.whatsappCustomerServiceAgentEnabled ||
-    state.whatsappAutoTranslateEnabled !== prevState.whatsappAutoTranslateEnabled ||
+    state.whatsappAutoTranslateConfig !== prevState.whatsappAutoTranslateConfig ||
     state.externalNotificationConfig !== prevState.externalNotificationConfig ||
     state.agentContextAnalysisConfig !== prevState.agentContextAnalysisConfig ||
     state.llmConfigs !== prevState.llmConfigs ||
@@ -3234,7 +3247,7 @@ useStore.subscribe((state, prevState) => {
             emailServerMappings: state.emailServerMappings,
             whatsappHubConfig: state.whatsappHubConfig,
             whatsappCustomerServiceAgentEnabled: state.whatsappCustomerServiceAgentEnabled,
-            whatsappAutoTranslateEnabled: state.whatsappAutoTranslateEnabled,
+            whatsappAutoTranslateConfig: state.whatsappAutoTranslateConfig,
             externalNotificationConfig: state.externalNotificationConfig,
             agentContextAnalysisConfig: state.agentContextAnalysisConfig,
             llmConfigs: state.llmConfigs,

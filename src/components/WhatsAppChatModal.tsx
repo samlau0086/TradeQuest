@@ -156,7 +156,7 @@ const getWhatsAppMessageMedia = (message: WhatsAppHubMessage, hubBaseUrl?: strin
 };
 
 export function WhatsAppChatModal({ client, phone, conversation: initialConversation, initialMessage = '', embedded = false, onClose }: Props) {
-  const { notify, addLog, selectClient, language, llmConfigs, activeLLMId, llmMappings, logs, emails, clients, deals, knowledgeBase, products, whatsappHubConfig, whatsappCustomerServiceAgentEnabled, setWhatsAppCustomerServiceAgentEnabled, whatsappAutoTranslateEnabled, setWhatsAppAutoTranslateEnabled, incrementAgentHubTaskCount } = useStore();
+  const { notify, addLog, selectClient, language, llmConfigs, activeLLMId, llmMappings, logs, emails, clients, deals, knowledgeBase, products, whatsappHubConfig, whatsappCustomerServiceAgentEnabled, setWhatsAppCustomerServiceAgentEnabled, whatsappAutoTranslateConfig, setWhatsAppAutoTranslateEnabled, incrementAgentHubTaskCount } = useStore();
   const t = useTranslation(language);
   const [hubClients, setHubClients] = useState<WhatsAppHubClient[]>([]);
   const targetPhone = useMemo(() => isChatId(phone) ? phone.trim() : cleanPhone(phone), [phone]);
@@ -187,6 +187,8 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const mappedPhone = conversation?.contactPhone || (!isChatId(targetPhone) ? targetPhone : '');
   const displayPhone = mappedPhone || targetPhone;
   const messageLookupTarget = mappedPhone || targetPhone;
+  const autoTranslateKey = useMemo(() => (cleanPhone(displayPhone) || displayPhone || targetPhone).trim().toLowerCase(), [displayPhone, targetPhone]);
+  const whatsappAutoTranslateEnabled = Boolean(autoTranslateKey && whatsappAutoTranslateConfig?.[autoTranslateKey]);
   const activeClient = useMemo(() => {
     if (client) return client;
     if (conversation?.clientId) return clients.find(item => item.id === conversation.clientId) || null;
@@ -1015,13 +1017,13 @@ Return only the message text.`,
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => setWhatsAppAutoTranslateEnabled(!whatsappAutoTranslateEnabled)}
+              onClick={() => setWhatsAppAutoTranslateEnabled(autoTranslateKey, !whatsappAutoTranslateEnabled)}
               className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${
                 whatsappAutoTranslateEnabled
                   ? 'border-cyan-500/40 bg-cyan-500/15 text-cyan-300'
                   : 'border-slate-700 bg-slate-950 text-slate-400 hover:border-slate-600 hover:text-slate-200'
               }`}
-              title={language === 'zh' ? '自动翻译客人的非中文 WhatsApp 消息' : 'Auto-translate customer WhatsApp messages that are not in English'}
+              title={language === 'zh' ? `仅为 ${displayPhone} 自动翻译客户 WhatsApp 消息` : `Auto-translate customer WhatsApp messages for ${displayPhone}`}
             >
               <Languages className="h-4 w-4" />
               <span>{language === 'zh' ? '自动翻译' : 'Auto Translate'}</span>
