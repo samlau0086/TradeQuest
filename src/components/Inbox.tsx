@@ -146,6 +146,7 @@ export function Inbox() {
   const { emails, markEmailRead, clients, logs, deals, knowledgeBase, products, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail, notify, language, llmConfigs, activeLLMId, llmMappings } = useStore();
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'inbox-layout' });
   const [filter, setFilter] = useState<'inbox' | 'sent' | 'scheduled' | 'drafts'>('inbox');
+  const [channelFilter, setChannelFilter] = useState<'all' | 'email' | 'whatsapp'>('all');
   const [emailListMode, setEmailListMode] = useState<'list' | 'conversation'>('list');
   const [search, setSearch] = useState('');
   const [searchTags, setSearchTags] = useState<string[]>([]);
@@ -258,7 +259,7 @@ export function Inbox() {
     };
   }, [search]);
 
-  const filteredEmails = emails.filter(e => {
+  const filteredEmails = channelFilter === 'whatsapp' ? [] : emails.filter(e => {
     // Support both new ('inbox'/'sent') and legacy ('inbound'/'outbound') types
     const typeMatch = (filter === 'inbox' && (e.type === 'inbox' || e.type === 'inbound')) ||
                       (filter === 'sent' && (e.type === 'sent' || e.type === 'outbound')) ||
@@ -291,7 +292,7 @@ export function Inbox() {
     return true;
   });
 
-  const filteredWhatsAppConversations = filter === 'inbox'
+  const filteredWhatsAppConversations = filter === 'inbox' && channelFilter !== 'email'
     ? whatsappConversations.filter(conversation => {
         const termsToMatch = [...searchTags];
         if (search.trim()) {
@@ -814,6 +815,41 @@ export function Inbox() {
               </button>
             </div>
           </div>
+          <div className="grid grid-cols-3 gap-1 rounded-lg border border-slate-800 bg-slate-950 p-1">
+            {([
+              { value: 'all', label: 'All', icon: null },
+              { value: 'email', label: 'Email', icon: Mail },
+              { value: 'whatsapp', label: 'WhatsApp', icon: MessageCircle }
+            ] as const).map(option => {
+              const Icon = option.icon;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    setChannelFilter(option.value);
+                    if (option.value === 'whatsapp') {
+                      setFilter('inbox');
+                      setEmailListMode('list');
+                      selectEmail(null);
+                    } else if (selectedWhatsAppPhone && option.value === 'email') {
+                      setSelectedWhatsAppPhone(null);
+                      setSelectedWhatsAppClientId(null);
+                    }
+                  }}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-bold transition-colors",
+                    channelFilter === option.value
+                      ? "bg-slate-800 text-white shadow-sm"
+                      : "text-slate-500 hover:bg-slate-900 hover:text-slate-300"
+                  )}
+                >
+                  {Icon && <Icon className={cn("h-3.5 w-3.5", option.value === 'whatsapp' ? 'text-green-400' : 'text-cyan-400')} />}
+                  <span>{option.label}</span>
+                </button>
+              );
+            })}
+          </div>
           <div className="flex items-center gap-2">
             <div className="flex-1 flex flex-wrap items-center bg-slate-950 border border-slate-800 rounded px-2 min-h-[36px] focus-within:border-cyan-500 transition-colors">
               <Search className="w-3 h-3 text-slate-500 mr-2" />
@@ -867,7 +903,7 @@ export function Inbox() {
                 By Customer
               </button>
             </div>
-            {emailListMode === 'conversation' && (
+            {emailListMode === 'conversation' && channelFilter !== 'whatsapp' && (
               <span className="text-[10px] text-slate-500">{emailConversationGroups.length} conversations</span>
             )}
           </div>
@@ -985,7 +1021,7 @@ export function Inbox() {
               </div>
             );
           })}
-          {emailListMode === 'conversation' && emailConversationGroups.map(group => {
+          {channelFilter !== 'whatsapp' && emailListMode === 'conversation' && emailConversationGroups.map(group => {
             const groupIds = group.emails.map(email => email.id);
             const groupSelected = groupIds.length > 0 && groupIds.every(id => selectedIds.has(id));
             const groupIndeterminate = groupIds.some(id => selectedIds.has(id)) && !groupSelected;
@@ -1059,7 +1095,7 @@ export function Inbox() {
               </div>
             );
           })}
-          {emailListMode === 'list' && filteredEmails.map(email => (
+          {channelFilter !== 'whatsapp' && emailListMode === 'list' && filteredEmails.map(email => (
             <div 
               key={email.id}
               onClick={() => handleSelect(email.id)}

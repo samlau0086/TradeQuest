@@ -140,6 +140,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [mappingEdit, setMappingEdit] = useState<{ chatId: string; phone: string; saving?: boolean } | null>(null);
   const syncInFlightRef = useRef(false);
   const loadRequestRef = useRef(0);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const rawChatId = conversation?.rawChatId || (isChatId(targetPhone) ? targetPhone : '');
   const mappedPhone = conversation?.contactPhone || (!isChatId(targetPhone) ? targetPhone : '');
   const displayPhone = mappedPhone || targetPhone;
@@ -227,6 +228,11 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     preferredLanguage: activeClient?.preferredLanguage,
     country: activeClient?.country
   });
+  const latestMessageId = messages[messages.length - 1]?.id || '';
+
+  const scrollMessagesToBottom = (behavior: ScrollBehavior = 'auto') => {
+    messagesEndRef.current?.scrollIntoView({ block: 'end', behavior });
+  };
 
   const getLLMConfig = (module: string) => {
     const id = llmMappings[module] || activeLLMId;
@@ -329,6 +335,18 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     setMappingEdit(null);
     loadData();
   }, [targetPhone, initialConversation?.id, initialMessage]);
+
+  useEffect(() => {
+    if (!targetPhone || messages.length === 0) return;
+    const frame = window.requestAnimationFrame(() => scrollMessagesToBottom('auto'));
+    const shortTimer = window.setTimeout(() => scrollMessagesToBottom('auto'), 80);
+    const mediaTimer = window.setTimeout(() => scrollMessagesToBottom('auto'), 300);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(shortTimer);
+      window.clearTimeout(mediaTimer);
+    };
+  }, [targetPhone, latestMessageId, messages.length]);
 
   useEffect(() => {
     const poll = window.setInterval(() => {
@@ -906,10 +924,10 @@ Return only the message text.`,
                   <div className="mb-2">
                     {media.url && media.isImage ? (
                       <a href={media.url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-white/15 bg-black/20">
-                        <img src={media.url} alt={media.name} className="max-h-72 w-full max-w-sm object-contain" loading="lazy" />
+                        <img src={media.url} alt={media.name} className="max-h-72 w-full max-w-sm object-contain" loading="lazy" onLoad={() => scrollMessagesToBottom('auto')} />
                       </a>
                     ) : media.url && media.isVideo ? (
-                      <video src={media.url} controls className="max-h-72 w-full max-w-sm rounded-xl border border-white/15 bg-black/40" />
+                      <video src={media.url} controls className="max-h-72 w-full max-w-sm rounded-xl border border-white/15 bg-black/40" onLoadedMetadata={() => scrollMessagesToBottom('auto')} />
                     ) : media.url ? (
                       <a
                         href={media.url}
@@ -937,6 +955,7 @@ Return only the message text.`,
             </div>
             );
           })}
+          <div ref={messagesEndRef} />
           <AgentContextSuggestions
             channel="whatsapp"
             cacheKey={agentContextCacheKey}
