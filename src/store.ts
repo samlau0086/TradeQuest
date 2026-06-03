@@ -749,6 +749,8 @@ export interface StoreState {
   setWhatsAppCustomerServiceAgentEnabled: (enabled: boolean) => void;
   whatsappAutoTranslateConfig: Record<string, boolean>;
   setWhatsAppAutoTranslateEnabled: (key: string, enabled: boolean) => void;
+  whatsappOutboundAutoTranslateConfig: Record<string, boolean>;
+  setWhatsAppOutboundAutoTranslateEnabled: (key: string, enabled: boolean) => void;
   externalNotificationConfig: ExternalNotificationConfig;
   updateExternalNotificationConfig: (updates: Partial<ExternalNotificationConfig>) => void;
   sendExternalNotification: (payload: { event: ExternalNotificationEvent; title: string; body: string; url?: string; metadata?: any }) => Promise<void>;
@@ -1183,6 +1185,7 @@ const INITIAL_AGENT_CONTEXT_ANALYSIS_CONFIG: AgentContextAnalysisConfig = {
 };
 
 const INITIAL_WHATSAPP_AUTO_TRANSLATE_CONFIG: Record<string, boolean> = {};
+const INITIAL_WHATSAPP_OUTBOUND_AUTO_TRANSLATE_CONFIG: Record<string, boolean> = {};
 
 const INITIAL_LEAD_DATA_CHANNEL_CONFIGS: Record<LeadDataProvider, LeadDataChannelConfig> = {
   outscraper: { enabled: true, apiKey: localStorage.getItem('outscraperApiKey') || '' },
@@ -1875,6 +1878,17 @@ export const useStore = create<StoreState>((set, get) => ({
     return {
       whatsappAutoTranslateConfig: {
         ...state.whatsappAutoTranslateConfig,
+        [normalizedKey]: enabled
+      }
+    };
+  }),
+  whatsappOutboundAutoTranslateConfig: INITIAL_WHATSAPP_OUTBOUND_AUTO_TRANSLATE_CONFIG,
+  setWhatsAppOutboundAutoTranslateEnabled: (key, enabled) => set((state) => {
+    const normalizedKey = key.trim().toLowerCase();
+    if (!normalizedKey) return state;
+    return {
+      whatsappOutboundAutoTranslateConfig: {
+        ...state.whatsappOutboundAutoTranslateConfig,
         [normalizedKey]: enabled
       }
     };
@@ -3057,6 +3071,7 @@ export const useStore = create<StoreState>((set, get) => ({
           whatsappAutoTranslateConfig: settings.whatsappAutoTranslateConfig
             || settings.autoTranslateConfig?.whatsapp
             || state.whatsappAutoTranslateConfig,
+          whatsappOutboundAutoTranslateConfig: settings.whatsappOutboundAutoTranslateConfig || state.whatsappOutboundAutoTranslateConfig,
           externalNotificationConfig: settings.externalNotificationConfig
             ? {
                 ...INITIAL_EXTERNAL_NOTIFICATION_CONFIG,
@@ -3205,6 +3220,7 @@ useStore.subscribe((state, prevState) => {
     state.whatsappHubConfig !== prevState.whatsappHubConfig ||
     state.whatsappCustomerServiceAgentEnabled !== prevState.whatsappCustomerServiceAgentEnabled ||
     state.whatsappAutoTranslateConfig !== prevState.whatsappAutoTranslateConfig ||
+    state.whatsappOutboundAutoTranslateConfig !== prevState.whatsappOutboundAutoTranslateConfig ||
     state.externalNotificationConfig !== prevState.externalNotificationConfig ||
     state.agentContextAnalysisConfig !== prevState.agentContextAnalysisConfig ||
     state.llmConfigs !== prevState.llmConfigs ||
@@ -3248,6 +3264,7 @@ useStore.subscribe((state, prevState) => {
             whatsappHubConfig: state.whatsappHubConfig,
             whatsappCustomerServiceAgentEnabled: state.whatsappCustomerServiceAgentEnabled,
             whatsappAutoTranslateConfig: state.whatsappAutoTranslateConfig,
+            whatsappOutboundAutoTranslateConfig: state.whatsappOutboundAutoTranslateConfig,
             externalNotificationConfig: state.externalNotificationConfig,
             agentContextAnalysisConfig: state.agentContextAnalysisConfig,
             llmConfigs: state.llmConfigs,

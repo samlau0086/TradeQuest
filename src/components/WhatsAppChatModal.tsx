@@ -4,7 +4,7 @@ import { Client, Comment, MediaItem, useStore } from '../store';
 import { MediaSelectorModal } from './MediaSelectorModal';
 import { useTranslation } from '../lib/i18n';
 import { AgentContextSuggestions } from './AgentContextSuggestions';
-import { getCustomerOutputLanguage } from '../lib/language';
+import { getCustomerOutputLanguage, getOutboundLanguage } from '../lib/language';
 import { ClientFormModal } from './ClientFormModal';
 import { AddContactToClientModal } from './AddContactToClientModal';
 
@@ -156,7 +156,7 @@ const getWhatsAppMessageMedia = (message: WhatsAppHubMessage, hubBaseUrl?: strin
 };
 
 export function WhatsAppChatModal({ client, phone, conversation: initialConversation, initialMessage = '', embedded = false, onClose }: Props) {
-  const { notify, addLog, selectClient, language, llmConfigs, activeLLMId, llmMappings, logs, emails, clients, deals, knowledgeBase, products, whatsappHubConfig, whatsappCustomerServiceAgentEnabled, setWhatsAppCustomerServiceAgentEnabled, whatsappAutoTranslateConfig, setWhatsAppAutoTranslateEnabled, incrementAgentHubTaskCount } = useStore();
+  const { notify, addLog, selectClient, language, llmConfigs, activeLLMId, llmMappings, logs, emails, clients, deals, knowledgeBase, products, whatsappHubConfig, whatsappCustomerServiceAgentEnabled, setWhatsAppCustomerServiceAgentEnabled, whatsappAutoTranslateConfig, setWhatsAppAutoTranslateEnabled, whatsappOutboundAutoTranslateConfig, setWhatsAppOutboundAutoTranslateEnabled, incrementAgentHubTaskCount } = useStore();
   const t = useTranslation(language);
   const [hubClients, setHubClients] = useState<WhatsAppHubClient[]>([]);
   const targetPhone = useMemo(() => isChatId(phone) ? phone.trim() : cleanPhone(phone), [phone]);
@@ -175,6 +175,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [translatingOutbound, setTranslatingOutbound] = useState(false);
   const [translations, setTranslations] = useState<Record<string, WhatsAppTranslation>>(() => readCachedWhatsAppTranslations(targetPhone, language));
   const [translatingIds, setTranslatingIds] = useState<Set<string>>(new Set());
   const [isCreatingLead, setIsCreatingLead] = useState(false);
@@ -189,6 +190,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const messageLookupTarget = mappedPhone || targetPhone;
   const autoTranslateKey = useMemo(() => (cleanPhone(displayPhone) || displayPhone || targetPhone).trim().toLowerCase(), [displayPhone, targetPhone]);
   const whatsappAutoTranslateEnabled = Boolean(autoTranslateKey && whatsappAutoTranslateConfig?.[autoTranslateKey]);
+  const whatsappOutboundAutoTranslateEnabled = Boolean(autoTranslateKey && whatsappOutboundAutoTranslateConfig?.[autoTranslateKey]);
   const activeClient = useMemo(() => {
     if (client) return client;
     if (conversation?.clientId) return clients.find(item => item.id === conversation.clientId) || null;
@@ -283,6 +285,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     preferredLanguage: activeClient?.preferredLanguage,
     country: activeClient?.country
   });
+  const outboundAutoTranslateLanguage = getOutboundLanguage(activeClient?.preferredLanguage, activeClient?.country);
   const latestMessageId = messages[messages.length - 1]?.id || '';
 
   const scrollMessagesToBottom = (behavior: ScrollBehavior = 'auto') => {
@@ -375,6 +378,54 @@ ${bodyText}`,
         next.delete(message.id);
         return next;
       });
+    }
+  };
+
+  const translateOutboundMessageText = async (text: string) => {
+    const bodyText = text.trim();
+    if (!bodyText) return bodyText;
+    const llmConfig = getTranslationLLMConfig();
+    if (!llmConfig) {
+      throw new Error(language === 'zh' ? '请先在设置中配置 AI 模型后再使用发送前自动翻译。' : 'Configure an AI model in Settings before using auto-translate before sending.');
+    }
+    setTranslatingOutbound(true);
+    try {
+      const targetLanguage = outboundAutoTranslateLanguage || 'English';
+      const response = await fetch('/api/chat/magic', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          command: `You are translating an outbound WhatsApp message before it is sent to a customer.
+Target customer language: ${targetLanguage}.
+If the message is already in ${targetLanguage}, return JSON with alreadyTargetLanguage true and translatedText empty.
+Otherwise translate faithfully into ${targetLanguage}. Keep names, numbers, product names, URLs, emojis, and line breaks. Use a concise, natural WhatsApp style. Do not add commentary.
+Return only valid JSON: {"alreadyTargetLanguage": boolean, "sourceLanguage": string, "translatedText": string}.
+
+Message:
+${bodyText}`,
+          context: {
+            channel: 'whatsapp',
+            direction: 'outbound',
+            targetLanguage,
+            clientId: activeClient?.id || null,
+            preferredLanguage: activeClient?.preferredLanguage || null,
+            country: activeClient?.country || null
+          },
+          llmConfig,
+          skipKnowledgeBase: true
+        })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Outbound translation failed');
+      const raw = String(data.result || '').replace(/```json|```/g, '').trim();
+      const jsonText = raw.match(/\{[\s\S]*\}/)?.[0] || raw;
+      const parsed = JSON.parse(jsonText);
+      return parsed.alreadyTargetLanguage ? bodyText : String(parsed.translatedText || '').trim() || bodyText;
+    } finally {
+      setTranslatingOutbound(false);
     }
   };
 
@@ -819,6 +870,10 @@ Return only the message text.`,
         messageBody = generated;
         setBody(generated);
         incrementAgentHubTaskCount('whatsapp_customer_service_agent');
+      }
+      if (whatsappOutboundAutoTranslateEnabled && messageBody) {
+        messageBody = await translateOutboundMessageText(messageBody);
+        setBody(messageBody);
       }
       let media: any;
       const uploadFileToHub = async (fileToUpload: File) => {
@@ -1274,6 +1329,25 @@ Return only the message text.`,
               <span className="text-xs text-slate-500">{t('whatsappRetryHint')}</span>
             </div>
           )}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
+            <div className="flex items-center gap-2 text-xs text-slate-400">
+              <Languages className="h-4 w-4 text-cyan-300" />
+              <span className="font-bold text-slate-200">{language === 'zh' ? '发送前翻译' : 'Translate before send'}</span>
+              <span>{language === 'zh' ? `目标语言：${outboundAutoTranslateLanguage}` : `Target: ${outboundAutoTranslateLanguage}`}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setWhatsAppOutboundAutoTranslateEnabled(autoTranslateKey, !whatsappOutboundAutoTranslateEnabled)}
+              className={`relative h-6 w-11 rounded-full border transition-colors ${
+                whatsappOutboundAutoTranslateEnabled
+                  ? 'border-cyan-500/50 bg-cyan-500/30'
+                  : 'border-slate-700 bg-slate-900'
+              }`}
+              title={language === 'zh' ? `仅为 ${displayPhone} 保存发送前翻译开关` : `Save translate-before-send for ${displayPhone}`}
+            >
+              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${whatsappOutboundAutoTranslateEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
           <div className="flex gap-3">
             <div className="flex flex-col gap-2">
               <label className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg cursor-pointer">
@@ -1323,11 +1397,13 @@ Return only the message text.`,
             />
             <button
               onClick={sendMessage}
-              disabled={sending || (!body.trim() && !selectedFile && !selectedMedia && !whatsappCustomerServiceAgentEnabled) || (scheduleEnabled && !scheduleDateTime)}
+              disabled={sending || translatingOutbound || (!body.trim() && !selectedFile && !selectedMedia && !whatsappCustomerServiceAgentEnabled) || (scheduleEnabled && !scheduleDateTime)}
               className="px-4 py-2 bg-green-600 hover:bg-green-500 disabled:bg-slate-800 disabled:text-slate-500 rounded-xl font-bold text-white flex items-center gap-2 self-end"
             >
-              {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              {whatsappCustomerServiceAgentEnabled ? (scheduleEnabled ? 'Agent Schedule' : 'Agent Send') : (scheduleEnabled ? t('schedule') : t('send'))}
+              {(sending || translatingOutbound) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              {translatingOutbound
+                ? (language === 'zh' ? '翻译中' : 'Translating')
+                : whatsappCustomerServiceAgentEnabled ? (scheduleEnabled ? 'Agent Schedule' : 'Agent Send') : (scheduleEnabled ? t('schedule') : t('send'))}
             </button>
           </div>
         </div>
