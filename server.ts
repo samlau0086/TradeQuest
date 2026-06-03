@@ -568,8 +568,10 @@ async function initDB() {
         user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
         message_id VARCHAR(128) REFERENCES whatsapp_messages(id) ON DELETE CASCADE,
         language VARCHAR(16) NOT NULL,
+        kind VARCHAR(32) DEFAULT 'inbound_translation',
         translated_text TEXT DEFAULT '',
         source_language VARCHAR(64),
+        target_language VARCHAR(64),
         body_hash VARCHAR(64),
         skipped BOOLEAN DEFAULT FALSE,
         model_id VARCHAR(128),
@@ -577,6 +579,8 @@ async function initDB() {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(user_id, message_id, language)
       );
+      ALTER TABLE whatsapp_message_translations ADD COLUMN IF NOT EXISTS kind VARCHAR(32) DEFAULT 'inbound_translation';
+      ALTER TABLE whatsapp_message_translations ADD COLUMN IF NOT EXISTS target_language VARCHAR(64);
 
       CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_user_target
       ON whatsapp_messages (user_id, target_phone, source_created_at DESC);
@@ -1948,8 +1952,10 @@ No markdown wrappers, just valid JSON.`;
     payload: row.payload,
     translation: row.translation_language ? {
       language: row.translation_language,
+      kind: row.translation_kind || 'inbound_translation',
       text: row.translation_text || '',
       sourceLanguage: row.translation_source_language || '',
+      targetLanguage: row.translation_target_language || '',
       bodyHash: row.translation_body_hash || '',
       skipped: !!row.translation_skipped,
       modelId: row.translation_model_id || null,
@@ -2094,8 +2100,9 @@ No markdown wrappers, just valid JSON.`;
         metadata: { source: 'tradequest-crm', ...(payload.metadata || {}) }
       })
     });
+    const messageId = String(data.task?.id || data.id || `wa_local_${Date.now()}_${Math.floor(Math.random() * 1000)}`).slice(0, 128);
     await upsertWhatsAppMessage(userId, {
-      id: String(data.task?.id || data.id || `wa_local_${Date.now()}_${Math.floor(Math.random() * 1000)}`),
+      id: messageId,
       client_id: clientId,
       direction: 'outbound',
       sender: clientId,
@@ -2110,7 +2117,7 @@ No markdown wrappers, just valid JSON.`;
       },
       created_at: new Date().toISOString()
     });
-    return { ...data, selectedClientId: clientId, quota };
+    return { ...data, messageId, selectedClientId: clientId, quota };
   };
 
   const handleWhatsAppCustomerServiceInbound = async (userId: string, inbound: {
@@ -2741,8 +2748,10 @@ ${JSON.stringify(productsRes.rows.map((product: any) => ({
       const result = await pool.query(
         `SELECT m.*,
                 wt.language AS translation_language,
+                wt.kind AS translation_kind,
                 wt.translated_text AS translation_text,
                 wt.source_language AS translation_source_language,
+                wt.target_language AS translation_target_language,
                 wt.body_hash AS translation_body_hash,
                 wt.skipped AS translation_skipped,
                 wt.model_id AS translation_model_id,
@@ -2751,7 +2760,7 @@ ${JSON.stringify(productsRes.rows.map((product: any) => ({
          LEFT JOIN whatsapp_message_translations wt
            ON wt.user_id = m.user_id
           AND wt.message_id = m.id
-          AND wt.language = $2
+          AND (wt.language = $2 OR wt.kind = 'outbound_original')
          WHERE ${where}
          ORDER BY COALESCE(m.source_created_at, m.created_at) DESC
          LIMIT $${values.length}`,
@@ -2778,32 +2787,38 @@ ${JSON.stringify(productsRes.rows.map((product: any) => ({
         return res.status(404).json({ error: 'WhatsApp message not found.' });
       }
       const translatedText = String(req.body?.translatedText || req.body?.text || '');
+      const kind = String(req.body?.kind || 'inbound_translation').slice(0, 32);
       const sourceLanguage = String(req.body?.sourceLanguage || '');
+      const targetLanguage = String(req.body?.targetLanguage || '');
       const bodyHash = String(req.body?.bodyHash || '');
       const skipped = !!req.body?.skipped;
       const modelId = req.body?.modelId ? String(req.body.modelId) : null;
       const id = `wmt_${crypto.randomUUID()}`;
       const result = await pool.query(
         `INSERT INTO whatsapp_message_translations
-         (id, user_id, message_id, language, translated_text, source_language, body_hash, skipped, model_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         (id, user_id, message_id, language, kind, translated_text, source_language, target_language, body_hash, skipped, model_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          ON CONFLICT (user_id, message_id, language)
          DO UPDATE SET
+           kind = EXCLUDED.kind,
            translated_text = EXCLUDED.translated_text,
            source_language = EXCLUDED.source_language,
+           target_language = EXCLUDED.target_language,
            body_hash = EXCLUDED.body_hash,
            skipped = EXCLUDED.skipped,
            model_id = EXCLUDED.model_id,
            updated_at = CURRENT_TIMESTAMP
          RETURNING *`,
-        [id, req.user.uid, messageId, language, translatedText, sourceLanguage, bodyHash, skipped, modelId]
+        [id, req.user.uid, messageId, language, kind, translatedText, sourceLanguage, targetLanguage, bodyHash, skipped, modelId]
       );
       const row = result.rows[0];
       res.json({
         translation: {
           language: row.language,
+          kind: row.kind || 'inbound_translation',
           text: row.translated_text || '',
           sourceLanguage: row.source_language || '',
+          targetLanguage: row.target_language || '',
           bodyHash: row.body_hash || '',
           skipped: !!row.skipped,
           modelId: row.model_id || null,

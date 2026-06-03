@@ -32,8 +32,10 @@ interface WhatsAppHubMessage {
 
 interface WhatsAppTranslation {
   language?: string;
+  kind?: 'inbound_translation' | 'outbound_original' | string;
   text: string;
   sourceLanguage?: string;
+  targetLanguage?: string;
   bodyHash: string;
   skipped?: boolean;
   modelId?: string | null;
@@ -389,7 +391,7 @@ ${bodyText}`,
 
   const translateOutboundMessageText = async (text: string) => {
     const bodyText = text.trim();
-    if (!bodyText) return bodyText;
+    if (!bodyText) return { originalText: bodyText, translatedText: bodyText, sourceLanguage: '', targetLanguage: outboundAutoTranslateLanguage || 'English', changed: false, modelId: null as string | null };
     const llmConfig = getTranslationLLMConfig();
     if (!llmConfig) {
       throw new Error(language === 'zh' ? '请先在设置中配置 AI 模型后再使用发送前自动翻译。' : 'Configure an AI model in Settings before using auto-translate before sending.');
@@ -429,7 +431,15 @@ ${bodyText}`,
       const raw = String(data.result || '').replace(/```json|```/g, '').trim();
       const jsonText = raw.match(/\{[\s\S]*\}/)?.[0] || raw;
       const parsed = JSON.parse(jsonText);
-      return parsed.alreadyTargetLanguage ? bodyText : String(parsed.translatedText || '').trim() || bodyText;
+      const translatedText = parsed.alreadyTargetLanguage ? bodyText : String(parsed.translatedText || '').trim() || bodyText;
+      return {
+        originalText: bodyText,
+        translatedText,
+        sourceLanguage: parsed.sourceLanguage || '',
+        targetLanguage,
+        changed: translatedText !== bodyText,
+        modelId: llmConfig.id
+      };
     } finally {
       setTranslatingOutbound(false);
     }
@@ -870,6 +880,14 @@ Return only the message text.`,
     setSending(true);
     try {
       let messageBody = body.trim();
+      let outboundOriginalRecord: {
+        originalText: string;
+        translatedText: string;
+        sourceLanguage: string;
+        targetLanguage: string;
+        changed: boolean;
+        modelId: string | null;
+      } | null = null;
       if (whatsappCustomerServiceAgentEnabled) {
         const generated = await generateWhatsAppMessageText(messageBody, 'customer_service');
         if (!generated) throw new Error('WhatsApp Customer Service Agent did not generate a message.');
@@ -878,7 +896,8 @@ Return only the message text.`,
         incrementAgentHubTaskCount('whatsapp_customer_service_agent');
       }
       if (whatsappOutboundAutoTranslateEnabled && messageBody) {
-        messageBody = await translateOutboundMessageText(messageBody);
+        outboundOriginalRecord = await translateOutboundMessageText(messageBody);
+        messageBody = outboundOriginalRecord.translatedText;
         setBody(messageBody);
       }
       let media: any;
@@ -934,6 +953,45 @@ Return only the message text.`,
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to send WhatsApp message');
       setSelectedClientId(data.selectedClientId || selectedClientId);
+      if (outboundOriginalRecord?.changed && data.messageId) {
+        const originalTranslation: WhatsAppTranslation = {
+          language,
+          kind: 'outbound_original',
+          text: outboundOriginalRecord.originalText,
+          sourceLanguage: outboundOriginalRecord.sourceLanguage,
+          targetLanguage: outboundOriginalRecord.targetLanguage,
+          bodyHash: simpleHash(messageBody),
+          skipped: false,
+          modelId: outboundOriginalRecord.modelId
+        };
+        const saveOriginalResponse = await fetch(`/api/whatsapp-hub/messages/${encodeURIComponent(data.messageId)}/translation`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify({
+            language,
+            kind: 'outbound_original',
+            translatedText: outboundOriginalRecord.originalText,
+            sourceLanguage: outboundOriginalRecord.sourceLanguage,
+            targetLanguage: outboundOriginalRecord.targetLanguage,
+            bodyHash: simpleHash(messageBody),
+            skipped: false,
+            modelId: outboundOriginalRecord.modelId
+          })
+        });
+        const savedOriginalData = await saveOriginalResponse.json().catch(() => ({}));
+        if (saveOriginalResponse.ok) {
+          setTranslations(prev => {
+            const next = { ...prev, [data.messageId]: savedOriginalData.translation || originalTranslation };
+            writeCachedWhatsAppTranslations(targetPhone, language, next);
+            return next;
+          });
+        } else {
+          console.warn('Failed to save outbound WhatsApp original text', savedOriginalData.error);
+        }
+      }
       if (activeClient) {
         addLog(
           activeClient.id,
@@ -1172,8 +1230,9 @@ Return only the message text.`,
           )}
           {messages.map(message => {
             const media = getWhatsAppMessageMedia(message, whatsappHubConfig.baseUrl);
-            const translation = message.direction === 'inbound' ? translations[message.id] : undefined;
+            const translation = translations[message.id];
             const isTranslating = translatingIds.has(message.id);
+            const outboundOriginal = message.direction === 'outbound' && translation?.kind === 'outbound_original' ? translation : undefined;
             return (
             <div key={message.id} className={`flex ${message.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[78%] overflow-hidden rounded-2xl px-4 py-2 text-sm ${message.direction === 'outbound' ? 'bg-green-600 text-white' : 'bg-slate-800 text-slate-100'}`}>
@@ -1205,7 +1264,7 @@ Return only the message text.`,
                   </div>
                 )}
                 {message.body && <div className="whitespace-pre-wrap break-words">{message.body}</div>}
-                {whatsappAutoTranslateEnabled && message.direction === 'inbound' && (isTranslating || translation?.text) && (
+                {whatsappAutoTranslateEnabled && message.direction === 'inbound' && (isTranslating || translation?.text) && translation?.kind !== 'outbound_original' && (
                   <div className="mt-2 border-t border-slate-600/70 pt-2">
                     <div className="mb-1 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-cyan-300">
                       {isTranslating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Languages className="h-3 w-3" />}
@@ -1214,6 +1273,18 @@ Return only the message text.`,
                     </div>
                     <div className="whitespace-pre-wrap break-words text-slate-100">
                       {translation?.text || (language === 'zh' ? '正在翻译...' : 'Translating...')}
+                    </div>
+                  </div>
+                )}
+                {outboundOriginal?.text && (
+                  <div className="mt-2 border-t border-green-300/40 pt-2">
+                    <div className="mb-1 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-green-100">
+                      <Languages className="h-3 w-3" />
+                      {language === 'zh' ? '原文' : 'Original'}
+                      {outboundOriginal.targetLanguage && <span className="font-normal normal-case text-green-100/80">→ {outboundOriginal.targetLanguage}</span>}
+                    </div>
+                    <div className="whitespace-pre-wrap break-words text-green-50">
+                      {outboundOriginal.text}
                     </div>
                   </div>
                 )}
