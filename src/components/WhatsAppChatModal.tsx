@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarClock, Download, FileText, FolderOpen, Loader2, MessageCircle, Paperclip, Plus, Send, Smile, Sparkles, Tag, User, UserPlus, X } from 'lucide-react';
+import { CalendarClock, Download, FileText, FolderOpen, Languages, Loader2, MessageCircle, Paperclip, Plus, Send, Smile, Sparkles, Tag, User, UserPlus, X } from 'lucide-react';
 import { Client, Comment, MediaItem, useStore } from '../store';
 import { MediaSelectorModal } from './MediaSelectorModal';
 import { useTranslation } from '../lib/i18n';
@@ -27,6 +27,13 @@ interface WhatsAppHubMessage {
   payload?: any;
   created_at: string;
   received_at?: string;
+}
+
+interface WhatsAppTranslation {
+  text: string;
+  sourceLanguage?: string;
+  bodyHash: string;
+  skipped?: boolean;
 }
 
 interface Props {
@@ -61,6 +68,7 @@ const WHATSAPP_ACTIVE_CHAT_POLL_MS = 12_000;
 const WHATSAPP_FOLLOW_UP_MARKER = '__FOLLOW_UP__';
 
 const whatsappMessageCacheKey = (targetPhone: string) => `tradequest.whatsapp.messages.cache.v1.${targetPhone}`;
+const whatsappTranslationCacheKey = (targetPhone: string, language: 'en' | 'zh') => `tradequest.whatsapp.translations.v1.${language}.${targetPhone}`;
 
 function readCachedWhatsAppMessages(targetPhone: string): WhatsAppHubMessage[] {
   try {
@@ -78,6 +86,33 @@ function writeCachedWhatsAppMessages(targetPhone: string, messages: WhatsAppHubM
   } catch {
     // Session storage is only a speed cache.
   }
+}
+
+function readCachedWhatsAppTranslations(targetPhone: string, language: 'en' | 'zh'): Record<string, WhatsAppTranslation> {
+  try {
+    const raw = sessionStorage.getItem(whatsappTranslationCacheKey(targetPhone, language));
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeCachedWhatsAppTranslations(targetPhone: string, language: 'en' | 'zh', translations: Record<string, WhatsAppTranslation>) {
+  try {
+    sessionStorage.setItem(whatsappTranslationCacheKey(targetPhone, language), JSON.stringify(translations));
+  } catch {
+    // Translation cache is optional.
+  }
+}
+
+function simpleHash(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) - hash) + value.charCodeAt(index);
+    hash |= 0;
+  }
+  return String(Math.abs(hash));
 }
 
 const dataUrlToFile = async (dataUrl: string, name: string, mimeType: string) => {
@@ -136,6 +171,9 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [autoTranslateEnabled, setAutoTranslateEnabled] = useState(false);
+  const [translations, setTranslations] = useState<Record<string, WhatsAppTranslation>>(() => readCachedWhatsAppTranslations(targetPhone, language));
+  const [translatingIds, setTranslatingIds] = useState<Set<string>>(new Set());
   const [isCreatingLead, setIsCreatingLead] = useState(false);
   const [isAddingContactToClient, setIsAddingContactToClient] = useState(false);
   const [mappingEdit, setMappingEdit] = useState<{ chatId: string; phone: string; saving?: boolean } | null>(null);
@@ -251,6 +289,71 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     return llmConfigs.find(llm => llm.id === id) || null;
   };
 
+  const getTranslationLLMConfig = () => getLLMConfig('agent_context_suggestions') || getLLMConfig('whatsapp_drafting') || getLLMConfig('drafting');
+
+  const translateInboundMessage = async (message: WhatsAppHubMessage, signal?: AbortSignal) => {
+    const bodyText = String(message.body || '').trim();
+    const bodyHash = simpleHash(bodyText);
+    const cached = translations[message.id];
+    if (!bodyText || (cached && cached.bodyHash === bodyHash)) return;
+    const llmConfig = getTranslationLLMConfig();
+    if (!llmConfig) return;
+    setTranslatingIds(prev => new Set(prev).add(message.id));
+    try {
+      const targetLanguage = language === 'zh' ? 'Chinese' : 'English';
+      const response = await fetch('/api/chat/magic', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('token')}`
+        },
+        signal,
+        body: JSON.stringify({
+          command: `You are translating an inbound WhatsApp customer message for an internal CRM user.
+Target system language: ${targetLanguage}.
+If the message is already in ${targetLanguage}, return JSON with alreadyTargetLanguage true and translatedText empty.
+Otherwise translate faithfully into ${targetLanguage}. Keep names, numbers, product names, URLs, and line breaks. Do not add commentary.
+Return only valid JSON: {"alreadyTargetLanguage": boolean, "sourceLanguage": string, "translatedText": string}.
+
+Message:
+${bodyText}`,
+          context: {
+            channel: 'whatsapp',
+            messageId: message.id,
+            direction: message.direction,
+            systemLanguage: targetLanguage
+          },
+          llmConfig,
+          skipKnowledgeBase: true
+        })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Translation failed');
+      const raw = String(data.result || '').replace(/```json|```/g, '').trim();
+      const jsonText = raw.match(/\{[\s\S]*\}/)?.[0] || raw;
+      const parsed = JSON.parse(jsonText);
+      const nextTranslation: WhatsAppTranslation = {
+        text: parsed.alreadyTargetLanguage ? '' : String(parsed.translatedText || '').trim(),
+        sourceLanguage: parsed.sourceLanguage || '',
+        bodyHash,
+        skipped: !!parsed.alreadyTargetLanguage
+      };
+      setTranslations(prev => {
+        const next = { ...prev, [message.id]: nextTranslation };
+        writeCachedWhatsAppTranslations(targetPhone, language, next);
+        return next;
+      });
+    } catch (error: any) {
+      if (error?.name !== 'AbortError') console.warn('WhatsApp translation failed', error);
+    } finally {
+      setTranslatingIds(prev => {
+        const next = new Set(prev);
+        next.delete(message.id);
+        return next;
+      });
+    }
+  };
+
   const loadCachedMessages = async (options: { notifyErrors?: boolean; requestId?: number } = {}) => {
     const requestId = options.requestId ?? loadRequestRef.current;
     const expectedTargetPhone = targetPhone;
@@ -345,8 +448,10 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     setSelectedFile(null);
     setSelectedMedia(null);
     setMappingEdit(null);
+    setTranslations(readCachedWhatsAppTranslations(targetPhone, language));
+    setTranslatingIds(new Set());
     loadData();
-  }, [targetPhone, initialConversation?.id, initialMessage]);
+  }, [targetPhone, initialConversation?.id, initialMessage, language]);
 
   useEffect(() => {
     if (!targetPhone || messages.length === 0) return;
@@ -359,6 +464,30 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
       window.clearTimeout(mediaTimer);
     };
   }, [targetPhone, latestMessageId, messages.length]);
+
+  useEffect(() => {
+    if (!autoTranslateEnabled || messages.length === 0) return;
+    const llmConfig = getTranslationLLMConfig();
+    if (!llmConfig) {
+      notify(language === 'zh' ? '请先在设置中配置 AI 模型后再使用 WhatsApp 自动翻译。' : 'Configure an AI model in Settings before using WhatsApp auto-translation.', 'warning');
+      return;
+    }
+    const controller = new AbortController();
+    const pendingMessages = messages
+      .filter(message => message.direction === 'inbound' && String(message.body || '').trim())
+      .filter(message => {
+        const bodyHash = simpleHash(String(message.body || '').trim());
+        return translations[message.id]?.bodyHash !== bodyHash;
+      })
+      .slice(-20);
+    void (async () => {
+      for (const message of pendingMessages) {
+        if (controller.signal.aborted) break;
+        await translateInboundMessage(message, controller.signal);
+      }
+    })();
+    return () => controller.abort();
+  }, [autoTranslateEnabled, latestMessageId, messages.length, language, targetPhone]);
 
   useEffect(() => {
     const poll = window.setInterval(() => {
@@ -848,20 +977,36 @@ Return only the message text.`,
             </select>
             {loading && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
           </div>
-          <button
-            type="button"
-            onClick={() => setWhatsAppCustomerServiceAgentEnabled(!whatsappCustomerServiceAgentEnabled)}
-            className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${
-              whatsappCustomerServiceAgentEnabled
-                ? 'border-green-500/40 bg-green-500/15 text-green-300'
-                : 'border-slate-700 bg-slate-950 text-slate-400 hover:border-slate-600 hover:text-slate-200'
-            }`}
-            title="WhatsApp Customer Service Agent"
-          >
-            <Sparkles className="h-4 w-4" />
-            <span>Agent Mode</span>
-            <span className={`h-2 w-2 rounded-full ${whatsappCustomerServiceAgentEnabled ? 'bg-green-400' : 'bg-slate-600'}`} />
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setAutoTranslateEnabled(!autoTranslateEnabled)}
+              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${
+                autoTranslateEnabled
+                  ? 'border-cyan-500/40 bg-cyan-500/15 text-cyan-300'
+                  : 'border-slate-700 bg-slate-950 text-slate-400 hover:border-slate-600 hover:text-slate-200'
+              }`}
+              title={language === 'zh' ? '自动翻译客人的非中文 WhatsApp 消息' : 'Auto-translate customer WhatsApp messages that are not in English'}
+            >
+              <Languages className="h-4 w-4" />
+              <span>{language === 'zh' ? '自动翻译' : 'Auto Translate'}</span>
+              <span className={`h-2 w-2 rounded-full ${autoTranslateEnabled ? 'bg-cyan-400' : 'bg-slate-600'}`} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setWhatsAppCustomerServiceAgentEnabled(!whatsappCustomerServiceAgentEnabled)}
+              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${
+                whatsappCustomerServiceAgentEnabled
+                  ? 'border-green-500/40 bg-green-500/15 text-green-300'
+                  : 'border-slate-700 bg-slate-950 text-slate-400 hover:border-slate-600 hover:text-slate-200'
+              }`}
+              title="WhatsApp Customer Service Agent"
+            >
+              <Sparkles className="h-4 w-4" />
+              <span>Agent Mode</span>
+              <span className={`h-2 w-2 rounded-full ${whatsappCustomerServiceAgentEnabled ? 'bg-green-400' : 'bg-slate-600'}`} />
+            </button>
+          </div>
         </div>
 
         {conversation && (
@@ -929,6 +1074,8 @@ Return only the message text.`,
           )}
           {messages.map(message => {
             const media = getWhatsAppMessageMedia(message, whatsappHubConfig.baseUrl);
+            const translation = message.direction === 'inbound' ? translations[message.id] : undefined;
+            const isTranslating = translatingIds.has(message.id);
             return (
             <div key={message.id} className={`flex ${message.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[78%] overflow-hidden rounded-2xl px-4 py-2 text-sm ${message.direction === 'outbound' ? 'bg-green-600 text-white' : 'bg-slate-800 text-slate-100'}`}>
@@ -960,6 +1107,18 @@ Return only the message text.`,
                   </div>
                 )}
                 {message.body && <div className="whitespace-pre-wrap break-words">{message.body}</div>}
+                {autoTranslateEnabled && message.direction === 'inbound' && (isTranslating || translation?.text) && (
+                  <div className="mt-2 border-t border-slate-600/70 pt-2">
+                    <div className="mb-1 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-cyan-300">
+                      {isTranslating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Languages className="h-3 w-3" />}
+                      {language === 'zh' ? '译文' : 'Translation'}
+                      {translation?.sourceLanguage && <span className="font-normal normal-case text-slate-400">({translation.sourceLanguage})</span>}
+                    </div>
+                    <div className="whitespace-pre-wrap break-words text-slate-100">
+                      {translation?.text || (language === 'zh' ? '正在翻译...' : 'Translating...')}
+                    </div>
+                  </div>
+                )}
                 <div className="text-[10px] opacity-70 mt-1">
                   {message.client_id} · {new Date(message.created_at || message.received_at || Date.now()).toLocaleString()}
                 </div>
