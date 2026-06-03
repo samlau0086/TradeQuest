@@ -1796,6 +1796,11 @@ No markdown wrappers, just valid JSON.`;
       };
       delete storagePayload.pendingTaskId;
     }
+    const existedBeforeRes = await pool.query(
+      `SELECT id FROM whatsapp_messages WHERE id = $1 AND user_id = $2 LIMIT 1`,
+      [messageId, userId]
+    );
+    const isNewInboundMessage = direction === 'inbound' && existedBeforeRes.rows.length === 0;
     await pool.query(
       `INSERT INTO whatsapp_messages
        (id, user_id, conversation_id, client_id, hub_client_id, direction, sender, recipient, target_phone, body, message_type, payload, source_created_at, received_at, contact_phone, raw_chat_id, conversation_key)
@@ -1861,6 +1866,18 @@ No markdown wrappers, just valid JSON.`;
          )`,
       [userId, messageId, conversation.id, hubClientId, body, Number.isFinite(timeMs) ? new Date(timeMs).toISOString() : messageTime]
     );
+    if (isNewInboundMessage) {
+      void handleWhatsAppCustomerServiceInbound(userId, {
+        messageId,
+        conversationId: conversation.id,
+        clientId: conversation.clientId,
+        targetPhone,
+        contactPhone: identity.contactPhone || null,
+        rawChatId: identity.rawChatId || null,
+        body,
+        messageTime
+      }).catch((error: any) => console.warn('WhatsApp Customer Service Agent skipped/failed', error?.message || error));
+    }
   };
 
   const syncWhatsAppHubMessages = async (userId: string, options: { targetPhone?: string; chatId?: string; limit?: number; since?: string } = {}) => {
@@ -2067,6 +2084,177 @@ No markdown wrappers, just valid JSON.`;
       created_at: new Date().toISOString()
     });
     return { ...data, selectedClientId: clientId, quota };
+  };
+
+  const handleWhatsAppCustomerServiceInbound = async (userId: string, inbound: {
+    messageId: string;
+    conversationId: string;
+    clientId?: string | null;
+    targetPhone: string;
+    contactPhone?: string | null;
+    rawChatId?: string | null;
+    body: string;
+    messageTime?: string;
+  }) => {
+    const settingsRes = await pool.query('SELECT settings FROM users WHERE id = $1', [userId]);
+    const settings = typeof settingsRes.rows[0]?.settings === 'string'
+      ? JSON.parse(settingsRes.rows[0].settings || '{}')
+      : (settingsRes.rows[0]?.settings || {});
+    if (!settings.whatsappCustomerServiceAgentEnabled) return;
+
+    const state = settings.whatsappCustomerServiceAgentState || {};
+    const processed = state.processedMessageIds || {};
+    if (processed[inbound.messageId]) return;
+
+    const replyTo = normalizeWhatsAppPhone(inbound.contactPhone || inbound.targetPhone);
+    if (!replyTo) return;
+
+    processed[inbound.messageId] = { status: 'processing', at: new Date().toISOString() };
+    settings.whatsappCustomerServiceAgentState = {
+      ...state,
+      processedMessageIds: Object.fromEntries(Object.entries(processed).slice(-500))
+    };
+    await pool.query('UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [JSON.stringify(settings), userId]);
+
+    const llmId = settings.llmMappings?.whatsapp_drafting || settings.llmMappings?.drafting || settings.llmMappings?.agent_harness || settings.activeLLMId;
+    const llmConfig = llmId ? (settings.llmConfigs || []).find((config: any) => config.id === llmId) : null;
+    if (!llmConfig) {
+      processed[inbound.messageId] = { status: 'skipped_no_model', at: new Date().toISOString() };
+      await pool.query('UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [JSON.stringify(settings), userId]);
+      return;
+    }
+
+    const clientRes = inbound.clientId
+      ? await pool.query('SELECT * FROM clients WHERE id = $1 AND user_id = $2 LIMIT 1', [inbound.clientId, userId])
+      : await pool.query(
+          `SELECT * FROM clients
+           WHERE user_id = $1
+             AND EXISTS (
+               SELECT 1 FROM jsonb_array_elements(contact_methods) method
+               WHERE regexp_replace(method->>'value', '[^0-9]', '', 'g') LIKE $2
+             )
+           LIMIT 1`,
+          [userId, `%${replyTo.slice(-8)}`]
+        );
+    const client = clientRes.rows[0] || null;
+    const clientId = client?.id || inbound.clientId || null;
+
+    const [waRes, dealsRes, logsRes, emailsRes, kbRes, productsRes] = await Promise.all([
+      pool.query(
+        `SELECT direction, body, source_created_at, created_at
+         FROM whatsapp_messages
+         WHERE user_id = $1 AND conversation_id = $2
+         ORDER BY COALESCE(source_created_at, created_at) DESC
+         LIMIT 16`,
+        [userId, inbound.conversationId]
+      ),
+      clientId
+        ? pool.query('SELECT name, status, value, lead_score, lead_summary, lead_next_step, comments FROM deals WHERE user_id = $1 AND client_id = $2 ORDER BY updated_at DESC LIMIT 5', [userId, clientId])
+        : Promise.resolve({ rows: [] } as any),
+      clientId
+        ? pool.query('SELECT date, type, content FROM logs WHERE client_id = $1 ORDER BY date DESC LIMIT 10', [clientId])
+        : Promise.resolve({ rows: [] } as any),
+      clientId
+        ? pool.query('SELECT date, type, subject, body FROM emails WHERE user_id = $1 AND client_id = $2 ORDER BY date DESC LIMIT 6', [userId, clientId])
+        : Promise.resolve({ rows: [] } as any),
+      pool.query('SELECT title, content FROM knowledge_base WHERE user_id = $1 AND (client_id IS NULL OR client_id = $2) ORDER BY updated_at DESC LIMIT 8', [userId, clientId]),
+      pool.query('SELECT name, sku, description, sales_points, bulk_prices FROM products WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 12', [userId])
+    ]);
+
+    const outboundLanguage = getCustomerOutputLanguage({
+      lastCommunicationText: inbound.body,
+      preferredLanguage: client?.preferred_language,
+      country: client?.country
+    });
+    const recentMessages = waRes.rows.reverse().map((message: any) => `${message.direction}: ${message.body}`).join('\n');
+    const prompt = `You are WhatsApp Customer Service Agent for a foreign trade CRM.
+
+Generate the next WhatsApp customer-service reply.
+
+Rules:
+- Reply in a concise, natural WhatsApp style.
+- Use customer-facing language: ${outboundLanguage}.
+- Inbound messages are customer messages. Outbound messages are our team's prior messages only.
+- Do not infer customer intent from outbound messages.
+- Use product information, RAG snippets, client profile, AI summaries, lead/deal context, logs, emails, and the current WhatsApp chat.
+- If the customer asks a question, answer it directly when the provided context supports it.
+- If context is insufficient, ask a brief clarifying question.
+- Return only the message text.
+
+${buildLanguagePolicy({ systemLanguage: settings.language, customerLanguage: outboundLanguage })}
+
+Latest inbound customer message:
+${inbound.body}
+
+Client profile:
+${client ? JSON.stringify({
+  name: client.name,
+  company: client.company,
+  country: client.country,
+  preferredLanguage: client.preferred_language,
+  aiSummary: client.agent_summary || client.lead_summary,
+  bestNextStep: client.agent_next_step || client.lead_next_step,
+  leadScore: client.lead_score,
+  tags: client.tags
+}) : 'Unlinked conversation'}
+
+Recent WhatsApp conversation:
+${recentMessages || 'N/A'}
+
+Related leads/deals:
+${JSON.stringify(dealsRes.rows)}
+
+Recent CRM logs:
+${JSON.stringify(logsRes.rows)}
+
+Recent emails:
+${JSON.stringify(emailsRes.rows.map((email: any) => ({ ...email, body: String(email.body || '').replace(/<[^>]+>/g, ' ').slice(0, 500) })))}
+
+Knowledge/RAG:
+${JSON.stringify(kbRes.rows.map((item: any) => ({ title: item.title, content: String(item.content || '').slice(0, 900) })))}
+
+Products:
+${JSON.stringify(productsRes.rows.map((product: any) => ({
+  name: product.name,
+  sku: product.sku,
+  description: String(product.description || '').slice(0, 700),
+  salesPoints: String(product.sales_points || '').slice(0, 700),
+  bulkPrices: product.bulk_prices
+})))}`;
+
+    const reply = (await callAI(prompt, llmConfig, false)).trim();
+    if (!reply) throw new Error('WhatsApp Customer Service Agent generated an empty reply');
+    const sent = await sendWhatsAppViaHub(userId, {
+      to: replyTo,
+      chatId: inbound.rawChatId || undefined,
+      body: reply,
+      metadata: {
+        source: 'whatsapp-customer-service-agent',
+        agentId: 'whatsapp_customer_service_agent',
+        clientId,
+        replyToMessageId: inbound.messageId
+      }
+    });
+
+    if (clientId) {
+      await pool.query(
+        `INSERT INTO logs (id, client_id, date, content, type, metadata)
+         VALUES ($1, $2, $3, $4, 'whatsapp', $5)`,
+        [`l${Date.now()}${Math.floor(Math.random() * 1000)}`, clientId, new Date().toISOString(), `WhatsApp Customer Service Agent replied: ${reply.slice(0, 160)}`, JSON.stringify({ inboundMessageId: inbound.messageId, selectedClientId: sent.selectedClientId })]
+      );
+    }
+
+    settings.agentHubAgents = (settings.agentHubAgents || []).map((agent: any) => (
+      agent.id === 'whatsapp_customer_service_agent'
+        ? { ...agent, tasksCompleted: (Number(agent.tasksCompleted) || 0) + 1, updatedAt: new Date().toISOString() }
+        : agent
+    ));
+    settings.whatsappCustomerServiceAgentState.processedMessageIds[inbound.messageId] = {
+      status: 'completed',
+      at: new Date().toISOString(),
+      replyPreview: reply.slice(0, 120)
+    };
+    await pool.query('UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [JSON.stringify(settings), userId]);
   };
 
   const sendEmailViaOutboxConfig = async (config: any, input: {
@@ -5367,6 +5555,40 @@ Return JSON only:
   };
 
   setInterval(processScheduledWhatsAppMessages, 60 * 1000);
+
+  const processWhatsAppCustomerServiceSync = async () => {
+    try {
+      const usersRes = await pool.query(
+        `SELECT id
+         FROM users
+         WHERE COALESCE((settings->>'whatsappCustomerServiceAgentEnabled')::boolean, false) = true`
+      );
+      for (const user of usersRes.rows) {
+        try {
+          const latest = await pool.query(
+            `SELECT MAX(COALESCE(source_created_at, created_at)) AS latest_at
+             FROM whatsapp_messages
+             WHERE user_id = $1`,
+            [user.id]
+          );
+          const since = latest.rows[0]?.latest_at
+            ? applyWhatsAppHistoryRecoveryLookback(new Date(latest.rows[0].latest_at).toISOString())
+            : undefined;
+          await syncWhatsAppHubChats(user.id, 100).catch(() => 0);
+          await syncWhatsAppHubMessages(user.id, { limit: 200, since }).catch((error: any) => {
+            console.warn(`WhatsApp Customer Service sync failed for user ${user.id}`, error?.message || error);
+            return 0;
+          });
+        } catch (error: any) {
+          console.warn(`WhatsApp Customer Service background sync skipped for user ${user.id}`, error?.message || error);
+        }
+      }
+    } catch (error: any) {
+      console.warn('WhatsApp Customer Service background sync failed', error?.message || error);
+    }
+  };
+
+  setInterval(processWhatsAppCustomerServiceSync, 60 * 1000);
   
   // Deals API Endpoints
   app.get('/api/deals', authenticateToken, async (req: any, res) => {

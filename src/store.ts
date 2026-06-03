@@ -745,6 +745,8 @@ export interface StoreState {
 
   whatsappHubConfig: WhatsAppHubConfig;
   updateWhatsAppHubConfig: (updates: Partial<WhatsAppHubConfig>) => void;
+  whatsappCustomerServiceAgentEnabled: boolean;
+  setWhatsAppCustomerServiceAgentEnabled: (enabled: boolean) => void;
   externalNotificationConfig: ExternalNotificationConfig;
   updateExternalNotificationConfig: (updates: Partial<ExternalNotificationConfig>) => void;
   sendExternalNotification: (payload: { event: ExternalNotificationEvent; title: string; body: string; url?: string; metadata?: any }) => Promise<void>;
@@ -1858,6 +1860,8 @@ export const useStore = create<StoreState>((set, get) => ({
   updateWhatsAppHubConfig: (updates) => set((state) => ({
     whatsappHubConfig: { ...state.whatsappHubConfig, ...updates }
   })),
+  whatsappCustomerServiceAgentEnabled: false,
+  setWhatsAppCustomerServiceAgentEnabled: (enabled) => set({ whatsappCustomerServiceAgentEnabled: enabled }),
   externalNotificationConfig: INITIAL_EXTERNAL_NOTIFICATION_CONFIG,
   updateExternalNotificationConfig: (updates) => set((state) => ({
     externalNotificationConfig: {
@@ -3024,6 +3028,7 @@ export const useStore = create<StoreState>((set, get) => ({
           whatsappHubConfig: settings.whatsappHubConfig
             ? { ...INITIAL_WHATSAPP_HUB_CONFIG, ...settings.whatsappHubConfig }
             : state.whatsappHubConfig,
+          whatsappCustomerServiceAgentEnabled: settings.whatsappCustomerServiceAgentEnabled ?? state.whatsappCustomerServiceAgentEnabled,
           externalNotificationConfig: settings.externalNotificationConfig
             ? {
                 ...INITIAL_EXTERNAL_NOTIFICATION_CONFIG,
@@ -3170,6 +3175,7 @@ useStore.subscribe((state, prevState) => {
     state.outboxConfigs !== prevState.outboxConfigs ||
     state.emailServerMappings !== prevState.emailServerMappings ||
     state.whatsappHubConfig !== prevState.whatsappHubConfig ||
+    state.whatsappCustomerServiceAgentEnabled !== prevState.whatsappCustomerServiceAgentEnabled ||
     state.externalNotificationConfig !== prevState.externalNotificationConfig ||
     state.agentContextAnalysisConfig !== prevState.agentContextAnalysisConfig ||
     state.llmConfigs !== prevState.llmConfigs ||
@@ -3211,6 +3217,7 @@ useStore.subscribe((state, prevState) => {
             outboxConfigs: state.outboxConfigs,
             emailServerMappings: state.emailServerMappings,
             whatsappHubConfig: state.whatsappHubConfig,
+            whatsappCustomerServiceAgentEnabled: state.whatsappCustomerServiceAgentEnabled,
             externalNotificationConfig: state.externalNotificationConfig,
             agentContextAnalysisConfig: state.agentContextAnalysisConfig,
             llmConfigs: state.llmConfigs,

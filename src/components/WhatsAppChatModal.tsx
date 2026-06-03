@@ -116,7 +116,7 @@ const getWhatsAppMessageMedia = (message: WhatsAppHubMessage, hubBaseUrl?: strin
 };
 
 export function WhatsAppChatModal({ client, phone, conversation: initialConversation, initialMessage = '', embedded = false, onClose }: Props) {
-  const { notify, addLog, selectClient, language, llmConfigs, activeLLMId, llmMappings, logs, emails, clients, deals, knowledgeBase, products, whatsappHubConfig, incrementAgentHubTaskCount } = useStore();
+  const { notify, addLog, selectClient, language, llmConfigs, activeLLMId, llmMappings, logs, emails, clients, deals, knowledgeBase, products, whatsappHubConfig, whatsappCustomerServiceAgentEnabled, setWhatsAppCustomerServiceAgentEnabled, incrementAgentHubTaskCount } = useStore();
   const t = useTranslation(language);
   const [hubClients, setHubClients] = useState<WhatsAppHubClient[]>([]);
   const targetPhone = useMemo(() => isChatId(phone) ? phone.trim() : cleanPhone(phone), [phone]);
@@ -135,7 +135,6 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [agentModeEnabled, setAgentModeEnabled] = useState(false);
   const [isCreatingLead, setIsCreatingLead] = useState(false);
   const [isAddingContactToClient, setIsAddingContactToClient] = useState(false);
   const [mappingEdit, setMappingEdit] = useState<{ chatId: string; phone: string; saving?: boolean } | null>(null);
@@ -614,11 +613,11 @@ Return only the message text.`,
   };
 
   const sendMessage = async () => {
-    if ((!body.trim() && !selectedFile && !selectedMedia && !agentModeEnabled) || !displayPhone) return;
+    if ((!body.trim() && !selectedFile && !selectedMedia && !whatsappCustomerServiceAgentEnabled) || !displayPhone) return;
     setSending(true);
     try {
       let messageBody = body.trim();
-      if (agentModeEnabled) {
+      if (whatsappCustomerServiceAgentEnabled) {
         const generated = await generateWhatsAppMessageText(messageBody, 'customer_service');
         if (!generated) throw new Error('WhatsApp Customer Service Agent did not generate a message.');
         messageBody = generated;
@@ -672,7 +671,7 @@ Return only the message text.`,
           media,
           clientId: selectedClientId || undefined,
           scheduledAt: scheduleEnabled && scheduleDateTime ? new Date(scheduleDateTime).toISOString() : undefined,
-          metadata: { clientId: activeClient?.id, hasMedia: !!media, agentMode: agentModeEnabled ? 'whatsapp_customer_service_agent' : undefined }
+          metadata: { clientId: activeClient?.id, hasMedia: !!media, agentMode: whatsappCustomerServiceAgentEnabled ? 'whatsapp_customer_service_agent' : undefined }
         })
       });
       const data = await response.json();
@@ -821,9 +820,9 @@ Return only the message text.`,
           </div>
           <button
             type="button"
-            onClick={() => setAgentModeEnabled(prev => !prev)}
+            onClick={() => setWhatsAppCustomerServiceAgentEnabled(!whatsappCustomerServiceAgentEnabled)}
             className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${
-              agentModeEnabled
+              whatsappCustomerServiceAgentEnabled
                 ? 'border-green-500/40 bg-green-500/15 text-green-300'
                 : 'border-slate-700 bg-slate-950 text-slate-400 hover:border-slate-600 hover:text-slate-200'
             }`}
@@ -831,7 +830,7 @@ Return only the message text.`,
           >
             <Sparkles className="h-4 w-4" />
             <span>Agent Mode</span>
-            <span className={`h-2 w-2 rounded-full ${agentModeEnabled ? 'bg-green-400' : 'bg-slate-600'}`} />
+            <span className={`h-2 w-2 rounded-full ${whatsappCustomerServiceAgentEnabled ? 'bg-green-400' : 'bg-slate-600'}`} />
           </button>
         </div>
 
@@ -1065,16 +1064,16 @@ Return only the message text.`,
             <textarea
               value={body}
               onChange={e => setBody(e.target.value)}
-              placeholder={agentModeEnabled ? 'Agent mode: optional guidance, or leave blank to auto-reply from context.' : t('typeWhatsAppMessage')}
+              placeholder={whatsappCustomerServiceAgentEnabled ? 'Agent mode: optional guidance, or leave blank to auto-reply from context.' : t('typeWhatsAppMessage')}
               className="flex-1 min-h-16 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 outline-none resize-none focus:border-green-500"
             />
             <button
               onClick={sendMessage}
-              disabled={sending || (!body.trim() && !selectedFile && !selectedMedia && !agentModeEnabled) || (scheduleEnabled && !scheduleDateTime)}
+              disabled={sending || (!body.trim() && !selectedFile && !selectedMedia && !whatsappCustomerServiceAgentEnabled) || (scheduleEnabled && !scheduleDateTime)}
               className="px-4 py-2 bg-green-600 hover:bg-green-500 disabled:bg-slate-800 disabled:text-slate-500 rounded-xl font-bold text-white flex items-center gap-2 self-end"
             >
               {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              {agentModeEnabled ? (scheduleEnabled ? 'Agent Schedule' : 'Agent Send') : (scheduleEnabled ? t('schedule') : t('send'))}
+              {whatsappCustomerServiceAgentEnabled ? (scheduleEnabled ? 'Agent Schedule' : 'Agent Send') : (scheduleEnabled ? t('schedule') : t('send'))}
             </button>
           </div>
         </div>
