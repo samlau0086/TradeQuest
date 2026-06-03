@@ -72,6 +72,7 @@ const WHATSAPP_ACTIVE_CHAT_POLL_MS = 12_000;
 const WHATSAPP_FOLLOW_UP_MARKER = '__FOLLOW_UP__';
 
 const whatsappMessageCacheKey = (targetPhone: string) => `tradequest.whatsapp.messages.cache.v1.${targetPhone}`;
+const whatsappTranslationCacheKey = (targetPhone: string, language: 'en' | 'zh') => `tradequest.whatsapp.translations.v2.${language}.${targetPhone}`;
 
 function readCachedWhatsAppMessages(targetPhone: string): WhatsAppHubMessage[] {
   try {
@@ -88,6 +89,24 @@ function writeCachedWhatsAppMessages(targetPhone: string, messages: WhatsAppHubM
     sessionStorage.setItem(whatsappMessageCacheKey(targetPhone), JSON.stringify(messages.slice(-300)));
   } catch {
     // Session storage is only a speed cache.
+  }
+}
+
+function readCachedWhatsAppTranslations(targetPhone: string, language: 'en' | 'zh'): Record<string, WhatsAppTranslation> {
+  try {
+    const raw = localStorage.getItem(whatsappTranslationCacheKey(targetPhone, language));
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeCachedWhatsAppTranslations(targetPhone: string, language: 'en' | 'zh', translations: Record<string, WhatsAppTranslation>) {
+  try {
+    localStorage.setItem(whatsappTranslationCacheKey(targetPhone, language), JSON.stringify(translations));
+  } catch {
+    // Browser translation cache is optional; database remains the source of truth.
   }
 }
 
@@ -156,7 +175,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [translations, setTranslations] = useState<Record<string, WhatsAppTranslation>>({});
+  const [translations, setTranslations] = useState<Record<string, WhatsAppTranslation>>(() => readCachedWhatsAppTranslations(targetPhone, language));
   const [translatingIds, setTranslatingIds] = useState<Set<string>>(new Set());
   const [isCreatingLead, setIsCreatingLead] = useState(false);
   const [isAddingContactToClient, setIsAddingContactToClient] = useState(false);
@@ -342,7 +361,9 @@ ${bodyText}`,
       const savedData = await saveResponse.json().catch(() => ({}));
       if (!saveResponse.ok) throw new Error(savedData.error || 'Failed to save translation');
       setTranslations(prev => {
-        return { ...prev, [message.id]: savedData.translation || nextTranslation };
+        const next = { ...prev, [message.id]: savedData.translation || nextTranslation };
+        writeCachedWhatsAppTranslations(targetPhone, language, next);
+        return next;
       });
     } catch (error: any) {
       if (error?.name !== 'AbortError') console.warn('WhatsApp translation failed', error);
@@ -377,11 +398,19 @@ ${bodyText}`,
       const nextMessages = (messagesData.messages || []).slice().reverse();
       setMessages(nextMessages);
       writeCachedWhatsAppMessages(expectedTargetPhone, nextMessages);
-      const dbTranslations = nextMessages.reduce((acc: Record<string, WhatsAppTranslation>, message: WhatsAppHubMessage) => {
-        if (message.translation?.bodyHash) acc[message.id] = message.translation;
+      const cachedTranslations = readCachedWhatsAppTranslations(expectedTargetPhone, language);
+      const mergedTranslations = nextMessages.reduce((acc: Record<string, WhatsAppTranslation>, message: WhatsAppHubMessage) => {
+        const bodyHash = simpleHash(String(message.body || '').trim());
+        const cached = cachedTranslations[message.id];
+        if (cached?.bodyHash === bodyHash) {
+          acc[message.id] = cached;
+        } else if (message.translation?.bodyHash === bodyHash) {
+          acc[message.id] = message.translation;
+        }
         return acc;
       }, {});
-      setTranslations(dbTranslations);
+      setTranslations(mergedTranslations);
+      writeCachedWhatsAppTranslations(expectedTargetPhone, language, mergedTranslations);
       const sticky = (messagesData.messages || []).find((message: WhatsAppHubMessage) => message.direction === 'outbound' && message.client_id)?.client_id;
       if (sticky) setSelectedClientId(sticky);
       const conversationsRes = await fetch(`/api/whatsapp-hub/conversations?search=${encodeURIComponent(expectedLookupTarget)}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
@@ -454,7 +483,7 @@ ${bodyText}`,
     setSelectedFile(null);
     setSelectedMedia(null);
     setMappingEdit(null);
-    setTranslations({});
+    setTranslations(readCachedWhatsAppTranslations(targetPhone, language));
     setTranslatingIds(new Set());
     loadData();
   }, [targetPhone, initialConversation?.id, initialMessage, language]);
