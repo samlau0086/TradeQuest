@@ -1573,13 +1573,23 @@ export function Inbox() {
                  )}
                  onCreateLead={!selectedEmail.clientId ? handleCreateLead : undefined}
                  onAddToKnowledge={selectedEmail.clientId ? handleAddToRag : undefined}
-                 onMarkFollowUp={() => {
-                   const nextTodoAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+                 followUpAt={selectedEmail.todoAt}
+                 followUpNote={selectedEmail.todoNote}
+                 onSetFollowUp={(dueAt, note) => {
                    editEmail(selectedEmail.id, {
-                     todoAt: nextTodoAt,
-                     todoNote: `Follow up: ${selectedEmail.subject || selectedEmail.sender}`
+                     todoAt: dueAt,
+                     todoNote: note || `Follow up: ${selectedEmail.subject || selectedEmail.sender}`
                    });
-                   notify(language === 'zh' ? '已设置明日跟进提醒。' : 'Follow-up reminder set for tomorrow.', 'success');
+                   notify(language === 'zh' ? '已设置跟进提醒。' : 'Follow-up reminder saved.', 'success');
+                 }}
+                 onClearFollowUp={() => {
+                   editEmail(selectedEmail.id, { todoAt: null as any, todoNote: null as any });
+                   notify(language === 'zh' ? '已取消跟进提醒。' : 'Follow-up reminder canceled.', 'success');
+                 }}
+                 onCompleteFollowUp={() => {
+                   editEmail(selectedEmail.id, { todoAt: null as any, todoNote: null as any });
+                   addEmailComment(selectedEmail.id, language === 'zh' ? '跟进任务已完成。' : 'Follow-up task completed.');
+                   notify(language === 'zh' ? '已标记跟进完成。' : 'Follow-up marked complete.', 'success');
                  }}
                  onDeleteItem={() => {
                    setConfirmDialog({

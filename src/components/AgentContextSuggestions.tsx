@@ -36,9 +36,28 @@ interface AgentContextSuggestionsProps {
   onAddToKnowledge?: () => void | Promise<void>;
   onDeleteItem?: () => void | Promise<void>;
   onMarkFollowUp?: () => void | Promise<void>;
+  followUpAt?: string | null;
+  followUpNote?: string | null;
+  onSetFollowUp?: (dueAt: string, note: string) => void | Promise<void>;
+  onClearFollowUp?: () => void | Promise<void>;
+  onCompleteFollowUp?: () => void | Promise<void>;
   autoScrollOnOpen?: boolean;
   onSaveAnalysis?: (key: string, insight: AgentContextSuggestionInsight) => void | Promise<void>;
 }
+
+const toDateTimeLocalValue = (value?: string | null) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+};
+
+const defaultFollowUpDateTime = () => {
+  const date = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  date.setSeconds(0, 0);
+  return toDateTimeLocalValue(date.toISOString());
+};
 
 const inferIntent = (text: string) => {
   const lower = text.toLowerCase();
@@ -81,6 +100,11 @@ export function AgentContextSuggestions({
   onAddToKnowledge,
   onDeleteItem,
   onMarkFollowUp,
+  followUpAt,
+  followUpNote,
+  onSetFollowUp,
+  onClearFollowUp,
+  onCompleteFollowUp,
   autoScrollOnOpen,
   onSaveAnalysis
 }: AgentContextSuggestionsProps) {
@@ -101,6 +125,9 @@ export function AgentContextSuggestions({
   const [loadingInsight, setLoadingInsight] = useState(false);
   const [runningOptionId, setRunningOptionId] = useState<string | null>(null);
   const [optionStatus, setOptionStatus] = useState<string | null>(null);
+  const [followUpEditorOpen, setFollowUpEditorOpen] = useState(false);
+  const [followUpDraftAt, setFollowUpDraftAt] = useState('');
+  const [followUpDraftNote, setFollowUpDraftNote] = useState('');
   const panelRef = useRef<HTMLElement | null>(null);
   const agent = useMemo(() => {
     const preferredId = channel === 'whatsapp' ? 'whatsapp_agent' : 'follow_up_agent';
@@ -142,6 +169,12 @@ export function AgentContextSuggestions({
       window.clearTimeout(finalTimer);
     };
   }, [autoScrollOnOpen, cacheKey]);
+
+  useEffect(() => {
+    setFollowUpDraftAt(toDateTimeLocalValue(followUpAt));
+    setFollowUpDraftNote(followUpNote || '');
+    setFollowUpEditorOpen(false);
+  }, [followUpAt, followUpNote, cacheKey]);
 
   const setCurrentAnalysisMode = (mode: AgentContextAnalysisMode) => {
     if (clientId) {
@@ -312,14 +345,22 @@ ${additionalContext || 'N/A'}`,
     });
   }
 
-  if (onMarkFollowUp && !spamLike) {
+  if ((onSetFollowUp || onMarkFollowUp) && !spamLike) {
     options.push({
       id: 'mark_follow_up',
       label: label('设为待跟进', 'Set Follow-up'),
       description: label('创建一个后续处理提醒，避免客户请求遗漏。', 'Create a follow-up reminder so this customer request is not missed.'),
       icon: <CalendarClock className="w-4 h-4" />,
       variant: 'success',
-      onClick: () => recordOption('mark_follow_up', label('设为待跟进', 'Set Follow-up'), onMarkFollowUp)
+      onClick: () => {
+        if (onSetFollowUp) {
+          setFollowUpDraftAt(followUpDraftAt || defaultFollowUpDateTime());
+          setFollowUpDraftNote(followUpDraftNote || label('跟进此会话', 'Follow up this conversation'));
+          setFollowUpEditorOpen(true);
+          return;
+        }
+        return recordOption('mark_follow_up', label('设为待跟进', 'Set Follow-up'), onMarkFollowUp!)
+      }
     });
   }
 
@@ -420,6 +461,95 @@ ${additionalContext || 'N/A'}`,
           <span>{aiInsight?.knowledgeContext || (hasKnowledge ? t('Relevant CRM/RAG context is available.') : t('No RAG snippet found yet; consider saving this context.'))}</span>
         </div>
       </div>
+
+      {(followUpAt || followUpEditorOpen) && (
+        <div className="mt-4 rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs font-bold text-emerald-200">
+              <CalendarClock className="h-4 w-4" />
+              {followUpAt
+                ? `${label('待跟进时间', 'Follow-up due')}: ${new Date(followUpAt).toLocaleString()}`
+                : label('设置预期跟进时间', 'Set expected follow-up time')}
+            </div>
+            {followUpAt && !followUpEditorOpen && (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFollowUpDraftAt(toDateTimeLocalValue(followUpAt));
+                    setFollowUpDraftNote(followUpNote || '');
+                    setFollowUpEditorOpen(true);
+                  }}
+                  className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] font-bold text-emerald-100 hover:bg-emerald-500/20"
+                >
+                  {label('修改时间', 'Reschedule')}
+                </button>
+                {onCompleteFollowUp && (
+                  <button
+                    type="button"
+                    onClick={() => recordOption('complete_follow_up', label('完成跟进', 'Complete Follow-up'), onCompleteFollowUp)}
+                    disabled={!!runningOptionId}
+                    className="rounded border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-[11px] font-bold text-blue-100 hover:bg-blue-500/20 disabled:opacity-50"
+                  >
+                    {label('标记完成', 'Mark Done')}
+                  </button>
+                )}
+                {onClearFollowUp && (
+                  <button
+                    type="button"
+                    onClick={() => recordOption('clear_follow_up', label('取消跟进', 'Cancel Follow-up'), onClearFollowUp)}
+                    disabled={!!runningOptionId}
+                    className="rounded border border-red-500/30 bg-red-500/10 px-2 py-1 text-[11px] font-bold text-red-100 hover:bg-red-500/20 disabled:opacity-50"
+                  >
+                    {label('取消', 'Cancel')}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          {followUpNote && !followUpEditorOpen && (
+            <div className="mt-2 text-xs text-emerald-100/80">{followUpNote}</div>
+          )}
+          {followUpEditorOpen && onSetFollowUp && (
+            <div className="mt-3 grid gap-2 md:grid-cols-[180px_1fr_auto]">
+              <input
+                type="datetime-local"
+                value={followUpDraftAt}
+                min={new Date().toISOString().slice(0, 16)}
+                onChange={event => setFollowUpDraftAt(event.target.value)}
+                className="rounded border border-emerald-500/30 bg-slate-950 px-2 py-1.5 text-xs text-slate-100 outline-none focus:border-emerald-400"
+              />
+              <input
+                value={followUpDraftNote}
+                onChange={event => setFollowUpDraftNote(event.target.value)}
+                placeholder={label('跟进备注', 'Follow-up note')}
+                className="rounded border border-emerald-500/30 bg-slate-950 px-2 py-1.5 text-xs text-slate-100 outline-none focus:border-emerald-400"
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => recordOption('save_follow_up', label('保存跟进', 'Save Follow-up'), async () => {
+                    if (!followUpDraftAt) throw new Error(label('请选择预期跟进时间。', 'Please choose an expected follow-up time.'));
+                    await onSetFollowUp(new Date(followUpDraftAt).toISOString(), followUpDraftNote);
+                    setFollowUpEditorOpen(false);
+                  })}
+                  disabled={!!runningOptionId || !followUpDraftAt}
+                  className="rounded bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500"
+                >
+                  {label('保存', 'Save')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFollowUpEditorOpen(false)}
+                  className="rounded bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-300 hover:bg-slate-700"
+                >
+                  {label('关闭', 'Close')}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="mt-4 border-t border-blue-500/20 pt-4 flex flex-wrap gap-2">
         {options.map(option => (

@@ -58,6 +58,7 @@ const isChatId = (value: string) => /@(?:lid|c\.us|g\.us|broadcast)$/i.test(valu
 
 const isInlineMedia = (mimeType: string) => mimeType.startsWith('image/') || mimeType.startsWith('video/');
 const WHATSAPP_ACTIVE_CHAT_POLL_MS = 12_000;
+const WHATSAPP_FOLLOW_UP_MARKER = '__FOLLOW_UP__';
 
 const whatsappMessageCacheKey = (targetPhone: string) => `tradequest.whatsapp.messages.cache.v1.${targetPhone}`;
 
@@ -223,6 +224,17 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
         `Product context: ${productSnippets.map(product => `${product.name}: ${product.salesPoints || product.description || ''}`).join(' | ') || 'N/A'}`,
         `Relevant knowledge snippets: ${localKnowledgeSnippets.map(item => `${item.title}: ${item.content}`).join(' | ') || 'N/A'}`
       ].join('\n');
+  const visibleConversationComments = (conversation?.comments || []).filter(comment => !String(comment.content || '').startsWith(WHATSAPP_FOLLOW_UP_MARKER));
+  const whatsappFollowUp = useMemo(() => {
+    const marker = [...(conversation?.comments || [])].reverse().find(comment => String(comment.content || '').startsWith(WHATSAPP_FOLLOW_UP_MARKER));
+    if (!marker) return null;
+    try {
+      const parsed = JSON.parse(String(marker.content).slice(WHATSAPP_FOLLOW_UP_MARKER.length));
+      return parsed?.status === 'open' ? { dueAt: parsed.dueAt as string, note: parsed.note as string } : null;
+    } catch {
+      return null;
+    }
+  }, [conversation?.comments]);
   const outboundLanguage = getCustomerOutputLanguage({
     lastCommunicationText: latestInboundMessage?.body,
     preferredLanguage: activeClient?.preferredLanguage,
@@ -879,7 +891,7 @@ Return only the message text.`,
             </div>
             <div className="space-y-2">
               <div className="max-h-20 overflow-y-auto space-y-1">
-                {(conversation.comments || []).slice(-3).map(comment => (
+                {visibleConversationComments.slice(-3).map(comment => (
                   <div key={comment.id} className="group flex items-start gap-2 text-[11px] bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-400">
                     <div className="min-w-0 flex-1">
                       <span className="text-slate-300 break-words">{comment.content}</span>
@@ -977,7 +989,21 @@ Return only the message text.`,
                 : `Draft a polite WhatsApp follow-up to ${conversation?.clientName || activeClient?.name || displayPhone}. There is no inbound customer message yet, so do not answer our own outbound messages.`)
             )}
             onAddComment={() => addConversationComment(`Agent suggestion: review WhatsApp conversation with ${conversation?.clientName || activeClient?.name || displayPhone} and prepare the next best reply.`)}
-            onMarkFollowUp={() => addConversationComment(`Follow-up needed: review WhatsApp conversation with ${conversation?.clientName || activeClient?.name || displayPhone} within 24 hours.`)}
+            followUpAt={whatsappFollowUp?.dueAt}
+            followUpNote={whatsappFollowUp?.note}
+            onSetFollowUp={(dueAt, note) => addConversationComment(`${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
+              status: 'open',
+              dueAt,
+              note: note || `Follow up WhatsApp conversation with ${conversation?.clientName || activeClient?.name || displayPhone}.`
+            })}`)}
+            onClearFollowUp={() => addConversationComment(`${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
+              status: 'canceled',
+              canceledAt: new Date().toISOString()
+            })}`)}
+            onCompleteFollowUp={() => addConversationComment(`${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
+              status: 'completed',
+              completedAt: new Date().toISOString()
+            })}`)}
             onDeleteItem={async () => {
               if (!conversation?.id) throw new Error('No WhatsApp conversation is selected.');
               const response = await fetch(`/api/whatsapp-hub/conversations/${encodeURIComponent(conversation.id)}`, {
