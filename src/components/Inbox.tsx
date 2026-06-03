@@ -45,6 +45,20 @@ interface WhatsAppContactOption {
 
 const WHATSAPP_CONVERSATION_CACHE_KEY = 'tradequest.whatsapp.conversations.cache.v1';
 const WHATSAPP_CONVERSATION_POLL_MS = 20_000;
+const WHATSAPP_FOLLOW_UP_MARKER = '__FOLLOW_UP__';
+
+const hasOpenWhatsAppFollowUp = (conversation: InboxWhatsAppConversation) => {
+  const marker = [...(conversation.comments || [])]
+    .reverse()
+    .find(comment => String(comment.content || '').startsWith(WHATSAPP_FOLLOW_UP_MARKER));
+  if (!marker) return false;
+  try {
+    const parsed = JSON.parse(String(marker.content).slice(WHATSAPP_FOLLOW_UP_MARKER.length));
+    return parsed?.status === 'open' && !!parsed?.dueAt;
+  } catch {
+    return false;
+  }
+};
 
 function readCachedWhatsAppConversations(): InboxWhatsAppConversation[] {
   try {
@@ -150,6 +164,7 @@ export function Inbox() {
   const [emailListMode, setEmailListMode] = useState<'list' | 'conversation'>('list');
   const [search, setSearch] = useState('');
   const [searchTags, setSearchTags] = useState<string[]>([]);
+  const [followUpOnly, setFollowUpOnly] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
   const [composeDefaults, setComposeDefaults] = useState<{recipient: string, subject: string, originalEmailBody?: string, initialBody?: string, draftId?: string, replyToEmailId?: string, initialOutboxId?: string} | null>(null);
   const [isAddingTag, setIsAddingTag] = useState(false);
@@ -272,6 +287,7 @@ export function Inbox() {
     
     if (!typeMatch) return false;
     if (e.pendingDelete) return false;
+    if (followUpOnly && !e.todoAt) return false;
     
     const termsToMatch = [...searchTags];
     if (search.trim()) {
@@ -298,6 +314,7 @@ export function Inbox() {
 
   const filteredWhatsAppConversations = filter === 'inbox' && channelFilter !== 'email'
     ? whatsappConversations.filter(conversation => {
+        if (followUpOnly && !hasOpenWhatsAppFollowUp(conversation)) return false;
         const termsToMatch = [...searchTags];
         if (search.trim()) {
           termsToMatch.push(...search.trim().toLowerCase().split(/\s+/));
@@ -318,6 +335,8 @@ export function Inbox() {
         });
       })
     : [];
+  const visibleFollowUpCount = filteredEmails.filter(email => !!email.todoAt).length
+    + filteredWhatsAppConversations.filter(hasOpenWhatsAppFollowUp).length;
 
   const whatsappContactOptions = useMemo<WhatsAppContactOption[]>(() => {
     const options: WhatsAppContactOption[] = [];
@@ -430,7 +449,6 @@ export function Inbox() {
     && visibleWhatsAppIds.every(id => selectedWhatsAppIds.has(id));
   const someVisibleSelected = visibleEmailIds.some(id => selectedIds.has(id)) || visibleWhatsAppIds.some(id => selectedWhatsAppIds.has(id));
   const selectedWhatsAppConversations = whatsappConversations.filter(conversation => selectedWhatsAppIds.has(conversation.id));
-  const whatsappFollowUpMarker = '__FOLLOW_UP__';
 
   const toggleSelection = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -580,7 +598,7 @@ export function Inbox() {
     });
     const updatedWhatsApp = [...whatsappConversations];
     for (const conversation of selectedWhatsAppConversations) {
-      const comments = await addWhatsAppConversationComment(conversation, `${whatsappFollowUpMarker}${JSON.stringify({
+      const comments = await addWhatsAppConversationComment(conversation, `${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
         status: 'open',
         dueAt,
         note: bulkNoteInput.trim() || `Follow up WhatsApp conversation with ${conversation.clientName || conversation.targetPhone}.`
@@ -1034,6 +1052,38 @@ export function Inbox() {
                 ))}
               </datalist>
             </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setFollowUpOnly(prev => !prev);
+                clearBulkSelection();
+              }}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold transition-colors",
+                followUpOnly
+                  ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-200"
+                  : "border-slate-700 bg-slate-950 text-slate-400 hover:border-emerald-500/40 hover:text-emerald-200"
+              )}
+              title="Filter conversations with follow-up reminders"
+            >
+              <CalendarClock className="h-3.5 w-3.5" />
+              {language === 'zh' ? '待跟进' : 'Follow-up'}
+              <span className={cn("rounded-full px-1.5 py-0.5 text-[10px]", followUpOnly ? "bg-emerald-500/20 text-emerald-100" : "bg-slate-800 text-slate-500")}>
+                {visibleFollowUpCount}
+              </span>
+            </button>
+            {followUpOnly && (
+              <button
+                type="button"
+                onClick={() => setFollowUpOnly(false)}
+                className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-950 px-2 py-1 text-[10px] font-bold text-slate-500 hover:text-slate-300"
+              >
+                <X className="h-3 w-3" />
+                {language === 'zh' ? '清除筛选' : 'Clear'}
+              </button>
+            )}
           </div>
           <div className="flex items-center justify-between gap-2">
             <div className="inline-flex bg-slate-950 border border-slate-800 rounded-md p-1">
