@@ -1056,6 +1056,28 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     updatedAt: new Date().toISOString()
   },
   {
+    id: 'whatsapp_customer_service_agent',
+    name: 'WhatsApp Customer Service Agent',
+    instructions: 'Handle WhatsApp customer-service replies by reading the current conversation, inbound customer intent, customer/lead profile, AI summaries, best next step, product data, RAG snippets, comments, logs, and prior email/WhatsApp history. Draft concise customer-facing replies in the customer communication language. Respect human takeover and never infer customer intent from our outbound messages.',
+    guardrail: 'human_loop',
+    status: 'active',
+    tools: ['whatsapp.read', 'whatsapp.send', 'knowledge.search', 'knowledge.read', 'product.read', 'client.read', 'lead.read', 'conversation.comment', 'next_step.recommend'],
+    tasksCompleted: 0,
+    scheduleEnabled: false,
+    scheduleIntervalMinutes: 1440,
+    scheduleIntervalValue: 1,
+    scheduleIntervalUnit: 'day',
+    scheduleRunCount: 0,
+    eventTriggers: ['whatsapp_received'],
+    eventTriggerScope: 'subject',
+    contextSuggestionMode: 'auto',
+    soul: 'Customer-service agent for WhatsApp conversations. It learns common customer questions, product-fit signals, escalation timing, and when humans should take over.',
+    evolutionLog: [],
+    builtIn: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
     id: 'context_suggestion_agent',
     name: 'Context Suggestion Agent',
     instructions: 'Analyze a single email or WhatsApp conversation once, persist the analysis, classify intent, retrieve relevant knowledge and products, and produce operator-facing next-step options that can be manually executed or automation-ready depending on policy.',

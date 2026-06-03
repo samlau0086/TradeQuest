@@ -135,6 +135,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [agentModeEnabled, setAgentModeEnabled] = useState(false);
   const [isCreatingLead, setIsCreatingLead] = useState(false);
   const [isAddingContactToClient, setIsAddingContactToClient] = useState(false);
   const [mappingEdit, setMappingEdit] = useState<{ chatId: string; phone: string; saving?: boolean } | null>(null);
@@ -497,21 +498,21 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     setIsCreatingLead(false);
   };
 
-  const generateWhatsAppMessage = async (seedPrompt = body.trim()) => {
-    const prompt = seedPrompt.trim();
+  const generateWhatsAppMessageText = async (seedPrompt: string, mode: 'draft' | 'customer_service' = 'draft') => {
+    const prompt = seedPrompt.trim() || (mode === 'customer_service'
+      ? 'Generate the best next WhatsApp customer-service reply based on the latest inbound customer message, CRM context, products, and RAG.'
+      : '');
     if (!prompt) {
       notify(t('typePromptFirst'), 'warning');
-      return;
+      return '';
     }
 
     const llmConfig = getLLMConfig('whatsapp_drafting') || getLLMConfig('drafting');
     if (!llmConfig) {
       notify(t('configureWhatsAppDraftingModel'), 'warning');
-      return;
+      return '';
     }
 
-    setGenerating(true);
-    try {
       const recentMessages = messages.slice(-12).map(message => ({
         direction: message.direction,
         body: message.body,
@@ -541,11 +542,12 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
           Authorization: `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify({
-          command: `Draft an outbound WhatsApp message using this user instruction as the prompt: ${prompt}
+          command: `${mode === 'customer_service' ? 'You are WhatsApp Customer Service Agent. Generate the next customer-service WhatsApp reply using this operator guidance or blank instruction' : 'Draft an outbound WhatsApp message using this user instruction as the prompt'}: ${prompt}
 
 Write in a WhatsApp style: concise, natural, conversational, easy to reply to, and not formatted like an email. Customer-facing output language: ${outboundLanguage}. This language was resolved by priority: last customer communication language > client preferred language > official country/region language > English. Adapt tone, timing, offer details, and next step to the customer profile, preferences, prior communication, CRM records, recent WhatsApp chat, and relevant knowledge base context.
 Critical direction rule: inbound messages are customer messages; outbound messages are our team's messages. Never treat our outbound messages as if the customer said them. If the latest message is outbound, draft a follow-up based on the latest inbound customer message and prior outreach context.
 Before drafting, use the provided AI Customer Summary, AI next step, lead summaries, deal context, local RAG snippets, and product sales points. If those conflict with the raw chat, prioritize the latest inbound customer message and then CRM AI analysis.
+${mode === 'customer_service' ? 'If there is no inbound customer message, do not pretend the customer asked a question. Send a low-pressure service follow-up or request clarification only when appropriate.' : ''}
 Return only the message text.`,
           context: {
             channel: 'whatsapp',
@@ -593,7 +595,15 @@ Return only the message text.`,
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to generate WhatsApp message');
-      setBody((data.result || '').trim());
+      return (data.result || '').trim();
+  };
+
+  const generateWhatsAppMessage = async (seedPrompt = body.trim()) => {
+    setGenerating(true);
+    try {
+      const text = await generateWhatsAppMessageText(seedPrompt, 'draft');
+      if (!text) return;
+      setBody(text);
       incrementAgentHubTaskCount('whatsapp_draft_agent');
       notify('WhatsApp message drafted with AI.', 'success');
     } catch (error: any) {
@@ -604,9 +614,17 @@ Return only the message text.`,
   };
 
   const sendMessage = async () => {
-    if ((!body.trim() && !selectedFile && !selectedMedia) || !displayPhone) return;
+    if ((!body.trim() && !selectedFile && !selectedMedia && !agentModeEnabled) || !displayPhone) return;
     setSending(true);
     try {
+      let messageBody = body.trim();
+      if (agentModeEnabled) {
+        const generated = await generateWhatsAppMessageText(messageBody, 'customer_service');
+        if (!generated) throw new Error('WhatsApp Customer Service Agent did not generate a message.');
+        messageBody = generated;
+        setBody(generated);
+        incrementAgentHubTaskCount('whatsapp_customer_service_agent');
+      }
       let media: any;
       const uploadFileToHub = async (fileToUpload: File) => {
         const form = new FormData();
@@ -650,11 +668,11 @@ Return only the message text.`,
         },
         body: JSON.stringify({
           to: displayPhone,
-          body,
+          body: messageBody,
           media,
           clientId: selectedClientId || undefined,
           scheduledAt: scheduleEnabled && scheduleDateTime ? new Date(scheduleDateTime).toISOString() : undefined,
-          metadata: { clientId: activeClient?.id, hasMedia: !!media }
+          metadata: { clientId: activeClient?.id, hasMedia: !!media, agentMode: agentModeEnabled ? 'whatsapp_customer_service_agent' : undefined }
         })
       });
       const data = await response.json();
@@ -664,8 +682,8 @@ Return only the message text.`,
         addLog(
           activeClient.id,
           data.scheduled
-            ? `WhatsApp Hub message scheduled for ${new Date(data.scheduledAt).toLocaleString()}: ${body.slice(0, 120)}`
-            : `WhatsApp Hub message sent: ${body.slice(0, 120)}`,
+            ? `WhatsApp Hub message scheduled for ${new Date(data.scheduledAt).toLocaleString()}: ${messageBody.slice(0, 120)}`
+            : `WhatsApp Hub message sent: ${messageBody.slice(0, 120)}`,
           undefined,
           'whatsapp',
           data
@@ -785,20 +803,36 @@ Return only the message text.`,
           </div>
         )}
 
-        <div className="p-3 border-b border-slate-800 flex items-center gap-3">
-          <select
-            value={selectedClientId}
-            onChange={e => setSelectedClientId(e.target.value)}
-            className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none"
+        <div className="p-3 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <select
+              value={selectedClientId}
+              onChange={e => setSelectedClientId(e.target.value)}
+              className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none"
+            >
+              <option value="">{t('randomStickyClient')}</option>
+              {hubClients.map(client => (
+                <option key={client.id} value={client.id}>
+                  {client.name || client.id} ({client.status}) {client.quota ? `quota ${client.quota.remaining}/${client.quota.dailyQuota}` : ''}
+                </option>
+              ))}
+            </select>
+            {loading && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
+          </div>
+          <button
+            type="button"
+            onClick={() => setAgentModeEnabled(prev => !prev)}
+            className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${
+              agentModeEnabled
+                ? 'border-green-500/40 bg-green-500/15 text-green-300'
+                : 'border-slate-700 bg-slate-950 text-slate-400 hover:border-slate-600 hover:text-slate-200'
+            }`}
+            title="WhatsApp Customer Service Agent"
           >
-            <option value="">{t('randomStickyClient')}</option>
-            {hubClients.map(client => (
-              <option key={client.id} value={client.id}>
-                {client.name || client.id} ({client.status}) {client.quota ? `quota ${client.quota.remaining}/${client.quota.dailyQuota}` : ''}
-              </option>
-            ))}
-          </select>
-          {loading && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
+            <Sparkles className="h-4 w-4" />
+            <span>Agent Mode</span>
+            <span className={`h-2 w-2 rounded-full ${agentModeEnabled ? 'bg-green-400' : 'bg-slate-600'}`} />
+          </button>
         </div>
 
         {conversation && (
@@ -1031,16 +1065,16 @@ Return only the message text.`,
             <textarea
               value={body}
               onChange={e => setBody(e.target.value)}
-              placeholder={t('typeWhatsAppMessage')}
+              placeholder={agentModeEnabled ? 'Agent mode: optional guidance, or leave blank to auto-reply from context.' : t('typeWhatsAppMessage')}
               className="flex-1 min-h-16 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 outline-none resize-none focus:border-green-500"
             />
             <button
               onClick={sendMessage}
-              disabled={sending || (!body.trim() && !selectedFile && !selectedMedia) || (scheduleEnabled && !scheduleDateTime)}
+              disabled={sending || (!body.trim() && !selectedFile && !selectedMedia && !agentModeEnabled) || (scheduleEnabled && !scheduleDateTime)}
               className="px-4 py-2 bg-green-600 hover:bg-green-500 disabled:bg-slate-800 disabled:text-slate-500 rounded-xl font-bold text-white flex items-center gap-2 self-end"
             >
               {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              {scheduleEnabled ? t('schedule') : t('send')}
+              {agentModeEnabled ? (scheduleEnabled ? 'Agent Schedule' : 'Agent Send') : (scheduleEnabled ? t('schedule') : t('send'))}
             </button>
           </div>
         </div>
