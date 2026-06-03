@@ -5,7 +5,7 @@ import { MediaSelectorModal } from './MediaSelectorModal';
 import { useTranslation } from '../lib/i18n';
 import { AgentContextSuggestions } from './AgentContextSuggestions';
 import { getCustomerOutputLanguage, getOutboundLanguage } from '../lib/language';
-import { ClientFormModal } from './ClientFormModal';
+import { ClientFormModal, PREFERRED_LANGUAGES } from './ClientFormModal';
 import { AddContactToClientModal } from './AddContactToClientModal';
 
 interface WhatsAppHubClient {
@@ -156,7 +156,7 @@ const getWhatsAppMessageMedia = (message: WhatsAppHubMessage, hubBaseUrl?: strin
 };
 
 export function WhatsAppChatModal({ client, phone, conversation: initialConversation, initialMessage = '', embedded = false, onClose }: Props) {
-  const { notify, addLog, selectClient, language, llmConfigs, activeLLMId, llmMappings, logs, emails, clients, deals, knowledgeBase, products, whatsappHubConfig, whatsappCustomerServiceAgentEnabled, setWhatsAppCustomerServiceAgentEnabled, whatsappAutoTranslateConfig, setWhatsAppAutoTranslateEnabled, whatsappOutboundAutoTranslateConfig, setWhatsAppOutboundAutoTranslateEnabled, incrementAgentHubTaskCount } = useStore();
+  const { notify, addLog, selectClient, editClient, language, llmConfigs, activeLLMId, llmMappings, logs, emails, clients, deals, knowledgeBase, products, whatsappHubConfig, whatsappCustomerServiceAgentEnabled, setWhatsAppCustomerServiceAgentEnabled, whatsappAutoTranslateConfig, setWhatsAppAutoTranslateEnabled, whatsappOutboundAutoTranslateConfig, setWhatsAppOutboundAutoTranslateEnabled, incrementAgentHubTaskCount } = useStore();
   const t = useTranslation(language);
   const [hubClients, setHubClients] = useState<WhatsAppHubClient[]>([]);
   const targetPhone = useMemo(() => isChatId(phone) ? phone.trim() : cleanPhone(phone), [phone]);
@@ -286,6 +286,12 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     country: activeClient?.country
   });
   const outboundAutoTranslateLanguage = getOutboundLanguage(activeClient?.preferredLanguage, activeClient?.country);
+  const outboundLanguageOptions = useMemo(() => {
+    const options = PREFERRED_LANGUAGES.map(item => item.name);
+    return options.includes(outboundAutoTranslateLanguage)
+      ? options
+      : [outboundAutoTranslateLanguage, ...options];
+  }, [outboundAutoTranslateLanguage]);
   const latestMessageId = messages[messages.length - 1]?.id || '';
 
   const scrollMessagesToBottom = (behavior: ScrollBehavior = 'auto') => {
@@ -1333,7 +1339,29 @@ Return only the message text.`,
             <div className="flex items-center gap-2 text-xs text-slate-400">
               <Languages className="h-4 w-4 text-cyan-300" />
               <span className="font-bold text-slate-200">{language === 'zh' ? '发送前翻译' : 'Translate before send'}</span>
-              <span>{language === 'zh' ? `目标语言：${outboundAutoTranslateLanguage}` : `Target: ${outboundAutoTranslateLanguage}`}</span>
+              <label className="flex items-center gap-1">
+                <span>{language === 'zh' ? '目标语言' : 'Target'}</span>
+                <select
+                  value={outboundAutoTranslateLanguage}
+                  disabled={!activeClient}
+                  onChange={e => {
+                    if (!activeClient) return;
+                    editClient(activeClient.id, { preferredLanguage: e.target.value });
+                    notify(
+                      language === 'zh'
+                        ? `客户偏好语言已更新为 ${e.target.value}。`
+                        : `Client preferred language updated to ${e.target.value}.`,
+                      'success'
+                    );
+                  }}
+                  className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-100 outline-none focus:border-cyan-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  title={activeClient ? (language === 'zh' ? '修改后会同步保存为客户偏好语言' : 'Changing this saves the client preferred language') : (language === 'zh' ? '请先关联客户后再保存偏好语言' : 'Link a client before saving preferred language')}
+                >
+                  {outboundLanguageOptions.map(option => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </label>
             </div>
             <button
               type="button"
