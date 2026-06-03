@@ -828,16 +828,6 @@ export function Dashboard() {
             <div className="bg-slate-950/50 rounded-2xl p-6 border border-slate-800 shadow-sm">
               <div className="flex items-center justify-between mb-5">
                 <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
-                  <Target className="w-4 h-4 text-cyan-400" /> {t('Client Pipeline')}
-                </h3>
-                <button onClick={() => setView('kanban')} className="text-xs text-cyan-400 hover:text-cyan-300 font-bold">{t('View Kanban')}</button>
-              </div>
-              <BarListChart rows={operations.clientStageRows} emptyLabel={t('No client pipeline data yet.')} />
-            </div>
-
-            <div className="bg-slate-950/50 rounded-2xl p-6 border border-slate-800 shadow-sm">
-              <div className="flex items-center justify-between mb-5">
-                <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
                   <BarChart3 className="w-4 h-4 text-violet-400" /> {language === 'zh' ? 'Deals 漏斗' : 'Deals Funnel'}
                 </h3>
                 <button onClick={() => setView('kanban')} className="text-xs text-cyan-400 hover:text-cyan-300 font-bold">{t('View Kanban')}</button>
