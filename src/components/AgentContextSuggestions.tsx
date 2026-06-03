@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Bot, CornerDownRight, Loader2, MessageSquare, ShieldCheck, Sparkles, UserPlus, Zap } from 'lucide-react';
+import { Bot, CalendarClock, CornerDownRight, Loader2, MessageSquare, ShieldCheck, Sparkles, Trash2, UserPlus, Zap } from 'lucide-react';
 import { AgentContextAnalysisMode, AgentContextSuggestionInsight, useStore } from '../store';
 import { useTranslation } from '../lib/i18n';
 import { cn } from '../lib/utils';
@@ -11,6 +11,7 @@ interface SuggestionOption {
   icon?: React.ReactNode;
   onClick: () => void | Promise<void>;
   disabled?: boolean;
+  variant?: 'default' | 'danger' | 'success';
 }
 
 interface AgentContextSuggestionsProps {
@@ -33,11 +34,14 @@ interface AgentContextSuggestionsProps {
   onAddComment?: () => void | Promise<void>;
   onCreateLead?: () => void | Promise<void>;
   onAddToKnowledge?: () => void | Promise<void>;
+  onDeleteItem?: () => void | Promise<void>;
+  onMarkFollowUp?: () => void | Promise<void>;
   onSaveAnalysis?: (key: string, insight: AgentContextSuggestionInsight) => void | Promise<void>;
 }
 
 const inferIntent = (text: string) => {
   const lower = text.toLowerCase();
+  if (/(spam|junk|phishing|unsubscribe|casino|lottery|seo service|crypto|垃圾|骚扰|退订|博彩|中奖|钓鱼|广告群发)/.test(lower)) return 'Spam';
   if (/(price|pricing|quote|quotation|discount|moq|bulk|order|报价|价格|折扣|起订量|询价)/.test(lower)) return 'Inquiry';
   if (/(issue|problem|delay|refund|complaint|support|问题|延迟|投诉|退款)/.test(lower)) return 'Support';
   if (/(sample|catalog|brochure|规格|样品|目录|参数)/.test(lower)) return 'Product request';
@@ -74,6 +78,8 @@ export function AgentContextSuggestions({
   onAddComment,
   onCreateLead,
   onAddToKnowledge,
+  onDeleteItem,
+  onMarkFollowUp,
   onSaveAnalysis
 }: AgentContextSuggestionsProps) {
   const {
@@ -103,6 +109,11 @@ export function AgentContextSuggestions({
   const text = `${subject} ${body} ${additionalContext}`.trim();
   const fallbackIntent = inferIntent(text);
   const intent = aiInsight?.intent || fallbackIntent;
+  const normalizedIntent = String(intent || '').toLowerCase();
+  const spamLike = normalizedIntent.includes('spam')
+    || normalizedIntent.includes('junk')
+    || normalizedIntent.includes('垃圾')
+    || /(spam|junk|phishing|unsubscribe|casino|lottery|seo service|crypto|垃圾|骚扰|退订|博彩|中奖|钓鱼|广告群发)/i.test(text);
   const automationReady = agent?.contextSuggestionMode === 'auto';
   const canAutoExecute = automationReady && agent.guardrail === 'auto';
   const executionLabel = canAutoExecute ? t('Auto-ready') : automationReady ? t('Review-gated automation') : t('Manual options');
@@ -260,15 +271,41 @@ ${additionalContext || 'N/A'}`,
     }
   };
 
-  const options: SuggestionOption[] = [
-    {
+  const label = (zh: string, en: string) => language === 'zh' ? zh : en;
+  const deleteLabel = channel === 'email' ? label('删除邮件', 'Delete Email') : label('删除对话', 'Delete Conversation');
+  const options: SuggestionOption[] = [];
+
+  if (spamLike && onDeleteItem) {
+    options.push({
+      id: 'delete_spam',
+      label: deleteLabel,
+      description: label('将明显无效或垃圾内容从收件箱移除。', 'Remove clearly irrelevant or spam content from the inbox.'),
+      icon: <Trash2 className="w-4 h-4" />,
+      variant: 'danger',
+      onClick: () => recordOption('delete_spam', deleteLabel, onDeleteItem)
+    });
+  }
+
+  if (!spamLike) {
+    options.push({
       id: 'draft_reply',
       label: t('Draft AI Reply'),
       description: t('Generate a reply using the current message, client context, and RAG.'),
       icon: <Sparkles className="w-4 h-4" />,
       onClick: () => recordOption('draft_reply', t('Draft AI Reply'), onDraftReply)
-    }
-  ];
+    });
+  }
+
+  if (onMarkFollowUp && !spamLike) {
+    options.push({
+      id: 'mark_follow_up',
+      label: label('设为待跟进', 'Set Follow-up'),
+      description: label('创建一个后续处理提醒，避免客户请求遗漏。', 'Create a follow-up reminder so this customer request is not missed.'),
+      icon: <CalendarClock className="w-4 h-4" />,
+      variant: 'success',
+      onClick: () => recordOption('mark_follow_up', label('设为待跟进', 'Set Follow-up'), onMarkFollowUp)
+    });
+  }
 
   if (onAddComment) {
     options.push({
@@ -280,7 +317,7 @@ ${additionalContext || 'N/A'}`,
     });
   }
 
-  if (!hasClient && onCreateLead) {
+  if (!hasClient && onCreateLead && !spamLike) {
     options.push({
       id: 'create_lead',
       label: t('Create Lead'),
@@ -290,7 +327,7 @@ ${additionalContext || 'N/A'}`,
     });
   }
 
-  if (onAddToKnowledge) {
+  if (onAddToKnowledge && !spamLike) {
     options.push({
       id: 'add_knowledge',
       label: t('Add to RAG'),
@@ -298,6 +335,17 @@ ${additionalContext || 'N/A'}`,
       icon: <Bot className="w-4 h-4" />,
       disabled: hasKnowledge,
       onClick: () => recordOption('add_knowledge', t('Add to RAG'), onAddToKnowledge)
+    });
+  }
+
+  if (!spamLike && onDeleteItem) {
+    options.push({
+      id: 'delete_low_value',
+      label: deleteLabel,
+      description: label('人工确认此内容无需保留时，可直接移除。', 'Remove this item when you decide it does not need to be retained.'),
+      icon: <Trash2 className="w-4 h-4" />,
+      variant: 'danger',
+      onClick: () => recordOption('delete_low_value', deleteLabel, onDeleteItem)
     });
   }
 
