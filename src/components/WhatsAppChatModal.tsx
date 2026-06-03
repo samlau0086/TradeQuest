@@ -25,15 +25,19 @@ interface WhatsAppHubMessage {
   body: string;
   message_type?: string;
   payload?: any;
+  translation?: WhatsAppTranslation;
   created_at: string;
   received_at?: string;
 }
 
 interface WhatsAppTranslation {
+  language?: string;
   text: string;
   sourceLanguage?: string;
   bodyHash: string;
   skipped?: boolean;
+  modelId?: string | null;
+  updatedAt?: string;
 }
 
 interface Props {
@@ -68,7 +72,6 @@ const WHATSAPP_ACTIVE_CHAT_POLL_MS = 12_000;
 const WHATSAPP_FOLLOW_UP_MARKER = '__FOLLOW_UP__';
 
 const whatsappMessageCacheKey = (targetPhone: string) => `tradequest.whatsapp.messages.cache.v1.${targetPhone}`;
-const whatsappTranslationCacheKey = (targetPhone: string, language: 'en' | 'zh') => `tradequest.whatsapp.translations.v1.${language}.${targetPhone}`;
 
 function readCachedWhatsAppMessages(targetPhone: string): WhatsAppHubMessage[] {
   try {
@@ -85,24 +88,6 @@ function writeCachedWhatsAppMessages(targetPhone: string, messages: WhatsAppHubM
     sessionStorage.setItem(whatsappMessageCacheKey(targetPhone), JSON.stringify(messages.slice(-300)));
   } catch {
     // Session storage is only a speed cache.
-  }
-}
-
-function readCachedWhatsAppTranslations(targetPhone: string, language: 'en' | 'zh'): Record<string, WhatsAppTranslation> {
-  try {
-    const raw = sessionStorage.getItem(whatsappTranslationCacheKey(targetPhone, language));
-    const parsed = raw ? JSON.parse(raw) : {};
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeCachedWhatsAppTranslations(targetPhone: string, language: 'en' | 'zh', translations: Record<string, WhatsAppTranslation>) {
-  try {
-    sessionStorage.setItem(whatsappTranslationCacheKey(targetPhone, language), JSON.stringify(translations));
-  } catch {
-    // Translation cache is optional.
   }
 }
 
@@ -152,7 +137,7 @@ const getWhatsAppMessageMedia = (message: WhatsAppHubMessage, hubBaseUrl?: strin
 };
 
 export function WhatsAppChatModal({ client, phone, conversation: initialConversation, initialMessage = '', embedded = false, onClose }: Props) {
-  const { notify, addLog, selectClient, language, llmConfigs, activeLLMId, llmMappings, logs, emails, clients, deals, knowledgeBase, products, whatsappHubConfig, whatsappCustomerServiceAgentEnabled, setWhatsAppCustomerServiceAgentEnabled, incrementAgentHubTaskCount } = useStore();
+  const { notify, addLog, selectClient, language, llmConfigs, activeLLMId, llmMappings, logs, emails, clients, deals, knowledgeBase, products, whatsappHubConfig, whatsappCustomerServiceAgentEnabled, setWhatsAppCustomerServiceAgentEnabled, whatsappAutoTranslateEnabled, setWhatsAppAutoTranslateEnabled, incrementAgentHubTaskCount } = useStore();
   const t = useTranslation(language);
   const [hubClients, setHubClients] = useState<WhatsAppHubClient[]>([]);
   const targetPhone = useMemo(() => isChatId(phone) ? phone.trim() : cleanPhone(phone), [phone]);
@@ -171,8 +156,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [autoTranslateEnabled, setAutoTranslateEnabled] = useState(false);
-  const [translations, setTranslations] = useState<Record<string, WhatsAppTranslation>>(() => readCachedWhatsAppTranslations(targetPhone, language));
+  const [translations, setTranslations] = useState<Record<string, WhatsAppTranslation>>({});
   const [translatingIds, setTranslatingIds] = useState<Set<string>>(new Set());
   const [isCreatingLead, setIsCreatingLead] = useState(false);
   const [isAddingContactToClient, setIsAddingContactToClient] = useState(false);
@@ -333,15 +317,32 @@ ${bodyText}`,
       const jsonText = raw.match(/\{[\s\S]*\}/)?.[0] || raw;
       const parsed = JSON.parse(jsonText);
       const nextTranslation: WhatsAppTranslation = {
+        language,
         text: parsed.alreadyTargetLanguage ? '' : String(parsed.translatedText || '').trim(),
         sourceLanguage: parsed.sourceLanguage || '',
         bodyHash,
-        skipped: !!parsed.alreadyTargetLanguage
+        skipped: !!parsed.alreadyTargetLanguage,
+        modelId: llmConfig.id
       };
+      const saveResponse = await fetch(`/api/whatsapp-hub/messages/${encodeURIComponent(message.id)}/translation`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          language,
+          translatedText: nextTranslation.text,
+          sourceLanguage: nextTranslation.sourceLanguage,
+          bodyHash,
+          skipped: nextTranslation.skipped,
+          modelId: llmConfig.id
+        })
+      });
+      const savedData = await saveResponse.json().catch(() => ({}));
+      if (!saveResponse.ok) throw new Error(savedData.error || 'Failed to save translation');
       setTranslations(prev => {
-        const next = { ...prev, [message.id]: nextTranslation };
-        writeCachedWhatsAppTranslations(targetPhone, language, next);
-        return next;
+        return { ...prev, [message.id]: savedData.translation || nextTranslation };
       });
     } catch (error: any) {
       if (error?.name !== 'AbortError') console.warn('WhatsApp translation failed', error);
@@ -361,8 +362,8 @@ ${bodyText}`,
     if (!expectedTargetPhone) return;
     try {
       const messageQuery = isChatId(expectedLookupTarget)
-        ? `chatId=${encodeURIComponent(expectedLookupTarget)}`
-        : `targetPhone=${encodeURIComponent(expectedLookupTarget)}`;
+        ? `chatId=${encodeURIComponent(expectedLookupTarget)}&language=${encodeURIComponent(language)}`
+        : `targetPhone=${encodeURIComponent(expectedLookupTarget)}&language=${encodeURIComponent(language)}`;
       const [clientsRes, messagesRes] = await Promise.all([
         fetch('/api/whatsapp-hub/clients', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }),
         fetch(`/api/whatsapp-hub/messages?${messageQuery}&limit=200`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
@@ -376,6 +377,11 @@ ${bodyText}`,
       const nextMessages = (messagesData.messages || []).slice().reverse();
       setMessages(nextMessages);
       writeCachedWhatsAppMessages(expectedTargetPhone, nextMessages);
+      const dbTranslations = nextMessages.reduce((acc: Record<string, WhatsAppTranslation>, message: WhatsAppHubMessage) => {
+        if (message.translation?.bodyHash) acc[message.id] = message.translation;
+        return acc;
+      }, {});
+      setTranslations(dbTranslations);
       const sticky = (messagesData.messages || []).find((message: WhatsAppHubMessage) => message.direction === 'outbound' && message.client_id)?.client_id;
       if (sticky) setSelectedClientId(sticky);
       const conversationsRes = await fetch(`/api/whatsapp-hub/conversations?search=${encodeURIComponent(expectedLookupTarget)}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
@@ -448,7 +454,7 @@ ${bodyText}`,
     setSelectedFile(null);
     setSelectedMedia(null);
     setMappingEdit(null);
-    setTranslations(readCachedWhatsAppTranslations(targetPhone, language));
+    setTranslations({});
     setTranslatingIds(new Set());
     loadData();
   }, [targetPhone, initialConversation?.id, initialMessage, language]);
@@ -466,7 +472,7 @@ ${bodyText}`,
   }, [targetPhone, latestMessageId, messages.length]);
 
   useEffect(() => {
-    if (!autoTranslateEnabled || messages.length === 0) return;
+    if (!whatsappAutoTranslateEnabled || messages.length === 0) return;
     const llmConfig = getTranslationLLMConfig();
     if (!llmConfig) {
       notify(language === 'zh' ? '请先在设置中配置 AI 模型后再使用 WhatsApp 自动翻译。' : 'Configure an AI model in Settings before using WhatsApp auto-translation.', 'warning');
@@ -487,7 +493,7 @@ ${bodyText}`,
       }
     })();
     return () => controller.abort();
-  }, [autoTranslateEnabled, latestMessageId, messages.length, language, targetPhone]);
+  }, [whatsappAutoTranslateEnabled, latestMessageId, messages.length, language, targetPhone]);
 
   useEffect(() => {
     const poll = window.setInterval(() => {
@@ -980,9 +986,9 @@ Return only the message text.`,
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => setAutoTranslateEnabled(!autoTranslateEnabled)}
+              onClick={() => setWhatsAppAutoTranslateEnabled(!whatsappAutoTranslateEnabled)}
               className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${
-                autoTranslateEnabled
+                whatsappAutoTranslateEnabled
                   ? 'border-cyan-500/40 bg-cyan-500/15 text-cyan-300'
                   : 'border-slate-700 bg-slate-950 text-slate-400 hover:border-slate-600 hover:text-slate-200'
               }`}
@@ -990,7 +996,7 @@ Return only the message text.`,
             >
               <Languages className="h-4 w-4" />
               <span>{language === 'zh' ? '自动翻译' : 'Auto Translate'}</span>
-              <span className={`h-2 w-2 rounded-full ${autoTranslateEnabled ? 'bg-cyan-400' : 'bg-slate-600'}`} />
+              <span className={`h-2 w-2 rounded-full ${whatsappAutoTranslateEnabled ? 'bg-cyan-400' : 'bg-slate-600'}`} />
             </button>
             <button
               type="button"
@@ -1107,7 +1113,7 @@ Return only the message text.`,
                   </div>
                 )}
                 {message.body && <div className="whitespace-pre-wrap break-words">{message.body}</div>}
-                {autoTranslateEnabled && message.direction === 'inbound' && (isTranslating || translation?.text) && (
+                {whatsappAutoTranslateEnabled && message.direction === 'inbound' && (isTranslating || translation?.text) && (
                   <div className="mt-2 border-t border-slate-600/70 pt-2">
                     <div className="mb-1 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-cyan-300">
                       {isTranslating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Languages className="h-3 w-3" />}

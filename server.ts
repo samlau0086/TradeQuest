@@ -563,11 +563,29 @@ async function initDB() {
       ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS raw_chat_id VARCHAR(255);
       ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS conversation_key VARCHAR(255);
 
+      CREATE TABLE IF NOT EXISTS whatsapp_message_translations (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        message_id VARCHAR(128) REFERENCES whatsapp_messages(id) ON DELETE CASCADE,
+        language VARCHAR(16) NOT NULL,
+        translated_text TEXT DEFAULT '',
+        source_language VARCHAR(64),
+        body_hash VARCHAR(64),
+        skipped BOOLEAN DEFAULT FALSE,
+        model_id VARCHAR(128),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, message_id, language)
+      );
+
       CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_user_target
       ON whatsapp_messages (user_id, target_phone, source_created_at DESC);
 
       CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_user_chat
       ON whatsapp_messages (user_id, raw_chat_id, source_created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_whatsapp_message_translations_lookup
+      ON whatsapp_message_translations (user_id, message_id, language);
 
       CREATE INDEX IF NOT EXISTS idx_whatsapp_conversations_user_updated
       ON whatsapp_conversations (user_id, updated_at DESC);
@@ -1928,6 +1946,15 @@ No markdown wrappers, just valid JSON.`;
     body: row.body,
     message_type: row.message_type,
     payload: row.payload,
+    translation: row.translation_language ? {
+      language: row.translation_language,
+      text: row.translation_text || '',
+      sourceLanguage: row.translation_source_language || '',
+      bodyHash: row.translation_body_hash || '',
+      skipped: !!row.translation_skipped,
+      modelId: row.translation_model_id || null,
+      updatedAt: row.translation_updated_at
+    } : undefined,
     created_at: row.source_created_at || row.created_at,
     received_at: row.received_at
   });
@@ -2697,9 +2724,10 @@ ${JSON.stringify(productsRes.rows.map((product: any) => ({
       const rawTarget = req.query.targetPhone ? String(req.query.targetPhone) : '';
       const targetPhone = rawTarget ? normalizeWhatsAppConversationKey(rawTarget) : '';
       const chatId = req.query.chatId ? String(req.query.chatId).trim() : '';
+      const language = String(req.query.language || 'en').toLowerCase().slice(0, 16);
       const limit = Math.min(Math.max(Number(req.query.limit || 200), 1), 500);
 
-      const values: any[] = [req.user.uid];
+      const values: any[] = [req.user.uid, language];
       let where = 'm.user_id = $1';
       if (targetPhone) {
         values.push(targetPhone);
@@ -2711,8 +2739,19 @@ ${JSON.stringify(productsRes.rows.map((product: any) => ({
       }
       values.push(limit);
       const result = await pool.query(
-        `SELECT m.*
+        `SELECT m.*,
+                wt.language AS translation_language,
+                wt.translated_text AS translation_text,
+                wt.source_language AS translation_source_language,
+                wt.body_hash AS translation_body_hash,
+                wt.skipped AS translation_skipped,
+                wt.model_id AS translation_model_id,
+                wt.updated_at AS translation_updated_at
          FROM whatsapp_messages m
+         LEFT JOIN whatsapp_message_translations wt
+           ON wt.user_id = m.user_id
+          AND wt.message_id = m.id
+          AND wt.language = $2
          WHERE ${where}
          ORDER BY COALESCE(m.source_created_at, m.created_at) DESC
          LIMIT $${values.length}`,
@@ -2721,6 +2760,58 @@ ${JSON.stringify(productsRes.rows.map((product: any) => ({
       res.json({ messages: dedupeWhatsAppMessageRows(result.rows).map(mapWhatsAppMessageRow) });
     } catch (e: any) {
       res.status(e.status || 500).json({ error: e.message || 'Failed to fetch WhatsApp messages' });
+    }
+  });
+
+  app.put('/api/whatsapp-hub/messages/:id/translation', authenticateToken, async (req: any, res) => {
+    try {
+      const messageId = String(req.params.id || '').trim();
+      const language = String(req.body?.language || '').toLowerCase().slice(0, 16);
+      if (!messageId || !language) {
+        return res.status(400).json({ error: 'messageId and language are required.' });
+      }
+      const messageRes = await pool.query(
+        `SELECT id FROM whatsapp_messages WHERE id = $1 AND user_id = $2 LIMIT 1`,
+        [messageId, req.user.uid]
+      );
+      if (messageRes.rows.length === 0) {
+        return res.status(404).json({ error: 'WhatsApp message not found.' });
+      }
+      const translatedText = String(req.body?.translatedText || req.body?.text || '');
+      const sourceLanguage = String(req.body?.sourceLanguage || '');
+      const bodyHash = String(req.body?.bodyHash || '');
+      const skipped = !!req.body?.skipped;
+      const modelId = req.body?.modelId ? String(req.body.modelId) : null;
+      const id = `wmt_${crypto.randomUUID()}`;
+      const result = await pool.query(
+        `INSERT INTO whatsapp_message_translations
+         (id, user_id, message_id, language, translated_text, source_language, body_hash, skipped, model_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT (user_id, message_id, language)
+         DO UPDATE SET
+           translated_text = EXCLUDED.translated_text,
+           source_language = EXCLUDED.source_language,
+           body_hash = EXCLUDED.body_hash,
+           skipped = EXCLUDED.skipped,
+           model_id = EXCLUDED.model_id,
+           updated_at = CURRENT_TIMESTAMP
+         RETURNING *`,
+        [id, req.user.uid, messageId, language, translatedText, sourceLanguage, bodyHash, skipped, modelId]
+      );
+      const row = result.rows[0];
+      res.json({
+        translation: {
+          language: row.language,
+          text: row.translated_text || '',
+          sourceLanguage: row.source_language || '',
+          bodyHash: row.body_hash || '',
+          skipped: !!row.skipped,
+          modelId: row.model_id || null,
+          updatedAt: row.updated_at
+        }
+      });
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message || 'Failed to save WhatsApp translation' });
     }
   });
 

@@ -747,6 +747,8 @@ export interface StoreState {
   updateWhatsAppHubConfig: (updates: Partial<WhatsAppHubConfig>) => void;
   whatsappCustomerServiceAgentEnabled: boolean;
   setWhatsAppCustomerServiceAgentEnabled: (enabled: boolean) => void;
+  whatsappAutoTranslateEnabled: boolean;
+  setWhatsAppAutoTranslateEnabled: (enabled: boolean) => void;
   externalNotificationConfig: ExternalNotificationConfig;
   updateExternalNotificationConfig: (updates: Partial<ExternalNotificationConfig>) => void;
   sendExternalNotification: (payload: { event: ExternalNotificationEvent; title: string; body: string; url?: string; metadata?: any }) => Promise<void>;
@@ -1864,6 +1866,8 @@ export const useStore = create<StoreState>((set, get) => ({
   })),
   whatsappCustomerServiceAgentEnabled: false,
   setWhatsAppCustomerServiceAgentEnabled: (enabled) => set({ whatsappCustomerServiceAgentEnabled: enabled }),
+  whatsappAutoTranslateEnabled: false,
+  setWhatsAppAutoTranslateEnabled: (enabled) => set({ whatsappAutoTranslateEnabled: enabled }),
   externalNotificationConfig: INITIAL_EXTERNAL_NOTIFICATION_CONFIG,
   updateExternalNotificationConfig: (updates) => set((state) => ({
     externalNotificationConfig: {
@@ -3039,6 +3043,7 @@ export const useStore = create<StoreState>((set, get) => ({
             ? { ...INITIAL_WHATSAPP_HUB_CONFIG, ...settings.whatsappHubConfig }
             : state.whatsappHubConfig,
           whatsappCustomerServiceAgentEnabled: settings.whatsappCustomerServiceAgentEnabled ?? state.whatsappCustomerServiceAgentEnabled,
+          whatsappAutoTranslateEnabled: settings.whatsappAutoTranslateEnabled ?? state.whatsappAutoTranslateEnabled,
           externalNotificationConfig: settings.externalNotificationConfig
             ? {
                 ...INITIAL_EXTERNAL_NOTIFICATION_CONFIG,
@@ -3186,6 +3191,7 @@ useStore.subscribe((state, prevState) => {
     state.emailServerMappings !== prevState.emailServerMappings ||
     state.whatsappHubConfig !== prevState.whatsappHubConfig ||
     state.whatsappCustomerServiceAgentEnabled !== prevState.whatsappCustomerServiceAgentEnabled ||
+    state.whatsappAutoTranslateEnabled !== prevState.whatsappAutoTranslateEnabled ||
     state.externalNotificationConfig !== prevState.externalNotificationConfig ||
     state.agentContextAnalysisConfig !== prevState.agentContextAnalysisConfig ||
     state.llmConfigs !== prevState.llmConfigs ||
@@ -3228,6 +3234,7 @@ useStore.subscribe((state, prevState) => {
             emailServerMappings: state.emailServerMappings,
             whatsappHubConfig: state.whatsappHubConfig,
             whatsappCustomerServiceAgentEnabled: state.whatsappCustomerServiceAgentEnabled,
+            whatsappAutoTranslateEnabled: state.whatsappAutoTranslateEnabled,
             externalNotificationConfig: state.externalNotificationConfig,
             agentContextAnalysisConfig: state.agentContextAnalysisConfig,
             llmConfigs: state.llmConfigs,
