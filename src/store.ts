@@ -6,6 +6,8 @@ import { DEFAULT_CURRENCY_RATES } from './lib/currency';
 
 let liveChatSocket: any = null;
 let liveChatSocketToken = '';
+let liveChatSocketConnecting = false;
+let liveChatSocketLastAttemptAt = 0;
 
 async function loadSocketIoClient() {
   const importer = new Function('specifier', 'return import(specifier)');
@@ -1756,6 +1758,11 @@ export const useStore = create<StoreState>((set, get) => ({
     const token = localStorage.getItem('token');
     if (!token) return;
     if (liveChatSocket?.connected && liveChatSocketToken === token) return;
+    if (liveChatSocketConnecting && liveChatSocketToken === token) return;
+    const now = Date.now();
+    if (liveChatSocketToken === token && now - liveChatSocketLastAttemptAt < 30000) return;
+    liveChatSocketConnecting = true;
+    liveChatSocketLastAttemptAt = now;
     liveChatSocketToken = token;
     set({ liveChatSocketStatus: 'connecting' });
     try {
@@ -1774,11 +1781,16 @@ export const useStore = create<StoreState>((set, get) => ({
             console.warn('Live Chat socket auth failed', response?.error);
             set({ liveChatSocketStatus: 'disconnected' });
           }
+          liveChatSocketConnecting = false;
         });
       });
-      liveChatSocket.on('disconnect', () => set({ liveChatSocketStatus: 'disconnected' }));
+      liveChatSocket.on('disconnect', () => {
+        liveChatSocketConnecting = false;
+        set({ liveChatSocketStatus: 'disconnected' });
+      });
       liveChatSocket.on('connect_error', (error: any) => {
         console.warn('Live Chat socket unavailable; REST fallback remains active.', error?.message || error);
+        liveChatSocketConnecting = false;
         set({ liveChatSocketStatus: 'disconnected' });
       });
       liveChatSocket.on('live_chat:session_updated', (session: LiveChatSession) => {
@@ -1797,6 +1809,7 @@ export const useStore = create<StoreState>((set, get) => ({
       });
     } catch (error) {
       console.warn('Socket.IO client is not installed; Live Chat uses REST fallback.', error);
+      liveChatSocketConnecting = false;
       set({ liveChatSocketStatus: 'disabled' });
     }
   },
@@ -1804,6 +1817,8 @@ export const useStore = create<StoreState>((set, get) => ({
     liveChatSocket?.disconnect?.();
     liveChatSocket = null;
     liveChatSocketToken = '';
+    liveChatSocketConnecting = false;
+    liveChatSocketLastAttemptAt = 0;
     set({ liveChatSocketStatus: 'disconnected' });
   },
   joinLiveChatSocketSession: (sessionId) => {

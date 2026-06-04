@@ -44,10 +44,13 @@ export function LiveChat() {
 
   useEffect(() => {
     connectLiveChatSocket();
+  }, [connectLiveChatSocket]);
+
+  useEffect(() => {
     fetchLiveChatSessions();
     const interval = window.setInterval(fetchLiveChatSessions, liveChatSocketStatus === 'connected' ? 60000 : 15000);
     return () => window.clearInterval(interval);
-  }, [connectLiveChatSocket, fetchLiveChatSessions, liveChatSocketStatus]);
+  }, [fetchLiveChatSessions, liveChatSocketStatus]);
 
   useEffect(() => {
     if (!selectedId && liveChatSessions[0]) setSelectedId(liveChatSessions[0].id);
@@ -76,6 +79,7 @@ export function LiveChat() {
 
   const selectedSession = liveChatSessions.find(session => session.id === selectedId) || null;
   const selectedMessages = selectedId ? (liveChatMessages[selectedId] || []) : [];
+  const visibleMessages = selectedMessages.filter(message => message.role !== 'system').slice(-200);
   const linkedClient = selectedSession?.clientId ? clients.find(client => client.id === selectedSession.clientId) : null;
 
   const handleSend = async () => {
@@ -262,7 +266,7 @@ export function LiveChat() {
             </header>
 
             <section className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-950">
-              {selectedMessages.filter(message => message.role !== 'system').map(message => {
+              {visibleMessages.map(message => {
                 const outbound = message.role === 'agent' || message.role === 'operator';
                 return (
                   <div key={message.id} className={cn('flex', outbound ? 'justify-end' : 'justify-start')}>
