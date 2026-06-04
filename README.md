@@ -384,19 +384,230 @@ Typical notification events:
 
 ## Public Live Chat API
 
-The public live chat API is intentionally narrow so a website visitor cannot access CRM backend data.
+The public live chat API is intentionally narrow so a website visitor cannot access CRM backend data. Public endpoints do not accept CRM auth tokens and do not expose clients, logs, internal notes, prompts, or settings.
 
-- `POST /api/live-chat/public/sessions`: create a live chat session for a CRM user. Returns `session.id` and a visitor `token`.
-- `GET /api/live-chat/public/sessions/:id/messages?token=...`: read messages for that visitor session only.
-- `POST /api/live-chat/public/sessions/:id/messages`: send a visitor message with the visitor token.
+Recommended website widget flow:
 
-Authenticated operator APIs:
+1. Create a session when the visitor opens the chat widget.
+2. Store the returned `session.id` and `token` in browser storage for that visitor.
+3. Send visitor messages with the token.
+4. Poll the session messages every few seconds, or replace polling with a websocket/SSE layer later.
+5. If the visitor refreshes the website, reuse the stored `session.id` and `token`.
 
-- `GET /api/live-chat/sessions`
-- `GET /api/live-chat/sessions/:id/messages`
-- `POST /api/live-chat/sessions/:id/messages`
-- `PATCH /api/live-chat/sessions/:id`
-- `POST /api/live-chat/sessions/:id/agent-reply`
+### Create Public Session
+
+`POST /api/live-chat/public/sessions`
+
+Request:
+
+```json
+{
+  "userId": "crm-user-id",
+  "visitorName": "Alex Chen",
+  "visitorEmail": "alex@example.com",
+  "visitorPhone": "+1 555 0100",
+  "pageUrl": "https://example.com/products/solar-monitoring",
+  "metadata": {
+    "source": "website-widget",
+    "utmCampaign": "solar-demo"
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "session": {
+    "id": "lc_1780000000000_12345",
+    "clientId": null,
+    "visitorName": "Alex Chen",
+    "visitorEmail": "alex@example.com",
+    "visitorPhone": "+1 555 0100",
+    "pageUrl": "https://example.com/products/solar-monitoring",
+    "status": "open",
+    "priority": "normal",
+    "humanTakeover": false,
+    "assignedAgentId": "live_chat_agent",
+    "tags": [],
+    "lastMessageAt": "2026-06-04T10:00:00.000Z",
+    "createdAt": "2026-06-04T10:00:00.000Z",
+    "updatedAt": "2026-06-04T10:00:00.000Z",
+    "lastMessage": null
+  },
+  "token": "visitor-session-token"
+}
+```
+
+Notes:
+
+- `userId` is the CRM owner that should receive the website chat. In production, the website snippet should be generated with this value already embedded.
+- `token` is only shown once by the API. The website widget must store it locally and send it with future requests.
+- If `visitorEmail` matches an existing client contact, CRM may link the session to that client internally, but public responses still do not reveal client details.
+
+### Send Visitor Message
+
+`POST /api/live-chat/public/sessions/:id/messages`
+
+Request:
+
+```json
+{
+  "token": "visitor-session-token",
+  "senderName": "Alex Chen",
+  "body": "Hi, do you support solar plant monitoring for multiple sites?"
+}
+```
+
+Response:
+
+```json
+{
+  "message": {
+    "id": "lcm_1780000001000_10001",
+    "sessionId": "lc_1780000000000_12345",
+    "role": "visitor",
+    "senderName": "Alex Chen",
+    "body": "Hi, do you support solar plant monitoring for multiple sites?",
+    "metadata": {},
+    "createdAt": "2026-06-04T10:00:01.000Z"
+  },
+  "agentMessage": {
+    "id": "lcm_1780000002000_10002",
+    "sessionId": "lc_1780000000000_12345",
+    "role": "agent",
+    "senderName": "Live Chat Agent",
+    "body": "Yes. Our team can help with multi-site solar monitoring. Could you share the number of sites and whether you need device-level or plant-level reporting?",
+    "metadata": {
+      "source": "live_chat_agent",
+      "escalate": false,
+      "reason": ""
+    },
+    "createdAt": "2026-06-04T10:00:02.000Z"
+  }
+}
+```
+
+Notes:
+
+- When `humanTakeover` is active or the session is closed, `agentMessage` may be `null`.
+- The Live Chat Agent uses only public-safe company/product context for visitor-facing replies.
+- Sensitive requests should be escalated to an operator instead of answered with internal CRM data.
+
+### Read Public Session Messages
+
+`GET /api/live-chat/public/sessions/:id/messages?token=visitor-session-token`
+
+Response:
+
+```json
+[
+  {
+    "id": "lcm_1780000001000_10001",
+    "sessionId": "lc_1780000000000_12345",
+    "role": "visitor",
+    "senderName": "Alex Chen",
+    "body": "Hi, do you support solar plant monitoring for multiple sites?",
+    "metadata": {},
+    "createdAt": "2026-06-04T10:00:01.000Z"
+  },
+  {
+    "id": "lcm_1780000002000_10002",
+    "sessionId": "lc_1780000000000_12345",
+    "role": "agent",
+    "senderName": "Live Chat Agent",
+    "body": "Yes. Our team can help with multi-site solar monitoring...",
+    "metadata": {
+      "source": "live_chat_agent",
+      "escalate": false
+    },
+    "createdAt": "2026-06-04T10:00:02.000Z"
+  }
+]
+```
+
+### Authenticated Operator APIs
+
+These endpoints require `Authorization: Bearer <crm-token>`.
+
+List sessions:
+
+```http
+GET /api/live-chat/sessions
+Authorization: Bearer <crm-token>
+```
+
+Read one session:
+
+```http
+GET /api/live-chat/sessions/lc_1780000000000_12345/messages
+Authorization: Bearer <crm-token>
+```
+
+Send an operator reply and automatically enter human takeover:
+
+```http
+POST /api/live-chat/sessions/lc_1780000000000_12345/messages
+Authorization: Bearer <crm-token>
+Content-Type: application/json
+```
+
+```json
+{
+  "body": "Thanks Alex, I can help. How many PV sites are you managing now?"
+}
+```
+
+Update session status, tags, priority, linked client, or human takeover:
+
+```http
+PATCH /api/live-chat/sessions/lc_1780000000000_12345
+Authorization: Bearer <crm-token>
+Content-Type: application/json
+```
+
+```json
+{
+  "status": "open",
+  "priority": "high",
+  "humanTakeover": true,
+  "clientId": "c1779272244237",
+  "tags": ["demo-request", "solar"]
+}
+```
+
+Manually release takeover and ask the Live Chat Agent to reply:
+
+```http
+POST /api/live-chat/sessions/lc_1780000000000_12345/agent-reply
+Authorization: Bearer <crm-token>
+```
+
+Response:
+
+```json
+{
+  "message": {
+    "id": "lcm_1780000003000_10003",
+    "sessionId": "lc_1780000000000_12345",
+    "role": "agent",
+    "senderName": "Live Chat Agent",
+    "body": "Could you share your target deployment country and monitoring requirements?",
+    "metadata": {
+      "source": "live_chat_agent",
+      "escalate": false
+    },
+    "createdAt": "2026-06-04T10:00:03.000Z"
+  }
+}
+```
+
+### Security Boundary
+
+- Public endpoints are CORS-enabled only for the live chat path and require the visitor session token.
+- Visitor tokens must be treated like session secrets and should not be logged in public analytics.
+- Public responses never include CRM clients, internal comments, growth logs, RAG raw documents, agent prompts, API keys, or settings.
+- Operator APIs require CRM authentication and should be used only inside the Live Chat Desk.
 
 ## Recent Functional Notes / 近期功能说明
 
@@ -880,19 +1091,230 @@ Agent Harness 目前已经为非删除类写入工具补充了具体后端执行
 
 ## Public Live Chat API
 
-公开 live chat API 会刻意保持很窄，避免网站访客访问 CRM 后台数据。
+公开 live chat API 会刻意保持很窄，避免网站访客访问 CRM 后台数据。公开接口不接受 CRM 登录 token，也不会返回客户资料、内部日志、内部备注、Prompt、设置等后台信息。
 
-- `POST /api/live-chat/public/sessions`：为某个 CRM 用户创建 live chat 会话，返回 `session.id` 和访客 `token`。
-- `GET /api/live-chat/public/sessions/:id/messages?token=...`：只读取该访客会话内的消息。
-- `POST /api/live-chat/public/sessions/:id/messages`：访客携带 token 发送消息。
+推荐的网站 widget 流程：
 
-登录后的座席 API：
+1. 访客打开聊天组件时创建 session。
+2. 前端保存返回的 `session.id` 和 `token`。
+3. 访客发送消息时携带 token。
+4. 前端每隔几秒轮询消息；后续也可以替换为 websocket/SSE。
+5. 访客刷新网站后，继续复用本地保存的 `session.id` 和 `token`。
 
-- `GET /api/live-chat/sessions`
-- `GET /api/live-chat/sessions/:id/messages`
-- `POST /api/live-chat/sessions/:id/messages`
-- `PATCH /api/live-chat/sessions/:id`
-- `POST /api/live-chat/sessions/:id/agent-reply`
+### 创建公开会话
+
+`POST /api/live-chat/public/sessions`
+
+Request：
+
+```json
+{
+  "userId": "crm-user-id",
+  "visitorName": "Alex Chen",
+  "visitorEmail": "alex@example.com",
+  "visitorPhone": "+1 555 0100",
+  "pageUrl": "https://example.com/products/solar-monitoring",
+  "metadata": {
+    "source": "website-widget",
+    "utmCampaign": "solar-demo"
+  }
+}
+```
+
+Response：
+
+```json
+{
+  "session": {
+    "id": "lc_1780000000000_12345",
+    "clientId": null,
+    "visitorName": "Alex Chen",
+    "visitorEmail": "alex@example.com",
+    "visitorPhone": "+1 555 0100",
+    "pageUrl": "https://example.com/products/solar-monitoring",
+    "status": "open",
+    "priority": "normal",
+    "humanTakeover": false,
+    "assignedAgentId": "live_chat_agent",
+    "tags": [],
+    "lastMessageAt": "2026-06-04T10:00:00.000Z",
+    "createdAt": "2026-06-04T10:00:00.000Z",
+    "updatedAt": "2026-06-04T10:00:00.000Z",
+    "lastMessage": null
+  },
+  "token": "visitor-session-token"
+}
+```
+
+说明：
+
+- `userId` 是接收该网站客服会话的 CRM 用户 ID。生产环境中，网站嵌入脚本应提前带上这个值。
+- `token` 只在创建 session 时返回一次，网站前端需要保存它，并在后续请求中携带。
+- 如果 `visitorEmail` 匹配到已有客户联系人，CRM 内部可以把会话关联到客户，但公开响应仍不会暴露客户详情。
+
+### 访客发送消息
+
+`POST /api/live-chat/public/sessions/:id/messages`
+
+Request：
+
+```json
+{
+  "token": "visitor-session-token",
+  "senderName": "Alex Chen",
+  "body": "Hi, do you support solar plant monitoring for multiple sites?"
+}
+```
+
+Response：
+
+```json
+{
+  "message": {
+    "id": "lcm_1780000001000_10001",
+    "sessionId": "lc_1780000000000_12345",
+    "role": "visitor",
+    "senderName": "Alex Chen",
+    "body": "Hi, do you support solar plant monitoring for multiple sites?",
+    "metadata": {},
+    "createdAt": "2026-06-04T10:00:01.000Z"
+  },
+  "agentMessage": {
+    "id": "lcm_1780000002000_10002",
+    "sessionId": "lc_1780000000000_12345",
+    "role": "agent",
+    "senderName": "Live Chat Agent",
+    "body": "Yes. Our team can help with multi-site solar monitoring. Could you share the number of sites and whether you need device-level or plant-level reporting?",
+    "metadata": {
+      "source": "live_chat_agent",
+      "escalate": false,
+      "reason": ""
+    },
+    "createdAt": "2026-06-04T10:00:02.000Z"
+  }
+}
+```
+
+说明：
+
+- 如果该会话已被人工接管，或者会话已关闭，`agentMessage` 可能为 `null`。
+- Live Chat Agent 只使用对外安全的公司/产品上下文回复访客。
+- 涉及敏感问题、投诉、合同、价格承诺或需要内部资料的问题，应转交人工座席。
+
+### 读取公开会话消息
+
+`GET /api/live-chat/public/sessions/:id/messages?token=visitor-session-token`
+
+Response：
+
+```json
+[
+  {
+    "id": "lcm_1780000001000_10001",
+    "sessionId": "lc_1780000000000_12345",
+    "role": "visitor",
+    "senderName": "Alex Chen",
+    "body": "Hi, do you support solar plant monitoring for multiple sites?",
+    "metadata": {},
+    "createdAt": "2026-06-04T10:00:01.000Z"
+  },
+  {
+    "id": "lcm_1780000002000_10002",
+    "sessionId": "lc_1780000000000_12345",
+    "role": "agent",
+    "senderName": "Live Chat Agent",
+    "body": "Yes. Our team can help with multi-site solar monitoring...",
+    "metadata": {
+      "source": "live_chat_agent",
+      "escalate": false
+    },
+    "createdAt": "2026-06-04T10:00:02.000Z"
+  }
+]
+```
+
+### 登录后的座席 API
+
+以下接口需要 `Authorization: Bearer <crm-token>`。
+
+获取会话列表：
+
+```http
+GET /api/live-chat/sessions
+Authorization: Bearer <crm-token>
+```
+
+读取单个会话消息：
+
+```http
+GET /api/live-chat/sessions/lc_1780000000000_12345/messages
+Authorization: Bearer <crm-token>
+```
+
+座席发送回复，并自动进入人工接管：
+
+```http
+POST /api/live-chat/sessions/lc_1780000000000_12345/messages
+Authorization: Bearer <crm-token>
+Content-Type: application/json
+```
+
+```json
+{
+  "body": "Thanks Alex, I can help. How many PV sites are you managing now?"
+}
+```
+
+更新会话状态、标签、优先级、关联客户或人工接管状态：
+
+```http
+PATCH /api/live-chat/sessions/lc_1780000000000_12345
+Authorization: Bearer <crm-token>
+Content-Type: application/json
+```
+
+```json
+{
+  "status": "open",
+  "priority": "high",
+  "humanTakeover": true,
+  "clientId": "c1779272244237",
+  "tags": ["demo-request", "solar"]
+}
+```
+
+释放人工接管并让 Live Chat Agent 手动回复：
+
+```http
+POST /api/live-chat/sessions/lc_1780000000000_12345/agent-reply
+Authorization: Bearer <crm-token>
+```
+
+Response：
+
+```json
+{
+  "message": {
+    "id": "lcm_1780000003000_10003",
+    "sessionId": "lc_1780000000000_12345",
+    "role": "agent",
+    "senderName": "Live Chat Agent",
+    "body": "Could you share your target deployment country and monitoring requirements?",
+    "metadata": {
+      "source": "live_chat_agent",
+      "escalate": false
+    },
+    "createdAt": "2026-06-04T10:00:03.000Z"
+  }
+}
+```
+
+### 安全边界
+
+- 公开接口只对 live chat 路径开放 CORS，并且必须携带 visitor session token。
+- visitor token 应视为会话密钥，不应写入公开 analytics 日志。
+- 公开响应不会包含 CRM 客户资料、内部 comments、Growth Logs、RAG 原始文档、Agent Prompt、API Key 或系统设置。
+- 座席 API 必须在 CRM 登录状态下使用，只应该由 Live Chat Desk 后台调用。
 
 ## 部署
 
