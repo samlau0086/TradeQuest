@@ -447,7 +447,7 @@ Notes:
 - `apiToken` identifies the CRM owner and the allowed public permissions. Use a token generated in Settings -> API Tokens.
 - The token must include `live_chat.public`. The `Live Chat Agent` template includes `live_chat.public` and `live_chat.agent`.
 - Do not expose CRM user IDs in website code.
-- `token` is only shown once by the API. The website widget must store it locally and send it with future requests.
+- `token` is available from Settings -> API Tokens and can be copied from the generated token row. The website widget must store it locally and send it with future requests.
 - If `visitorEmail` matches an existing client contact, CRM may link the session to that client internally, but public responses still do not reveal client details.
 
 ### Send Visitor Message
@@ -611,7 +611,7 @@ Response:
 
 - Public endpoints are CORS-enabled only for the live chat path and require the visitor session token.
 - Public session creation requires a scoped API token with `live_chat.public`.
-- API tokens are stored server-side as hashes; the plain token is only displayed once when generated.
+- API tokens keep a server-side hash for authentication and are also shown in Settings -> API Tokens so operators can copy active integration keys when needed.
 - Visitor tokens must be treated like session secrets and should not be logged in public analytics.
 - Public responses never include CRM clients, internal comments, growth logs, RAG raw documents, agent prompts, API keys, or settings.
 - Operator APIs require CRM authentication and should be used only inside the Live Chat Desk.
@@ -1326,7 +1326,7 @@ Response：
 
 - 公开接口只对 live chat 路径开放 CORS，并且必须携带 visitor session token。
 - 创建公开 session 需要携带拥有 `live_chat.public` 权限的 API Token。
-- API Token 在服务端只保存 hash，明文 token 只会在生成时显示一次。
+- API Token 会保留服务端 hash 用于鉴权，同时也会在 Settings -> API Tokens 中展示，方便运营人员随时复制仍有效的集成 key。
 - visitor token 应视为会话密钥，不应写入公开 analytics 日志。
 - 公开响应不会包含 CRM 客户资料、内部 comments、Growth Logs、RAG 原始文档、Agent Prompt、API Key 或系统设置。
 - 座席 API 必须在 CRM 登录状态下使用，只应该由 Live Chat Desk 后台调用。

@@ -28,6 +28,7 @@ type SettingsTab = 'profile' | 'mail' | 'ai' | 'api' | 'system' | 'gamification'
 interface ApiTokenRecord {
   id: string;
   name: string;
+  token?: string;
   tokenPrefix: string;
   permissions: string[];
   template?: string;
@@ -144,7 +145,7 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
       if (!res.ok) throw new Error(data.error || 'Failed to create API token');
       setGeneratedApiToken(data.token || '');
       setApiTokens((prev) => [data.record, ...prev].filter(Boolean));
-      notify(language === 'zh' ? 'API Token 已生成，请立即复制保存。' : 'API token created. Copy it now.', 'success');
+      notify(language === 'zh' ? 'API Token 已生成，可在下方直接复制。' : 'API token created. You can copy it below.', 'success');
     } catch (error: any) {
       notify(error?.message || 'Failed to create API token', 'error');
     } finally {
@@ -1809,7 +1810,7 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
                   {generatedApiToken && (
                     <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
                       <div className="text-xs font-bold text-amber-200">
-                        {language === 'zh' ? '只显示一次，请立即复制保存' : 'Shown once. Copy and store it now.'}
+                        {language === 'zh' ? '已生成 API Token，可直接复制' : 'API token generated. Copy it directly.'}
                       </div>
                       <div className="mt-2 flex items-center gap-2">
                         <code className="flex-1 overflow-x-auto rounded bg-slate-950 px-3 py-2 text-xs text-amber-100">{generatedApiToken}</code>
@@ -1828,8 +1829,9 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
                 </div>
 
                 <div className="rounded-xl border border-slate-800 bg-slate-950 overflow-hidden">
-                  <div className="grid grid-cols-[1.2fr_1fr_1fr_0.8fr_auto] gap-3 border-b border-slate-800 px-4 py-3 text-xs font-bold uppercase text-slate-500">
+                  <div className="grid grid-cols-[1.1fr_1.4fr_1fr_1fr_0.8fr_auto] gap-3 border-b border-slate-800 px-4 py-3 text-xs font-bold uppercase text-slate-500">
                     <span>{language === 'zh' ? '名称' : 'Name'}</span>
+                    <span>Token</span>
                     <span>{language === 'zh' ? '模板' : 'Template'}</span>
                     <span>{language === 'zh' ? '权限' : 'Permissions'}</span>
                     <span>{language === 'zh' ? '最近使用' : 'Last Used'}</span>
@@ -1838,11 +1840,31 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
                   {apiTokens.length === 0 ? (
                     <div className="p-6 text-sm text-slate-500">{language === 'zh' ? '暂无 API Token。' : 'No API tokens yet.'}</div>
                   ) : apiTokens.map(record => (
-                    <div key={record.id} className={cn("grid grid-cols-[1.2fr_1fr_1fr_0.8fr_auto] gap-3 border-b border-slate-900 px-4 py-4 text-sm items-start", record.revokedAt && "opacity-50")}>
+                    <div key={record.id} className={cn("grid grid-cols-[1.1fr_1.4fr_1fr_1fr_0.8fr_auto] gap-3 border-b border-slate-900 px-4 py-4 text-sm items-start", record.revokedAt && "opacity-50")}>
                       <div>
                         <div className="font-bold text-slate-200">{record.name}</div>
                         <div className="mt-1 text-xs font-mono text-slate-500">{record.tokenPrefix}...</div>
                         {record.revokedAt && <div className="mt-1 text-xs text-red-300">{language === 'zh' ? '已吊销' : 'Revoked'}</div>}
+                      </div>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <code className="min-w-0 flex-1 overflow-x-auto rounded bg-slate-900 px-2 py-1.5 text-[11px] text-slate-300">
+                          {record.token || (language === 'zh' ? '旧 Token 不可查看' : 'Legacy token unavailable')}
+                        </code>
+                        <button
+                          onClick={() => {
+                            if (!record.token) {
+                              notify(language === 'zh' ? '旧 Token 未保存明文，请重新生成。' : 'This legacy token was not stored. Generate a new one.', 'warning');
+                              return;
+                            }
+                            navigator.clipboard?.writeText(record.token);
+                            notify(language === 'zh' ? '已复制 API Token。' : 'API token copied.', 'success');
+                          }}
+                          disabled={!record.token || !!record.revokedAt}
+                          className="rounded-lg border border-slate-700 p-2 text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                          title={language === 'zh' ? '复制 Token' : 'Copy token'}
+                        >
+                          <Copy className="w-4 h-4" />
+                        </button>
                       </div>
                       <div className="text-slate-400">{API_TOKEN_TEMPLATES.find(template => template.id === record.template)?.label || record.template || '-'}</div>
                       <div className="flex flex-wrap gap-1.5">

@@ -279,6 +279,7 @@ async function initDB() {
         id VARCHAR(128) PRIMARY KEY,
         user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
         name VARCHAR(255) NOT NULL,
+        token_value TEXT,
         token_hash VARCHAR(128) NOT NULL UNIQUE,
         token_prefix VARCHAR(32) NOT NULL,
         permissions JSONB DEFAULT '[]'::jsonb,
@@ -288,6 +289,8 @@ async function initDB() {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
+
+      ALTER TABLE api_tokens ADD COLUMN IF NOT EXISTS token_value TEXT;
 
       CREATE INDEX IF NOT EXISTS idx_api_tokens_user_created
       ON api_tokens (user_id, created_at DESC);
@@ -4699,6 +4702,7 @@ No markdown wrappers, just valid JSON.`;
   const apiTokenToDto = (row: any) => ({
     id: row.id,
     name: row.name,
+    token: row.token_value || '',
     tokenPrefix: row.token_prefix,
     permissions: parseJsonArray(row.permissions),
     template: row.template || '',
@@ -4756,10 +4760,10 @@ No markdown wrappers, just valid JSON.`;
       const token = createApiTokenValue();
       const id = `api_token_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
       const result = await pool.query(
-        `INSERT INTO api_tokens (id, user_id, name, token_hash, token_prefix, permissions, template)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `INSERT INTO api_tokens (id, user_id, name, token_value, token_hash, token_prefix, permissions, template)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING *`,
-        [id, req.user.uid, name, hashApiToken(token), token.slice(0, 10), JSON.stringify(permissions), template]
+        [id, req.user.uid, name, token, hashApiToken(token), token.slice(0, 10), JSON.stringify(permissions), template]
       );
       res.json({ token, record: apiTokenToDto(result.rows[0]) });
     } catch (e: any) {
