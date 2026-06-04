@@ -4,6 +4,35 @@ import { syncViewToUrl } from './lib/viewRoutes';
 import { AgentIdempotencyRecord, AgentIdempotencyStatus, createAgentIdempotencyKey } from './lib/agentIdempotency';
 import { DEFAULT_CURRENCY_RATES } from './lib/currency';
 
+let liveChatSocket: any = null;
+let liveChatSocketToken = '';
+
+async function loadSocketIoClient() {
+  const importer = new Function('specifier', 'return import(specifier)');
+  return importer('socket.io-client');
+}
+
+function mergeLiveChatMessages(existing: LiveChatMessage[], incoming: LiveChatMessage | LiveChatMessage[]) {
+  const next = [...existing];
+  for (const message of Array.isArray(incoming) ? incoming : [incoming]) {
+    if (!message?.id || next.some(item => item.id === message.id)) continue;
+    next.push(message);
+  }
+  return next.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+}
+
+function mergeLiveChatSessionList(existing: LiveChatSession[], incoming: LiveChatSession | LiveChatSession[]) {
+  const incomingList = Array.isArray(incoming) ? incoming : [incoming];
+  const map = new Map(existing.map(session => [session.id, session]));
+  incomingList.forEach(session => {
+    if (!session?.id) return;
+    map.set(session.id, { ...(map.get(session.id) || {}), ...session });
+  });
+  return Array.from(map.values()).sort((a, b) => (
+    new Date(b.updatedAt || b.lastMessageAt || 0).getTime() - new Date(a.updatedAt || a.lastMessageAt || 0).getTime()
+  ));
+}
+
 export type ViewMode = 'kanban' | 'map' | 'inbox' | 'live-chat' | 'dashboard' | 'agent-hub' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests' | 'list' | 'products' | 'quotes' | 'knowledge-base' | 'media-library';
 
 export type ClientStatus = 'Leads' | 'Contacted' | 'Sample Sent' | 'Negotiating' | 'Closed Won'; // Kept for legacy compatibility if needed, better to rename to DealStage but will keep for now.
@@ -732,6 +761,10 @@ export interface StoreState {
 
   liveChatSessions: LiveChatSession[];
   liveChatMessages: Record<string, LiveChatMessage[]>;
+  liveChatSocketStatus: 'disabled' | 'connecting' | 'connected' | 'disconnected';
+  connectLiveChatSocket: () => Promise<void>;
+  disconnectLiveChatSocket: () => void;
+  joinLiveChatSocketSession: (sessionId: string) => void;
   fetchLiveChatSessions: () => Promise<void>;
   fetchLiveChatMessages: (sessionId: string) => Promise<void>;
   sendLiveChatOperatorMessage: (sessionId: string, body: string) => Promise<void>;
@@ -1718,6 +1751,67 @@ export const useStore = create<StoreState>((set, get) => ({
 
   liveChatSessions: [],
   liveChatMessages: {},
+  liveChatSocketStatus: 'disabled',
+  connectLiveChatSocket: async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    if (liveChatSocket?.connected && liveChatSocketToken === token) return;
+    liveChatSocketToken = token;
+    set({ liveChatSocketStatus: 'connecting' });
+    try {
+      const { io } = await loadSocketIoClient();
+      liveChatSocket?.disconnect?.();
+      liveChatSocket = io('/', {
+        path: '/socket.io',
+        transports: ['websocket', 'polling'],
+        autoConnect: true
+      });
+      liveChatSocket.on('connect', () => {
+        liveChatSocket.emit('live_chat:operator_auth', { token }, (response: any) => {
+          if (response?.ok) {
+            set({ liveChatSocketStatus: 'connected' });
+          } else {
+            console.warn('Live Chat socket auth failed', response?.error);
+            set({ liveChatSocketStatus: 'disconnected' });
+          }
+        });
+      });
+      liveChatSocket.on('disconnect', () => set({ liveChatSocketStatus: 'disconnected' }));
+      liveChatSocket.on('connect_error', (error: any) => {
+        console.warn('Live Chat socket unavailable; REST fallback remains active.', error?.message || error);
+        set({ liveChatSocketStatus: 'disconnected' });
+      });
+      liveChatSocket.on('live_chat:session_updated', (session: LiveChatSession) => {
+        set((state) => ({
+          liveChatSessions: mergeLiveChatSessionList(state.liveChatSessions, session)
+        }));
+      });
+      liveChatSocket.on('live_chat:message', (message: LiveChatMessage) => {
+        if (!message?.sessionId) return;
+        set((state) => ({
+          liveChatMessages: {
+            ...state.liveChatMessages,
+            [message.sessionId]: mergeLiveChatMessages(state.liveChatMessages[message.sessionId] || [], message)
+          }
+        }));
+      });
+    } catch (error) {
+      console.warn('Socket.IO client is not installed; Live Chat uses REST fallback.', error);
+      set({ liveChatSocketStatus: 'disabled' });
+    }
+  },
+  disconnectLiveChatSocket: () => {
+    liveChatSocket?.disconnect?.();
+    liveChatSocket = null;
+    liveChatSocketToken = '';
+    set({ liveChatSocketStatus: 'disconnected' });
+  },
+  joinLiveChatSocketSession: (sessionId) => {
+    if (!sessionId || !liveChatSocket?.connected) return;
+    liveChatSocket.emit('live_chat:join_session', { sessionId }, (response: any) => {
+      if (!response?.ok) console.warn('Failed to join live chat session room', response?.error);
+    });
+  },
   fetchLiveChatSessions: async () => {
     const token = localStorage.getItem('token');
     if (!token) return;
@@ -1727,7 +1821,7 @@ export const useStore = create<StoreState>((set, get) => ({
       });
       if (!res.ok) throw new Error('Failed to fetch live chat sessions');
       const sessions = await res.json();
-      set({ liveChatSessions: Array.isArray(sessions) ? sessions : [] });
+      set((state) => ({ liveChatSessions: mergeLiveChatSessionList(state.liveChatSessions, Array.isArray(sessions) ? sessions : []) }));
     } catch (error) {
       console.error(error);
     }
@@ -1744,7 +1838,7 @@ export const useStore = create<StoreState>((set, get) => ({
       set((state) => ({
         liveChatMessages: {
           ...state.liveChatMessages,
-          [sessionId]: Array.isArray(messages) ? messages : []
+          [sessionId]: mergeLiveChatMessages(state.liveChatMessages[sessionId] || [], Array.isArray(messages) ? messages : [])
         }
       }));
     } catch (error) {
@@ -1754,6 +1848,26 @@ export const useStore = create<StoreState>((set, get) => ({
   sendLiveChatOperatorMessage: async (sessionId, body) => {
     const token = localStorage.getItem('token');
     if (!token || !sessionId || !body.trim()) return;
+    if (liveChatSocket?.connected) {
+      const data = await new Promise<any>((resolve) => {
+        liveChatSocket.emit('live_chat:operator_message', { sessionId, body }, resolve);
+      });
+      if (!data?.ok) throw new Error(data?.error || 'Failed to send live chat message');
+      if (data.message) {
+        set((state) => ({
+          liveChatMessages: {
+            ...state.liveChatMessages,
+            [sessionId]: mergeLiveChatMessages(state.liveChatMessages[sessionId] || [], data.message)
+          },
+          liveChatSessions: state.liveChatSessions.map(session => (
+            session.id === sessionId
+              ? { ...session, humanTakeover: true, lastMessage: data.message, lastMessageAt: data.message.createdAt, updatedAt: new Date().toISOString() }
+              : session
+          ))
+        }));
+      }
+      return;
+    }
     const res = await fetch(`/api/live-chat/sessions/${sessionId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -1764,7 +1878,7 @@ export const useStore = create<StoreState>((set, get) => ({
     set((state) => ({
       liveChatMessages: {
         ...state.liveChatMessages,
-        [sessionId]: [...(state.liveChatMessages[sessionId] || []), data]
+        [sessionId]: mergeLiveChatMessages(state.liveChatMessages[sessionId] || [], data)
       },
       liveChatSessions: state.liveChatSessions.map(session => (
         session.id === sessionId
@@ -1801,7 +1915,7 @@ export const useStore = create<StoreState>((set, get) => ({
       set((state) => ({
         liveChatMessages: {
           ...state.liveChatMessages,
-          [sessionId]: [...(state.liveChatMessages[sessionId] || []), data.message]
+          [sessionId]: mergeLiveChatMessages(state.liveChatMessages[sessionId] || [], data.message)
         },
         liveChatSessions: state.liveChatSessions.map(session => (
           session.id === sessionId

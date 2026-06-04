@@ -393,8 +393,8 @@ Recommended website widget flow:
 
 1. Create a session when the visitor opens the chat widget.
 2. Store the returned `session.id` and `token` in browser storage for that visitor.
-3. Send visitor messages with the token.
-4. Poll the session messages every few seconds, or replace polling with a websocket/SSE layer later.
+3. Connect Socket.IO with `session.id` and the visitor `token` for realtime messaging.
+4. Send visitor messages over Socket.IO. Keep REST send/read endpoints as fallback if the socket is unavailable.
 5. If the visitor refreshes the website, reuse the stored `session.id` and `token`.
 
 ### Create Public Session
@@ -447,8 +447,63 @@ Notes:
 - `apiToken` identifies the CRM owner and the allowed public permissions. Use a token generated in Settings -> API Tokens.
 - The token must include `live_chat.public`. The `Live Chat Agent` template includes `live_chat.public` and `live_chat.agent`.
 - Do not expose CRM user IDs in website code.
-- `token` is available from Settings -> API Tokens and can be copied from the generated token row. The website widget must store it locally and send it with future requests.
+- `token` is the visitor session token returned by this endpoint. The website widget must store it locally and send it with future requests or Socket.IO auth.
 - If `visitorEmail` matches an existing client contact, CRM may link the session to that client internally, but public responses still do not reveal client details.
+
+### Realtime Socket.IO Transport
+
+The recommended realtime transport is Socket.IO at `/socket.io`. REST remains available for session creation, history reload, and fallback delivery.
+
+Visitor auth:
+
+```js
+import { io } from "socket.io-client";
+
+const socket = io("https://crm.example.com", {
+  path: "/socket.io",
+  transports: ["websocket", "polling"]
+});
+
+socket.emit("live_chat:visitor_auth", {
+  sessionId: "lc_1780000000000_12345",
+  visitorToken: "visitor-session-token"
+}, (response) => {
+  if (!response.ok) console.error(response.error);
+});
+```
+
+Visitor sends a message:
+
+```js
+socket.emit("live_chat:visitor_message", {
+  body: "Hi, do you support solar plant monitoring for multiple sites?"
+}, (response) => {
+  console.log(response.message, response.agentMessage);
+});
+```
+
+Receive realtime messages and session updates:
+
+```js
+socket.on("live_chat:message", (message) => {
+  // Append by message.id to avoid duplicates.
+});
+
+socket.on("live_chat:session_updated", (session) => {
+  // Refresh status, priority, humanTakeover, tags, and lastMessage.
+});
+```
+
+Operator socket auth uses the CRM login JWT:
+
+```js
+socket.emit("live_chat:operator_auth", { token: crmJwt });
+socket.emit("live_chat:join_session", { sessionId: "lc_1780000000000_12345" });
+socket.emit("live_chat:operator_message", {
+  sessionId: "lc_1780000000000_12345",
+  body: "Thanks, I can help with that."
+});
+```
 
 ### Send Visitor Message
 
@@ -1108,8 +1163,8 @@ Agent Harness 目前已经为非删除类写入工具补充了具体后端执行
 
 1. 访客打开聊天组件时创建 session。
 2. 前端保存返回的 `session.id` 和 `token`。
-3. 访客发送消息时携带 token。
-4. 前端每隔几秒轮询消息；后续也可以替换为 websocket/SSE。
+3. 使用 `session.id` 和访客 `token` 连接 Socket.IO，实现实时消息。
+4. 访客消息优先通过 Socket.IO 发送；REST 发送/读取接口保留为 fallback。
 5. 访客刷新网站后，继续复用本地保存的 `session.id` 和 `token`。
 
 ### 创建公开会话
@@ -1162,8 +1217,63 @@ Response：
 - `apiToken` 用来识别 CRM 所属用户和允许的公开权限。请使用 Settings -> API Tokens 生成的 token。
 - token 必须包含 `live_chat.public` 权限。`Live Chat Agent` 模板包含 `live_chat.public` 和 `live_chat.agent`。
 - 不要在网站前端暴露 CRM 用户 ID。
-- `token` 只在创建 session 时返回一次，网站前端需要保存它，并在后续请求中携带。
+- `token` 是此接口返回的访客 session token，网站前端需要保存它，并在后续 REST 请求或 Socket.IO 鉴权中携带。
 - 如果 `visitorEmail` 匹配到已有客户联系人，CRM 内部可以把会话关联到客户，但公开响应仍不会暴露客户详情。
+
+### 实时 Socket.IO 通道
+
+推荐的实时传输方式是 Socket.IO，路径为 `/socket.io`。REST 仍用于创建 session、重新加载历史记录，以及 socket 不可用时的 fallback。
+
+访客鉴权：
+
+```js
+import { io } from "socket.io-client";
+
+const socket = io("https://crm.example.com", {
+  path: "/socket.io",
+  transports: ["websocket", "polling"]
+});
+
+socket.emit("live_chat:visitor_auth", {
+  sessionId: "lc_1780000000000_12345",
+  visitorToken: "visitor-session-token"
+}, (response) => {
+  if (!response.ok) console.error(response.error);
+});
+```
+
+访客发送消息：
+
+```js
+socket.emit("live_chat:visitor_message", {
+  body: "Hi, do you support solar plant monitoring for multiple sites?"
+}, (response) => {
+  console.log(response.message, response.agentMessage);
+});
+```
+
+接收实时消息和会话状态：
+
+```js
+socket.on("live_chat:message", (message) => {
+  // 按 message.id 追加，避免重复。
+});
+
+socket.on("live_chat:session_updated", (session) => {
+  // 刷新状态、优先级、人工接管、标签和最后一条消息。
+});
+```
+
+后台座席使用 CRM 登录 JWT 鉴权：
+
+```js
+socket.emit("live_chat:operator_auth", { token: crmJwt });
+socket.emit("live_chat:join_session", { sessionId: "lc_1780000000000_12345" });
+socket.emit("live_chat:operator_message", {
+  sessionId: "lc_1780000000000_12345",
+  body: "Thanks, I can help with that."
+});
+```
 
 ### 访客发送消息
 

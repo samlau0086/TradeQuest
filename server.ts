@@ -784,6 +784,17 @@ async function callAI(prompt: string, llmConfig: any, isJson: boolean = false) {
 
 async function startServer() {
   const app = express();
+  const httpServer = customRequire("http").createServer(app);
+  let liveChatIo: any = null;
+  try {
+    const { Server } = customRequire("socket.io");
+    liveChatIo = new Server(httpServer, {
+      path: '/socket.io',
+      cors: { origin: '*', methods: ['GET', 'POST'] }
+    });
+  } catch (error) {
+    console.warn('Socket.IO is not installed; Live Chat realtime transport will fall back to REST polling.');
+  }
   const PORT = 3000;
 
   app.use(express.json({ limit: '50mb' }));
@@ -4685,6 +4696,41 @@ No markdown wrappers, just valid JSON.`;
     createdAt: row.created_at
   });
 
+  const fetchLiveChatSessionDto = async (userId: string, sessionId: string) => {
+    const result = await pool.query(
+      `SELECT s.*,
+        (
+          SELECT jsonb_build_object('id', m.id, 'session_id', m.session_id, 'role', m.role, 'sender_name', m.sender_name, 'body', m.body, 'metadata', m.metadata, 'created_at', m.created_at)
+          FROM live_chat_messages m
+          WHERE m.session_id = s.id AND m.role <> 'system'
+          ORDER BY m.created_at DESC
+          LIMIT 1
+        ) AS last_message
+       FROM live_chat_sessions s
+       WHERE s.id = $1 AND s.user_id = $2
+       LIMIT 1`,
+      [sessionId, userId]
+    );
+    const row = result.rows[0];
+    return row ? liveChatSessionToDto(row, row.last_message) : null;
+  };
+
+  const emitLiveChatSession = async (userId: string, sessionId: string) => {
+    if (!liveChatIo) return;
+    const session = await fetchLiveChatSessionDto(userId, sessionId).catch(() => null);
+    if (!session) return;
+    liveChatIo.to(`live_chat:user:${userId}`).emit('live_chat:session_updated', session);
+    liveChatIo.to(`live_chat:session:${sessionId}`).emit('live_chat:session_updated', session);
+  };
+
+  const emitLiveChatMessage = async (userId: string, message: any) => {
+    if (!liveChatIo || !message) return;
+    const dto = liveChatMessageToDto(message);
+    liveChatIo.to(`live_chat:user:${userId}`).emit('live_chat:message', dto);
+    liveChatIo.to(`live_chat:session:${dto.sessionId}`).emit('live_chat:message', dto);
+    await emitLiveChatSession(userId, dto.sessionId);
+  };
+
   const getUserSettings = async (userId: string) => {
     const settingsRes = await pool.query('SELECT settings, company_name, company_website FROM users WHERE id = $1', [userId]);
     const row = settingsRes.rows[0] || {};
@@ -4969,6 +5015,154 @@ Return JSON only:
     return message;
   };
 
+  if (liveChatIo) {
+    liveChatIo.on('connection', (socket: any) => {
+      socket.on('live_chat:operator_auth', async (payload: any, ack?: (response: any) => void) => {
+        try {
+          const rawToken = String(payload?.token || '').trim();
+          const decoded: any = jwt.verify(rawToken, JWT_SECRET);
+          const userId = decoded.uid;
+          if (!userId) throw new Error('Invalid token');
+          socket.data.liveChatUserId = userId;
+          socket.join(`live_chat:user:${userId}`);
+          ack?.({ ok: true });
+        } catch (error: any) {
+          ack?.({ ok: false, error: error?.message || 'Authentication failed' });
+        }
+      });
+
+      socket.on('live_chat:visitor_auth', async (payload: any, ack?: (response: any) => void) => {
+        try {
+          const sessionId = String(payload?.sessionId || '').trim();
+          const visitorToken = String(payload?.visitorToken || payload?.token || '').trim();
+          const sessionRes = await pool.query(
+            `SELECT id, user_id FROM live_chat_sessions WHERE id = $1 AND visitor_token = $2 LIMIT 1`,
+            [sessionId, visitorToken]
+          );
+          const session = sessionRes.rows[0];
+          if (!session) throw new Error('Session not found');
+          socket.data.liveChatUserId = session.user_id;
+          socket.data.liveChatSessionId = session.id;
+          socket.data.liveChatVisitor = true;
+          socket.join(`live_chat:session:${session.id}`);
+          ack?.({ ok: true, session: await fetchLiveChatSessionDto(session.user_id, session.id) });
+        } catch (error: any) {
+          ack?.({ ok: false, error: error?.message || 'Authentication failed' });
+        }
+      });
+
+      socket.on('live_chat:join_session', async (payload: any, ack?: (response: any) => void) => {
+        try {
+          const userId = socket.data.liveChatUserId;
+          const sessionId = String(payload?.sessionId || '').trim();
+          if (!userId || !sessionId) throw new Error('Authentication required');
+          const sessionRes = await pool.query(
+            `SELECT id FROM live_chat_sessions WHERE id = $1 AND user_id = $2 LIMIT 1`,
+            [sessionId, userId]
+          );
+          if (sessionRes.rows.length === 0) throw new Error('Session not found');
+          socket.join(`live_chat:session:${sessionId}`);
+          ack?.({ ok: true });
+        } catch (error: any) {
+          ack?.({ ok: false, error: error?.message || 'Failed to join session' });
+        }
+      });
+
+      socket.on('live_chat:leave_session', (payload: any) => {
+        const sessionId = String(payload?.sessionId || '').trim();
+        if (sessionId) socket.leave(`live_chat:session:${sessionId}`);
+      });
+
+      socket.on('live_chat:visitor_message', async (payload: any, ack?: (response: any) => void) => {
+        try {
+          const sessionId = socket.data.liveChatSessionId || String(payload?.sessionId || '').trim();
+          const userId = socket.data.liveChatUserId;
+          const text = String(payload?.body || '').trim();
+          if (!sessionId || !userId) throw new Error('Authentication required');
+          if (!text) throw new Error('Message body is required');
+          const sessionRes = await pool.query(
+            `SELECT * FROM live_chat_sessions WHERE id = $1 AND user_id = $2 LIMIT 1`,
+            [sessionId, userId]
+          );
+          const session = sessionRes.rows[0];
+          if (!session) throw new Error('Session not found');
+          const visitorMessage = await addLiveChatMessage({
+            userId,
+            sessionId,
+            role: 'visitor',
+            senderName: payload?.senderName || session.visitor_name || 'Visitor',
+            body: text,
+            metadata: { source: 'socket' }
+          });
+          await emitLiveChatMessage(userId, visitorMessage);
+          await triggerAgentHubEvent(userId, 'live_chat_received', {
+            liveChatSessionId: session.id,
+            visitorEmail: session.visitor_email,
+            clientId: session.client_id
+          }).catch(err => console.warn('Agent Hub live_chat_received trigger failed', err));
+          const agentMessage = await maybeRunLiveChatAgent(userId, sessionId);
+          if (agentMessage) await emitLiveChatMessage(userId, agentMessage);
+          ack?.({
+            ok: true,
+            message: liveChatMessageToDto(visitorMessage),
+            agentMessage: agentMessage ? liveChatMessageToDto(agentMessage) : null
+          });
+        } catch (error: any) {
+          ack?.({ ok: false, error: error?.message || 'Failed to send message' });
+        }
+      });
+
+      socket.on('live_chat:operator_message', async (payload: any, ack?: (response: any) => void) => {
+        try {
+          const userId = socket.data.liveChatUserId;
+          const sessionId = String(payload?.sessionId || '').trim();
+          const text = String(payload?.body || '').trim();
+          if (!userId || !sessionId) throw new Error('Authentication required');
+          if (!text) throw new Error('Message body is required');
+          const sessionRes = await pool.query(
+            `SELECT id FROM live_chat_sessions WHERE id = $1 AND user_id = $2 LIMIT 1`,
+            [sessionId, userId]
+          );
+          if (sessionRes.rows.length === 0) throw new Error('Session not found');
+          const message = await addLiveChatMessage({
+            userId,
+            sessionId,
+            role: 'operator',
+            senderName: payload?.senderName || 'Operator',
+            body: text,
+            metadata: { source: 'operator_socket' }
+          });
+          await pool.query(
+            `UPDATE live_chat_sessions
+             SET human_takeover = TRUE, status = CASE WHEN status = 'closed' THEN status ELSE 'open' END, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1 AND user_id = $2`,
+            [sessionId, userId]
+          );
+          await emitLiveChatMessage(userId, message);
+          ack?.({ ok: true, message: liveChatMessageToDto(message) });
+        } catch (error: any) {
+          ack?.({ ok: false, error: error?.message || 'Failed to send message' });
+        }
+      });
+
+      socket.on('live_chat:typing', (payload: any) => {
+        const sessionId = String(payload?.sessionId || socket.data.liveChatSessionId || '').trim();
+        const userId = socket.data.liveChatUserId;
+        if (!sessionId || !userId) return;
+        const event = {
+          sessionId,
+          role: socket.data.liveChatVisitor ? 'visitor' : 'operator',
+          isTyping: !!payload?.isTyping
+        };
+        if (socket.data.liveChatVisitor) {
+          liveChatIo.to(`live_chat:user:${userId}`).emit('live_chat:typing', event);
+        } else {
+          liveChatIo.to(`live_chat:session:${sessionId}`).emit('live_chat:typing', event);
+        }
+      });
+    });
+  }
+
   app.post('/api/live-chat/public/sessions', async (req: any, res) => {
     try {
       const { apiToken, visitorName, visitorEmail, visitorPhone, pageUrl, metadata } = req.body || {};
@@ -4993,6 +5187,7 @@ Return JSON only:
         body: 'Live chat session started.',
         metadata: { public: false }
       });
+      await emitLiveChatSession(ownerId, sessionId);
       res.json({ session: liveChatSessionToDto(result.rows[0]), token: visitorToken });
     } catch (e: any) {
       console.error('Failed to create live chat session', e);
@@ -5039,12 +5234,14 @@ Return JSON only:
         senderName: senderName || session.visitor_name || 'Visitor',
         body: text
       });
+      await emitLiveChatMessage(session.user_id, visitorMessage);
       await triggerAgentHubEvent(session.user_id, 'live_chat_received', {
         liveChatSessionId: session.id,
         visitorEmail: session.visitor_email,
         clientId: session.client_id
       }).catch(err => console.warn('Agent Hub live_chat_received trigger failed', err));
       const agentMessage = await maybeRunLiveChatAgent(session.user_id, session.id);
+      if (agentMessage) await emitLiveChatMessage(session.user_id, agentMessage);
       res.json({
         message: liveChatMessageToDto(visitorMessage),
         agentMessage: agentMessage ? liveChatMessageToDto(agentMessage) : null
@@ -5120,6 +5317,7 @@ Return JSON only:
          WHERE id = $1 AND user_id = $2`,
         [req.params.id, req.user.uid]
       );
+      await emitLiveChatMessage(req.user.uid, message);
       res.json(liveChatMessageToDto(message));
     } catch (e: any) {
       console.error('Failed to send operator live chat message', e);
@@ -5155,6 +5353,7 @@ Return JSON only:
         values
       );
       if (result.rows.length === 0) return res.status(404).json({ error: 'Session not found' });
+      await emitLiveChatSession(req.user.uid, req.params.id);
       res.json(liveChatSessionToDto(result.rows[0]));
     } catch (e: any) {
       console.error('Failed to update live chat session', e);
@@ -5174,6 +5373,7 @@ Return JSON only:
         [req.params.id, req.user.uid]
       );
       const message = await maybeRunLiveChatAgent(req.user.uid, req.params.id);
+      if (message) await emitLiveChatMessage(req.user.uid, message);
       res.json({ message: message ? liveChatMessageToDto(message) : null });
     } catch (e: any) {
       console.error('Failed to run live chat agent', e);
@@ -9380,7 +9580,7 @@ No markdown wrappers, just valid JSON.`;
   }
 
   initDB().catch(console.error); // Do not block server startup
-  app.listen(PORT, "0.0.0.0", () => {
+  httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }

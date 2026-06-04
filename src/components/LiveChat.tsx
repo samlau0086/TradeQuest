@@ -22,6 +22,9 @@ export function LiveChat() {
   const {
     liveChatSessions,
     liveChatMessages,
+    liveChatSocketStatus,
+    connectLiveChatSocket,
+    joinLiveChatSocketSession,
     fetchLiveChatSessions,
     fetchLiveChatMessages,
     sendLiveChatOperatorMessage,
@@ -40,10 +43,11 @@ export function LiveChat() {
   const [tagDraft, setTagDraft] = useState('');
 
   useEffect(() => {
+    connectLiveChatSocket();
     fetchLiveChatSessions();
-    const interval = window.setInterval(fetchLiveChatSessions, 15000);
+    const interval = window.setInterval(fetchLiveChatSessions, liveChatSocketStatus === 'connected' ? 60000 : 15000);
     return () => window.clearInterval(interval);
-  }, [fetchLiveChatSessions]);
+  }, [connectLiveChatSocket, fetchLiveChatSessions, liveChatSocketStatus]);
 
   useEffect(() => {
     if (!selectedId && liveChatSessions[0]) setSelectedId(liveChatSessions[0].id);
@@ -51,10 +55,11 @@ export function LiveChat() {
 
   useEffect(() => {
     if (!selectedId) return;
+    joinLiveChatSocketSession(selectedId);
     fetchLiveChatMessages(selectedId);
-    const interval = window.setInterval(() => fetchLiveChatMessages(selectedId), 8000);
+    const interval = window.setInterval(() => fetchLiveChatMessages(selectedId), liveChatSocketStatus === 'connected' ? 45000 : 8000);
     return () => window.clearInterval(interval);
-  }, [selectedId, fetchLiveChatMessages]);
+  }, [selectedId, fetchLiveChatMessages, joinLiveChatSocketSession, liveChatSocketStatus]);
 
   const filteredSessions = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -120,6 +125,17 @@ export function LiveChat() {
               <p className="mt-1 text-xs text-slate-500">
                 {language === 'zh' ? '接收网站访客消息，支持 AI 回复与人工接管。' : 'Handle website visitor chats with AI assist and human takeover.'}
               </p>
+              <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-950 px-2 py-0.5 text-[11px] text-slate-400">
+                <span className={cn(
+                  'h-1.5 w-1.5 rounded-full',
+                  liveChatSocketStatus === 'connected' ? 'bg-emerald-400' : liveChatSocketStatus === 'connecting' ? 'bg-amber-400' : 'bg-slate-500'
+                )} />
+                {liveChatSocketStatus === 'connected'
+                  ? (language === 'zh' ? '实时连接' : 'Realtime')
+                  : liveChatSocketStatus === 'connecting'
+                    ? (language === 'zh' ? '连接中' : 'Connecting')
+                    : (language === 'zh' ? 'REST 备用模式' : 'REST fallback')}
+              </div>
             </div>
             <button
               onClick={fetchLiveChatSessions}
