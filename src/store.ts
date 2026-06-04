@@ -1876,7 +1876,7 @@ export const useStore = create<StoreState>((set, get) => ({
           },
           liveChatSessions: state.liveChatSessions.map(session => (
             session.id === sessionId
-              ? { ...session, humanTakeover: true, lastMessage: data.message, lastMessageAt: data.message.createdAt, updatedAt: new Date().toISOString() }
+              ? { ...session, lastMessage: data.message, lastMessageAt: data.message.createdAt, updatedAt: new Date().toISOString() }
               : session
           ))
         }));
@@ -1897,7 +1897,7 @@ export const useStore = create<StoreState>((set, get) => ({
       },
       liveChatSessions: state.liveChatSessions.map(session => (
         session.id === sessionId
-          ? { ...session, humanTakeover: true, lastMessage: data, lastMessageAt: data.createdAt, updatedAt: new Date().toISOString() }
+          ? { ...session, lastMessage: data, lastMessageAt: data.createdAt, updatedAt: new Date().toISOString() }
           : session
       ))
     }));

@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Bot, CheckCircle2, Circle, Hand, Loader2, MessageSquare, PauseCircle, PlayCircle, RefreshCw, Search, Send, Tag, UserRound } from 'lucide-react';
-import { useStore } from '../store';
+import { Bot, CheckCircle2, Circle, Edit2, Hand, Link2, Loader2, MessageSquare, PauseCircle, Plus, RefreshCw, Save, Search, Send, Tag, Unlink, UserPlus, UserRound, X } from 'lucide-react';
+import { ContactMethod, useStore } from '../store';
 import { cn } from '../lib/utils';
 import { useTranslation } from '../lib/i18n';
+import { AddContactToClientModal } from './AddContactToClientModal';
 
 function formatTime(value?: string) {
   if (!value) return '';
@@ -31,6 +32,10 @@ export function LiveChat() {
     updateLiveChatSession,
     runLiveChatAgent,
     clients,
+    addClient,
+    editClient,
+    addDeal,
+    selectClient,
     language,
     notify
   } = useStore();
@@ -41,6 +46,10 @@ export function LiveChat() {
   const [busy, setBusy] = useState(false);
   const [agentBusy, setAgentBusy] = useState(false);
   const [tagDraft, setTagDraft] = useState('');
+  const [identityEditing, setIdentityEditing] = useState(false);
+  const [identitySaving, setIdentitySaving] = useState(false);
+  const [identityDraft, setIdentityDraft] = useState({ visitorName: '', visitorEmail: '', visitorPhone: '', pageUrl: '' });
+  const [addContactMethod, setAddContactMethod] = useState<ContactMethod | null>(null);
 
   useEffect(() => {
     connectLiveChatSocket();
@@ -81,6 +90,23 @@ export function LiveChat() {
   const selectedMessages = selectedId ? (liveChatMessages[selectedId] || []) : [];
   const visibleMessages = selectedMessages.filter(message => message.role !== 'system').slice(-200);
   const linkedClient = selectedSession?.clientId ? clients.find(client => client.id === selectedSession.clientId) : null;
+  const displayedTags = linkedClient ? (linkedClient.tags || []) : (selectedSession?.tags || []);
+  const primaryContactMethod: ContactMethod | null = selectedSession?.visitorEmail
+    ? { type: 'email', value: selectedSession.visitorEmail }
+    : selectedSession?.visitorPhone
+      ? { type: 'phone', value: selectedSession.visitorPhone }
+      : null;
+
+  useEffect(() => {
+    if (!selectedSession) return;
+    setIdentityDraft({
+      visitorName: selectedSession.visitorName || '',
+      visitorEmail: selectedSession.visitorEmail || '',
+      visitorPhone: selectedSession.visitorPhone || '',
+      pageUrl: selectedSession.pageUrl || ''
+    });
+    setIdentityEditing(false);
+  }, [selectedSession?.id]);
 
   const handleSend = async () => {
     if (!selectedId || !reply.trim()) return;
@@ -111,9 +137,95 @@ export function LiveChat() {
 
   const handleAddTag = async () => {
     if (!selectedSession || !tagDraft.trim()) return;
-    const tags = Array.from(new Set([...(selectedSession.tags || []), tagDraft.trim()]));
+    const tags = Array.from(new Set([...(displayedTags || []), tagDraft.trim()]));
     setTagDraft('');
-    await updateLiveChatSession(selectedSession.id, { tags });
+    if (linkedClient) {
+      editClient(linkedClient.id, { tags });
+      notify(language === 'zh' ? '客户标签已更新。' : 'Client tags updated.', 'success');
+    } else {
+      await updateLiveChatSession(selectedSession.id, { tags });
+    }
+  };
+
+  const handleSaveIdentity = async () => {
+    if (!selectedSession) return;
+    setIdentitySaving(true);
+    try {
+      await updateLiveChatSession(selectedSession.id, {
+        visitorName: identityDraft.visitorName.trim(),
+        visitorEmail: identityDraft.visitorEmail.trim(),
+        visitorPhone: identityDraft.visitorPhone.trim(),
+        pageUrl: identityDraft.pageUrl.trim()
+      });
+      setIdentityEditing(false);
+      notify(language === 'zh' ? '访客联系方式已更新。' : 'Visitor contact details updated.', 'success');
+    } catch (error: any) {
+      notify(error?.message || (language === 'zh' ? '更新访客信息失败。' : 'Failed to update visitor details.'), 'error');
+    } finally {
+      setIdentitySaving(false);
+    }
+  };
+
+  const createClientFromSession = async () => {
+    if (!selectedSession) return null;
+    const contactMethods: ContactMethod[] = [
+      selectedSession.visitorEmail ? { type: 'email', value: selectedSession.visitorEmail } as ContactMethod : null,
+      selectedSession.visitorPhone ? { type: 'phone', value: selectedSession.visitorPhone } as ContactMethod : null,
+      selectedSession.pageUrl ? { type: 'website', value: selectedSession.pageUrl } as ContactMethod : null
+    ].filter(Boolean) as ContactMethod[];
+    const name = selectedSession.visitorName || selectedSession.visitorEmail || selectedSession.visitorPhone || 'Website Visitor';
+    const now = new Date().toISOString();
+    const contactId = `contact_${Date.now()}`;
+    const clientId = await addClient({
+      name,
+      company: '',
+      country: '',
+      status: 'Leads',
+      tags: Array.from(new Set([...(selectedSession.tags || []), 'live-chat'])),
+      lastContact: now,
+      contactMethods,
+      contacts: [{
+        id: contactId,
+        name,
+        isPrimary: true,
+        contactMethods
+      }],
+      primaryContactId: contactId,
+      comments: []
+    });
+    if (clientId) {
+      await updateLiveChatSession(selectedSession.id, { clientId });
+      selectClient(clientId);
+      notify(language === 'zh' ? '已创建客户并关联 Live Chat。' : 'Client created and linked to Live Chat.', 'success');
+    }
+    return clientId;
+  };
+
+  const handleCreateLead = async () => {
+    if (!selectedSession) return;
+    let clientId = selectedSession.clientId || linkedClient?.id || null;
+    if (!clientId) clientId = await createClientFromSession();
+    if (!clientId) return;
+    const leadName = selectedSession.visitorName || selectedSession.visitorEmail || selectedSession.visitorPhone || 'Live Chat Lead';
+    addDeal({
+      clientId,
+      name: leadName,
+      value: 0,
+      status: 'Leads',
+      comments: [],
+      contactInfo: {
+        name: leadName,
+        company: linkedClient?.company || '',
+        country: linkedClient?.country || '',
+        tags: ['live-chat'],
+        contactMethods: [
+          selectedSession.visitorEmail ? { type: 'email', value: selectedSession.visitorEmail } as ContactMethod : null,
+          selectedSession.visitorPhone ? { type: 'phone', value: selectedSession.visitorPhone } as ContactMethod : null
+        ].filter(Boolean) as ContactMethod[]
+      }
+    });
+    selectClient(clientId);
+    notify(language === 'zh' ? '已创建 Lead。' : 'Lead created.', 'success');
   };
 
   return (
@@ -206,16 +318,90 @@ export function LiveChat() {
           <>
             <header className="p-5 border-b border-slate-800 bg-slate-950">
               <div className="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
                     <UserRound className="w-5 h-5 text-cyan-400" />
-                    <h2 className="text-lg font-bold">{selectedSession.visitorName || selectedSession.visitorEmail || 'Website Visitor'}</h2>
-                    {linkedClient && <span className="rounded bg-blue-500/10 border border-blue-500/30 px-2 py-0.5 text-xs text-blue-200">{linkedClient.company || linkedClient.name}</span>}
+                    {linkedClient ? (
+                      <button
+                        onClick={() => selectClient(linkedClient.id)}
+                        className="text-lg font-bold text-cyan-200 hover:text-cyan-100 hover:underline"
+                      >
+                        {linkedClient.name || selectedSession.visitorName || selectedSession.visitorEmail || 'Website Visitor'}
+                      </button>
+                    ) : (
+                      <h2 className="text-lg font-bold">{selectedSession.visitorName || selectedSession.visitorEmail || 'Website Visitor'}</h2>
+                    )}
+                    {linkedClient && (
+                      <button
+                        onClick={() => selectClient(linkedClient.id)}
+                        className="rounded bg-blue-500/10 border border-blue-500/30 px-2 py-0.5 text-xs text-blue-200 hover:bg-blue-500/20"
+                      >
+                        {linkedClient.company || linkedClient.name}
+                      </button>
+                    )}
                   </div>
-                  <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
-                    {selectedSession.visitorEmail && <span>{selectedSession.visitorEmail}</span>}
-                    {selectedSession.visitorPhone && <span>{selectedSession.visitorPhone}</span>}
-                    {selectedSession.pageUrl && <span className="max-w-xl truncate">{selectedSession.pageUrl}</span>}
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    {identityEditing ? (
+                      <>
+                        <input value={identityDraft.visitorName} onChange={event => setIdentityDraft(prev => ({ ...prev, visitorName: event.target.value }))} placeholder={language === 'zh' ? '访客姓名' : 'Visitor name'} className="w-36 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-slate-200 outline-none focus:border-cyan-500" />
+                        <input value={identityDraft.visitorEmail} onChange={event => setIdentityDraft(prev => ({ ...prev, visitorEmail: event.target.value }))} placeholder="Email" className="w-48 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-slate-200 outline-none focus:border-cyan-500" />
+                        <input value={identityDraft.visitorPhone} onChange={event => setIdentityDraft(prev => ({ ...prev, visitorPhone: event.target.value }))} placeholder={language === 'zh' ? '手机号/电话' : 'Phone'} className="w-36 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-slate-200 outline-none focus:border-cyan-500" />
+                        <input value={identityDraft.pageUrl} onChange={event => setIdentityDraft(prev => ({ ...prev, pageUrl: event.target.value }))} placeholder="Page URL" className="w-64 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-slate-200 outline-none focus:border-cyan-500" />
+                        <button onClick={handleSaveIdentity} disabled={identitySaving} className="inline-flex items-center gap-1 rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50">
+                          {identitySaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                          {language === 'zh' ? '保存' : 'Save'}
+                        </button>
+                        <button onClick={() => setIdentityEditing(false)} className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-slate-400 hover:text-white">
+                          <X className="w-3 h-3" />
+                          {language === 'zh' ? '取消' : 'Cancel'}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        {selectedSession.visitorEmail && <span>{selectedSession.visitorEmail}</span>}
+                        {selectedSession.visitorPhone && <span>{selectedSession.visitorPhone}</span>}
+                        {selectedSession.pageUrl && <span className="max-w-xl truncate">{selectedSession.pageUrl}</span>}
+                        <button onClick={() => setIdentityEditing(true)} className="inline-flex items-center gap-1 rounded bg-slate-800/70 px-2 py-0.5 text-slate-300 hover:bg-slate-700 hover:text-white">
+                          <Edit2 className="w-3 h-3" />
+                          {language === 'zh' ? '修改联系方式' : 'Edit contact'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {linkedClient ? (
+                      <>
+                        <button onClick={() => selectClient(linkedClient.id)} className="inline-flex items-center gap-1 rounded border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-xs font-bold text-cyan-200 hover:bg-cyan-500/20">
+                          <Link2 className="w-3 h-3" />
+                          {language === 'zh' ? '查看客户' : 'Open client'}
+                        </button>
+                        <button onClick={() => updateLiveChatSession(selectedSession.id, { clientId: null })} className="inline-flex items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-xs font-bold text-amber-200 hover:bg-amber-500/20">
+                          <Unlink className="w-3 h-3" />
+                          {language === 'zh' ? '取消关联' : 'Unlink'}
+                        </button>
+                        <button onClick={handleCreateLead} className="inline-flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-xs font-bold text-emerald-200 hover:bg-emerald-500/20">
+                          <Plus className="w-3 h-3" />
+                          {language === 'zh' ? '创建 Lead' : 'Create Lead'}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button onClick={createClientFromSession} className="inline-flex items-center gap-1 rounded border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-xs font-bold text-cyan-200 hover:bg-cyan-500/20">
+                          <UserPlus className="w-3 h-3" />
+                          {language === 'zh' ? '创建客户' : 'New Client'}
+                        </button>
+                        {primaryContactMethod && (
+                          <button onClick={() => setAddContactMethod(primaryContactMethod)} className="inline-flex items-center gap-1 rounded border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-xs font-bold text-blue-200 hover:bg-blue-500/20">
+                            <Link2 className="w-3 h-3" />
+                            {language === 'zh' ? '添加到已有客户' : 'Add to Existing Client'}
+                          </button>
+                        )}
+                        <button onClick={handleCreateLead} className="inline-flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-xs font-bold text-emerald-200 hover:bg-emerald-500/20">
+                          <Plus className="w-3 h-3" />
+                          {language === 'zh' ? '创建客户+Lead' : 'New Client + Lead'}
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -247,7 +433,7 @@ export function LiveChat() {
                 </div>
               </div>
               <div className="mt-4 flex flex-wrap items-center gap-2">
-                {(selectedSession.tags || []).map(tag => (
+                {displayedTags.map(tag => (
                   <span key={tag} className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs text-slate-300">
                     <Tag className="w-3 h-3" /> {tag}
                   </span>
@@ -292,14 +478,14 @@ export function LiveChat() {
                   value={reply}
                   onChange={event => setReply(event.target.value)}
                   rows={4}
-                  placeholder={language === 'zh' ? '输入座席回复。发送后会自动进入人工接管模式。' : 'Write an operator reply. Sending will enable human takeover.'}
+                  placeholder={language === 'zh' ? '输入座席回复。点击接管才会暂停 AI。' : 'Write an operator reply. Use Take over to pause AI.'}
                   className="w-full resize-none bg-transparent p-4 text-sm outline-none"
                 />
                 <div className="flex items-center justify-between border-t border-slate-800 px-4 py-3">
                   <div className="text-xs text-slate-500">
                     {selectedSession.humanTakeover
                       ? (language === 'zh' ? 'AI 已暂停，当前由人工座席处理。' : 'AI is paused while human takeover is active.')
-                      : (language === 'zh' ? 'AI 可自动处理；发送人工回复会接管会话。' : 'AI can respond automatically; sending an operator reply takes over.')}
+                      : (language === 'zh' ? 'AI 会自动回复访客消息；点击接管才会暂停 AI。' : 'AI replies automatically; use Take over to pause AI.')}
                   </div>
                   <button
                     onClick={handleSend}
@@ -315,6 +501,17 @@ export function LiveChat() {
           </>
         )}
       </main>
+      {addContactMethod && selectedSession && (
+        <AddContactToClientModal
+          contactMethod={addContactMethod}
+          displayName={selectedSession.visitorName || selectedSession.visitorEmail || selectedSession.visitorPhone || 'Website Visitor'}
+          onClose={() => setAddContactMethod(null)}
+          onLinked={async (clientId) => {
+            await updateLiveChatSession(selectedSession.id, { clientId });
+            setAddContactMethod(null);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -4865,7 +4865,18 @@ No markdown wrappers, just valid JSON.`;
       [sessionId, userId]
     );
     const session = sessionRes.rows[0];
-    if (!session || session.human_takeover || session.status === 'closed') return null;
+    if (!session) {
+      console.warn('Live Chat Agent skipped: session not found', { userId, sessionId });
+      return null;
+    }
+    if (session.human_takeover) {
+      console.warn('Live Chat Agent skipped: human takeover is active', { userId, sessionId });
+      return null;
+    }
+    if (session.status === 'closed') {
+      console.warn('Live Chat Agent skipped: session is closed', { userId, sessionId });
+      return null;
+    }
 
     const messagesRes = await pool.query(
       `SELECT * FROM live_chat_messages
@@ -4876,7 +4887,10 @@ No markdown wrappers, just valid JSON.`;
     );
     const messages = messagesRes.rows;
     const latest = messages[messages.length - 1];
-    if (!latest || latest.role !== 'visitor') return null;
+    if (!latest || latest.role !== 'visitor') {
+      console.warn('Live Chat Agent skipped: latest message is not from visitor', { userId, sessionId, latestRole: latest?.role });
+      return null;
+    }
 
     const { settings, companyName, companyWebsite } = await getUserSettings(userId);
     const agents = Array.isArray(settings.agentHubAgents) ? settings.agentHubAgents : [];
@@ -4886,7 +4900,10 @@ No markdown wrappers, just valid JSON.`;
       instructions: 'Answer website live chat visitors using public-safe company and product information, ask clarifying questions, and escalate to human takeover when needed.',
       tools: ['live_chat.read', 'live_chat.reply', 'live_chat.escalate', 'product.read']
     };
-    if (liveAgent.status === 'paused') return null;
+    if (liveAgent.status === 'paused') {
+      console.warn('Live Chat Agent skipped: agent is paused', { userId, sessionId });
+      return null;
+    }
 
     const productsRes = await pool.query(
       `SELECT sku, name, description, sales_points
@@ -5134,7 +5151,7 @@ Return JSON only:
           });
           await pool.query(
             `UPDATE live_chat_sessions
-             SET human_takeover = TRUE, status = CASE WHEN status = 'closed' THEN status ELSE 'open' END, updated_at = CURRENT_TIMESTAMP
+             SET status = CASE WHEN status = 'closed' THEN status ELSE 'open' END, updated_at = CURRENT_TIMESTAMP
              WHERE id = $1 AND user_id = $2`,
             [sessionId, userId]
           );
@@ -5313,7 +5330,7 @@ Return JSON only:
       });
       await pool.query(
         `UPDATE live_chat_sessions
-         SET human_takeover = TRUE, status = CASE WHEN status = 'closed' THEN status ELSE 'open' END, updated_at = CURRENT_TIMESTAMP
+         SET status = CASE WHEN status = 'closed' THEN status ELSE 'open' END, updated_at = CURRENT_TIMESTAMP
          WHERE id = $1 AND user_id = $2`,
         [req.params.id, req.user.uid]
       );
@@ -5333,7 +5350,11 @@ Return JSON only:
         humanTakeover: 'human_takeover',
         assignedAgentId: 'assigned_agent_id',
         clientId: 'client_id',
-        tags: 'tags'
+        tags: 'tags',
+        visitorName: 'visitor_name',
+        visitorEmail: 'visitor_email',
+        visitorPhone: 'visitor_phone',
+        pageUrl: 'page_url'
       };
       const values: any[] = [req.params.id, req.user.uid];
       const clauses: string[] = [];
