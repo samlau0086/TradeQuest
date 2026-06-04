@@ -4784,6 +4784,26 @@ No markdown wrappers, just valid JSON.`;
     await emitLiveChatSession(userId, dto.sessionId);
   };
 
+  const notifyLiveChatReceived = (userId: string, session: any, message: any) => {
+    const visitor = String(session?.visitor_name || session?.visitor_email || session?.visitor_phone || 'Website visitor');
+    const preview = String(message?.body || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+    void sendExternalNotification(userId, {
+      event: 'live_chat_received',
+      title: `Live chat message from ${visitor}`,
+      body: preview || 'A website visitor sent a live chat message.',
+      url: '/live-chat',
+      metadata: {
+        liveChatSessionId: session?.id,
+        liveChatMessageId: message?.id,
+        visitorName: session?.visitor_name || '',
+        visitorEmail: session?.visitor_email || '',
+        visitorPhone: session?.visitor_phone || '',
+        pageUrl: session?.page_url || '',
+        clientId: session?.client_id || null
+      }
+    }).catch(err => console.warn('Live chat external notification failed', err));
+  };
+
   const getUserSettings = async (userId: string) => {
     const settingsRes = await pool.query('SELECT settings, company_name, company_website FROM users WHERE id = $1', [userId]);
     const row = settingsRes.rows[0] || {};
@@ -5291,6 +5311,7 @@ Return JSON only:
             metadata: { source: 'socket' }
           });
           await emitLiveChatMessage(userId, visitorMessage);
+          notifyLiveChatReceived(userId, session, visitorMessage);
           await triggerAgentHubEvent(userId, 'live_chat_received', {
             liveChatSessionId: session.id,
             visitorEmail: session.visitor_email,
@@ -5433,6 +5454,7 @@ Return JSON only:
         body: text
       });
       await emitLiveChatMessage(session.user_id, visitorMessage);
+      notifyLiveChatReceived(session.user_id, session, visitorMessage);
       await triggerAgentHubEvent(session.user_id, 'live_chat_received', {
         liveChatSessionId: session.id,
         visitorEmail: session.visitor_email,

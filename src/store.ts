@@ -180,7 +180,7 @@ export interface AppNotification {
   tone: NotificationTone;
 }
 
-export type ExternalNotificationEvent = 'email_received' | 'review_required' | 'execution_failed' | 'daily_operation_summary' | 'inactive_login_reminder';
+export type ExternalNotificationEvent = 'email_received' | 'live_chat_received' | 'review_required' | 'execution_failed' | 'daily_operation_summary' | 'inactive_login_reminder';
 
 export interface ExternalNotificationConfig {
   enabled: boolean;
@@ -1270,6 +1270,7 @@ const INITIAL_EXTERNAL_NOTIFICATION_CONFIG: ExternalNotificationConfig = {
   webhookUrl: '',
   events: {
     email_received: true,
+    live_chat_received: true,
     review_required: true,
     execution_failed: true,
     daily_operation_summary: true,
@@ -2206,7 +2207,7 @@ export const useStore = create<StoreState>((set, get) => ({
   sendExternalNotification: async (payload) => {
     const token = localStorage.getItem('token');
     const config = get().externalNotificationConfig;
-    if (!token || !config.enabled || !config.events[payload.event]) return;
+    if (!token || !config.enabled || config.events[payload.event] === false) return;
     try {
       await fetch('/api/notifications/external', {
         method: 'POST',

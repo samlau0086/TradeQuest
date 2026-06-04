@@ -2046,6 +2046,7 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 {[
                   ['email_received', 'New email received / 收到新邮件'],
+                  ['live_chat_received', 'Live chat message received / 收到 Live Chat 消息'],
                   ['review_required', 'Review required / 需要审核'],
                   ['execution_failed', 'Execution failed / 执行失败'],
                   ['daily_operation_summary', 'Daily operation summary / 每日运营摘要'],
@@ -2054,7 +2055,7 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
                   <label key={event} className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-300">
                     <input
                       type="checkbox"
-                      checked={externalNotificationConfig.events[event as keyof typeof externalNotificationConfig.events]}
+                      checked={externalNotificationConfig.events[event as keyof typeof externalNotificationConfig.events] !== false}
                       onChange={e => updateExternalNotificationConfig({
                         events: { ...externalNotificationConfig.events, [event]: e.target.checked }
                       })}
