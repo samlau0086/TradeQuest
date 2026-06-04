@@ -24,14 +24,16 @@ export function DealFormModal({ onClose, dealId, initialData }: DealFormModalPro
   const [isProductSearchOpen, setIsProductSearchOpen] = useState(false);
   
   // Contact Info states
-  const [contactName, setContactName] = useState(existingDeal?.contactInfo?.name || '');
-  const [company, setCompany] = useState(existingDeal?.contactInfo?.company || '');
-  const [country, setCountry] = useState(existingDeal?.contactInfo?.country || '');
+  const [contactName, setContactName] = useState(existingDeal?.contactInfo?.name || initialData?.contactInfo?.name || '');
+  const [company, setCompany] = useState(existingDeal?.contactInfo?.company || initialData?.contactInfo?.company || '');
+  const [country, setCountry] = useState(existingDeal?.contactInfo?.country || initialData?.contactInfo?.country || '');
   const [isCountryOpen, setIsCountryOpen] = useState(false);
   const [countrySearch, setCountrySearch] = useState('');
-  const [contactMethods, setContactMethods] = useState<ContactMethod[]>(existingDeal?.contactInfo?.contactMethods || [{ type: 'email', value: '' }]);
+  const [contactMethods, setContactMethods] = useState<ContactMethod[]>(existingDeal?.contactInfo?.contactMethods || initialData?.contactInfo?.contactMethods || [{ type: 'email', value: '' }]);
 
-  const [linkExisting, setLinkExisting] = useState<boolean>(!!existingDeal?.clientId || (clients.length > 0 && !existingDeal));
+  const [linkExisting, setLinkExisting] = useState<boolean>(
+    !!existingDeal?.clientId || !!initialData?.clientId || (!initialData?.contactInfo && clients.length > 0 && !existingDeal)
+  );
   const selectedProducts = products.filter(product => selectedProductIds.includes(product.id));
   const productSearchTerm = productSearch.trim().toLowerCase();
   const filteredProducts = products

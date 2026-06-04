@@ -153,6 +153,59 @@ const buildLanguagePolicy = (input: { systemLanguage?: string; customerLanguage?
   ].join('\n');
 };
 
+const getRequestIp = (req: any) => {
+  const forwardedFor = String(req?.headers?.['x-forwarded-for'] || '').split(',')[0]?.trim();
+  const headerIp = forwardedFor
+    || String(req?.headers?.['cf-connecting-ip'] || '').trim()
+    || String(req?.headers?.['x-real-ip'] || '').trim();
+  const socketIp = String(req?.socket?.remoteAddress || req?.ip || '').trim();
+  return (headerIp || socketIp).replace(/^::ffff:/, '');
+};
+
+const parseUserAgent = (userAgent: string) => {
+  const ua = String(userAgent || '');
+  const browserPatterns: Array<[string, RegExp]> = [
+    ['Microsoft Edge', /Edg\/([\d.]+)/],
+    ['Chrome', /Chrome\/([\d.]+)/],
+    ['Firefox', /Firefox\/([\d.]+)/],
+    ['Safari', /Version\/([\d.]+).*Safari/],
+    ['Opera', /OPR\/([\d.]+)/]
+  ];
+  const osPatterns: Array<[string, RegExp]> = [
+    ['Windows', /Windows NT ([\d.]+)/],
+    ['macOS', /Mac OS X ([\d_]+)/],
+    ['iOS', /(?:iPhone|iPad).*OS ([\d_]+)/],
+    ['Android', /Android ([\d.]+)/],
+    ['Linux', /Linux/]
+  ];
+  const browserMatch = browserPatterns.find(([, pattern]) => pattern.test(ua));
+  const osMatch = osPatterns.find(([, pattern]) => pattern.test(ua));
+  const browserVersion = browserMatch ? (ua.match(browserMatch[1])?.[1] || '') : '';
+  const osVersion = osMatch ? (ua.match(osMatch[1])?.[1] || '').replace(/_/g, '.') : '';
+  return {
+    browserName: browserMatch?.[0] || '',
+    browserVersion,
+    os: osMatch ? `${osMatch[0]}${osVersion ? ` ${osVersion}` : ''}` : ''
+  };
+};
+
+const buildLiveChatVisitorInfo = (req: any, metadata: any = {}) => {
+  const source = metadata && typeof metadata === 'object' ? metadata : {};
+  const userAgent = String(source.userAgent || req?.headers?.['user-agent'] || '').trim();
+  const parsed = parseUserAgent(userAgent);
+  return {
+    ip: String(source.ip || getRequestIp(req) || '').trim(),
+    userAgent,
+    browserName: String(source.browserName || source.browser || parsed.browserName || '').trim(),
+    browserVersion: String(source.browserVersion || parsed.browserVersion || '').trim(),
+    os: String(source.os || parsed.os || '').trim(),
+    language: String(source.language || source.browserLanguage || '').trim(),
+    acceptLanguage: String(source.acceptLanguage || req?.headers?.['accept-language'] || '').trim(),
+    timezone: String(source.timezone || '').trim(),
+    localTime: String(source.localTime || '').trim()
+  };
+};
+
 const removeCommentById = (comments: any[] = [], commentId: string): any[] => comments
   .filter(comment => comment?.id !== commentId)
   .map(comment => ({
@@ -5315,12 +5368,14 @@ Return JSON only:
       const sessionId = `lc_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
       const visitorToken = crypto.randomUUID();
       const clientId = visitorEmail ? await findClientIdForEmailAddress(ownerId, visitorEmail) : null;
+      const requestMetadata = metadata && typeof metadata === 'object' ? metadata : {};
+      const visitorInfo = buildLiveChatVisitorInfo(req, requestMetadata);
       const result = await pool.query(
         `INSERT INTO live_chat_sessions
          (id, user_id, client_id, visitor_token, visitor_name, visitor_email, visitor_phone, page_url, assigned_agent_id, metadata)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'live_chat_agent', $9)
          RETURNING *`,
-        [sessionId, ownerId, clientId, visitorToken, visitorName || null, visitorEmail || null, visitorPhone || null, pageUrl || null, JSON.stringify({ ...(metadata || {}), apiTokenId: tokenRecord.id, apiTokenTemplate: tokenRecord.template || '' })]
+        [sessionId, ownerId, clientId, visitorToken, visitorName || null, visitorEmail || null, visitorPhone || null, pageUrl || null, JSON.stringify({ ...requestMetadata, visitorInfo, apiTokenId: tokenRecord.id, apiTokenTemplate: tokenRecord.template || '' })]
       );
       await addLiveChatMessage({
         userId: ownerId,

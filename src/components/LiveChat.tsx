@@ -1,15 +1,23 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Bot, CheckCircle2, Circle, Edit2, Hand, Link2, Loader2, MessageSquare, PauseCircle, Plus, RefreshCw, Save, Search, Send, Tag, Unlink, UserPlus, UserRound, X } from 'lucide-react';
+import { Bot, CheckCircle2, Circle, Clock, Edit2, Globe, Hand, Link2, Loader2, MapPin, MessageSquare, Monitor, PauseCircle, Plus, RefreshCw, Save, Search, Send, Tag, Unlink, UserPlus, UserRound, X } from 'lucide-react';
 import { ContactMethod, useStore } from '../store';
 import { cn } from '../lib/utils';
 import { useTranslation } from '../lib/i18n';
 import { AddContactToClientModal } from './AddContactToClientModal';
+import { DealFormModal } from './DealFormModal';
 
 function formatTime(value?: string) {
   if (!value) return '';
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return '';
   return date.toLocaleString();
+}
+
+function formatVisitorLocalTime(value?: string) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isFinite(date.getTime())) return date.toLocaleString();
+  return value;
 }
 
 function statusLabel(status: string, language: string) {
@@ -34,7 +42,6 @@ export function LiveChat() {
     clients,
     addClient,
     editClient,
-    addDeal,
     selectClient,
     language,
     notify
@@ -50,6 +57,7 @@ export function LiveChat() {
   const [identitySaving, setIdentitySaving] = useState(false);
   const [identityDraft, setIdentityDraft] = useState({ visitorName: '', visitorEmail: '', visitorPhone: '', pageUrl: '' });
   const [addContactMethod, setAddContactMethod] = useState<ContactMethod | null>(null);
+  const [showLeadForm, setShowLeadForm] = useState(false);
 
   useEffect(() => {
     connectLiveChatSocket();
@@ -91,6 +99,20 @@ export function LiveChat() {
   const visibleMessages = selectedMessages.filter(message => message.role !== 'system').slice(-200);
   const linkedClient = selectedSession?.clientId ? clients.find(client => client.id === selectedSession.clientId) : null;
   const displayedTags = linkedClient ? (linkedClient.tags || []) : (selectedSession?.tags || []);
+  const visitorInfo = selectedSession?.metadata?.visitorInfo || {};
+  const visitorBrowser = [visitorInfo.browserName, visitorInfo.browserVersion].filter(Boolean).join(' ');
+  const visitorLanguage = visitorInfo.language || visitorInfo.acceptLanguage;
+  const visitorLocalTime = formatVisitorLocalTime(visitorInfo.localTime);
+  const aiCustomerSummary = linkedClient ? (linkedClient.agentSummary || linkedClient.leadSummary || '') : '';
+  const bestNextStep = linkedClient ? (linkedClient.agentNextStep || linkedClient.leadNextStep || '') : '';
+  const visitorInfoItems = [
+    visitorInfo.ip ? { key: 'ip', icon: MapPin, label: language === 'zh' ? 'IP' : 'IP', value: visitorInfo.ip } : null,
+    visitorBrowser ? { key: 'browser', icon: Monitor, label: language === 'zh' ? '浏览器' : 'Browser', value: visitorBrowser } : null,
+    visitorInfo.os ? { key: 'os', icon: Monitor, label: language === 'zh' ? '系统' : 'OS', value: visitorInfo.os } : null,
+    visitorLanguage ? { key: 'language', icon: Globe, label: language === 'zh' ? '语言' : 'Language', value: visitorLanguage } : null,
+    visitorInfo.timezone ? { key: 'timezone', icon: Clock, label: language === 'zh' ? '时区' : 'Timezone', value: visitorInfo.timezone } : null,
+    visitorLocalTime ? { key: 'localTime', icon: Clock, label: language === 'zh' ? '当地时间' : 'Local time', value: visitorLocalTime } : null
+  ].filter(Boolean) as Array<{ key: string; icon: typeof Monitor; label: string; value: string }>;
   const primaryContactMethod: ContactMethod | null = selectedSession?.visitorEmail
     ? { type: 'email', value: selectedSession.visitorEmail }
     : selectedSession?.visitorPhone
@@ -201,31 +223,30 @@ export function LiveChat() {
     return clientId;
   };
 
-  const handleCreateLead = async () => {
+  const buildLeadInitialData = () => {
     if (!selectedSession) return;
-    let clientId = selectedSession.clientId || linkedClient?.id || null;
-    if (!clientId) clientId = await createClientFromSession();
-    if (!clientId) return;
     const leadName = selectedSession.visitorName || selectedSession.visitorEmail || selectedSession.visitorPhone || 'Live Chat Lead';
-    addDeal({
-      clientId,
+    return {
+      clientId: selectedSession.clientId || linkedClient?.id || null,
       name: leadName,
       value: 0,
-      status: 'Leads',
-      comments: [],
+      status: 'Leads' as const,
       contactInfo: {
         name: leadName,
         company: linkedClient?.company || '',
         country: linkedClient?.country || '',
-        tags: ['live-chat'],
+        tags: ['live-chat', ...(selectedSession.tags || [])],
         contactMethods: [
           selectedSession.visitorEmail ? { type: 'email', value: selectedSession.visitorEmail } as ContactMethod : null,
           selectedSession.visitorPhone ? { type: 'phone', value: selectedSession.visitorPhone } as ContactMethod : null
         ].filter(Boolean) as ContactMethod[]
       }
-    });
-    selectClient(clientId);
-    notify(language === 'zh' ? '已创建 Lead。' : 'Lead created.', 'success');
+    };
+  };
+
+  const handleCreateLead = () => {
+    if (!selectedSession) return;
+    setShowLeadForm(true);
   };
 
   return (
@@ -398,7 +419,7 @@ export function LiveChat() {
                         )}
                         <button onClick={handleCreateLead} className="inline-flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-xs font-bold text-emerald-200 hover:bg-emerald-500/20">
                           <Plus className="w-3 h-3" />
-                          {language === 'zh' ? '创建客户+Lead' : 'New Client + Lead'}
+                          {language === 'zh' ? '创建 Lead' : 'Create Lead'}
                         </button>
                       </>
                     )}
@@ -464,6 +485,56 @@ export function LiveChat() {
                   {language === 'zh' ? '添加' : 'Add'}
                 </button>
               </div>
+              {(visitorInfoItems.length > 0 || visitorInfo.userAgent) && (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {visitorInfoItems.map(item => {
+                    const Icon = item.icon;
+                    return (
+                      <span
+                        key={item.key}
+                        className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900/80 px-2.5 py-1.5 text-[11px] text-slate-400"
+                        title={item.value}
+                      >
+                        <Icon className="h-3.5 w-3.5 text-slate-500" />
+                        <span className="font-semibold text-slate-500">{item.label}</span>
+                        <span className="max-w-[260px] truncate text-slate-300">{item.value}</span>
+                      </span>
+                    );
+                  })}
+                  {visitorInfo.userAgent && (
+                    <span
+                      className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900/80 px-2.5 py-1.5 text-[11px] text-slate-400"
+                      title={visitorInfo.userAgent}
+                    >
+                      <Monitor className="h-3.5 w-3.5 text-slate-500" />
+                      <span className="font-semibold text-slate-500">User-Agent</span>
+                      <span className="max-w-[420px] truncate text-slate-300">{visitorInfo.userAgent}</span>
+                    </span>
+                  )}
+                </div>
+              )}
+              {linkedClient && (aiCustomerSummary || bestNextStep) && (
+                <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
+                  {aiCustomerSummary && (
+                    <div className="rounded-lg border border-blue-500/25 bg-blue-500/10 p-3">
+                      <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-blue-300">
+                        <Bot className="h-3.5 w-3.5" />
+                        {language === 'zh' ? 'AI 客户摘要' : 'AI Customer Summary'}
+                      </div>
+                      <p className="mt-2 line-clamp-4 text-sm leading-relaxed text-slate-200">{aiCustomerSummary}</p>
+                    </div>
+                  )}
+                  {bestNextStep && (
+                    <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3">
+                      <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-emerald-300">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        {language === 'zh' ? '最佳下一步' : 'Best Next Step'}
+                      </div>
+                      <p className="mt-2 line-clamp-4 text-sm leading-relaxed text-slate-200">{bestNextStep}</p>
+                    </div>
+                  )}
+                </div>
+              )}
             </header>
 
             <section className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-950">
@@ -525,6 +596,12 @@ export function LiveChat() {
             await updateLiveChatSession(selectedSession.id, { clientId });
             setAddContactMethod(null);
           }}
+        />
+      )}
+      {showLeadForm && (
+        <DealFormModal
+          initialData={buildLeadInitialData()}
+          onClose={() => setShowLeadForm(false)}
         />
       )}
     </div>
