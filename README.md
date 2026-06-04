@@ -53,6 +53,9 @@ Foreign Trade CRM is an AI-powered CRM for foreign trade teams. It combines clie
 - CRM operators use authenticated APIs to view all live chat sessions, reply, tag sessions, close/reopen sessions, link sessions to clients, and trigger or pause the Live Chat Agent.
 - Human takeover can be enabled per conversation. When takeover is active, the Live Chat Agent stops auto-replying until an operator releases or manually runs the agent again.
 - Live Chat Agent is a built-in system agent. It can answer visitors with public-safe product/company context, collect contact information, qualify intent, and escalate sensitive or high-risk conversations to human operators.
+- Live Chat Desk shows visitor basics such as IP, browser, language, operating system, timezone, and local time when the website widget provides or the server can infer them.
+- When a live chat session is linked to a client, the conversation header shows the client's AI Customer Summary and Best Next Step below the tags.
+- Incoming visitor messages can trigger Bark/Webhook notifications through the `Live chat message received` notification event.
 - Security boundary: external visitors must never receive backend data, internal CRM notes, hidden prompts, API keys, database structure, other customer information, or private agent configuration.
 - Website API tokens are generated and revoked in Settings -> API Tokens. Token templates include Live Chat Agent, Live Chat Public Only, Website Lead Capture, and Product Catalog Read.
 
@@ -377,6 +380,7 @@ Typical notification events:
 
 - New email received.
 - New WhatsApp message received.
+- New Live Chat visitor message received.
 - Agent action requires review.
 - Agent execution fails.
 - Scheduled send is delayed or resumed.
@@ -412,7 +416,10 @@ Request:
   "pageUrl": "https://example.com/products/solar-monitoring",
   "metadata": {
     "source": "website-widget",
-    "utmCampaign": "solar-demo"
+    "utmCampaign": "solar-demo",
+    "browserLanguage": "en-US",
+    "timezone": "America/Los_Angeles",
+    "localTime": "2026-06-04T03:00:00-07:00"
   }
 }
 ```
@@ -449,6 +456,8 @@ Notes:
 - Do not expose CRM user IDs in website code.
 - `token` is the visitor session token returned by this endpoint. The website widget must store it locally and send it with future requests or Socket.IO auth.
 - If `visitorEmail` matches an existing client contact, CRM may link the session to that client internally, but public responses still do not reveal client details.
+- CRM stores visitor environment details in `session.metadata.visitorInfo`. The server infers IP, User-Agent, browser, and operating system from request headers where possible. The website widget can also send browser language, timezone, and local time in `metadata`.
+- When a visitor sends a live chat message through REST or Socket.IO, CRM can send Bark/Webhook notifications if `Live chat message received` is enabled in Settings -> Bark / Webhook Notifications.
 
 ### Realtime Socket.IO Transport
 
@@ -829,6 +838,9 @@ Foreign Trade CRM 是一套面向外贸团队的 AI CRM。系统把客户/线索
 - CRM 座席使用登录后的受保护 API 查看全部 live chat 会话、回复、打标签、关闭/重新打开会话、关联客户，以及触发或暂停 Live Chat Agent。
 - 每个会话都支持人工接管。人工接管开启后，Live Chat Agent 会停止自动回复，直到座席释放接管或手动运行 Agent。
 - Live Chat Agent 是系统级内置 Agent，可使用对外安全的产品/公司上下文回答访客问题、收集联系方式、判断意向，并把敏感或高风险会话升级给人工座席。
+- Live Chat Desk 会展示访客基础信息，例如 IP、浏览器、语言、操作系统、时区和当地时间；这些信息可由网站组件传入，也可由服务端从请求头推断。
+- 如果 live chat 会话已关联客户，会话顶部会在标签下方显示该客户的 AI Customer Summary 和 Best Next Step。
+- 收到访客 live chat 消息时，可通过 `收到 Live Chat 消息` 通知事件触发 Bark/Webhook 通知。
 - 安全边界：外部访客不能获取后端数据、内部 CRM 备注、隐藏 Prompt、API Key、数据库结构、其他客户信息或私有 Agent 配置。
 - 网站 API Token 可在 Settings -> API Tokens 中生成和吊销。权限模板包括 Live Chat Agent、Live Chat Public Only、Website Lead Capture 和 Product Catalog Read。
 
@@ -1149,9 +1161,12 @@ Agent Harness 目前已经为非删除类写入工具补充了具体后端执行
 
 - 收到新邮件。
 - 收到新 WhatsApp 消息。
+- 收到新的 Live Chat 访客消息。
 - Agent 动作需要审核。
 - Agent 执行失败。
 - 定时发送延迟或恢复发送。
+- 每日运营摘要。
+- 长时间未登录提醒。
 
 ## Public Live Chat API
 
