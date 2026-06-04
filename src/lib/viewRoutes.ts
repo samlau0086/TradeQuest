@@ -3,6 +3,7 @@ import type { ViewMode } from '../store';
 const viewToPath: Record<ViewMode, string> = {
   dashboard: '/home',
   inbox: '/inbox',
+  'live-chat': '/live-chat',
   'agent-hub': '/agent-hub',
   clients: '/clients',
   kanban: '/kanban',

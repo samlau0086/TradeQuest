@@ -48,6 +48,10 @@ export const AGENT_TOOL_REGISTRY: AgentToolDefinition[] = [
   { id: 'whatsapp.send', label: 'Send WhatsApp', description: 'Draft, schedule, or send WhatsApp messages through WhatsApp Actor Hub.', category: 'Outbound', risk: 'high', reviewRequired: true },
   { id: 'conversation.tag', label: 'Tag conversation', description: 'Add or update tags on WhatsApp conversations.', category: 'Conversation', risk: 'low', reviewRequired: false },
   { id: 'conversation.comment', label: 'Comment on conversation', description: 'Add internal comments to WhatsApp conversations.', category: 'Conversation', risk: 'low', reviewRequired: false },
+  { id: 'live_chat.read', label: 'Read live chat', description: 'Read website live chat sessions and visitor messages from the CRM-side inbox.', category: 'Live Chat', risk: 'low', reviewRequired: false },
+  { id: 'live_chat.reply', label: 'Reply in live chat', description: 'Send a customer-facing reply in a live chat session using public-safe context only.', category: 'Live Chat', risk: 'high', reviewRequired: true },
+  { id: 'live_chat.escalate', label: 'Escalate live chat', description: 'Mark a live chat for human takeover or high-priority review.', category: 'Live Chat', risk: 'medium', reviewRequired: false },
+  { id: 'live_chat.tag', label: 'Tag live chat', description: 'Add or update tags on a live chat session.', category: 'Live Chat', risk: 'low', reviewRequired: false },
   { id: 'product.read', label: 'Read products', description: 'Read product catalog details, SKUs, descriptions, pricing, and bulk price rules.', category: 'Products', risk: 'low', reviewRequired: false },
   { id: 'product.create', label: 'Create product', description: 'Create a new product catalog item.', category: 'Products', risk: 'medium', reviewRequired: true },
   { id: 'product.update', label: 'Update product', description: 'Update product catalog details, pricing, images, and bulk price rules.', category: 'Products', risk: 'medium', reviewRequired: true },
@@ -159,6 +163,9 @@ export function inferAgentToolsFromPrompt(prompt: string) {
   }
   if (/(knowledge|rag|document|kb|\u77e5\u8bc6\u5e93|\u6587\u6863|\u8d44\u6599\u5e93)/i.test(normalized)) {
     selected.push('knowledge.search', 'knowledge.read');
+  }
+  if (/(live.?chat|website chat|visitor message|customer service chat|\u5728\u7ebf\u5ba2\u670d|\u7f51\u7ad9\u5ba2\u670d|\u8bbf\u5ba2\u6d88\u606f|\u4eba\u5de5\u63a5\u7ba1)/i.test(normalized)) {
+    selected.push('live_chat.read', 'live_chat.reply', 'live_chat.escalate', 'product.read', 'knowledge.search');
   }
   if (selected.includes('lead.acquire') && selected.includes('product.read')) {
     selected.push('knowledge.search', 'client.read', 'client.dedupe', 'data.normalize', 'lead.create', 'lead.enrich', 'public_pool.import');

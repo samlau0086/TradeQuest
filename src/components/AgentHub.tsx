@@ -63,6 +63,7 @@ function formatChatRunResult(result: any, language: string) {
 const AGENT_EVENT_TRIGGER_OPTIONS: { id: AgentHubEventTrigger; label: string; description: string }[] = [
   { id: 'email_received', label: 'Email received', description: 'Run when new inbound email is synced.' },
   { id: 'whatsapp_received', label: 'WhatsApp received', description: 'Run when a WhatsApp inbound message is saved.' },
+  { id: 'live_chat_received', label: 'Live chat received', description: 'Run when a website live chat visitor sends a message.' },
   { id: 'review_required', label: 'Review required', description: 'Run when a human approval item is created.' },
   { id: 'execution_failed', label: 'Execution failed', description: 'Run when an agent or workflow execution fails.' },
   { id: 'client_created', label: 'Client created', description: 'Run when a new client record is created.' },
@@ -74,6 +75,7 @@ function eventTriggerLabel(trigger: AgentHubEventTrigger, language?: string) {
   const zh: Record<AgentHubEventTrigger, string> = {
     email_received: '收到邮件',
     whatsapp_received: '收到 WhatsApp',
+    live_chat_received: '收到 Live Chat',
     review_required: '需要审核',
     execution_failed: '执行失败',
     client_created: '创建客户',
