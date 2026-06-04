@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useStore, InboxConfig, OutboxConfig, LLMConfig, PaymentTerm, LeadDataProvider, EmailSignature, EmailServerMapping, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType } from '../store';
 import { useAuthStore } from '../authStore';
-import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark, Clock, Book, Target, Trophy, Eye, EyeOff, MessageCircle, Bell, RefreshCw } from 'lucide-react';
+import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark, Clock, Book, Target, Trophy, Eye, EyeOff, MessageCircle, Bell, RefreshCw, KeyRound, Copy, ShieldCheck } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ProfileSettings } from './ProfileSettings';
 import { UserManagement } from './UserManagement';
@@ -23,7 +23,46 @@ const GLOBAL_AGENT_ACTION_LABELS: Record<GlobalAgentActionType, string> = {
   review_pipeline: 'Review Pipeline / 管线复盘'
 };
 
-type SettingsTab = 'profile' | 'mail' | 'ai' | 'system' | 'gamification' | 'users';
+type SettingsTab = 'profile' | 'mail' | 'ai' | 'api' | 'system' | 'gamification' | 'users';
+
+interface ApiTokenRecord {
+  id: string;
+  name: string;
+  tokenPrefix: string;
+  permissions: string[];
+  template?: string;
+  lastUsedAt?: string;
+  revokedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+const API_TOKEN_TEMPLATES = [
+  {
+    id: 'live_chat_agent',
+    label: 'Live Chat Agent',
+    description: 'For website live chat widgets. Allows public visitor sessions and Live Chat Agent handling.',
+    permissions: ['live_chat.public', 'live_chat.agent']
+  },
+  {
+    id: 'live_chat_public',
+    label: 'Live Chat Public Only',
+    description: 'Only allows website visitors to create and use live chat sessions. No agent-side extras.',
+    permissions: ['live_chat.public']
+  },
+  {
+    id: 'website_lead_capture',
+    label: 'Website Lead Capture',
+    description: 'For future website forms or widgets that capture leads and start live chat.',
+    permissions: ['live_chat.public', 'lead.capture']
+  },
+  {
+    id: 'product_catalog_read',
+    label: 'Product Catalog Read',
+    description: 'For future public product or knowledge widgets with read-only public content access.',
+    permissions: ['product.read', 'knowledge.public_read']
+  }
+];
 
 export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab }) {
   const { 
@@ -61,6 +100,74 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
       .catch(console.error);
     }
   }, [isSuperadmin, token]);
+
+  const fetchApiTokens = async () => {
+    if (!token) return;
+    setLoadingApiTokens(true);
+    try {
+      const res = await fetch('/api/api-tokens', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json().catch(() => []);
+      if (!res.ok) throw new Error(data.error || 'Failed to load API tokens');
+      setApiTokens(Array.isArray(data) ? data : []);
+    } catch (error: any) {
+      notify(error?.message || 'Failed to load API tokens', 'error');
+    } finally {
+      setLoadingApiTokens(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchApiTokens();
+  }, [token]);
+
+  const handleCreateApiToken = async () => {
+    if (!token) return;
+    setCreatingApiToken(true);
+    setGeneratedApiToken('');
+    try {
+      const template = API_TOKEN_TEMPLATES.find(item => item.id === apiTokenTemplate) || API_TOKEN_TEMPLATES[0];
+      const res = await fetch('/api/api-tokens', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          name: apiTokenName || template.label,
+          template: template.id,
+          permissions: template.permissions
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to create API token');
+      setGeneratedApiToken(data.token || '');
+      setApiTokens((prev) => [data.record, ...prev].filter(Boolean));
+      notify(language === 'zh' ? 'API Token 已生成，请立即复制保存。' : 'API token created. Copy it now.', 'success');
+    } catch (error: any) {
+      notify(error?.message || 'Failed to create API token', 'error');
+    } finally {
+      setCreatingApiToken(false);
+    }
+  };
+
+  const handleRevokeApiToken = async (id: string) => {
+    if (!token) return;
+    if (!window.confirm(language === 'zh' ? '确认吊销这个 API Token？吊销后网站前端将无法继续使用它。' : 'Revoke this API token? The website widget will stop working with it.')) return;
+    try {
+      const res = await fetch(`/api/api-tokens/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to revoke API token');
+      setApiTokens((prev) => prev.map(item => item.id === id ? data : item));
+      notify(language === 'zh' ? 'API Token 已吊销。' : 'API token revoked.', 'success');
+    } catch (error: any) {
+      notify(error?.message || 'Failed to revoke API token', 'error');
+    }
+  };
 
   const handleSaveGlobalSetting = async (key: string, value: any) => {
     setSavingGlobal(true);
@@ -131,6 +238,12 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
 
   const [editingLLMId, setEditingLLMId] = useState<string | null>(null);
   const [llmFormData, setLLMFormData] = useState<Partial<LLMConfig>>({});
+  const [apiTokens, setApiTokens] = useState<ApiTokenRecord[]>([]);
+  const [apiTokenName, setApiTokenName] = useState('Website Live Chat');
+  const [apiTokenTemplate, setApiTokenTemplate] = useState('live_chat_agent');
+  const [generatedApiToken, setGeneratedApiToken] = useState('');
+  const [loadingApiTokens, setLoadingApiTokens] = useState(false);
+  const [creatingApiToken, setCreatingApiToken] = useState(false);
 
   const [editingPTId, setEditingPTId] = useState<string | null>(null);
   const [ptFormData, setPtFormData] = useState<Partial<PaymentTerm>>({});
@@ -538,6 +651,12 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
               className={cn("px-4 py-2 text-sm font-medium rounded-lg transition-all", activeTab === 'ai' ? "bg-indigo-600 text-white shadow-lg" : "text-slate-400 hover:text-white hover:bg-slate-700/50")}
             >
               AI & Integrations
+            </button>
+            <button
+              onClick={() => setActiveTab('api')}
+              className={cn("px-4 py-2 text-sm font-medium rounded-lg transition-all", activeTab === 'api' ? "bg-indigo-600 text-white shadow-lg" : "text-slate-400 hover:text-white hover:bg-slate-700/50")}
+            >
+              API Tokens
             </button>
             {isSuperadmin && (
               <button
@@ -1609,6 +1728,151 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
         </section>
 
         </div>
+        )}
+
+        {activeTab === 'api' && (
+          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <section className="bg-slate-900 border border-slate-800 rounded-xl p-5 md:p-6 shadow-sm">
+              <div className="flex items-start justify-between gap-4 mb-6">
+                <div>
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <KeyRound className="w-5 h-5 text-cyan-400" />
+                    API Tokens
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-400">
+                    {language === 'zh'
+                      ? '为网站组件和外部集成生成受权限限制的 API Token。公开 Live Chat 不再使用 userId。'
+                      : 'Generate scoped API tokens for website widgets and external integrations. Public Live Chat no longer uses userId.'}
+                  </p>
+                </div>
+                <button
+                  onClick={fetchApiTokens}
+                  disabled={loadingApiTokens}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300 hover:text-white disabled:opacity-60"
+                >
+                  <RefreshCw className={cn("w-4 h-4", loadingApiTokens && "animate-spin")} />
+                  {language === 'zh' ? '刷新' : 'Refresh'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 xl:grid-cols-[420px_1fr] gap-6">
+                <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4 space-y-4">
+                  <div>
+                    <label className="text-xs font-bold uppercase text-slate-400">{language === 'zh' ? 'Token 名称' : 'Token Name'}</label>
+                    <input
+                      value={apiTokenName}
+                      onChange={e => setApiTokenName(e.target.value)}
+                      placeholder="Website Live Chat"
+                      className="mt-2 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold uppercase text-slate-400">{language === 'zh' ? '权限模板' : 'Permission Template'}</label>
+                    <select
+                      value={apiTokenTemplate}
+                      onChange={e => setApiTokenTemplate(e.target.value)}
+                      className="mt-2 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                    >
+                      {API_TOKEN_TEMPLATES.map(template => (
+                        <option key={template.id} value={template.id}>{template.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {API_TOKEN_TEMPLATES.filter(template => template.id === apiTokenTemplate).map(template => (
+                    <div key={template.id} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+                      <div className="flex items-center gap-2 text-sm font-bold text-slate-200">
+                        <ShieldCheck className="w-4 h-4 text-cyan-300" />
+                        {template.label}
+                      </div>
+                      <p className="mt-2 text-xs leading-relaxed text-slate-500">{template.description}</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {template.permissions.map(permission => (
+                          <span key={permission} className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[11px] font-mono text-cyan-200">
+                            {permission}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+
+                  <button
+                    onClick={handleCreateApiToken}
+                    disabled={creatingApiToken}
+                    className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-cyan-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-cyan-500 disabled:opacity-60"
+                  >
+                    {creatingApiToken ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                    {language === 'zh' ? '生成 API Token' : 'Generate API Token'}
+                  </button>
+
+                  {generatedApiToken && (
+                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                      <div className="text-xs font-bold text-amber-200">
+                        {language === 'zh' ? '只显示一次，请立即复制保存' : 'Shown once. Copy and store it now.'}
+                      </div>
+                      <div className="mt-2 flex items-center gap-2">
+                        <code className="flex-1 overflow-x-auto rounded bg-slate-950 px-3 py-2 text-xs text-amber-100">{generatedApiToken}</code>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard?.writeText(generatedApiToken);
+                            notify(language === 'zh' ? '已复制 API Token。' : 'API token copied.', 'success');
+                          }}
+                          className="rounded-lg border border-amber-500/40 px-3 py-2 text-amber-100 hover:bg-amber-500/20"
+                        >
+                          <Copy className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-xl border border-slate-800 bg-slate-950 overflow-hidden">
+                  <div className="grid grid-cols-[1.2fr_1fr_1fr_0.8fr_auto] gap-3 border-b border-slate-800 px-4 py-3 text-xs font-bold uppercase text-slate-500">
+                    <span>{language === 'zh' ? '名称' : 'Name'}</span>
+                    <span>{language === 'zh' ? '模板' : 'Template'}</span>
+                    <span>{language === 'zh' ? '权限' : 'Permissions'}</span>
+                    <span>{language === 'zh' ? '最近使用' : 'Last Used'}</span>
+                    <span></span>
+                  </div>
+                  {apiTokens.length === 0 ? (
+                    <div className="p-6 text-sm text-slate-500">{language === 'zh' ? '暂无 API Token。' : 'No API tokens yet.'}</div>
+                  ) : apiTokens.map(record => (
+                    <div key={record.id} className={cn("grid grid-cols-[1.2fr_1fr_1fr_0.8fr_auto] gap-3 border-b border-slate-900 px-4 py-4 text-sm items-start", record.revokedAt && "opacity-50")}>
+                      <div>
+                        <div className="font-bold text-slate-200">{record.name}</div>
+                        <div className="mt-1 text-xs font-mono text-slate-500">{record.tokenPrefix}...</div>
+                        {record.revokedAt && <div className="mt-1 text-xs text-red-300">{language === 'zh' ? '已吊销' : 'Revoked'}</div>}
+                      </div>
+                      <div className="text-slate-400">{API_TOKEN_TEMPLATES.find(template => template.id === record.template)?.label || record.template || '-'}</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(record.permissions || []).map(permission => (
+                          <span key={permission} className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-[10px] font-mono text-slate-300">
+                            {permission}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="text-xs text-slate-500">{record.lastUsedAt ? new Date(record.lastUsedAt).toLocaleString() : '-'}</div>
+                      <button
+                        onClick={() => handleRevokeApiToken(record.id)}
+                        disabled={!!record.revokedAt}
+                        className="rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-red-300 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-900 disabled:text-slate-600"
+                        title={language === 'zh' ? '吊销' : 'Revoke'}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-5 rounded-lg border border-slate-800 bg-slate-950/80 p-4 text-xs leading-relaxed text-slate-500">
+                {language === 'zh'
+                  ? '网站前端接入 Live Chat 时，请把生成的 API Token 作为 apiToken 传给公开接口。不要把 CRM 用户 ID 放到前端，也不要把 visitor token 写入公开 analytics 日志。'
+                  : 'When embedding Live Chat on a website, pass this API token as apiToken to public endpoints. Do not expose CRM user IDs in frontend code, and do not log visitor tokens in public analytics.'}
+              </div>
+            </section>
+          </div>
         )}
 
         {activeTab === 'ai' && (

@@ -3,6 +3,7 @@ import path from "path";
 import multer from "multer";
 import { createRequire } from 'module';
 const customRequire = typeof require !== "undefined" ? require : createRequire(import.meta.url);
+const nodeCrypto = customRequire("crypto");
 const pdfParse = customRequire("pdf-parse");
 const nodemailer = customRequire("nodemailer");
 const geoip = customRequire("geoip-lite");
@@ -20,6 +21,9 @@ const WHATSAPP_HISTORY_RECOVERY_LOOKBACK_MS = Math.max(
   0,
   Number(process.env.WHATSAPP_HISTORY_RECOVERY_LOOKBACK_HOURS || 24 * 30) * 60 * 60 * 1000
 );
+
+const hashApiToken = (token: string) => nodeCrypto.createHash('sha256').update(String(token || '')).digest('hex');
+const createApiTokenValue = () => `tq_${nodeCrypto.randomBytes(32).toString('hex')}`;
 
 const applyWhatsAppHistoryRecoveryLookback = (since: string) => {
   if (!since || !WHATSAPP_HISTORY_RECOVERY_LOOKBACK_MS) return since;
@@ -270,6 +274,23 @@ async function initDB() {
       );
       CREATE INDEX IF NOT EXISTS idx_point_transactions_user_created
       ON point_transactions (user_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS api_tokens (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        token_hash VARCHAR(128) NOT NULL UNIQUE,
+        token_prefix VARCHAR(32) NOT NULL,
+        permissions JSONB DEFAULT '[]'::jsonb,
+        template VARCHAR(64),
+        last_used_at TIMESTAMP WITH TIME ZONE,
+        revoked_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_api_tokens_user_created
+      ON api_tokens (user_id, created_at DESC);
       
       CREATE TABLE IF NOT EXISTS clients (
         id VARCHAR(128) PRIMARY KEY,
@@ -4668,6 +4689,102 @@ No markdown wrappers, just valid JSON.`;
     return { settings, companyName: row.company_name || '', companyWebsite: row.company_website || '' };
   };
 
+  const API_TOKEN_TEMPLATES: Record<string, string[]> = {
+    live_chat_agent: ['live_chat.public', 'live_chat.agent'],
+    live_chat_public: ['live_chat.public'],
+    website_lead_capture: ['live_chat.public', 'lead.capture'],
+    product_catalog_read: ['product.read', 'knowledge.public_read']
+  };
+
+  const apiTokenToDto = (row: any) => ({
+    id: row.id,
+    name: row.name,
+    tokenPrefix: row.token_prefix,
+    permissions: parseJsonArray(row.permissions),
+    template: row.template || '',
+    lastUsedAt: row.last_used_at,
+    revokedAt: row.revoked_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  });
+
+  const resolveApiToken = async (token: string, requiredPermission: string) => {
+    const rawToken = String(token || '').trim();
+    if (!rawToken) return null;
+    const result = await pool.query(
+      `SELECT *
+       FROM api_tokens
+       WHERE token_hash = $1 AND revoked_at IS NULL
+       LIMIT 1`,
+      [hashApiToken(rawToken)]
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    const permissions = parseJsonArray(row.permissions).map((permission: any) => String(permission));
+    if (!permissions.includes(requiredPermission) && !permissions.includes('*')) return null;
+    await pool.query(
+      'UPDATE api_tokens SET last_used_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1',
+      [row.id]
+    );
+    return { ...row, permissions };
+  };
+
+  app.get('/api/api-tokens', authenticateToken, async (req: any, res) => {
+    try {
+      const result = await pool.query(
+        `SELECT * FROM api_tokens
+         WHERE user_id = $1
+         ORDER BY created_at DESC`,
+        [req.user.uid]
+      );
+      res.json(result.rows.map(apiTokenToDto));
+    } catch (e: any) {
+      console.error('Failed to fetch API tokens', e);
+      res.status(500).json({ error: e.message || 'Failed to fetch API tokens' });
+    }
+  });
+
+  app.post('/api/api-tokens', authenticateToken, async (req: any, res) => {
+    try {
+      const name = String(req.body?.name || '').trim() || 'Website API Token';
+      const template = String(req.body?.template || 'live_chat_agent');
+      const templatePermissions = API_TOKEN_TEMPLATES[template] || API_TOKEN_TEMPLATES.live_chat_agent;
+      const requestedPermissions = Array.isArray(req.body?.permissions)
+        ? req.body.permissions.map((permission: any) => String(permission)).filter(Boolean)
+        : templatePermissions;
+      const permissions = Array.from(new Set(requestedPermissions.length > 0 ? requestedPermissions : templatePermissions));
+      const token = createApiTokenValue();
+      const id = `api_token_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+      const result = await pool.query(
+        `INSERT INTO api_tokens (id, user_id, name, token_hash, token_prefix, permissions, template)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING *`,
+        [id, req.user.uid, name, hashApiToken(token), token.slice(0, 10), JSON.stringify(permissions), template]
+      );
+      res.json({ token, record: apiTokenToDto(result.rows[0]) });
+    } catch (e: any) {
+      console.error('Failed to create API token', e);
+      res.status(500).json({ error: e.message || 'Failed to create API token' });
+    }
+  });
+
+  app.delete('/api/api-tokens/:id', authenticateToken, async (req: any, res) => {
+    try {
+      const result = await pool.query(
+        `UPDATE api_tokens
+         SET revoked_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL
+         RETURNING *`,
+        [req.params.id, req.user.uid]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'API token not found' });
+      res.json(apiTokenToDto(result.rows[0]));
+    } catch (e: any) {
+      console.error('Failed to revoke API token', e);
+      res.status(500).json({ error: e.message || 'Failed to revoke API token' });
+    }
+  });
+
   const addLiveChatMessage = async (input: {
     userId: string;
     sessionId: string;
@@ -4850,11 +4967,10 @@ Return JSON only:
 
   app.post('/api/live-chat/public/sessions', async (req: any, res) => {
     try {
-      const { userId, visitorName, visitorEmail, visitorPhone, pageUrl, metadata } = req.body || {};
-      const ownerId = String(userId || '').trim();
-      if (!ownerId) return res.status(400).json({ error: 'userId is required' });
-      const userRes = await pool.query('SELECT id FROM users WHERE id = $1 LIMIT 1', [ownerId]);
-      if (userRes.rows.length === 0) return res.status(404).json({ error: 'Live chat owner not found' });
+      const { apiToken, visitorName, visitorEmail, visitorPhone, pageUrl, metadata } = req.body || {};
+      const tokenRecord = await resolveApiToken(apiToken, 'live_chat.public');
+      if (!tokenRecord) return res.status(401).json({ error: 'Invalid or unauthorized API token' });
+      const ownerId = tokenRecord.user_id;
       const sessionId = `lc_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
       const visitorToken = crypto.randomUUID();
       const clientId = visitorEmail ? await findClientIdForEmailAddress(ownerId, visitorEmail) : null;
@@ -4863,7 +4979,7 @@ Return JSON only:
          (id, user_id, client_id, visitor_token, visitor_name, visitor_email, visitor_phone, page_url, assigned_agent_id, metadata)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'live_chat_agent', $9)
          RETURNING *`,
-        [sessionId, ownerId, clientId, visitorToken, visitorName || null, visitorEmail || null, visitorPhone || null, pageUrl || null, JSON.stringify(metadata || {})]
+        [sessionId, ownerId, clientId, visitorToken, visitorName || null, visitorEmail || null, visitorPhone || null, pageUrl || null, JSON.stringify({ ...(metadata || {}), apiTokenId: tokenRecord.id, apiTokenTemplate: tokenRecord.template || '' })]
       );
       await addLiveChatMessage({
         userId: ownerId,

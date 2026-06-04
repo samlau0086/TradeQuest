@@ -49,11 +49,12 @@ Foreign Trade CRM is an AI-powered CRM for foreign trade teams. It combines clie
 ### Live Chat Desk
 
 - Live Chat Desk is a dedicated backend operator interface for website live chat conversations.
-- Website visitors use public live-chat session APIs that can only create a session, send visitor messages, and read messages for that same session with a visitor token.
+- Website visitors use public live-chat session APIs through a scoped API token. They can only create a session, send visitor messages, and read messages for that same session with a visitor token.
 - CRM operators use authenticated APIs to view all live chat sessions, reply, tag sessions, close/reopen sessions, link sessions to clients, and trigger or pause the Live Chat Agent.
 - Human takeover can be enabled per conversation. When takeover is active, the Live Chat Agent stops auto-replying until an operator releases or manually runs the agent again.
 - Live Chat Agent is a built-in system agent. It can answer visitors with public-safe product/company context, collect contact information, qualify intent, and escalate sensitive or high-risk conversations to human operators.
 - Security boundary: external visitors must never receive backend data, internal CRM notes, hidden prompts, API keys, database structure, other customer information, or private agent configuration.
+- Website API tokens are generated and revoked in Settings -> API Tokens. Token templates include Live Chat Agent, Live Chat Public Only, Website Lead Capture, and Product Catalog Read.
 
 ### WhatsApp Actor Hub
 
@@ -386,6 +387,8 @@ Typical notification events:
 
 The public live chat API is intentionally narrow so a website visitor cannot access CRM backend data. Public endpoints do not accept CRM auth tokens and do not expose clients, logs, internal notes, prompts, or settings.
 
+Before embedding the widget, create a scoped website API token in Settings -> API Tokens. Use the `Live Chat Agent` template for normal AI-powered live chat. The website frontend sends this value as `apiToken`; it should never send a CRM `userId`.
+
 Recommended website widget flow:
 
 1. Create a session when the visitor opens the chat widget.
@@ -402,7 +405,7 @@ Request:
 
 ```json
 {
-  "userId": "crm-user-id",
+  "apiToken": "tq_generated_website_api_token",
   "visitorName": "Alex Chen",
   "visitorEmail": "alex@example.com",
   "visitorPhone": "+1 555 0100",
@@ -441,7 +444,9 @@ Response:
 
 Notes:
 
-- `userId` is the CRM owner that should receive the website chat. In production, the website snippet should be generated with this value already embedded.
+- `apiToken` identifies the CRM owner and the allowed public permissions. Use a token generated in Settings -> API Tokens.
+- The token must include `live_chat.public`. The `Live Chat Agent` template includes `live_chat.public` and `live_chat.agent`.
+- Do not expose CRM user IDs in website code.
 - `token` is only shown once by the API. The website widget must store it locally and send it with future requests.
 - If `visitorEmail` matches an existing client contact, CRM may link the session to that client internally, but public responses still do not reveal client details.
 
@@ -605,6 +610,8 @@ Response:
 ### Security Boundary
 
 - Public endpoints are CORS-enabled only for the live chat path and require the visitor session token.
+- Public session creation requires a scoped API token with `live_chat.public`.
+- API tokens are stored server-side as hashes; the plain token is only displayed once when generated.
 - Visitor tokens must be treated like session secrets and should not be logged in public analytics.
 - Public responses never include CRM clients, internal comments, growth logs, RAG raw documents, agent prompts, API keys, or settings.
 - Operator APIs require CRM authentication and should be used only inside the Live Chat Desk.
@@ -706,6 +713,7 @@ Recent schema/state additions:
 - `whatsapp_message_translations.target_language`: stores the customer-facing language used for outbound pre-send translation.
 - `live_chat_sessions`: website live chat conversations, visitor identity, client link, status, tags, and human takeover state.
 - `live_chat_messages`: visitor, agent, operator, and system messages for live chat sessions.
+- `api_tokens`: hashed website/API integration tokens with scoped permissions, token templates, revoke state, and last-used tracking.
 - User settings include WhatsApp-only translation state such as `whatsappAutoTranslateConfig` and `whatsappOutboundAutoTranslateConfig`.
 
 For a fresh server, deployment should start the app and initialize schema, but production migration should still include database backups and verification.
@@ -762,11 +770,12 @@ Foreign Trade CRM 是一套面向外贸团队的 AI CRM。系统把客户/线索
 ### Live Chat 座席
 
 - Live Chat Desk 是独立的后台座席界面，用来处理网站前端 live chat 会话。
-- 网站访客只能使用公开 live chat session API：创建会话、发送访客消息，以及通过 visitor token 读取自己会话内的消息。
+- 网站访客通过受限 API Token 使用公开 live chat session API：创建会话、发送访客消息，以及通过 visitor token 读取自己会话内的消息。
 - CRM 座席使用登录后的受保护 API 查看全部 live chat 会话、回复、打标签、关闭/重新打开会话、关联客户，以及触发或暂停 Live Chat Agent。
 - 每个会话都支持人工接管。人工接管开启后，Live Chat Agent 会停止自动回复，直到座席释放接管或手动运行 Agent。
 - Live Chat Agent 是系统级内置 Agent，可使用对外安全的产品/公司上下文回答访客问题、收集联系方式、判断意向，并把敏感或高风险会话升级给人工座席。
 - 安全边界：外部访客不能获取后端数据、内部 CRM 备注、隐藏 Prompt、API Key、数据库结构、其他客户信息或私有 Agent 配置。
+- 网站 API Token 可在 Settings -> API Tokens 中生成和吊销。权限模板包括 Live Chat Agent、Live Chat Public Only、Website Lead Capture 和 Product Catalog Read。
 
 ### WhatsApp Actor Hub
 
@@ -1093,6 +1102,8 @@ Agent Harness 目前已经为非删除类写入工具补充了具体后端执行
 
 公开 live chat API 会刻意保持很窄，避免网站访客访问 CRM 后台数据。公开接口不接受 CRM 登录 token，也不会返回客户资料、内部日志、内部备注、Prompt、设置等后台信息。
 
+在网站嵌入组件前，需要先在 Settings -> API Tokens 生成一个受限的网站 API Token。普通 AI 客服场景建议选择 `Live Chat Agent` 模板。网站前端把这个值作为 `apiToken` 传给公开接口，不再传 CRM `userId`。
+
 推荐的网站 widget 流程：
 
 1. 访客打开聊天组件时创建 session。
@@ -1109,7 +1120,7 @@ Request：
 
 ```json
 {
-  "userId": "crm-user-id",
+  "apiToken": "tq_generated_website_api_token",
   "visitorName": "Alex Chen",
   "visitorEmail": "alex@example.com",
   "visitorPhone": "+1 555 0100",
@@ -1148,7 +1159,9 @@ Response：
 
 说明：
 
-- `userId` 是接收该网站客服会话的 CRM 用户 ID。生产环境中，网站嵌入脚本应提前带上这个值。
+- `apiToken` 用来识别 CRM 所属用户和允许的公开权限。请使用 Settings -> API Tokens 生成的 token。
+- token 必须包含 `live_chat.public` 权限。`Live Chat Agent` 模板包含 `live_chat.public` 和 `live_chat.agent`。
+- 不要在网站前端暴露 CRM 用户 ID。
 - `token` 只在创建 session 时返回一次，网站前端需要保存它，并在后续请求中携带。
 - 如果 `visitorEmail` 匹配到已有客户联系人，CRM 内部可以把会话关联到客户，但公开响应仍不会暴露客户详情。
 
@@ -1312,6 +1325,8 @@ Response：
 ### 安全边界
 
 - 公开接口只对 live chat 路径开放 CORS，并且必须携带 visitor session token。
+- 创建公开 session 需要携带拥有 `live_chat.public` 权限的 API Token。
+- API Token 在服务端只保存 hash，明文 token 只会在生成时显示一次。
 - visitor token 应视为会话密钥，不应写入公开 analytics 日志。
 - 公开响应不会包含 CRM 客户资料、内部 comments、Growth Logs、RAG 原始文档、Agent Prompt、API Key 或系统设置。
 - 座席 API 必须在 CRM 登录状态下使用，只应该由 Live Chat Desk 后台调用。
@@ -1377,6 +1392,7 @@ npm run dev
 - `whatsapp_message_translations.target_language`：保存发送前翻译所使用的客户侧目标语言。
 - `live_chat_sessions`：网站 live chat 会话、访客身份、客户关联、状态、标签和人工接管状态。
 - `live_chat_messages`：live chat 会话中的访客、Agent、座席和系统消息。
+- `api_tokens`：网站/API 集成 token 的 hash、权限范围、权限模板、吊销状态和最近使用时间。
 - 用户设置中包含 WhatsApp 专用翻译状态，例如 `whatsappAutoTranslateConfig` 和 `whatsappOutboundAutoTranslateConfig`。
 
 全新服务器理论上可以通过部署脚本启动并初始化结构，但生产迁移仍建议先备份数据库并验证迁移结果。
