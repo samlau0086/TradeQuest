@@ -1622,6 +1622,10 @@ No markdown wrappers, just valid JSON.`;
 
   const normalizeWhatsAppPhone = (value: string) => String(value || '').replace(/[^0-9]/g, '');
   const isLikelyWhatsAppChatId = (value: string) => /@(?:lid|c\.us|g\.us|broadcast)$/i.test(String(value || ''));
+  const normalizeWhatsAppPhoneIfNotChatId = (value: string) => {
+    const raw = String(value || '').trim();
+    return raw && !isLikelyWhatsAppChatId(raw) ? normalizeWhatsAppPhone(raw) : '';
+  };
   const normalizeWhatsAppConversationKey = (value: string) => {
     const raw = String(value || '').trim();
     if (!raw) return '';
@@ -1649,15 +1653,15 @@ No markdown wrappers, just valid JSON.`;
       ||
       message.contact_phone
       || message.contactPhone
-      || message.conversation_key
-      || message.conversation_id
       || message.payload?.senderPhone
       || message.payload?.contact?.number
       || ''
     );
-    const directionalPhone = normalizeWhatsAppPhone(message.direction === 'inbound' ? message.sender : message.recipient);
+    const directionalValue = message.direction === 'inbound' ? message.sender : message.recipient;
+    const directionalPhone = normalizeWhatsAppPhoneIfNotChatId(directionalValue);
+    const explicitConversationPhone = normalizeWhatsAppPhoneIfNotChatId(message.conversation_key || message.conversation_id);
     const resolvedPhone = contactPhone || (isLikelyWhatsAppChatId(rawChatId) ? '' : directionalPhone);
-    const conversationKey = normalizeWhatsAppConversationKey(message.conversation_key || message.conversation_id || resolvedPhone || rawChatId || directionalPhone);
+    const conversationKey = resolvedPhone || explicitConversationPhone || normalizeWhatsAppConversationKey(rawChatId || directionalPhone);
     return {
       rawChatId,
       contactPhone: resolvedPhone,
@@ -1778,10 +1782,16 @@ No markdown wrappers, just valid JSON.`;
         `SELECT id, message_type, payload
          FROM whatsapp_messages
          WHERE user_id = $1
-           AND conversation_id = $2
            AND direction = 'outbound'
            AND COALESCE(hub_client_id, '') = COALESCE($3, '')
            AND COALESCE(body, '') = COALESCE($4, '')
+           AND (
+             conversation_id = $2
+             OR target_phone = $7
+             OR contact_phone = $7
+             OR conversation_key = $7
+             OR raw_chat_id = $8
+           )
            AND (
              id = $5
              OR id LIKE 'wa_local_%'
@@ -1793,7 +1803,7 @@ No markdown wrappers, just valid JSON.`;
            CASE WHEN id = $5 THEN 0 WHEN payload->>'pendingTaskId' IS NOT NULL THEN 1 ELSE 2 END,
            COALESCE(source_created_at, created_at) DESC
          LIMIT 1`,
-        [userId, conversation.id, hubClientId, body, messageId, Number.isFinite(timeMs) ? new Date(timeMs).toISOString() : messageTime]
+        [userId, conversation.id, hubClientId, body, messageId, Number.isFinite(timeMs) ? new Date(timeMs).toISOString() : messageTime, identity.contactPhone || identity.conversationKey || targetPhone, identity.rawChatId || '']
       );
       const duplicate = duplicateRes.rows[0];
       if (duplicate?.id) {
@@ -1969,6 +1979,22 @@ No markdown wrappers, just valid JSON.`;
 
   const getWhatsAppRowTime = (row: any) => new Date(row.source_created_at || row.created_at || row.received_at || 0).getTime();
   const normalizeWhatsAppBodyForDedupe = (value: string) => String(value || '').replace(/\s+/g, ' ').trim();
+  const getWhatsAppRowIdentityKeys = (row: any) => {
+    const keys = [
+      normalizeWhatsAppPhone(row.contact_phone || ''),
+      normalizeWhatsAppPhoneIfNotChatId(row.target_phone || ''),
+      normalizeWhatsAppPhoneIfNotChatId(row.conversation_key || ''),
+      String(row.raw_chat_id || '').trim(),
+      String(row.conversation_key || '').trim(),
+      String(row.target_phone || '').trim()
+    ].filter(Boolean);
+    return Array.from(new Set(keys));
+  };
+  const whatsappRowsShareIdentity = (a: any, b: any) => {
+    const aKeys = getWhatsAppRowIdentityKeys(a);
+    const bKeys = new Set(getWhatsAppRowIdentityKeys(b));
+    return aKeys.some(key => bKeys.has(key));
+  };
   const isLocalEchoWhatsAppRow = (row: any) => (
     String(row.id || '').startsWith('wa_local_')
     || Boolean(row.payload?.localEcho)
@@ -1986,10 +2012,8 @@ No markdown wrappers, just valid JSON.`;
     if (a.direction !== 'outbound' || b.direction !== 'outbound') return false;
     if (normalizeWhatsAppBodyForDedupe(a.body) !== normalizeWhatsAppBodyForDedupe(b.body)) return false;
     if (String(a.hub_client_id || '') !== String(b.hub_client_id || '')) return false;
-    const aConversation = a.conversation_id || a.conversation_key || a.target_phone || a.contact_phone || a.raw_chat_id;
-    const bConversation = b.conversation_id || b.conversation_key || b.target_phone || b.contact_phone || b.raw_chat_id;
-    if (aConversation && bConversation && aConversation !== bConversation) return false;
-    return Math.abs(getWhatsAppRowTime(a) - getWhatsAppRowTime(b)) <= 15 * 1000;
+    if (!whatsappRowsShareIdentity(a, b)) return false;
+    return Math.abs(getWhatsAppRowTime(a) - getWhatsAppRowTime(b)) <= 5 * 60 * 1000;
   };
   const dedupeWhatsAppMessageRows = (rows: any[]) => {
     const kept: any[] = [];
@@ -2025,6 +2049,36 @@ No markdown wrappers, just valid JSON.`;
     agentContextAnalysisKey: row.agent_context_analysis_key,
     updatedAt: row.updated_at
   });
+
+  const getWhatsAppConversationDedupeKey = (row: any) => (
+    normalizeWhatsAppPhone(row.contact_phone || '')
+    || normalizeWhatsAppPhoneIfNotChatId(row.target_phone || '')
+    || normalizeWhatsAppPhoneIfNotChatId(row.conversation_key || '')
+    || String(row.raw_chat_id || row.conversation_key || row.target_phone || row.id || '').trim()
+  );
+  const getWhatsAppConversationTime = (row: any) => new Date(row.last_message_at || row.updated_at || row.created_at || 0).getTime();
+  const dedupeWhatsAppConversationRows = (rows: any[]) => {
+    const byKey = new Map<string, any>();
+    rows.forEach(row => {
+      const key = getWhatsAppConversationDedupeKey(row);
+      if (!key) return;
+      const existing = byKey.get(key);
+      if (!existing) {
+        byKey.set(key, row);
+        return;
+      }
+      const rowHasPhone = Boolean(normalizeWhatsAppPhone(row.contact_phone || '') || normalizeWhatsAppPhoneIfNotChatId(row.target_phone || ''));
+      const existingHasPhone = Boolean(normalizeWhatsAppPhone(existing.contact_phone || '') || normalizeWhatsAppPhoneIfNotChatId(existing.target_phone || ''));
+      if (
+        (rowHasPhone && !existingHasPhone)
+        || (row.client_id && !existing.client_id)
+        || getWhatsAppConversationTime(row) > getWhatsAppConversationTime(existing)
+      ) {
+        byKey.set(key, row);
+      }
+    });
+    return Array.from(byKey.values()).sort((a, b) => getWhatsAppConversationTime(b) - getWhatsAppConversationTime(a));
+  };
 
   const isFutureDate = (value?: string) => {
     if (!value) return false;
@@ -2906,7 +2960,7 @@ ${JSON.stringify(productsRes.rows.map((product: any) => ({
          LIMIT 200`,
         values
       );
-      res.json({ conversations: result.rows.map(mapWhatsAppConversationRow) });
+      res.json({ conversations: dedupeWhatsAppConversationRows(result.rows).map(mapWhatsAppConversationRow) });
     } catch (e: any) {
       res.status(e.status || 500).json({ error: e.message || 'Failed to load WhatsApp conversations' });
     }

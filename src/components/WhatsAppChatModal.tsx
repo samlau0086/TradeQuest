@@ -558,6 +558,7 @@ ${bodyText}`,
   }, [targetPhone, initialConversation?.id, initialMessage, language]);
 
   useEffect(() => {
+    if (embedded) return;
     if (!targetPhone || messages.length === 0) return;
     const frame = window.requestAnimationFrame(() => scrollMessagesToBottom('auto'));
     const shortTimer = window.setTimeout(() => scrollMessagesToBottom('auto'), 80);
@@ -567,7 +568,7 @@ ${bodyText}`,
       window.clearTimeout(shortTimer);
       window.clearTimeout(mediaTimer);
     };
-  }, [targetPhone, latestMessageId, messages.length]);
+  }, [embedded, targetPhone, latestMessageId, messages.length]);
 
   useEffect(() => {
     if (!whatsappAutoTranslateEnabled || messages.length === 0) return;
@@ -1240,10 +1241,10 @@ Return only the message text.`,
                   <div className="mb-2">
                     {media.url && media.isImage ? (
                       <a href={media.url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-white/15 bg-black/20">
-                        <img src={media.url} alt={media.name} className="max-h-72 w-full max-w-sm object-contain" loading="lazy" onLoad={() => scrollMessagesToBottom('auto')} />
+                        <img src={media.url} alt={media.name} className="max-h-72 w-full max-w-sm object-contain" loading="lazy" onLoad={() => { if (!embedded) scrollMessagesToBottom('auto'); }} />
                       </a>
                     ) : media.url && media.isVideo ? (
-                      <video src={media.url} controls className="max-h-72 w-full max-w-sm rounded-xl border border-white/15 bg-black/40" onLoadedMetadata={() => scrollMessagesToBottom('auto')} />
+                      <video src={media.url} controls className="max-h-72 w-full max-w-sm rounded-xl border border-white/15 bg-black/40" onLoadedMetadata={() => { if (!embedded) scrollMessagesToBottom('auto'); }} />
                     ) : media.url ? (
                       <a
                         href={media.url}
