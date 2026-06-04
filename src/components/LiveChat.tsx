@@ -405,24 +405,39 @@ export function LiveChat() {
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    onClick={() => updateLiveChatSession(selectedSession.id, { humanTakeover: !selectedSession.humanTakeover })}
-                    className={cn(
-                      'inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-bold',
-                      selectedSession.humanTakeover ? 'border-blue-500/40 bg-blue-500/10 text-blue-200' : 'border-slate-700 bg-slate-900 text-slate-300 hover:text-white'
-                    )}
-                  >
-                    {selectedSession.humanTakeover ? <PauseCircle className="w-4 h-4" /> : <Hand className="w-4 h-4" />}
-                    {selectedSession.humanTakeover ? (language === 'zh' ? '人工接管中' : 'Human takeover') : (language === 'zh' ? '接管' : 'Take over')}
-                  </button>
-                  <button
-                    onClick={handleAgentReply}
-                    disabled={agentBusy}
-                    className="inline-flex items-center gap-2 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-sm font-bold text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-60"
-                  >
-                    {agentBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bot className="w-4 h-4" />}
-                    {language === 'zh' ? '运行 Agent' : 'Run Agent'}
-                  </button>
+                  <div className="flex items-center overflow-hidden rounded-lg border border-slate-700 bg-slate-900">
+                    <div className={cn(
+                      'inline-flex items-center gap-2 px-3 py-2 text-xs font-bold',
+                      selectedSession.humanTakeover ? 'text-blue-200' : 'text-cyan-200'
+                    )}>
+                      {selectedSession.humanTakeover ? <Hand className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
+                      <span>{selectedSession.humanTakeover ? (language === 'zh' ? '人工模式' : 'Human mode') : (language === 'zh' ? 'AI 接待' : 'AI mode')}</span>
+                    </div>
+                    <button
+                      onClick={() => updateLiveChatSession(selectedSession.id, { humanTakeover: !selectedSession.humanTakeover })}
+                      className={cn(
+                        'inline-flex items-center gap-2 border-l border-slate-700 px-3 py-2 text-sm font-bold',
+                        selectedSession.humanTakeover
+                          ? 'bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/20'
+                          : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                      )}
+                    >
+                      {selectedSession.humanTakeover ? <Bot className="w-4 h-4" /> : <Hand className="w-4 h-4" />}
+                      {selectedSession.humanTakeover
+                        ? (language === 'zh' ? '交还给 Agent' : 'Hand back to Agent')
+                        : (language === 'zh' ? '人工接管' : 'Take over')}
+                    </button>
+                  </div>
+                  {!selectedSession.humanTakeover && (
+                    <button
+                      onClick={handleAgentReply}
+                      disabled={agentBusy}
+                      className="inline-flex items-center gap-2 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-sm font-bold text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-60"
+                    >
+                      {agentBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bot className="w-4 h-4" />}
+                      {language === 'zh' ? 'Agent 回复一次' : 'Agent reply once'}
+                    </button>
+                  )}
                   <button
                     onClick={() => updateLiveChatSession(selectedSession.id, { status: selectedSession.status === 'closed' ? 'open' : 'closed' })}
                     className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-bold text-slate-300 hover:text-white"
