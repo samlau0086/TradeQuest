@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useStore, KnowledgeItem } from '../store';
 import { useAuthStore } from '../authStore';
 import { Book, Plus, Trash2, Edit2, Save, X, FileUp, Loader2, FolderDown } from 'lucide-react';
@@ -15,14 +15,69 @@ export function KnowledgeBaseManager({ clientId = null }: { clientId?: string | 
   const [isImportingFolder, setIsImportingFolder] = useState(false);
   const [folderImportPath, setFolderImportPath] = useState('');
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   
   const relevantKbs = knowledgeBase.filter(kb => kb.clientId === clientId);
+  const totalPages = Math.max(1, Math.ceil(relevantKbs.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const paginatedKbs = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return relevantKbs.slice(start, start + pageSize);
+  }, [currentPage, pageSize, relevantKbs]);
   
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<Partial<KnowledgeItem>>({});
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const pageIds = useMemo(() => paginatedKbs.map(kb => kb.id), [paginatedKbs]);
+  const allPageSelected = pageIds.length > 0 && pageIds.every(id => selectedSet.has(id));
+  const somePageSelected = pageIds.some(id => selectedSet.has(id));
+
+  useEffect(() => {
+    setPage(1);
+  }, [clientId, pageSize]);
+
+  useEffect(() => {
+    setSelectedIds(prev => prev.filter(id => relevantKbs.some(kb => kb.id === id)));
+  }, [relevantKbs]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   const handleCreate = () => {
     addKnowledgeItem({ clientId, title: 'New Knowledge Topic', content: 'Enter the knowledge contents here...' });
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]);
+  };
+
+  const toggleSelectPage = () => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allPageSelected) pageIds.forEach(id => next.delete(id));
+      else pageIds.forEach(id => next.add(id));
+      return Array.from(next);
+    });
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedIds.length === 0) return;
+    const confirmed = window.confirm(
+      language === 'zh'
+        ? `确认删除选中的 ${selectedIds.length} 条知识库吗？此操作会同时删除对应 embedding。`
+        : `Delete ${selectedIds.length} selected knowledge item(s)? This also deletes their embeddings.`
+    );
+    if (!confirmed) return;
+    selectedIds.forEach(id => deleteKnowledgeItem(id));
+    setSelectedIds([]);
+    setEditingId(null);
+    notify(
+      language === 'zh' ? `已删除 ${selectedIds.length} 条知识库。` : `Deleted ${selectedIds.length} knowledge item(s).`,
+      'success'
+    );
   };
   
   const handleFileUploads = async (files: File[]) => {
@@ -146,11 +201,78 @@ export function KnowledgeBaseManager({ clientId = null }: { clientId?: string | 
         </div>
       )}
 
+      {relevantKbs.length > 0 && (
+        <div className="flex flex-col gap-2 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-300">
+              <input
+                type="checkbox"
+                checked={allPageSelected}
+                ref={element => {
+                  if (element) element.indeterminate = !allPageSelected && somePageSelected;
+                }}
+                onChange={toggleSelectPage}
+                className="accent-cyan-500"
+              />
+              {language === 'zh' ? '全选本页' : 'Select page'}
+            </label>
+            <div className="text-xs text-slate-400">
+              {language === 'zh'
+                ? `共 ${relevantKbs.length} 条知识库 · 第 ${currentPage} / ${totalPages} 页 · 已选 ${selectedIds.length}`
+                : `${relevantKbs.length} knowledge items · Page ${currentPage} of ${totalPages} · ${selectedIds.length} selected`}
+            </div>
+            {selectedIds.length > 0 && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setSelectedIds([])}
+                  className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                >
+                  {language === 'zh' ? '取消选择' : 'Clear'}
+                </button>
+                <button
+                  onClick={handleBulkDelete}
+                  className="inline-flex items-center gap-1 rounded border border-rose-500/40 bg-rose-500/10 px-2 py-1 text-xs font-bold text-rose-300 hover:bg-rose-500/20"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  {language === 'zh' ? '批量删除' : 'Delete selected'}
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-2 text-xs text-slate-500">
+              {language === 'zh' ? '每页' : 'Per page'}
+              <select
+                value={pageSize}
+                onChange={event => setPageSize(Number(event.target.value))}
+                className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-200 outline-none focus:border-cyan-500"
+              >
+                {[10, 20, 50].map(size => <option key={size} value={size}>{size}</option>)}
+              </select>
+            </label>
+            <button
+              onClick={() => setPage(prev => Math.max(1, prev - 1))}
+              disabled={currentPage <= 1}
+              className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {language === 'zh' ? '上一页' : 'Prev'}
+            </button>
+            <button
+              onClick={() => setPage(prev => Math.min(totalPages, prev + 1))}
+              disabled={currentPage >= totalPages}
+              className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {language === 'zh' ? '下一页' : 'Next'}
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-4">
         {relevantKbs.length === 0 && (
           <div className="text-sm text-slate-500 italic">{t('noKnowledgeStr')}</div>
         )}
-        {relevantKbs.map(kb => (
+        {paginatedKbs.map(kb => (
           <div key={kb.id} className="bg-slate-800/80 p-4 rounded-lg border border-slate-700 space-y-3">
             {editingId === kb.id ? (
               <div className="space-y-3">
@@ -187,8 +309,17 @@ export function KnowledgeBaseManager({ clientId = null }: { clientId?: string | 
               </div>
             ) : (
               <div>
-                <div className="flex justify-between items-start mb-2">
-                  <h4 className="font-medium text-cyan-400">{kb.title}</h4>
+                <div className="flex justify-between items-start gap-3 mb-2">
+                  <div className="flex min-w-0 items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedSet.has(kb.id)}
+                      onChange={() => toggleSelect(kb.id)}
+                      className="mt-1 accent-cyan-500"
+                      aria-label={language === 'zh' ? `选择 ${kb.title}` : `Select ${kb.title}`}
+                    />
+                    <h4 className="font-medium text-cyan-400">{kb.title}</h4>
+                  </div>
                   <div className="flex gap-2">
                     <button
                       onClick={() => { setEditingId(kb.id); setFormData(kb); }}
