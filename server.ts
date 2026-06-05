@@ -620,6 +620,11 @@ async function initDB() {
       ALTER TABLE whatsapp_conversations ADD COLUMN IF NOT EXISTS contact_phone VARCHAR(64);
       ALTER TABLE whatsapp_conversations ADD COLUMN IF NOT EXISTS raw_chat_id VARCHAR(255);
       ALTER TABLE whatsapp_conversations ADD COLUMN IF NOT EXISTS conversation_key VARCHAR(255);
+      ALTER TABLE whatsapp_conversations ADD COLUMN IF NOT EXISTS whatsapp_summary TEXT;
+      ALTER TABLE whatsapp_conversations ADD COLUMN IF NOT EXISTS whatsapp_summary_key_points JSONB DEFAULT '[]'::jsonb;
+      ALTER TABLE whatsapp_conversations ADD COLUMN IF NOT EXISTS whatsapp_summary_next_step TEXT;
+      ALTER TABLE whatsapp_conversations ADD COLUMN IF NOT EXISTS whatsapp_summary_message_id VARCHAR(128);
+      ALTER TABLE whatsapp_conversations ADD COLUMN IF NOT EXISTS whatsapp_summary_updated_at TIMESTAMP WITH TIME ZONE;
 
       CREATE TABLE IF NOT EXISTS whatsapp_messages (
         id VARCHAR(128) PRIMARY KEY,
@@ -2182,6 +2187,11 @@ No markdown wrappers, just valid JSON.`;
     lastHubClientId: row.last_hub_client_id,
     agentContextAnalysis: row.agent_context_analysis,
     agentContextAnalysisKey: row.agent_context_analysis_key,
+    whatsappSummary: row.whatsapp_summary || '',
+    whatsappSummaryKeyPoints: row.whatsapp_summary_key_points || [],
+    whatsappSummaryNextStep: row.whatsapp_summary_next_step || '',
+    whatsappSummaryMessageId: row.whatsapp_summary_message_id || '',
+    whatsappSummaryUpdatedAt: row.whatsapp_summary_updated_at || null,
     updatedAt: row.updated_at
   });
 
@@ -2851,6 +2861,180 @@ ${JSON.stringify(productsRes.rows.map((product: any) => ({
     return { id, mode: 'created' };
   };
 
+  const getUserLlmConfigForModule = async (userId: string, moduleIds: string[] = []) => {
+    const settingsRes = await pool.query('SELECT settings FROM users WHERE id = $1', [userId]);
+    const settings = typeof settingsRes.rows[0]?.settings === 'string'
+      ? JSON.parse(settingsRes.rows[0].settings || '{}')
+      : (settingsRes.rows[0]?.settings || {});
+    const mappings = settings.llmMappings || {};
+    const llmConfigs = settings.llmConfigs || [];
+    const llmId = moduleIds.map(moduleId => mappings[moduleId]).find(Boolean)
+      || mappings.analysis
+      || settings.activeLLMId;
+    const llmConfig = llmId ? llmConfigs.find((config: any) => config.id === llmId) : null;
+    return { settings, llmConfig };
+  };
+
+  const maybeSummarizeWhatsAppConversation = async (userId: string, conversationId: string) => {
+    const conversationRes = await pool.query(
+      `SELECT c.*, cl.name AS client_name, cl.company AS client_company, cl.country AS client_country
+       FROM whatsapp_conversations c
+       LEFT JOIN clients cl ON cl.id = c.client_id
+       WHERE c.id = $1 AND c.user_id = $2 AND c.deleted_at IS NULL
+       LIMIT 1`,
+      [conversationId, userId]
+    );
+    const conversation = conversationRes.rows[0];
+    if (!conversation) throw new Error('WhatsApp conversation not found');
+
+    const messagesRes = await pool.query(
+      `SELECT *
+       FROM (
+         SELECT *
+         FROM whatsapp_messages
+         WHERE conversation_id = $1 AND user_id = $2
+         ORDER BY COALESCE(source_created_at, created_at) DESC
+         LIMIT 240
+       ) recent_messages
+       ORDER BY COALESCE(source_created_at, created_at) ASC`,
+      [conversationId, userId]
+    );
+    const messages = messagesRes.rows.filter((message: any) => String(message.body || '').trim());
+    const previousSummary = String(conversation.whatsapp_summary || '').trim();
+    const lastSummarizedMessageId = String(conversation.whatsapp_summary_message_id || '');
+    const lastSummarizedIndex = lastSummarizedMessageId
+      ? messages.findIndex((message: any) => message.id === lastSummarizedMessageId)
+      : -1;
+    const newMessagesSinceSummary = lastSummarizedIndex >= 0 ? messages.length - lastSummarizedIndex - 1 : messages.length;
+
+    if (messages.length <= 30 && !previousSummary) {
+      return {
+        skipped: true,
+        reason: 'WhatsApp conversation has not exceeded the summarization threshold.',
+        conversation: mapWhatsAppConversationRow(conversation)
+      };
+    }
+    if (previousSummary && newMessagesSinceSummary < 12 && messages.length < 70) {
+      return {
+        skipped: true,
+        reason: 'Existing WhatsApp summary is still fresh.',
+        conversation: mapWhatsAppConversationRow(conversation)
+      };
+    }
+
+    const { settings, llmConfig } = await getUserLlmConfigForModule(userId, ['context_suggestions', 'whatsapp_drafting']);
+    const systemLanguage = getSystemLanguageName(settings.language);
+    const conversationText = messages.map((message: any) => {
+      const at = message.source_created_at || message.created_at || '';
+      const role = message.direction === 'inbound' ? 'customer inbound' : 'team outbound';
+      const body = String(message.body || '').replace(/\s+/g, ' ').trim();
+      return `${at} ${role}: ${body}`;
+    }).join('\n');
+
+    let parsed: any = {};
+    if (llmConfig) {
+      const summaryPrompt = `Summarize this WhatsApp conversation for future CRM and customer-service memory.
+
+Rules:
+- This is internal CRM memory, not customer-facing content.
+- Keep durable facts: customer needs, product interest, objections, promised follow-ups, preferences, contact details, sentiment, urgency, unresolved questions, and recommended next action.
+- Inbound messages are customer messages. Outbound messages are our team's prior messages only.
+- Do not infer customer intent from outbound messages.
+- Remove filler, greetings, repeated small talk, and irrelevant content.
+- If there is an existing summary, update it instead of duplicating it.
+- Use the CRM system language: ${systemLanguage}.
+- Max 220 words.
+
+Existing summary:
+${previousSummary || 'None'}
+
+Conversation:
+${conversationText}
+
+Return JSON only:
+{
+  "summary": "updated durable WhatsApp summary",
+  "keyPoints": ["short point"],
+  "nextStep": "recommended next internal follow-up"
+}`;
+      try {
+        const text = await callAI(summaryPrompt, llmConfig, true);
+        parsed = JSON.parse(text || '{}');
+      } catch (error) {
+        console.warn('WhatsApp summary generation failed', { userId, conversationId, error });
+      }
+    }
+
+    const fallbackSummary = messages.slice(-18).map((message: any) => (
+      `${message.direction === 'inbound' ? 'Customer' : 'Team'}: ${String(message.body || '').replace(/\s+/g, ' ').trim().slice(0, 180)}`
+    )).join('\n');
+    const summary = String(parsed.summary || fallbackSummary || previousSummary).trim();
+    const keyPoints = Array.isArray(parsed.keyPoints) ? parsed.keyPoints.slice(0, 8).map((item: any) => String(item).trim()).filter(Boolean) : [];
+    const nextStep = String(parsed.nextStep || '').trim();
+    const latestMessageId = messages[messages.length - 1]?.id || lastSummarizedMessageId;
+
+    const updatedRes = await pool.query(
+      `UPDATE whatsapp_conversations
+       SET whatsapp_summary = $1,
+           whatsapp_summary_key_points = $2,
+           whatsapp_summary_next_step = $3,
+           whatsapp_summary_message_id = $4,
+           whatsapp_summary_updated_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $5 AND user_id = $6
+       RETURNING *`,
+      [summary, JSON.stringify(keyPoints), nextStep, latestMessageId, conversationId, userId]
+    );
+    const updatedConversation = updatedRes.rows[0] || conversation;
+
+    let clientId = conversation.client_id || null;
+    if (!clientId) {
+      const phone = normalizeWhatsAppPhone(conversation.contact_phone || conversation.target_phone || '');
+      if (phone) {
+        const clientRes = await pool.query(
+          `SELECT id FROM clients
+           WHERE user_id = $1
+             AND EXISTS (
+               SELECT 1 FROM jsonb_array_elements(contact_methods) method
+               WHERE regexp_replace(method->>'value', '[^0-9]', '', 'g') LIKE $2
+             )
+           LIMIT 1`,
+          [userId, `%${phone.slice(-8)}`]
+        );
+        clientId = clientRes.rows[0]?.id || null;
+      }
+    }
+
+    if (clientId) {
+      try {
+        await createOrUpdateAgentKnowledge(userId, {
+          id: `whatsapp_memory_${conversationId}`,
+          clientId,
+          title: `WhatsApp Memory - ${conversation.client_name || conversation.contact_phone || conversation.target_phone || conversationId}`,
+          content: [
+            summary,
+            nextStep ? `Next step: ${nextStep}` : '',
+            keyPoints.length ? `Key points: ${keyPoints.join('; ')}` : ''
+          ].filter(Boolean).join('\n')
+        }, llmConfig, true);
+      } catch (error) {
+        console.warn('Failed to persist WhatsApp summary to knowledge base', { userId, conversationId, clientId, error });
+      }
+    }
+
+    return {
+      skipped: false,
+      summary,
+      keyPoints,
+      nextStep,
+      conversation: mapWhatsAppConversationRow({
+        ...updatedConversation,
+        client_name: conversation.client_name,
+        client_company: conversation.client_company
+      })
+    };
+  };
+
   const annotateAgentEmail = async (userId: string, emailIds: string[], tags: any, comment: any, agentName: string) => {
     if (emailIds.length === 0) return { tagged: 0, commented: 0 };
     let tagged = 0;
@@ -3133,6 +3317,15 @@ ${JSON.stringify(productsRes.rows.map((product: any) => ({
       res.json({ conversation: result.rows[0] });
     } catch (e: any) {
       res.status(500).json({ error: e.message || 'Failed to update WhatsApp conversation' });
+    }
+  });
+
+  app.post('/api/whatsapp-hub/conversations/:id/summarize', authenticateToken, async (req: any, res) => {
+    try {
+      const result = await maybeSummarizeWhatsAppConversation(req.user.uid, req.params.id);
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || 'Failed to summarize WhatsApp conversation' });
     }
   });
 

@@ -241,7 +241,18 @@ ${body || 'N/A'}
 
 Broader CRM/customer context:
 ${additionalContext || 'N/A'}`,
-        context: { channel, subject, body, additionalContext, clientName, hasClient, hasKnowledge },
+        context: {
+          channel,
+          subject,
+          body,
+          additionalContext,
+          clientId: clientId || null,
+          clientName,
+          hasClient,
+          hasKnowledge,
+          systemLanguage: language === 'zh' ? 'Chinese' : 'English',
+          ragScope: clientId ? 'client_and_global_knowledge' : 'global_knowledge'
+        },
         llmConfig,
         skipKnowledgeBase: false
       })

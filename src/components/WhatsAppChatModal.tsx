@@ -64,6 +64,11 @@ interface WhatsAppConversation {
   comments: Comment[];
   agentContextAnalysis?: any;
   agentContextAnalysisKey?: string;
+  whatsappSummary?: string;
+  whatsappSummaryKeyPoints?: string[];
+  whatsappSummaryNextStep?: string;
+  whatsappSummaryMessageId?: string;
+  whatsappSummaryUpdatedAt?: string | null;
 }
 
 const cleanPhone = (value: string) => value.replace(/[^0-9]/g, '');
@@ -185,6 +190,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [mappingEdit, setMappingEdit] = useState<{ chatId: string; phone: string; saving?: boolean } | null>(null);
   const syncInFlightRef = useRef(false);
   const loadRequestRef = useRef(0);
+  const summaryRequestRef = useRef<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const rawChatId = conversation?.rawChatId || (isChatId(targetPhone) ? targetPhone : '');
   const mappedPhone = conversation?.contactPhone || (!isChatId(targetPhone) ? targetPhone : '');
@@ -230,6 +236,17 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     salesPoints: product.salesPoints?.slice(0, 700),
     bulkPrices: product.bulkPrices || []
   })), [products]);
+  const whatsappMemoryContext = useMemo(() => {
+    if (!conversation?.whatsappSummary) return '';
+    return [
+      `Compressed WhatsApp memory: ${conversation.whatsappSummary}`,
+      conversation.whatsappSummaryNextStep ? `Compressed WhatsApp next step: ${conversation.whatsappSummaryNextStep}` : '',
+      Array.isArray(conversation.whatsappSummaryKeyPoints) && conversation.whatsappSummaryKeyPoints.length > 0
+        ? `Compressed WhatsApp key points: ${conversation.whatsappSummaryKeyPoints.join(' | ')}`
+        : '',
+      conversation.whatsappSummaryUpdatedAt ? `Compressed WhatsApp memory updated at: ${conversation.whatsappSummaryUpdatedAt}` : ''
+    ].filter(Boolean).join('\n');
+  }, [conversation?.whatsappSummary, conversation?.whatsappSummaryKeyPoints, conversation?.whatsappSummaryNextStep, conversation?.whatsappSummaryUpdatedAt]);
   const latestInboundMessage = messages.filter(message => message.direction === 'inbound').slice(-1)[0];
   const latestOutboundMessage = messages.filter(message => message.direction === 'outbound').slice(-1)[0];
   const recentInboundMessages = messages.filter(message => message.direction === 'inbound').slice(-6);
@@ -257,6 +274,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
         `Preferred language: ${activeClient.preferredLanguage || 'N/A'}`,
         `AI customer summary: ${activeClient.agentSummary || activeClient.leadSummary || 'N/A'}`,
         `Best next action: ${activeClient.agentNextStep || activeClient.leadNextStep || 'N/A'}`,
+        whatsappMemoryContext || 'Compressed WhatsApp memory: N/A',
         `Lead score: ${activeClient.leadScore ?? 'N/A'}`,
         `Tags: ${(activeClient.tags || []).join(', ') || 'N/A'}`,
         `Recent internal comments: ${(activeClient.comments || []).slice(-5).map(comment => comment.content).join(' | ') || 'N/A'}`,
@@ -268,6 +286,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
       ].join('\n')
     : [
         `Unlinked WhatsApp conversation: ${displayPhone}`,
+        whatsappMemoryContext || 'Compressed WhatsApp memory: N/A',
         `Product context: ${productSnippets.map(product => `${product.name}: ${product.salesPoints || product.description || ''}`).join(' | ') || 'N/A'}`,
         `Relevant knowledge snippets: ${localKnowledgeSnippets.map(item => `${item.title}: ${item.content}`).join(' | ') || 'N/A'}`
       ].join('\n');
@@ -571,6 +590,34 @@ ${bodyText}`,
   }, [embedded, targetPhone, latestMessageId, messages.length]);
 
   useEffect(() => {
+    if (!conversation?.id || messages.length <= 30 || !latestMessageId) return;
+    if (conversation.whatsappSummaryMessageId === latestMessageId) return;
+    const requestKey = `${conversation.id}:${latestMessageId}`;
+    if (summaryRequestRef.current.has(requestKey)) return;
+    summaryRequestRef.current.add(requestKey);
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const response = await fetch(`/api/whatsapp-hub/conversations/${encodeURIComponent(conversation.id)}/summarize`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+          signal: controller.signal
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Failed to summarize WhatsApp conversation');
+        if (data.conversation) {
+          setConversation(prev => prev && prev.id === data.conversation.id ? { ...prev, ...data.conversation } : prev);
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          console.warn('WhatsApp conversation summarization skipped', error);
+        }
+      }
+    })();
+    return () => controller.abort();
+  }, [conversation?.id, conversation?.whatsappSummaryMessageId, latestMessageId, messages.length]);
+
+  useEffect(() => {
     if (!whatsappAutoTranslateEnabled || messages.length === 0) return;
     const llmConfig = getTranslationLLMConfig();
     if (!llmConfig) {
@@ -810,6 +857,7 @@ ${bodyText}`,
 Write in a WhatsApp style: concise, natural, conversational, easy to reply to, and not formatted like an email. Customer-facing output language: ${outboundLanguage}. This language was resolved by priority: last customer communication language > client preferred language > official country/region language > English. Adapt tone, timing, offer details, and next step to the customer profile, preferences, prior communication, CRM records, recent WhatsApp chat, and relevant knowledge base context.
 Critical direction rule: inbound messages are customer messages; outbound messages are our team's messages. Never treat our outbound messages as if the customer said them. If the latest message is outbound, draft a follow-up based on the latest inbound customer message and prior outreach context.
 Before drafting, use the provided AI Customer Summary, AI next step, lead summaries, deal context, local RAG snippets, and product sales points. If those conflict with the raw chat, prioritize the latest inbound customer message and then CRM AI analysis.
+If compressed WhatsApp memory is provided, use it as durable long-conversation memory and avoid re-reading old turns unless the latest inbound message changes the context.
 ${mode === 'customer_service' ? 'If there is no inbound customer message, do not pretend the customer asked a question. Send a low-pressure service follow-up or request clarification only when appropriate.' : ''}
 Return only the message text.`,
           context: {
@@ -821,6 +869,12 @@ Return only the message text.`,
             aiCustomerSummary: activeClient?.agentSummary || activeClient?.leadSummary || '',
             aiCustomerNextStep: activeClient?.agentNextStep || activeClient?.leadNextStep || '',
             aiCustomerScore: activeClient?.leadScore ?? null,
+            compressedWhatsAppMemory: {
+              summary: conversation?.whatsappSummary || '',
+              keyPoints: conversation?.whatsappSummaryKeyPoints || [],
+              nextStep: conversation?.whatsappSummaryNextStep || '',
+              updatedAt: conversation?.whatsappSummaryUpdatedAt || null
+            },
             relatedLeads: relatedDeals.map(deal => ({
               id: deal.id,
               name: deal.name,
