@@ -49,6 +49,7 @@ export function LiveChat() {
   const t = useTranslation(language);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [sessionTab, setSessionTab] = useState<'open' | 'pending' | 'closed' | 'all'>('open');
   const [reply, setReply] = useState('');
   const [busy, setBusy] = useState(false);
   const [agentBusy, setAgentBusy] = useState(false);
@@ -81,18 +82,31 @@ export function LiveChat() {
     return () => window.clearInterval(interval);
   }, [selectedId, fetchLiveChatMessages, joinLiveChatSocketSession, liveChatSocketStatus]);
 
+  const sessionCounts = useMemo(() => ({
+    open: liveChatSessions.filter(session => session.status !== 'closed' && session.status !== 'pending').length,
+    pending: liveChatSessions.filter(session => session.status === 'pending').length,
+    closed: liveChatSessions.filter(session => session.status === 'closed').length,
+    all: liveChatSessions.length
+  }), [liveChatSessions]);
+
   const filteredSessions = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return liveChatSessions;
-    return liveChatSessions.filter(session => [
-      session.visitorName,
-      session.visitorEmail,
-      session.visitorPhone,
-      session.pageUrl,
-      session.lastMessage?.body,
-      ...(session.tags || [])
-    ].filter(Boolean).join(' ').toLowerCase().includes(normalized));
-  }, [liveChatSessions, query]);
+    return liveChatSessions.filter(session => {
+      const matchesTab = sessionTab === 'all'
+        || (sessionTab === 'open' && session.status !== 'closed' && session.status !== 'pending')
+        || session.status === sessionTab;
+      if (!matchesTab) return false;
+      if (!normalized) return true;
+      return [
+        session.visitorName,
+        session.visitorEmail,
+        session.visitorPhone,
+        session.pageUrl,
+        session.lastMessage?.body,
+        ...(session.tags || [])
+      ].filter(Boolean).join(' ').toLowerCase().includes(normalized);
+    });
+  }, [liveChatSessions, query, sessionTab]);
 
   const selectedSession = liveChatSessions.find(session => session.id === selectedId) || null;
   const selectedMessages = selectedId ? (liveChatMessages[selectedId] || []) : [];
@@ -113,6 +127,7 @@ export function LiveChat() {
     visitorInfo.timezone ? { key: 'timezone', icon: Clock, label: language === 'zh' ? '时区' : 'Timezone', value: visitorInfo.timezone } : null,
     visitorLocalTime ? { key: 'localTime', icon: Clock, label: language === 'zh' ? '当地时间' : 'Local time', value: visitorLocalTime } : null
   ].filter(Boolean) as Array<{ key: string; icon: typeof Monitor; label: string; value: string }>;
+  const hasVisitorInfo = visitorInfoItems.length > 0 || Boolean(visitorInfo.userAgent);
   const primaryContactMethod: ContactMethod | null = selectedSession?.visitorEmail
     ? { type: 'email', value: selectedSession.visitorEmail }
     : selectedSession?.visitorPhone
@@ -129,6 +144,11 @@ export function LiveChat() {
     });
     setIdentityEditing(false);
   }, [selectedSession?.id]);
+
+  useEffect(() => {
+    if (filteredSessions.some(session => session.id === selectedId)) return;
+    setSelectedId(filteredSessions[0]?.id || null);
+  }, [filteredSessions, selectedId]);
 
   const handleSend = async () => {
     if (!selectedId || !reply.trim()) return;
@@ -290,6 +310,28 @@ export function LiveChat() {
               placeholder={language === 'zh' ? '搜索访客、邮箱、页面或标签...' : 'Search visitor, email, page, or tags...'}
               className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-sm outline-none focus:border-cyan-500"
             />
+          </div>
+          <div className="mt-3 grid grid-cols-4 gap-1 rounded-xl border border-slate-800 bg-slate-950 p-1">
+            {([
+              { key: 'open', label: language === 'zh' ? '进行中' : 'Open', count: sessionCounts.open },
+              { key: 'pending', label: language === 'zh' ? '待处理' : 'Pending', count: sessionCounts.pending },
+              { key: 'closed', label: language === 'zh' ? '已归档' : 'Archived', count: sessionCounts.closed },
+              { key: 'all', label: language === 'zh' ? '全部' : 'All', count: sessionCounts.all }
+            ] as Array<{ key: typeof sessionTab; label: string; count: number }>).map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => setSessionTab(tab.key)}
+                className={cn(
+                  'rounded-lg px-2 py-1.5 text-xs font-bold transition-colors',
+                  sessionTab === tab.key
+                    ? 'bg-cyan-500/15 text-cyan-200 ring-1 ring-cyan-500/30'
+                    : 'text-slate-500 hover:bg-slate-900 hover:text-slate-200'
+                )}
+              >
+                <span>{tab.label}</span>
+                <span className="ml-1 text-[10px] opacity-70">{tab.count}</span>
+              </button>
+            ))}
           </div>
         </div>
 
@@ -461,6 +503,9 @@ export function LiveChat() {
                   )}
                   <button
                     onClick={() => updateLiveChatSession(selectedSession.id, { status: selectedSession.status === 'closed' ? 'open' : 'closed' })}
+                    title={selectedSession.status === 'closed'
+                      ? (language === 'zh' ? '重新打开会话：恢复到进行中状态，便于继续跟进。' : 'Reopen this session: mark it active again for follow-up.')
+                      : (language === 'zh' ? '关闭会话：标记为已处理/归档，不会删除消息或客户关联。' : 'Close this session: mark it handled/archived without deleting messages or client links.')}
                     className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-bold text-slate-300 hover:text-white"
                   >
                     <CheckCircle2 className="w-4 h-4" />
@@ -485,34 +530,46 @@ export function LiveChat() {
                   {language === 'zh' ? '添加' : 'Add'}
                 </button>
               </div>
-              {(visitorInfoItems.length > 0 || visitorInfo.userAgent) && (
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  {visitorInfoItems.map(item => {
-                    const Icon = item.icon;
-                    return (
-                      <span
-                        key={item.key}
-                        className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900/80 px-2.5 py-1.5 text-[11px] text-slate-400"
-                        title={item.value}
-                      >
-                        <Icon className="h-3.5 w-3.5 text-slate-500" />
-                        <span className="font-semibold text-slate-500">{item.label}</span>
-                        <span className="max-w-[260px] truncate text-slate-300">{item.value}</span>
-                      </span>
-                    );
-                  })}
-                  {visitorInfo.userAgent && (
-                    <span
-                      className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900/80 px-2.5 py-1.5 text-[11px] text-slate-400"
-                      title={visitorInfo.userAgent}
-                    >
-                      <Monitor className="h-3.5 w-3.5 text-slate-500" />
-                      <span className="font-semibold text-slate-500">User-Agent</span>
-                      <span className="max-w-[420px] truncate text-slate-300">{visitorInfo.userAgent}</span>
-                    </span>
-                  )}
+              <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900/50 p-3">
+                <div className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  <Monitor className="h-3.5 w-3.5" />
+                  {language === 'zh' ? '访客详情' : 'Visitor Details'}
                 </div>
-              )}
+                {hasVisitorInfo ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {visitorInfoItems.map(item => {
+                      const Icon = item.icon;
+                      return (
+                        <span
+                          key={item.key}
+                          className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950/70 px-2.5 py-1.5 text-[11px] text-slate-400"
+                          title={item.value}
+                        >
+                          <Icon className="h-3.5 w-3.5 text-slate-500" />
+                          <span className="font-semibold text-slate-500">{item.label}</span>
+                          <span className="max-w-[260px] truncate text-slate-300">{item.value}</span>
+                        </span>
+                      );
+                    })}
+                    {visitorInfo.userAgent && (
+                      <span
+                        className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950/70 px-2.5 py-1.5 text-[11px] text-slate-400"
+                        title={visitorInfo.userAgent}
+                      >
+                        <Monitor className="h-3.5 w-3.5 text-slate-500" />
+                        <span className="font-semibold text-slate-500">User-Agent</span>
+                        <span className="max-w-[420px] truncate text-slate-300">{visitorInfo.userAgent}</span>
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs leading-relaxed text-slate-500">
+                    {language === 'zh'
+                      ? '此会话创建时尚未采集访客环境信息，因此无法回填 IP、浏览器、操作系统、语言或时区。新的 Live Chat 会话会自动记录这些访客详情。'
+                      : 'Visitor environment details were not captured when this session was created, so IP, browser, OS, language, or timezone cannot be backfilled. New Live Chat sessions will record these visitor details automatically.'}
+                  </p>
+                )}
+              </div>
               {linkedClient && (aiCustomerSummary || bestNextStep) && (
                 <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
                   {aiCustomerSummary && (
