@@ -80,6 +80,9 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
   const languageControlRef = useRef<HTMLDivElement>(null);
   const [languageDropdownRect, setLanguageDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const [preferredTimeRange, setPreferredTimeRange] = useState(existingClient?.preferredTimeRange || initialData?.preferredTimeRange || '');
+  const [sourceType, setSourceType] = useState(existingClient?.sourceType || initialData?.sourceType || '');
+  const [sourceId, setSourceId] = useState(existingClient?.sourceId || initialData?.sourceId || '');
+  const [sourceLabel, setSourceLabel] = useState(existingClient?.sourceLabel || initialData?.sourceLabel || '');
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>(existingClient?.productIds || initialData?.productIds || []);
   const [productSearch, setProductSearch] = useState('');
   const [isProductSearchOpen, setIsProductSearchOpen] = useState(false);
@@ -221,6 +224,9 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
       contacts: contactsWithPrimary,
       primaryContactId: primaryContact?.id,
       productIds: selectedProductIds,
+      sourceType: sourceType.trim(),
+      sourceId: sourceId.trim(),
+      sourceLabel: sourceLabel.trim(),
     };
 
     if (existingClient) {
@@ -459,6 +465,59 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
                   )}
                 </div>
               )}
+            </div>
+          </div>
+          <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-bold uppercase tracking-wide text-slate-400">{language === 'zh' ? '来源字段' : 'Source Fields'}</div>
+                <div className="mt-1 text-[11px] text-slate-500">
+                  {language === 'zh' ? '用于标记客户/线索来自哪个渠道或表单。' : 'Track which channel or form created this client/lead.'}
+                </div>
+              </div>
+              {sourceType === 'form' && sourceId && (
+                <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-[10px] font-bold uppercase text-cyan-200">
+                  {language === 'zh' ? '表单来源' : 'Form Source'}
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold uppercase text-slate-500">{language === 'zh' ? '来源类型' : 'Source Type'}</label>
+                <select
+                  value={sourceType}
+                  onChange={e => setSourceType(e.target.value)}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+                >
+                  <option value="">{language === 'zh' ? '未设置' : 'Not set'}</option>
+                  <option value="form">{language === 'zh' ? '表单' : 'Form'}</option>
+                  <option value="manual">{language === 'zh' ? '手动录入' : 'Manual'}</option>
+                  <option value="import">{language === 'zh' ? '导入' : 'Import'}</option>
+                  <option value="public_pool">{language === 'zh' ? '公海' : 'Public Pool'}</option>
+                  <option value="live_chat">Live Chat</option>
+                  <option value="whatsapp">WhatsApp</option>
+                  <option value="email">Email</option>
+                  <option value="agent">{language === 'zh' ? '智能体' : 'Agent'}</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold uppercase text-slate-500">{language === 'zh' ? '来源 ID' : 'Source ID'}</label>
+                <input
+                  value={sourceId}
+                  onChange={e => setSourceId(e.target.value)}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+                  placeholder="form_xxx / campaign_xxx"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold uppercase text-slate-500">{language === 'zh' ? '来源显示名称' : 'Source Label'}</label>
+                <input
+                  value={sourceLabel}
+                  onChange={e => setSourceLabel(e.target.value)}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+                  placeholder={language === 'zh' ? '例如：Form (ID): Contact Us' : 'e.g. Form (ID): Contact Us'}
+                />
+              </div>
             </div>
           </div>
             </div>
