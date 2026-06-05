@@ -20,9 +20,26 @@ type CustomerForm = {
   defaultTags: string[];
   createLead: boolean;
   successMessage: string;
+  securityConfig?: CustomerFormSecurityConfig;
   submissionsCount?: number;
   createdAt?: string;
   updatedAt?: string;
+};
+
+type CustomerFormSecurityConfig = {
+  honeypotEnabled: boolean;
+  honeypotField: string;
+  minSubmitSeconds: number;
+  rateLimitPerHour: number;
+  allowedOrigins: string[];
+};
+
+const DEFAULT_SECURITY_CONFIG: CustomerFormSecurityConfig = {
+  honeypotEnabled: true,
+  honeypotField: 'website_url',
+  minSubmitSeconds: 3,
+  rateLimitPerHour: 20,
+  allowedOrigins: []
 };
 
 const DEFAULT_FIELDS: CustomerFormField[] = [
@@ -43,7 +60,8 @@ const emptyDraft = (): CustomerForm => ({
   fields: DEFAULT_FIELDS,
   defaultTags: ['website-form'],
   createLead: true,
-  successMessage: 'Thanks. We have received your submission.'
+  successMessage: 'Thanks. We have received your submission.',
+  securityConfig: DEFAULT_SECURITY_CONFIG
 });
 
 function escapeHtml(value: string) {
@@ -56,6 +74,8 @@ function escapeHtml(value: string) {
 
 function buildEmbedHtml(form: CustomerForm, endpoint: string) {
   const successMessageJson = JSON.stringify(form.successMessage || 'Thanks. We have received your submission.');
+  const securityConfig = { ...DEFAULT_SECURITY_CONFIG, ...(form.securityConfig || {}) };
+  const honeypotField = securityConfig.honeypotField || DEFAULT_SECURITY_CONFIG.honeypotField;
   const inputs = form.fields.map(field => {
     const label = `<label style="display:block;margin:12px 0 6px;font-weight:600;">${escapeHtml(field.label)}${field.required ? ' *' : ''}</label>`;
     if (field.type === 'textarea') {
@@ -73,6 +93,8 @@ function buildEmbedHtml(form: CustomerForm, endpoint: string) {
   <h3 style="margin:0 0 8px;">${escapeHtml(form.name || 'Contact Form')}</h3>
   ${form.description ? `<p style="margin:0 0 16px;color:#64748b;">${escapeHtml(form.description)}</p>` : ''}
   ${inputs}
+  ${securityConfig.honeypotEnabled ? `<div style="position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;" aria-hidden="true"><label>Website URL</label><input name="${escapeHtml(honeypotField)}" tabindex="-1" autocomplete="off" /></div>` : ''}
+  <input type="hidden" name="_formStartedAt" value="" />
   <button type="submit" style="margin-top:16px;padding:10px 16px;border:0;border-radius:8px;background:#0891b2;color:white;font-weight:700;cursor:pointer;">Submit</button>
   <div data-result style="margin-top:12px;color:#0f766e;font-weight:600;"></div>
 </form>
@@ -80,6 +102,8 @@ function buildEmbedHtml(form: CustomerForm, endpoint: string) {
 (function(){
   var form = document.getElementById('${formId}');
   if (!form) return;
+  var startedAtInput = form.querySelector('input[name="_formStartedAt"]');
+  if (startedAtInput) startedAtInput.value = String(Date.now());
   form.addEventListener('submit', async function(event) {
     event.preventDefault();
     var result = form.querySelector('[data-result]');
@@ -122,17 +146,24 @@ function getMockValueForField(field: CustomerFormField) {
 }
 
 function buildMockPayload(form: CustomerForm) {
-  return form.fields.reduce<Record<string, string | number>>((payload, field) => {
+  const securityConfig = { ...DEFAULT_SECURITY_CONFIG, ...(form.securityConfig || {}) };
+  const payload = form.fields.reduce<Record<string, string | number>>((payload, field) => {
     if (!field.key.trim()) return payload;
     payload[field.key.trim()] = getMockValueForField(field);
     return payload;
   }, {});
+  payload._formStartedAt = Date.now() - Math.max(3, securityConfig.minSubmitSeconds || 3) * 1000;
+  if (securityConfig.honeypotEnabled) payload[securityConfig.honeypotField || DEFAULT_SECURITY_CONFIG.honeypotField] = '';
+  return payload;
 }
 
-function buildCurlCommand(endpoint: string, mockJson: string) {
+function buildCurlCommand(endpoint: string, mockJson: string, form: CustomerForm) {
   const escapedJson = mockJson.replace(/'/g, `'\\''`);
+  const allowedOrigin = (form.securityConfig?.allowedOrigins || [])[0];
+  const originHeader = allowedOrigin ? ` \\
+  -H 'Origin: ${allowedOrigin}'` : '';
   return `curl -X POST '${endpoint}' \\
-  -H 'Content-Type: application/json' \\
+  -H 'Content-Type: application/json'${originHeader} \\
   -d '${escapedJson}'`;
 }
 
@@ -144,6 +175,7 @@ export function CustomerForms() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [tagDraft, setTagDraft] = useState('');
+  const [originDraft, setOriginDraft] = useState('');
 
   const token = localStorage.getItem('token');
   const selectedForm = forms.find(form => form.id === selectedId) || null;
@@ -151,7 +183,7 @@ export function CustomerForms() {
   const publicEndpoint = draft.id ? `${window.location.origin}/api/public/customer-forms/${draft.id}/submit` : '';
   const embedHtml = useMemo(() => draft.id ? buildEmbedHtml(draft, publicEndpoint) : '', [draft, publicEndpoint]);
   const mockJson = useMemo(() => draft.id ? JSON.stringify(buildMockPayload(draft), null, 2) : '', [draft]);
-  const curlCommand = useMemo(() => draft.id ? buildCurlCommand(publicEndpoint, mockJson) : '', [draft.id, publicEndpoint, mockJson]);
+  const curlCommand = useMemo(() => draft.id ? buildCurlCommand(publicEndpoint, mockJson, draft) : '', [draft, publicEndpoint, mockJson]);
 
   const fetchForms = async () => {
     if (!token) return;
@@ -177,8 +209,20 @@ export function CustomerForms() {
   }, []);
 
   useEffect(() => {
-    if (selectedForm) setDraft({ ...selectedForm, fields: selectedForm.fields || DEFAULT_FIELDS, defaultTags: selectedForm.defaultTags || [] });
+    if (selectedForm) setDraft({
+      ...selectedForm,
+      fields: selectedForm.fields || DEFAULT_FIELDS,
+      defaultTags: selectedForm.defaultTags || [],
+      securityConfig: { ...DEFAULT_SECURITY_CONFIG, ...(selectedForm.securityConfig || {}) }
+    });
   }, [selectedId]);
+
+  const updateSecurityConfig = (updates: Partial<CustomerFormSecurityConfig>) => {
+    setDraft(current => ({
+      ...current,
+      securityConfig: { ...DEFAULT_SECURITY_CONFIG, ...(current.securityConfig || {}), ...updates }
+    }));
+  };
 
   const updateField = (index: number, updates: Partial<CustomerFormField>) => {
     setDraft(current => ({
@@ -357,6 +401,89 @@ export function CustomerForms() {
                     </button>
                   </div>
                 ))}
+              </div>
+            </div>
+
+            <div className="mt-6 rounded-lg border border-slate-800 bg-slate-950/60 p-4">
+              <div className="mb-3">
+                <h3 className="text-sm font-bold">{language === 'zh' ? '安全与反垃圾' : 'Security & Anti-Spam'}</h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  {language === 'zh'
+                    ? '公开表单 API 会暴露在网页中，建议保持蜜罐、最短填写时间和速率限制开启。'
+                    : 'Public form APIs are visible in websites. Keep honeypot, minimum fill time, and rate limiting enabled.'}
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <label className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2 text-sm text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={(draft.securityConfig || DEFAULT_SECURITY_CONFIG).honeypotEnabled !== false}
+                    onChange={e => updateSecurityConfig({ honeypotEnabled: e.target.checked })}
+                  />
+                  {language === 'zh' ? '启用蜜罐字段' : 'Enable honeypot field'}
+                </label>
+                <label className="block">
+                  <span className="text-xs font-bold uppercase tracking-wide text-slate-500">{language === 'zh' ? '蜜罐字段名' : 'Honeypot Field Name'}</span>
+                  <input
+                    value={(draft.securityConfig || DEFAULT_SECURITY_CONFIG).honeypotField || DEFAULT_SECURITY_CONFIG.honeypotField}
+                    onChange={e => updateSecurityConfig({ honeypotField: e.target.value.trim() || DEFAULT_SECURITY_CONFIG.honeypotField })}
+                    className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-cyan-500"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-bold uppercase tracking-wide text-slate-500">{language === 'zh' ? '最短提交时间（秒）' : 'Minimum Submit Time (seconds)'}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={120}
+                    value={(draft.securityConfig || DEFAULT_SECURITY_CONFIG).minSubmitSeconds}
+                    onChange={e => updateSecurityConfig({ minSubmitSeconds: Math.max(0, Number(e.target.value) || 0) })}
+                    className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-cyan-500"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-bold uppercase tracking-wide text-slate-500">{language === 'zh' ? '每 IP 每小时提交上限' : 'Rate Limit / IP / Hour'}</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={1000}
+                    value={(draft.securityConfig || DEFAULT_SECURITY_CONFIG).rateLimitPerHour}
+                    onChange={e => updateSecurityConfig({ rateLimitPerHour: Math.max(1, Number(e.target.value) || DEFAULT_SECURITY_CONFIG.rateLimitPerHour) })}
+                    className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-cyan-500"
+                  />
+                </label>
+              </div>
+              <div className="mt-4">
+                <span className="text-xs font-bold uppercase tracking-wide text-slate-500">{language === 'zh' ? '允许来源域名（可选）' : 'Allowed Origins (optional)'}</span>
+                <div className="mt-1 flex min-h-[40px] flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950 px-2 py-1">
+                  {((draft.securityConfig || DEFAULT_SECURITY_CONFIG).allowedOrigins || []).map(origin => (
+                    <span key={origin} className="inline-flex items-center gap-1 rounded bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-200">
+                      {origin}
+                      <button onClick={() => updateSecurityConfig({ allowedOrigins: ((draft.securityConfig || DEFAULT_SECURITY_CONFIG).allowedOrigins || []).filter(item => item !== origin) })}>x</button>
+                    </span>
+                  ))}
+                  <input
+                    value={originDraft}
+                    onChange={e => setOriginDraft(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && originDraft.trim()) {
+                        e.preventDefault();
+                        const normalized = originDraft.trim().replace(/\/+$/, '');
+                        updateSecurityConfig({
+                          allowedOrigins: Array.from(new Set([...(draft.securityConfig?.allowedOrigins || []), normalized]))
+                        });
+                        setOriginDraft('');
+                      }
+                    }}
+                    placeholder={language === 'zh' ? '例如 https://example.com，回车添加' : 'e.g. https://example.com, Enter to add'}
+                    className="min-w-[220px] flex-1 bg-transparent text-sm outline-none"
+                  />
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {language === 'zh'
+                    ? '留空则允许所有来源。填写后只接受这些域名 Referer/Origin 的提交。'
+                    : 'Leave empty to allow all origins. When set, submissions must come from matching Referer/Origin domains.'}
+                </p>
               </div>
             </div>
 

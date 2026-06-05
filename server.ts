@@ -163,6 +163,8 @@ const getRequestIp = (req: any) => {
   return (headerIp || socketIp).replace(/^::ffff:/, '');
 };
 
+const publicCustomerFormRateBuckets = new Map<string, { windowStart: number; count: number }>();
+
 const parseUserAgent = (userAgent: string) => {
   const ua = String(userAgent || '');
   const browserPatterns: Array<[string, RegExp]> = [
@@ -409,6 +411,7 @@ async function initDB() {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
+      ALTER TABLE customer_forms ADD COLUMN IF NOT EXISTS security_config JSONB DEFAULT '{}'::jsonb;
 
       CREATE TABLE IF NOT EXISTS global_settings (
         key VARCHAR(128) PRIMARY KEY,
@@ -8581,10 +8584,84 @@ Return JSON only:
     defaultTags: row.default_tags || [],
     createLead: row.create_lead !== false,
     successMessage: row.success_message || '',
+    securityConfig: normalizeCustomerFormSecurityConfig(row.security_config || {}),
     submissionsCount: Number(row.submissions_count || 0),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   });
+
+  const normalizeCustomerFormSecurityConfig = (input: any = {}) => {
+    const allowedOrigins = Array.isArray(input.allowedOrigins)
+      ? input.allowedOrigins
+      : Array.isArray(input.allowed_origins)
+        ? input.allowed_origins
+        : [];
+    return {
+      honeypotEnabled: input.honeypotEnabled !== false,
+      honeypotField: String(input.honeypotField || 'website_url').trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64) || 'website_url',
+      minSubmitSeconds: Math.max(0, Math.min(120, Number(input.minSubmitSeconds ?? 3) || 0)),
+      rateLimitPerHour: Math.max(1, Math.min(1000, Number(input.rateLimitPerHour ?? 20) || 20)),
+      allowedOrigins: allowedOrigins
+        .map((origin: any) => String(origin || '').trim().replace(/\/+$/, ''))
+        .filter(Boolean)
+        .slice(0, 20)
+    };
+  };
+
+  const getOriginFromHeader = (value: any) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    try {
+      const parsed = new URL(raw);
+      return `${parsed.protocol}//${parsed.host}`.replace(/\/+$/, '');
+    } catch {
+      return raw.replace(/\/+$/, '');
+    }
+  };
+
+  const assertCustomerFormSubmissionAllowed = async (req: any, form: any) => {
+    const security = normalizeCustomerFormSecurityConfig(form.security_config || {});
+    const ip = getRequestIp(req) || 'unknown';
+    const bucketKey = `${form.id}:${ip}`;
+    const now = Date.now();
+    const currentBucket = publicCustomerFormRateBuckets.get(bucketKey);
+    const bucket = currentBucket && now - currentBucket.windowStart < 60 * 60 * 1000
+      ? currentBucket
+      : { windowStart: now, count: 0 };
+    bucket.count += 1;
+    publicCustomerFormRateBuckets.set(bucketKey, bucket);
+    if (bucket.count > security.rateLimitPerHour) {
+      const error: any = new Error('Too many submissions. Please try again later.');
+      error.status = 429;
+      throw error;
+    }
+
+    const origins = security.allowedOrigins || [];
+    if (origins.length > 0) {
+      const requestOrigin = getOriginFromHeader(req.headers?.origin) || getOriginFromHeader(req.headers?.referer);
+      if (!requestOrigin || !origins.includes(requestOrigin)) {
+        const error: any = new Error('This form is not allowed from the current website origin.');
+        error.status = 403;
+        throw error;
+      }
+    }
+
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    if (security.honeypotEnabled && String(body[security.honeypotField] || '').trim()) {
+      const error: any = new Error('Submission rejected.');
+      error.status = 400;
+      throw error;
+    }
+
+    if (security.minSubmitSeconds > 0) {
+      const startedAt = Number(body._formStartedAt || body.formStartedAt || 0);
+      if (!startedAt || !Number.isFinite(startedAt) || now - startedAt < security.minSubmitSeconds * 1000) {
+        const error: any = new Error('Please wait a moment before submitting the form.');
+        error.status = 400;
+        throw error;
+      }
+    }
+  };
 
   const normalizeFormFields = (fields: any[]) => {
     const fallback = [
@@ -8664,11 +8741,12 @@ Return JSON only:
       if (!name) return res.status(400).json({ error: 'Form name is required' });
       const fields = normalizeFormFields(req.body.fields || []);
       const defaultTags = Array.isArray(req.body.defaultTags) ? req.body.defaultTags.map((tag: any) => String(tag).trim()).filter(Boolean) : [];
+      const securityConfig = normalizeCustomerFormSecurityConfig(req.body.securityConfig || {});
       const result = await pool.query(
-        `INSERT INTO customer_forms (id, user_id, name, description, status, fields, default_tags, create_lead, success_message)
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9)
+        `INSERT INTO customer_forms (id, user_id, name, description, status, fields, default_tags, create_lead, success_message, security_config)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10::jsonb)
          RETURNING *`,
-        [id, req.user.uid, name, req.body.description || '', req.body.status || 'active', JSON.stringify(fields), JSON.stringify(defaultTags), req.body.createLead !== false, req.body.successMessage || 'Thanks. We have received your submission.']
+        [id, req.user.uid, name, req.body.description || '', req.body.status || 'active', JSON.stringify(fields), JSON.stringify(defaultTags), req.body.createLead !== false, req.body.successMessage || 'Thanks. We have received your submission.', JSON.stringify(securityConfig)]
       );
       res.json(customerFormToDto(result.rows[0]));
     } catch (e: any) {
@@ -8706,6 +8784,10 @@ Return JSON only:
       if (req.body.createLead !== undefined) {
         updates.push(`create_lead = $${idx++}`);
         values.push(Boolean(req.body.createLead));
+      }
+      if (req.body.securityConfig !== undefined) {
+        updates.push(`security_config = $${idx++}::jsonb`);
+        values.push(JSON.stringify(normalizeCustomerFormSecurityConfig(req.body.securityConfig || {})));
       }
       if (updates.length === 0) return res.status(400).json({ error: 'No updates provided' });
       updates.push('updated_at = CURRENT_TIMESTAMP');
@@ -8748,7 +8830,10 @@ Return JSON only:
       const formRes = await pool.query('SELECT * FROM customer_forms WHERE id = $1 AND status = $2 LIMIT 1', [req.params.id, 'active']);
       if (formRes.rows.length === 0) return res.status(404).json({ error: 'Form not found' });
       const form = formRes.rows[0];
+      await assertCustomerFormSubmissionAllowed(req, form);
       const payload = extractFormPayload(req.body);
+      const securityConfig = normalizeCustomerFormSecurityConfig(form.security_config || {});
+      delete payload[securityConfig.honeypotField];
       const fields = normalizeFormFields(form.fields || []);
       const missing = fields.filter((field: any) => field.required && !payload[field.key]).map((field: any) => field.label);
       if (missing.length > 0) return res.status(400).json({ error: `Missing required fields: ${missing.join(', ')}` });
