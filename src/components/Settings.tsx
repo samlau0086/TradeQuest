@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { useStore, InboxConfig, OutboxConfig, LLMConfig, PaymentTerm, LeadDataProvider, EmailSignature, EmailServerMapping, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType } from '../store';
+import { useStore, InboxConfig, OutboxConfig, LLMConfig, PaymentTerm, LeadDataProvider, EmailSignature, EmailServerMapping, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType, WhatsAppHubActorConfig } from '../store';
 import { useAuthStore } from '../authStore';
-import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark, Clock, Book, Target, Trophy, Eye, EyeOff, MessageCircle, Bell, RefreshCw, KeyRound, Copy, ShieldCheck } from 'lucide-react';
+import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark, Clock, Book, Target, Trophy, Eye, EyeOff, MessageCircle, Bell, RefreshCw, KeyRound, Copy, ShieldCheck, Search } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ProfileSettings } from './ProfileSettings';
 import { UserManagement } from './UserManagement';
@@ -36,6 +36,17 @@ interface ApiTokenRecord {
   revokedAt?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+interface WhatsAppHubClientOption {
+  id: string;
+  name?: string;
+  phone?: string;
+  status?: string;
+  quota?: {
+    remaining?: number;
+    dailyQuota?: number;
+  };
 }
 
 const API_TOKEN_TEMPLATES = [
@@ -245,6 +256,10 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
   const [generatedApiToken, setGeneratedApiToken] = useState('');
   const [loadingApiTokens, setLoadingApiTokens] = useState(false);
   const [creatingApiToken, setCreatingApiToken] = useState(false);
+  const [whatsAppHubClients, setWhatsAppHubClients] = useState<WhatsAppHubClientOption[]>([]);
+  const [loadingWhatsAppHubClients, setLoadingWhatsAppHubClients] = useState(false);
+  const [whatsAppActorSearch, setWhatsAppActorSearch] = useState('');
+  const [isWhatsAppActorPickerOpen, setIsWhatsAppActorPickerOpen] = useState(false);
 
   const [editingPTId, setEditingPTId] = useState<string | null>(null);
   const [ptFormData, setPtFormData] = useState<Partial<PaymentTerm>>({});
@@ -358,6 +373,72 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
       setTestingExternalNotification(false);
     }
   };
+
+  const fetchWhatsAppHubClients = async () => {
+    if (!token) return;
+    if (!whatsappHubConfig.enabled || !whatsappHubConfig.baseUrl || !whatsappHubConfig.apiToken) {
+      notify(language === 'zh' ? '请先启用并配置 WhatsApp Actor Hub。' : 'Enable and configure WhatsApp Actor Hub first.', 'warning');
+      return;
+    }
+    setLoadingWhatsAppHubClients(true);
+    try {
+      const response = await fetch('/api/whatsapp-hub/clients', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Failed to load WhatsApp Hub clients');
+      setWhatsAppHubClients(Array.isArray(data.clients) ? data.clients : []);
+      setIsWhatsAppActorPickerOpen(true);
+    } catch (error: any) {
+      notify(error?.message || (language === 'zh' ? '读取 WhatsApp Hub clients 失败。' : 'Failed to load WhatsApp Hub clients.'), 'error');
+    } finally {
+      setLoadingWhatsAppHubClients(false);
+    }
+  };
+
+  const updateWhatsAppActors = (actors: WhatsAppHubActorConfig[]) => {
+    updateWhatsAppHubConfig({ actors });
+  };
+
+  const addWhatsAppActor = (client: WhatsAppHubClientOption) => {
+    if (!client?.id) return;
+    const actors = whatsappHubConfig.actors || [];
+    if (actors.some(actor => actor.clientId === client.id)) {
+      notify(language === 'zh' ? '此 Hub client 已经在 actor 池中。' : 'This Hub client is already in the actor pool.', 'warning');
+      return;
+    }
+    updateWhatsAppActors([
+      ...actors,
+      {
+        id: `wa_actor_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        name: client.name || client.phone || client.id,
+        clientId: client.id,
+        enabled: true
+      }
+    ]);
+    setWhatsAppActorSearch('');
+    setIsWhatsAppActorPickerOpen(false);
+  };
+
+  const patchWhatsAppActor = (actorId: string, updates: Partial<WhatsAppHubActorConfig>) => {
+    updateWhatsAppActors((whatsappHubConfig.actors || []).map(actor => (
+      actor.id === actorId ? { ...actor, ...updates } : actor
+    )));
+  };
+
+  const removeWhatsAppActor = (actorId: string) => {
+    updateWhatsAppActors((whatsappHubConfig.actors || []).filter(actor => actor.id !== actorId));
+  };
+
+  const selectedWhatsAppActorClientIds = new Set((whatsappHubConfig.actors || []).map(actor => actor.clientId));
+  const filteredWhatsAppHubClients = whatsAppHubClients.filter(client => {
+    if (!client.id || selectedWhatsAppActorClientIds.has(client.id)) return false;
+    const query = whatsAppActorSearch.trim().toLowerCase();
+    if (!query) return true;
+    return [client.id, client.name, client.phone, client.status]
+      .filter(Boolean)
+      .some(value => String(value).toLowerCase().includes(query));
+  });
 
   const handleEditPT = (pt: PaymentTerm) => {
     setEditingPTId(pt.id);
@@ -1973,6 +2054,111 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
                     onChange={e => updateWhatsAppHubConfig({ minReplyRate: Number(e.target.value) || 0.25 })}
                     className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-green-500"
                   />
+                </div>
+              </div>
+              <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-4 space-y-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300">Actor Client Pool</h4>
+                    <p className="mt-1 text-xs text-slate-500">
+                      One actor maps to one WhatsApp Hub client. Random sends and agents will only use enabled actors when this pool is configured.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={fetchWhatsAppHubClients}
+                    disabled={loadingWhatsAppHubClients}
+                    className="inline-flex items-center gap-2 rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-2 text-xs font-bold text-green-300 hover:bg-green-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${loadingWhatsAppHubClients ? 'animate-spin' : ''}`} />
+                    Load Hub Clients
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {(whatsappHubConfig.actors || []).map(actor => (
+                    <div
+                      key={actor.id}
+                      className={`flex max-w-full items-center gap-2 rounded-lg border px-2 py-2 ${
+                        actor.enabled === false
+                          ? 'border-slate-800 bg-slate-900/80 text-slate-500'
+                          : 'border-green-500/30 bg-green-500/10 text-green-200'
+                      }`}
+                    >
+                      <label className="flex items-center gap-1 text-[11px] font-bold uppercase">
+                        <input
+                          type="checkbox"
+                          checked={actor.enabled !== false}
+                          onChange={e => patchWhatsAppActor(actor.id, { enabled: e.target.checked })}
+                          className="accent-green-500"
+                        />
+                        Actor
+                      </label>
+                      <input
+                        value={actor.name}
+                        onChange={e => patchWhatsAppActor(actor.id, { name: e.target.value })}
+                        className="min-w-[120px] max-w-[220px] rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-200 outline-none focus:border-green-500"
+                        placeholder="Actor name"
+                      />
+                      <span className="max-w-[220px] truncate rounded bg-slate-950 px-2 py-1 font-mono text-[11px] text-slate-400">
+                        {actor.clientId}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeWhatsAppActor(actor.id)}
+                        className="rounded p-1 text-slate-500 hover:bg-red-500/10 hover:text-red-300"
+                        title="Remove actor"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                  {(whatsappHubConfig.actors || []).length === 0 && (
+                    <div className="rounded-lg border border-dashed border-slate-800 px-3 py-2 text-xs text-slate-500">
+                      No actor clients configured. Random sends can still use any online Hub client until actors are added.
+                    </div>
+                  )}
+                </div>
+
+                <div className="relative max-w-2xl">
+                  <div className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 focus-within:border-green-500">
+                    <Search className="h-4 w-4 text-slate-500" />
+                    <input
+                      value={whatsAppActorSearch}
+                      onChange={e => {
+                        setWhatsAppActorSearch(e.target.value);
+                        setIsWhatsAppActorPickerOpen(true);
+                      }}
+                      onFocus={() => setIsWhatsAppActorPickerOpen(true)}
+                      placeholder="Search Hub client by name, id, phone, status..."
+                      className="min-w-0 flex-1 bg-transparent text-sm text-slate-200 outline-none placeholder:text-slate-600"
+                    />
+                  </div>
+                  {isWhatsAppActorPickerOpen && whatsAppHubClients.length > 0 && (
+                    <div className="absolute z-30 mt-2 max-h-72 w-full overflow-auto rounded-lg border border-slate-700 bg-slate-950 shadow-2xl">
+                      {filteredWhatsAppHubClients.length > 0 ? filteredWhatsAppHubClients.map(client => (
+                        <button
+                          key={client.id}
+                          type="button"
+                          onClick={() => addWhatsAppActor(client)}
+                          className="flex w-full items-center justify-between gap-3 border-b border-slate-900 px-3 py-2 text-left text-sm hover:bg-slate-900"
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate font-bold text-slate-200">{client.name || client.phone || client.id}</span>
+                            <span className="block truncate font-mono text-[11px] text-slate-500">{client.id}{client.phone ? ` · ${client.phone}` : ''}</span>
+                          </span>
+                          <span className={`shrink-0 rounded px-2 py-1 text-[10px] font-bold uppercase ${
+                            client.status === 'online' ? 'bg-green-500/10 text-green-300' : 'bg-slate-800 text-slate-400'
+                          }`}>
+                            {client.status || 'unknown'}
+                            {client.quota ? ` · ${client.quota.remaining ?? '-'}/${client.quota.dailyQuota ?? '-'}` : ''}
+                          </span>
+                        </button>
+                      )) : (
+                        <div className="px-3 py-3 text-xs text-slate-500">No matching Hub clients.</div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

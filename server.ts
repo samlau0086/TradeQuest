@@ -1769,7 +1769,17 @@ No markdown wrappers, just valid JSON.`;
       baseUrl: String(config.baseUrl).replace(/\/+$/, ''),
       apiToken: String(config.apiToken),
       dailyBaseQuota: Number(config.dailyBaseQuota || 40),
-      minReplyRate: Number(config.minReplyRate || 0.25)
+      minReplyRate: Number(config.minReplyRate || 0.25),
+      actors: Array.isArray(config.actors)
+        ? config.actors
+            .map((actor: any) => ({
+              id: String(actor?.id || '').trim(),
+              name: String(actor?.name || '').trim(),
+              clientId: String(actor?.clientId || '').trim(),
+              enabled: actor?.enabled !== false
+            }))
+            .filter((actor: any) => actor.clientId && actor.enabled)
+        : []
     };
   };
 
@@ -2290,7 +2300,15 @@ No markdown wrappers, just valid JSON.`;
   };
 
   const chooseWhatsAppClient = async (userId: string, targetPhone: string, requestedClientId?: string) => {
+    const config = await getWhatsAppHubConfig(userId);
+    const actorClientIds = new Set((config.actors || []).map((actor: any) => actor.clientId).filter(Boolean));
+    const hasActorPool = actorClientIds.size > 0;
+    const isAllowedActorClient = (clientId: string) => !hasActorPool || actorClientIds.has(clientId);
+
     if (requestedClientId) {
+      if (!isAllowedActorClient(requestedClientId)) {
+        throw new Error(`WhatsApp client ${requestedClientId} is not enabled in the Actor Hub pool`);
+      }
       const requestedClient = await getWhatsAppHubClient(userId, requestedClientId);
       if (!requestedClient) throw new Error(`WhatsApp client ${requestedClientId} was not found`);
       if (requestedClient.status !== 'online') throw new Error(`WhatsApp client ${requestedClientId} is not online`);
@@ -2300,20 +2318,26 @@ No markdown wrappers, just valid JSON.`;
     const sticky = (history.messages || []).find((message: any) => message.direction === 'outbound' && message.client_id)?.client_id;
     if (sticky) {
       const stickyClient = await getWhatsAppHubClient(userId, sticky).catch(() => null);
-      if (stickyClient?.status === 'online') {
+      if (stickyClient?.status === 'online' && isAllowedActorClient(sticky)) {
         const stickyQuota = await getWhatsAppClientQuota(userId, sticky).catch(() => null);
         if (!stickyQuota || stickyQuota.remaining > 0) return sticky;
       }
     }
 
     const clientsData = await callWhatsAppHub(userId, '/api/clients');
-    const onlineClients = (clientsData.clients || []).filter((client: any) => client.status === 'online');
+    const onlineClients = (clientsData.clients || []).filter((client: any) => (
+      client.status === 'online' && isAllowedActorClient(client.id)
+    ));
     const candidates = [];
     for (const client of onlineClients) {
       const quota = await getWhatsAppClientQuota(userId, client.id).catch(() => null);
       if (!quota || quota.remaining > 0) candidates.push(client);
     }
-    if (candidates.length === 0) throw new Error('no online WhatsApp clients with available quota');
+    if (candidates.length === 0) {
+      throw new Error(hasActorPool
+        ? 'no configured WhatsApp actors are online with available quota'
+        : 'no online WhatsApp clients with available quota');
+    }
     return candidates[Math.floor(Math.random() * candidates.length)].id;
   };
 

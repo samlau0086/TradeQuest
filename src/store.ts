@@ -688,6 +688,14 @@ export interface WhatsAppHubConfig {
   apiToken: string;
   dailyBaseQuota: number;
   minReplyRate: number;
+  actors?: WhatsAppHubActorConfig[];
+}
+
+export interface WhatsAppHubActorConfig {
+  id: string;
+  name: string;
+  clientId: string;
+  enabled?: boolean;
 }
 
 export interface LLMConfig {
@@ -1265,7 +1273,8 @@ const INITIAL_WHATSAPP_HUB_CONFIG: WhatsAppHubConfig = {
   baseUrl: '',
   apiToken: '',
   dailyBaseQuota: 40,
-  minReplyRate: 0.25
+  minReplyRate: 0.25,
+  actors: []
 };
 
 const INITIAL_EXTERNAL_NOTIFICATION_CONFIG: ExternalNotificationConfig = {

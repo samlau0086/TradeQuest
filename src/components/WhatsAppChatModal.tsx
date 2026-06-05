@@ -199,6 +199,13 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const autoTranslateKey = useMemo(() => (cleanPhone(displayPhone) || displayPhone || targetPhone).trim().toLowerCase(), [displayPhone, targetPhone]);
   const whatsappAutoTranslateEnabled = Boolean(autoTranslateKey && whatsappAutoTranslateConfig?.[autoTranslateKey]);
   const whatsappOutboundAutoTranslateEnabled = Boolean(autoTranslateKey && whatsappOutboundAutoTranslateConfig?.[autoTranslateKey]);
+  const selectableHubClients = useMemo(() => {
+    const actorClientIds = new Set((whatsappHubConfig.actors || [])
+      .filter(actor => actor.enabled !== false && actor.clientId)
+      .map(actor => actor.clientId));
+    if (actorClientIds.size === 0) return hubClients;
+    return hubClients.filter(client => actorClientIds.has(client.id));
+  }, [hubClients, whatsappHubConfig.actors]);
   const activeClient = useMemo(() => {
     if (client) return client;
     if (conversation?.clientId) return clients.find(item => item.id === conversation.clientId) || null;
@@ -209,10 +216,15 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const mappingHubClientId = useMemo(() => (
     selectedClientId
     || messages.find(message => message.direction === 'outbound' && message.client_id)?.client_id
-    || hubClients.find(item => item.status === 'online')?.id
-    || hubClients[0]?.id
+    || selectableHubClients.find(item => item.status === 'online')?.id
+    || selectableHubClients[0]?.id
     || ''
-  ), [hubClients, messages, selectedClientId]);
+  ), [messages, selectableHubClients, selectedClientId]);
+  useEffect(() => {
+    if (selectedClientId && selectableHubClients.length > 0 && !selectableHubClients.some(item => item.id === selectedClientId)) {
+      setSelectedClientId('');
+    }
+  }, [selectableHubClients, selectedClientId]);
   const relatedDeals = useMemo(() => (
     activeClient
       ? deals
@@ -1180,7 +1192,7 @@ Return only the message text.`,
               className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none"
             >
               <option value="">{t('randomStickyClient')}</option>
-              {hubClients.map(client => (
+              {selectableHubClients.map(client => (
                 <option key={client.id} value={client.id}>
                   {client.name || client.id} ({client.status}) {client.quota ? `quota ${client.quota.remaining}/${client.quota.dailyQuota}` : ''}
                 </option>
