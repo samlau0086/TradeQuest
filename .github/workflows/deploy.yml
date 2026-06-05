@@ -43,9 +43,10 @@ jobs:
 
           SSH_OPTS="-i ~/.ssh/deploy_key -p $VPS_PORT -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30"
           DEPLOY_TARGET="/opt/1panel/www/sites/ai-crm"
+          RAG_IMPORT_DIR="/opt/ai-crm/rag-import"
 
           echo "Testing SSH connection..."
-          ssh $SSH_OPTS "$VPS_USERNAME@$VPS_HOST" "whoami && mkdir -p '$DEPLOY_TARGET' && test -w '$DEPLOY_TARGET'"
+          ssh $SSH_OPTS "$VPS_USERNAME@$VPS_HOST" "whoami && mkdir -p '$DEPLOY_TARGET' '$RAG_IMPORT_DIR' && test -w '$DEPLOY_TARGET' && test -w '$RAG_IMPORT_DIR'"
 
           echo "Syncing files to VPS..."
           rsync --version | head -n 1
@@ -58,8 +59,9 @@ jobs:
             ./ "$VPS_USERNAME@$VPS_HOST:$DEPLOY_TARGET/"
 
           echo "Rebuilding containers..."
-          ssh $SSH_OPTS "$VPS_USERNAME@$VPS_HOST" "DEPLOY_TARGET='$DEPLOY_TARGET' bash -s" <<'REMOTE_DEPLOY'
+          ssh $SSH_OPTS "$VPS_USERNAME@$VPS_HOST" "DEPLOY_TARGET='$DEPLOY_TARGET' RAG_IMPORT_DIR='$RAG_IMPORT_DIR' bash -s" <<'REMOTE_DEPLOY'
           set -Eeuo pipefail
+          mkdir -p "$RAG_IMPORT_DIR"
           cd "$DEPLOY_TARGET"
           docker compose version
 
