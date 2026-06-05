@@ -6,6 +6,7 @@ import { TopBar, MagicCommand } from './components/TopBar';
 import { ClientDetails } from './components/ClientDetails';
 import { Inbox } from './components/Inbox';
 import { LiveChat } from './components/LiveChat';
+import { CustomerForms } from './components/CustomerForms';
 import { Dashboard } from './components/Dashboard';
 import { ActionableClients } from './components/ActionableClients';
 import { Settings } from './components/Settings';
@@ -460,6 +461,7 @@ export default function App() {
            view === 'edit-requests' ? <EditRequests /> :
            view === 'inbox' ? <Inbox /> : 
            view === 'live-chat' ? <LiveChat /> :
+           view === 'customer-forms' ? <CustomerForms /> :
            view === 'settings' ? <Settings /> : 
            view === 'knowledge-base' ? <div className="flex-1 bg-slate-900 border-t border-slate-800 p-6 overflow-y-auto"><div className="w-full text-white"><KnowledgeBaseManager /></div></div> :
            view === 'media-library' ? <MediaLibrary /> :

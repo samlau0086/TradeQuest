@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Quest, useStore, ViewMode } from '../store';
 import { cn } from '../lib/utils';
-import { Swords, Trophy, Tags, Flame, Plus, Mail, Settings as SettingsIcon, Sun, Moon, Shield, Users, Package, Book, Image as ImageIcon, Bot, MessageSquare } from 'lucide-react';
+import { Swords, Trophy, Tags, Flame, Plus, Mail, Settings as SettingsIcon, Sun, Moon, Shield, Users, Package, Book, Image as ImageIcon, Bot, MessageSquare, FileText } from 'lucide-react';
 import { ClientFormModal } from './ClientFormModal';
 import { ExpHistoryModal } from './ExpHistoryModal';
 import { useAuthStore } from '../authStore';
@@ -130,6 +130,14 @@ export function Sidebar() {
         >
           <MessageSquare className="w-5 h-5" />
           Live Chat
+        </button>
+        <button
+          onClick={() => setView('customer-forms')}
+          className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+            view === 'customer-forms' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
+        >
+          <FileText className="w-5 h-5" />
+          {language === 'zh' ? '客户表单' : 'Customer Forms'}
         </button>
         <button 
           onClick={() => setView('clients')}

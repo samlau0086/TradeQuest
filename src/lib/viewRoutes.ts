@@ -4,6 +4,7 @@ const viewToPath: Record<ViewMode, string> = {
   dashboard: '/home',
   inbox: '/inbox',
   'live-chat': '/live-chat',
+  'customer-forms': '/customer-forms',
   'agent-hub': '/agent-hub',
   clients: '/clients',
   kanban: '/kanban',

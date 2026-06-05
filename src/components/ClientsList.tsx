@@ -101,7 +101,7 @@ const getLeadScoreVisual = (score?: number) => {
     }
 
     if (termsToMatch.length > 0 && match) {
-      const searchable = `${c.name} ${c.company} ${c.city} ${c.state} ${c.country} ${c.tags.join(' ')} ${c.contactMethods.map(cm => cm.value).join(' ')}`.toLowerCase();
+      const searchable = `${c.name} ${c.company} ${c.city} ${c.state} ${c.country} ${c.sourceLabel || ''} ${c.sourceId || ''} ${c.tags.join(' ')} ${(c.contactMethods || []).map(cm => cm.value).join(' ')}`.toLowerCase();
       match = termsToMatch.every(term => searchable.includes(term.toLowerCase()));
     }
     return match;
@@ -257,6 +257,7 @@ const getLeadScoreVisual = (score?: number) => {
                       <span className="text-[10px] text-cyan-400">{sortColumn === 'recentEvent' ? (sortDirection === 'desc' ? '↓' : '↑') : ''}</span>
                     </button>
                   </th>
+                  <th className="px-4 py-3">{language === 'zh' ? '来源' : 'Source'}</th>
                   <th className="px-4 py-3">{t('tagsLabel').split(' ')[0]}</th>
                   <th className="px-4 py-3 text-right">{t('actions')}</th>
                 </tr>
@@ -316,6 +317,15 @@ const getLeadScoreVisual = (score?: number) => {
                         <span className="text-slate-600">-</span>
                       )}
                     </td>
+                    <td className="px-4 py-3 text-slate-400">
+                      {client.sourceLabel ? (
+                        <span className="inline-flex max-w-[220px] items-center rounded-full border border-cyan-500/25 bg-cyan-500/10 px-2 py-1 text-[11px] font-bold text-cyan-200" title={client.sourceLabel}>
+                          <span className="truncate">{client.sourceLabel}</span>
+                        </span>
+                      ) : (
+                        <span className="text-slate-600">-</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1 flex-wrap">
                         {client.tags.slice(0, 2).map(t => (
@@ -345,7 +355,7 @@ const getLeadScoreVisual = (score?: number) => {
                 })}
                 {sortedClients.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="text-center py-8 text-slate-500">
+                    <td colSpan={9} className="text-center py-8 text-slate-500">
                       {t('noClientsFound')}
                     </td>
                   </tr>

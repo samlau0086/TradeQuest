@@ -389,9 +389,26 @@ async function initDB() {
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS contacts JSONB DEFAULT '[]'::jsonb;
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS primary_contact_id VARCHAR(128);
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS product_ids JSONB DEFAULT '[]'::jsonb;
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS source_type VARCHAR(64);
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS source_id VARCHAR(128);
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS source_label VARCHAR(255);
       UPDATE clients
       SET country = 'United States'
       WHERE LOWER(TRIM(COALESCE(country, ''))) IN ('us', 'usa', 'u.s.', 'u.s.a.', 'united states of america', 'america');
+
+      CREATE TABLE IF NOT EXISTS customer_forms (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        status VARCHAR(32) DEFAULT 'active',
+        fields JSONB DEFAULT '[]'::jsonb,
+        default_tags JSONB DEFAULT '[]'::jsonb,
+        create_lead BOOLEAN DEFAULT TRUE,
+        success_message TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
 
       CREATE TABLE IF NOT EXISTS global_settings (
         key VARCHAR(128) PRIMARY KEY,
@@ -518,6 +535,20 @@ async function initDB() {
       ALTER TABLE deals ADD COLUMN IF NOT EXISTS pending_delete BOOLEAN DEFAULT FALSE;
       ALTER TABLE deals ADD COLUMN IF NOT EXISTS pending_edit_request BOOLEAN DEFAULT FALSE;
       ALTER TABLE deals ADD COLUMN IF NOT EXISTS product_ids JSONB DEFAULT '[]'::jsonb;
+      ALTER TABLE deals ADD COLUMN IF NOT EXISTS source_type VARCHAR(64);
+      ALTER TABLE deals ADD COLUMN IF NOT EXISTS source_id VARCHAR(128);
+      ALTER TABLE deals ADD COLUMN IF NOT EXISTS source_label VARCHAR(255);
+
+      CREATE TABLE IF NOT EXISTS customer_form_submissions (
+        id VARCHAR(128) PRIMARY KEY,
+        form_id VARCHAR(128) REFERENCES customer_forms(id) ON DELETE CASCADE,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        client_id VARCHAR(128) REFERENCES clients(id) ON DELETE SET NULL,
+        lead_id VARCHAR(128) REFERENCES deals(id) ON DELETE SET NULL,
+        payload JSONB DEFAULT '{}'::jsonb,
+        metadata JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
 
       CREATE TABLE IF NOT EXISTS products (
         id VARCHAR(128) PRIMARY KEY,
@@ -859,7 +890,7 @@ async function startServer() {
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
   app.use((req, res, next) => {
-    if (req.path.startsWith('/api/live-chat/public/')) {
+    if (req.path.startsWith('/api/live-chat/public/') || req.path.startsWith('/api/public/customer-forms/')) {
       res.header('Access-Control-Allow-Origin', '*');
       res.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
       res.header('Access-Control-Allow-Headers', 'Content-Type');
@@ -7186,6 +7217,9 @@ Return JSON only:
         leadScoringSignature: row.lead_scoring_signature,
         leadScoringAnalyzedAt: row.lead_scoring_analyzed_at,
         productIds: row.product_ids || [],
+        sourceType: row.source_type,
+        sourceId: row.source_id,
+        sourceLabel: row.source_label,
         contactInfo: row.contact_info,
         createdAt: row.created_at,
         updatedAt: row.updated_at
@@ -7198,11 +7232,11 @@ Return JSON only:
 
   app.post('/api/deals', authenticateToken, async (req: any, res) => {
     try {
-      const { id, clientId, name, value, status, contactInfo, comments, productIds, leadScore, leadSummary, leadNextStep, leadScoringSignature, leadScoringAnalyzedAt } = req.body;
+      const { id, clientId, name, value, status, contactInfo, comments, productIds, leadScore, leadSummary, leadNextStep, leadScoringSignature, leadScoringAnalyzedAt, sourceType, sourceId, sourceLabel } = req.body;
       const result = await pool.query(
-        `INSERT INTO deals (id, user_id, client_id, name, value, status, contact_info, comments, product_ids, lead_score, lead_summary, lead_next_step, lead_scoring_signature, lead_scoring_analyzed_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
-        [id, req.user.uid, clientId || null, name, value || 0, status || 'Leads', contactInfo || {}, comments || [], JSON.stringify(productIds || []), leadScore ?? null, leadSummary || null, leadNextStep || null, leadScoringSignature || null, leadScoringAnalyzedAt || null]
+        `INSERT INTO deals (id, user_id, client_id, name, value, status, contact_info, comments, product_ids, lead_score, lead_summary, lead_next_step, lead_scoring_signature, lead_scoring_analyzed_at, source_type, source_id, source_label)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING *`,
+        [id, req.user.uid, clientId || null, name, value || 0, status || 'Leads', contactInfo || {}, comments || [], JSON.stringify(productIds || []), leadScore ?? null, leadSummary || null, leadNextStep || null, leadScoringSignature || null, leadScoringAnalyzedAt || null, sourceType || null, sourceId || null, sourceLabel || null]
       );
       await triggerAgentHubEvent(req.user.uid, 'lead_created', {
         leadId: id,
@@ -7223,7 +7257,7 @@ Return JSON only:
   app.patch('/api/deals/:id', authenticateToken, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const { status, name, value, contactInfo, clientId, comments, productIds, leadScore, leadSummary, leadNextStep, leadScoringSignature, leadScoringAnalyzedAt } = req.body;
+      const { status, name, value, contactInfo, clientId, comments, productIds, leadScore, leadSummary, leadNextStep, leadScoringSignature, leadScoringAnalyzedAt, sourceType, sourceId, sourceLabel } = req.body;
       
       const updates: string[] = [];
       const values: any[] = [];
@@ -7276,6 +7310,18 @@ Return JSON only:
       if (leadScoringAnalyzedAt !== undefined) {
         updates.push(`lead_scoring_analyzed_at = $${idx++}`);
         values.push(leadScoringAnalyzedAt);
+      }
+      if (sourceType !== undefined) {
+        updates.push(`source_type = $${idx++}`);
+        values.push(sourceType);
+      }
+      if (sourceId !== undefined) {
+        updates.push(`source_id = $${idx++}`);
+        values.push(sourceId);
+      }
+      if (sourceLabel !== undefined) {
+        updates.push(`source_label = $${idx++}`);
+        values.push(sourceLabel);
       }
       
       updates.push(`updated_at = CURRENT_TIMESTAMP`);
@@ -8421,6 +8467,267 @@ Return JSON only:
     }
   });
 
+  const customerFormToDto = (row: any) => ({
+    id: row.id,
+    name: row.name,
+    description: row.description || '',
+    status: row.status || 'active',
+    fields: row.fields || [],
+    defaultTags: row.default_tags || [],
+    createLead: row.create_lead !== false,
+    successMessage: row.success_message || '',
+    submissionsCount: Number(row.submissions_count || 0),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  });
+
+  const normalizeFormFields = (fields: any[]) => {
+    const fallback = [
+      { key: 'name', label: 'Name', type: 'text', required: true },
+      { key: 'company', label: 'Company', type: 'text', required: false },
+      { key: 'email', label: 'Email', type: 'email', required: true },
+      { key: 'phone', label: 'Phone', type: 'tel', required: false },
+      { key: 'whatsapp', label: 'WhatsApp', type: 'tel', required: false },
+      { key: 'country', label: 'Country', type: 'text', required: false },
+      { key: 'message', label: 'Message', type: 'textarea', required: false }
+    ];
+    const source = Array.isArray(fields) && fields.length > 0 ? fields : fallback;
+    return source.slice(0, 30).map((field: any) => ({
+      key: String(field.key || '').trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64),
+      label: String(field.label || field.key || '').trim().slice(0, 120),
+      type: ['text', 'email', 'tel', 'textarea', 'select', 'number'].includes(String(field.type || 'text')) ? String(field.type || 'text') : 'text',
+      required: Boolean(field.required),
+      options: Array.isArray(field.options) ? field.options.map((option: any) => String(option).trim()).filter(Boolean).slice(0, 30) : []
+    })).filter((field: any) => field.key && field.label);
+  };
+
+  const extractFormPayload = (body: any) => {
+    const source = body && typeof body === 'object' && body.data && typeof body.data === 'object' ? body.data : body || {};
+    const payload: Record<string, string> = {};
+    for (const [key, value] of Object.entries(source)) {
+      if (key.startsWith('_')) continue;
+      if (Array.isArray(value)) payload[key] = value.map(item => String(item || '').trim()).filter(Boolean).join(', ');
+      else payload[key] = String(value ?? '').trim();
+    }
+    return payload;
+  };
+
+  const findClientIdForContactValues = async (userId: string, values: string[]) => {
+    const normalized = values.map(value => String(value || '').trim()).filter(Boolean);
+    if (normalized.length === 0) return null;
+    const result = await pool.query(
+      `SELECT id FROM clients
+       WHERE user_id = $2 AND (
+         EXISTS (
+           SELECT 1 FROM jsonb_array_elements(COALESCE(contact_methods, '[]'::jsonb)) cm
+           WHERE lower(cm->>'value') = ANY($1::text[])
+         ) OR EXISTS (
+           SELECT 1
+           FROM jsonb_array_elements(COALESCE(contacts, '[]'::jsonb)) contact,
+                jsonb_array_elements(COALESCE(contact->'contactMethods', contact->'contact_methods', '[]'::jsonb)) cm
+           WHERE lower(cm->>'value') = ANY($1::text[])
+         )
+       )
+       LIMIT 1`,
+      [normalized.map(value => value.toLowerCase()), userId]
+    );
+    return result.rows[0]?.id || null;
+  };
+
+  app.get('/api/customer-forms', authenticateToken, async (req: any, res) => {
+    try {
+      const result = await pool.query(
+        `SELECT f.*, COUNT(s.id)::int AS submissions_count
+         FROM customer_forms f
+         LEFT JOIN customer_form_submissions s ON s.form_id = f.id
+         WHERE f.user_id = $1
+         GROUP BY f.id
+         ORDER BY f.updated_at DESC`,
+        [req.user.uid]
+      );
+      res.json(result.rows.map(customerFormToDto));
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message || 'Failed to fetch customer forms' });
+    }
+  });
+
+  app.post('/api/customer-forms', authenticateToken, async (req: any, res) => {
+    try {
+      const id = req.body.id || `form_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      const name = String(req.body.name || '').trim();
+      if (!name) return res.status(400).json({ error: 'Form name is required' });
+      const fields = normalizeFormFields(req.body.fields || []);
+      const defaultTags = Array.isArray(req.body.defaultTags) ? req.body.defaultTags.map((tag: any) => String(tag).trim()).filter(Boolean) : [];
+      const result = await pool.query(
+        `INSERT INTO customer_forms (id, user_id, name, description, status, fields, default_tags, create_lead, success_message)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9)
+         RETURNING *`,
+        [id, req.user.uid, name, req.body.description || '', req.body.status || 'active', JSON.stringify(fields), JSON.stringify(defaultTags), req.body.createLead !== false, req.body.successMessage || 'Thanks. We have received your submission.']
+      );
+      res.json(customerFormToDto(result.rows[0]));
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message || 'Failed to create customer form' });
+    }
+  });
+
+  app.patch('/api/customer-forms/:id', authenticateToken, async (req: any, res) => {
+    try {
+      const id = req.params.id;
+      const updates: string[] = [];
+      const values: any[] = [id, req.user.uid];
+      let idx = 3;
+      const mapping: Record<string, string> = {
+        name: 'name',
+        description: 'description',
+        status: 'status',
+        successMessage: 'success_message'
+      };
+      for (const [key, column] of Object.entries(mapping)) {
+        if (req.body[key] !== undefined) {
+          updates.push(`${column} = $${idx++}`);
+          values.push(req.body[key]);
+        }
+      }
+      if (req.body.fields !== undefined) {
+        updates.push(`fields = $${idx++}::jsonb`);
+        values.push(JSON.stringify(normalizeFormFields(req.body.fields)));
+      }
+      if (req.body.defaultTags !== undefined) {
+        updates.push(`default_tags = $${idx++}::jsonb`);
+        values.push(JSON.stringify(Array.isArray(req.body.defaultTags) ? req.body.defaultTags.map((tag: any) => String(tag).trim()).filter(Boolean) : []));
+      }
+      if (req.body.createLead !== undefined) {
+        updates.push(`create_lead = $${idx++}`);
+        values.push(Boolean(req.body.createLead));
+      }
+      if (updates.length === 0) return res.status(400).json({ error: 'No updates provided' });
+      updates.push('updated_at = CURRENT_TIMESTAMP');
+      const result = await pool.query(
+        `UPDATE customer_forms SET ${updates.join(', ')} WHERE id = $1 AND user_id = $2 RETURNING *`,
+        values
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Form not found' });
+      res.json(customerFormToDto(result.rows[0]));
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message || 'Failed to update customer form' });
+    }
+  });
+
+  app.delete('/api/customer-forms/:id', authenticateToken, async (req: any, res) => {
+    try {
+      const result = await pool.query('DELETE FROM customer_forms WHERE id = $1 AND user_id = $2 RETURNING id', [req.params.id, req.user.uid]);
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Form not found' });
+      res.json({ success: true, id: result.rows[0].id });
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message || 'Failed to delete customer form' });
+    }
+  });
+
+  app.get('/api/public/customer-forms/:id', async (req: any, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM customer_forms WHERE id = $1 AND status = $2 LIMIT 1', [req.params.id, 'active']);
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Form not found' });
+      res.json(customerFormToDto(result.rows[0]));
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message || 'Failed to load form' });
+    }
+  });
+
+  app.post('/api/public/customer-forms/:id/submit', async (req: any, res) => {
+    try {
+      const formRes = await pool.query('SELECT * FROM customer_forms WHERE id = $1 AND status = $2 LIMIT 1', [req.params.id, 'active']);
+      if (formRes.rows.length === 0) return res.status(404).json({ error: 'Form not found' });
+      const form = formRes.rows[0];
+      const payload = extractFormPayload(req.body);
+      const fields = normalizeFormFields(form.fields || []);
+      const missing = fields.filter((field: any) => field.required && !payload[field.key]).map((field: any) => field.label);
+      if (missing.length > 0) return res.status(400).json({ error: `Missing required fields: ${missing.join(', ')}` });
+
+      const email = payload.email || payload.Email || '';
+      const phone = payload.phone || payload.Phone || '';
+      const whatsapp = payload.whatsapp || payload.WhatsApp || '';
+      const contactMethods = [
+        email ? { type: 'email', value: email } : null,
+        phone ? { type: 'phone', value: phone } : null,
+        whatsapp ? { type: 'whatsapp', value: whatsapp } : null
+      ].filter(Boolean);
+      const existingClientId = await findClientIdForContactValues(form.user_id, [email, phone, whatsapp]);
+      const sourceLabel = `Form (${form.id}): ${form.name}`;
+      const now = new Date().toISOString();
+      const name = payload.name || payload.Name || email || phone || whatsapp || 'Website Form Lead';
+      const company = payload.company || payload.Company || '';
+      const country = normalizeCrmCountry(payload.country || payload.Country || '');
+      const defaultTags = Array.isArray(form.default_tags) ? form.default_tags : [];
+      const tags = Array.from(new Set([...defaultTags, 'website-form']));
+      let clientId = existingClientId;
+
+      if (!clientId) {
+        clientId = `c${Date.now()}${Math.floor(Math.random() * 1000)}`;
+        const contactId = `contact_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+        const contacts = [{
+          id: contactId,
+          name,
+          isPrimary: true,
+          contactMethods
+        }];
+        await pool.query(
+          `INSERT INTO clients (id, user_id, name, company, country, status, tags, last_contact, is_dormant, contact_methods, contacts, primary_contact_id, comments, source_type, source_id, source_label)
+           VALUES ($1, $2, $3, $4, $5, 'Leads', $6::jsonb, $7, FALSE, $8::jsonb, $9::jsonb, $10, $11::jsonb, 'form', $12, $13)`,
+          [clientId, form.user_id, name, company, country, JSON.stringify(tags), now, JSON.stringify(contactMethods), JSON.stringify(contacts), contactId, JSON.stringify([]), form.id, sourceLabel]
+        );
+      } else {
+        await pool.query(
+          `UPDATE clients
+           SET tags = (
+             SELECT jsonb_agg(DISTINCT tag.value)
+             FROM jsonb_array_elements_text(COALESCE(tags, '[]'::jsonb) || $1::jsonb) AS tag(value)
+           ),
+           last_contact = CURRENT_TIMESTAMP,
+           source_type = COALESCE(source_type, 'form'),
+           source_id = COALESCE(source_id, $2),
+           source_label = COALESCE(source_label, $3),
+           updated_at = CURRENT_TIMESTAMP
+           WHERE id = $4 AND user_id = $5`,
+          [JSON.stringify(tags), form.id, sourceLabel, clientId, form.user_id]
+        );
+      }
+
+      let leadId: string | null = null;
+      if (form.create_lead !== false) {
+        leadId = `d${Date.now()}${Math.floor(Math.random() * 1000)}`;
+        const leadName = company ? `${company} Website Inquiry` : `${name} Website Inquiry`;
+        await pool.query(
+          `INSERT INTO deals (id, user_id, client_id, name, value, status, contact_info, comments, source_type, source_id, source_label)
+           VALUES ($1, $2, $3, $4, 0, 'Leads', $5::jsonb, $6::jsonb, 'form', $7, $8)`,
+          [leadId, form.user_id, clientId, leadName, JSON.stringify({ name, company, country, tags, contactMethods, message: payload.message || '' }), JSON.stringify([]), form.id, sourceLabel]
+        );
+      }
+
+      const submissionId = `formsub_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      await pool.query(
+        `INSERT INTO customer_form_submissions (id, form_id, user_id, client_id, lead_id, payload, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb)`,
+        [submissionId, form.id, form.user_id, clientId, leadId, JSON.stringify(payload), JSON.stringify({ ip: getRequestIp(req), userAgent: req.headers?.['user-agent'] || '', referer: req.headers?.referer || '' })]
+      );
+      await pool.query(
+        `INSERT INTO logs (id, client_id, date, content, type, metadata)
+         VALUES ($1, $2, CURRENT_TIMESTAMP, $3, 'general', $4::jsonb)`,
+        [`log_${Date.now()}_${Math.floor(Math.random() * 1000)}`, clientId, `Received website form submission from ${form.name}`, JSON.stringify({ source: 'customer_form', formId: form.id, submissionId, payload })]
+      );
+      await triggerAgentHubEvent(form.user_id, 'lead_created', { leadId, clientId, source: 'customer_form', formId: form.id }).catch(err => console.warn('Agent Hub customer form trigger failed', err));
+
+      res.json({ success: true, message: form.success_message || 'Thanks. We have received your submission.', clientId, leadId, submissionId });
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message || 'Failed to submit customer form' });
+    }
+  });
+
   // Clients API Endpoints
   app.get('/api/clients', authenticateToken, async (req: any, res) => {
     try {
@@ -8455,7 +8762,10 @@ Return JSON only:
         leadScoringAnalyzedAt: row.lead_scoring_analyzed_at,
         agentWorkflowId: row.agent_workflow_id,
         preferredLanguage: row.preferred_language,
-        preferredTimeRange: row.preferred_time_range
+        preferredTimeRange: row.preferred_time_range,
+        sourceType: row.source_type,
+        sourceId: row.source_id,
+        sourceLabel: row.source_label
       })));
     } catch (e) {
       console.error(e);
@@ -8495,7 +8805,10 @@ Return JSON only:
         leadScoringAnalyzedAt: row.lead_scoring_analyzed_at,
         agentWorkflowId: row.agent_workflow_id,
         preferredLanguage: row.preferred_language,
-        preferredTimeRange: row.preferred_time_range
+        preferredTimeRange: row.preferred_time_range,
+        sourceType: row.source_type,
+        sourceId: row.source_id,
+        sourceLabel: row.source_label
       })));
     } catch (e) {
       console.error(e);
@@ -8620,7 +8933,7 @@ Return JSON only:
 
   app.post('/api/clients', authenticateToken, async (req: any, res) => {
     try {
-      const { id, name, company, country, status, tags, lastContact, isDormant, contactMethods, contacts, primaryContactId, comments, productIds } = req.body;
+      const { id, name, company, country, status, tags, lastContact, isDormant, contactMethods, contacts, primaryContactId, comments, productIds, sourceType, sourceId, sourceLabel } = req.body;
       
       const incomingMethods = [
         ...(contactMethods || []),
@@ -8648,9 +8961,9 @@ Return JSON only:
       }
 
       await pool.query(
-        `INSERT INTO clients (id, user_id, name, company, address, state, city, country, status, tags, last_contact, is_dormant, contact_methods, contacts, primary_contact_id, product_ids, comments, preferred_language, preferred_time_range, agent_workflow_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
-        [id, req.body.isPublic ? null : req.user.uid, name, company, req.body.address || null, req.body.state || null, req.body.city || null, country, status, JSON.stringify(tags || []), lastContact || null, !!isDormant, JSON.stringify(contactMethods || []), JSON.stringify(contacts || []), primaryContactId || null, JSON.stringify(productIds || []), JSON.stringify(comments || []), req.body.preferredLanguage || null, req.body.preferredTimeRange || null, req.body.agentWorkflowId || null]
+        `INSERT INTO clients (id, user_id, name, company, address, state, city, country, status, tags, last_contact, is_dormant, contact_methods, contacts, primary_contact_id, product_ids, comments, preferred_language, preferred_time_range, agent_workflow_id, source_type, source_id, source_label)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)`,
+        [id, req.body.isPublic ? null : req.user.uid, name, company, req.body.address || null, req.body.state || null, req.body.city || null, country, status, JSON.stringify(tags || []), lastContact || null, !!isDormant, JSON.stringify(contactMethods || []), JSON.stringify(contacts || []), primaryContactId || null, JSON.stringify(productIds || []), JSON.stringify(comments || []), req.body.preferredLanguage || null, req.body.preferredTimeRange || null, req.body.agentWorkflowId || null, sourceType || null, sourceId || null, sourceLabel || null]
       );
 
       const createClientReward = Math.max(0, await getGlobalSettingNumber('point_event_add_client', 5));
@@ -8692,7 +9005,8 @@ Return JSON only:
         leadScoringSignature: 'lead_scoring_signature', leadScoringAnalyzedAt: 'lead_scoring_analyzed_at',
         agentWorkflowId: 'agent_workflow_id', preferredLanguage: 'preferred_language',
         productIds: 'product_ids',
-        preferredTimeRange: 'preferred_time_range'
+        preferredTimeRange: 'preferred_time_range',
+        sourceType: 'source_type', sourceId: 'source_id', sourceLabel: 'source_label'
       };
       
       let pointsToAward = 0;

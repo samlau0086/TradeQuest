@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, CheckCircle2, Circle, Clock, Edit2, Globe, Hand, Link2, Loader2, MapPin, MessageSquare, Monitor, PauseCircle, Plus, RefreshCw, Save, Search, Send, Tag, Unlink, UserPlus, UserRound, X } from 'lucide-react';
 import { ContactMethod, useStore } from '../store';
 import { cn } from '../lib/utils';
@@ -59,6 +59,7 @@ export function LiveChat() {
   const [identityDraft, setIdentityDraft] = useState({ visitorName: '', visitorEmail: '', visitorPhone: '', pageUrl: '' });
   const [addContactMethod, setAddContactMethod] = useState<ContactMethod | null>(null);
   const [showLeadForm, setShowLeadForm] = useState(false);
+  const messageEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     connectLiveChatSocket();
@@ -111,6 +112,7 @@ export function LiveChat() {
   const selectedSession = liveChatSessions.find(session => session.id === selectedId) || null;
   const selectedMessages = selectedId ? (liveChatMessages[selectedId] || []) : [];
   const visibleMessages = selectedMessages.filter(message => message.role !== 'system').slice(-200);
+  const latestVisibleMessageId = visibleMessages[visibleMessages.length - 1]?.id || '';
   const linkedClient = selectedSession?.clientId ? clients.find(client => client.id === selectedSession.clientId) : null;
   const displayedTags = linkedClient ? (linkedClient.tags || []) : (selectedSession?.tags || []);
   const visitorInfo = selectedSession?.metadata?.visitorInfo || {};
@@ -149,6 +151,14 @@ export function LiveChat() {
     if (filteredSessions.some(session => session.id === selectedId)) return;
     setSelectedId(filteredSessions[0]?.id || null);
   }, [filteredSessions, selectedId]);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    const frame = window.requestAnimationFrame(() => {
+      messageEndRef.current?.scrollIntoView({ block: 'end' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedId, visibleMessages.length, latestVisibleMessageId]);
 
   const handleSend = async () => {
     if (!selectedId || !reply.trim()) return;
@@ -613,6 +623,7 @@ export function LiveChat() {
                   </div>
                 );
               })}
+              <div ref={messageEndRef} />
             </section>
 
             <footer className="p-5 border-t border-slate-800 bg-slate-900">

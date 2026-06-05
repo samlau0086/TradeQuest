@@ -1008,6 +1008,16 @@ export function ClientDetails() {
                     </div>
                   </div>
                   <div className="py-3 flex gap-3">
+                    <FileText className="w-4 h-4 text-slate-500 mt-0.5" />
+                    <div>
+                      <div className="text-[11px] text-slate-500 uppercase">Source</div>
+                      <div className="text-sm text-slate-200">{leadRecord?.sourceLabel || client.sourceLabel || 'Not set'}</div>
+                      {(leadRecord?.sourceId || client.sourceId) && (
+                        <div className="mt-1 font-mono text-[11px] text-slate-500">ID: {leadRecord?.sourceId || client.sourceId}</div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="py-3 flex gap-3">
                     <MessageSquare className="w-4 h-4 text-slate-500 mt-0.5" />
                     <div>
                       <div className="text-[11px] text-slate-500 uppercase">Description</div>
