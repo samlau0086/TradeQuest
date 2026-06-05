@@ -19,6 +19,7 @@ export function DealFormModal({ onClose, dealId, initialData }: DealFormModalPro
   const [name, setName] = useState(existingDeal?.name || initialData?.name || '');
   const [value, setValue] = useState(existingDeal?.value?.toString() || initialData?.value?.toString() || '');
   const [status, setStatus] = useState<ClientStatus>(existingDeal?.status || initialData?.status || 'Leads');
+  const [leadNotes, setLeadNotes] = useState(existingDeal?.leadNotes || initialData?.leadNotes || '');
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>(existingDeal?.productIds || initialData?.productIds || []);
   const [productSearch, setProductSearch] = useState('');
   const [isProductSearchOpen, setIsProductSearchOpen] = useState(false);
@@ -91,6 +92,7 @@ export function DealFormModal({ onClose, dealId, initialData }: DealFormModalPro
       name,
       value: parseFloat(value) || 0,
       status,
+      leadNotes,
       productIds: selectedProductIds,
     };
 
@@ -310,6 +312,22 @@ export function DealFormModal({ onClose, dealId, initialData }: DealFormModalPro
               <option value="Negotiating">Negotiating</option>
               <option value="Closed Won">Closed Won</option>
             </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-400 uppercase">{language === 'zh' ? 'Lead 备注' : 'Lead Notes'}</label>
+            <textarea
+              value={leadNotes}
+              onChange={e => setLeadNotes(e.target.value)}
+              rows={5}
+              className="w-full resize-none rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+              placeholder={language === 'zh' ? '用于保存客户表单自定义字段、补充需求、预算、采购计划等非标准信息...' : 'Store form custom fields, extra requirements, budget, buying plan, or other non-standard lead details...'}
+            />
+            <p className="text-[11px] leading-relaxed text-slate-500">
+              {language === 'zh'
+                ? '客户表单中无法映射到客户/Lead标准字段的内容，会默认写入这里。'
+                : 'Customer form fields that do not map to standard client/lead fields are stored here by default.'}
+            </p>
           </div>
 
           <div className="pt-4 flex gap-3">

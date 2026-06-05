@@ -392,8 +392,8 @@ export function CustomerForms() {
               <h3 className="flex items-center gap-2 text-sm font-bold"><Check className="h-4 w-4 text-emerald-400" /> {language === 'zh' ? '来源写入规则' : 'Source Rules'}</h3>
               <p className="mt-2 text-sm leading-relaxed text-slate-400">
                 {language === 'zh'
-                  ? '从此表单提交创建或关联的客户/线索，会写入来源：form、表单 ID 和表单名称。客户列表、客户详情和 Lead 数据都能显示该来源。'
-                  : 'Clients and leads created or linked by this form are saved with source type form, form ID, and form name.'}
+                  ? '从此表单提交创建或关联的客户/线索，会写入来源：form、表单 ID 和表单名称。客户列表、客户详情和 Lead 数据都能显示该来源。name、company、email、phone、whatsapp、country、message 会映射到标准字段，其他自定义字段会自动保存到 Lead 备注。'
+                  : 'Clients and leads created or linked by this form are saved with source type form, form ID, and form name. name, company, email, phone, whatsapp, country, and message map to standard fields; other custom fields are saved into Lead Notes automatically.'}
               </p>
             </div>
           </aside>

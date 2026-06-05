@@ -55,6 +55,7 @@ export interface Deal {
   sourceType?: string;
   sourceId?: string;
   sourceLabel?: string;
+  leadNotes?: string;
   contactInfo?: {
     name: string;
     company: string;

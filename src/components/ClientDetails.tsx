@@ -1024,6 +1024,15 @@ export function ClientDetails() {
                       <div className="text-sm text-slate-300 leading-relaxed">{client.agentContext || summaryText || 'No description yet.'}</div>
                     </div>
                   </div>
+                  {leadRecord?.leadNotes && (
+                    <div className="py-3 flex gap-3">
+                      <FileText className="w-4 h-4 text-slate-500 mt-0.5" />
+                      <div>
+                        <div className="text-[11px] text-slate-500 uppercase">Lead Notes</div>
+                        <div className="whitespace-pre-wrap text-sm leading-relaxed text-slate-300">{leadRecord.leadNotes}</div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 

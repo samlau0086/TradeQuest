@@ -538,6 +538,7 @@ async function initDB() {
       ALTER TABLE deals ADD COLUMN IF NOT EXISTS source_type VARCHAR(64);
       ALTER TABLE deals ADD COLUMN IF NOT EXISTS source_id VARCHAR(128);
       ALTER TABLE deals ADD COLUMN IF NOT EXISTS source_label VARCHAR(255);
+      ALTER TABLE deals ADD COLUMN IF NOT EXISTS lead_notes TEXT;
 
       CREATE TABLE IF NOT EXISTS customer_form_submissions (
         id VARCHAR(128) PRIMARY KEY,
@@ -2757,8 +2758,8 @@ ${JSON.stringify(productsRes.rows.map((product: any) => ({
       country: normalizeCrmCountry(input.country) || input.country || input.contactInfo?.country
     };
     await pool.query(
-      `INSERT INTO deals (id, user_id, client_id, name, value, status, contact_info, comments, lead_score, lead_summary, lead_next_step, lead_scoring_signature, lead_scoring_analyzed_at, product_ids)
-       VALUES ($1, $2, $3, $4, $5, COALESCE($6, 'Leads'), $7, $8, $9, $10, $11, NULL, NULL, $12)
+      `INSERT INTO deals (id, user_id, client_id, name, value, status, contact_info, comments, lead_score, lead_summary, lead_next_step, lead_scoring_signature, lead_scoring_analyzed_at, product_ids, lead_notes)
+       VALUES ($1, $2, $3, $4, $5, COALESCE($6, 'Leads'), $7, $8, $9, $10, $11, NULL, NULL, $12, $13)
        ON CONFLICT (id) DO NOTHING`,
       [
         id,
@@ -2772,7 +2773,8 @@ ${JSON.stringify(productsRes.rows.map((product: any) => ({
         Number.isFinite(Number(input.leadScore)) ? Number(input.leadScore) : null,
         input.leadSummary || null,
         input.leadNextStep || null,
-        JSON.stringify(Array.isArray(input.productIds) ? input.productIds : [])
+        JSON.stringify(Array.isArray(input.productIds) ? input.productIds : []),
+        input.leadNotes || input.notes || null
       ]
     );
     await triggerAgentHubEvent(userId, 'lead_created', {
@@ -7220,6 +7222,7 @@ Return JSON only:
         sourceType: row.source_type,
         sourceId: row.source_id,
         sourceLabel: row.source_label,
+        leadNotes: row.lead_notes,
         contactInfo: row.contact_info,
         createdAt: row.created_at,
         updatedAt: row.updated_at
@@ -7232,11 +7235,11 @@ Return JSON only:
 
   app.post('/api/deals', authenticateToken, async (req: any, res) => {
     try {
-      const { id, clientId, name, value, status, contactInfo, comments, productIds, leadScore, leadSummary, leadNextStep, leadScoringSignature, leadScoringAnalyzedAt, sourceType, sourceId, sourceLabel } = req.body;
+      const { id, clientId, name, value, status, contactInfo, comments, productIds, leadScore, leadSummary, leadNextStep, leadScoringSignature, leadScoringAnalyzedAt, sourceType, sourceId, sourceLabel, leadNotes } = req.body;
       const result = await pool.query(
-        `INSERT INTO deals (id, user_id, client_id, name, value, status, contact_info, comments, product_ids, lead_score, lead_summary, lead_next_step, lead_scoring_signature, lead_scoring_analyzed_at, source_type, source_id, source_label)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING *`,
-        [id, req.user.uid, clientId || null, name, value || 0, status || 'Leads', contactInfo || {}, comments || [], JSON.stringify(productIds || []), leadScore ?? null, leadSummary || null, leadNextStep || null, leadScoringSignature || null, leadScoringAnalyzedAt || null, sourceType || null, sourceId || null, sourceLabel || null]
+        `INSERT INTO deals (id, user_id, client_id, name, value, status, contact_info, comments, product_ids, lead_score, lead_summary, lead_next_step, lead_scoring_signature, lead_scoring_analyzed_at, source_type, source_id, source_label, lead_notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING *`,
+        [id, req.user.uid, clientId || null, name, value || 0, status || 'Leads', contactInfo || {}, comments || [], JSON.stringify(productIds || []), leadScore ?? null, leadSummary || null, leadNextStep || null, leadScoringSignature || null, leadScoringAnalyzedAt || null, sourceType || null, sourceId || null, sourceLabel || null, leadNotes || null]
       );
       await triggerAgentHubEvent(req.user.uid, 'lead_created', {
         leadId: id,
@@ -7257,7 +7260,7 @@ Return JSON only:
   app.patch('/api/deals/:id', authenticateToken, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const { status, name, value, contactInfo, clientId, comments, productIds, leadScore, leadSummary, leadNextStep, leadScoringSignature, leadScoringAnalyzedAt, sourceType, sourceId, sourceLabel } = req.body;
+      const { status, name, value, contactInfo, clientId, comments, productIds, leadScore, leadSummary, leadNextStep, leadScoringSignature, leadScoringAnalyzedAt, sourceType, sourceId, sourceLabel, leadNotes } = req.body;
       
       const updates: string[] = [];
       const values: any[] = [];
@@ -7322,6 +7325,10 @@ Return JSON only:
       if (sourceLabel !== undefined) {
         updates.push(`source_label = $${idx++}`);
         values.push(sourceLabel);
+      }
+      if (leadNotes !== undefined) {
+        updates.push(`lead_notes = $${idx++}`);
+        values.push(leadNotes);
       }
       
       updates.push(`updated_at = CURRENT_TIMESTAMP`);
@@ -8651,6 +8658,14 @@ Return JSON only:
       const email = payload.email || payload.Email || '';
       const phone = payload.phone || payload.Phone || '';
       const whatsapp = payload.whatsapp || payload.WhatsApp || '';
+      const standardFormKeys = new Set(['name', 'company', 'email', 'phone', 'whatsapp', 'country', 'message']);
+      const fieldLabelByKey = new Map(fields.map((field: any) => [String(field.key).toLowerCase(), field.label]));
+      const customFieldLines = Object.entries(payload)
+        .filter(([key, value]) => !standardFormKeys.has(String(key).toLowerCase()) && String(value || '').trim())
+        .map(([key, value]) => `${fieldLabelByKey.get(String(key).toLowerCase()) || key}: ${String(value).trim()}`);
+      const leadNotes = customFieldLines.length > 0
+        ? [`Customer form custom fields`, `Form: ${form.name} (${form.id})`, `Submitted at: ${new Date().toISOString()}`, '', ...customFieldLines].join('\n')
+        : '';
       const contactMethods = [
         email ? { type: 'email', value: email } : null,
         phone ? { type: 'phone', value: phone } : null,
@@ -8702,9 +8717,9 @@ Return JSON only:
         leadId = `d${Date.now()}${Math.floor(Math.random() * 1000)}`;
         const leadName = company ? `${company} Website Inquiry` : `${name} Website Inquiry`;
         await pool.query(
-          `INSERT INTO deals (id, user_id, client_id, name, value, status, contact_info, comments, source_type, source_id, source_label)
-           VALUES ($1, $2, $3, $4, 0, 'Leads', $5::jsonb, $6::jsonb, 'form', $7, $8)`,
-          [leadId, form.user_id, clientId, leadName, JSON.stringify({ name, company, country, tags, contactMethods, message: payload.message || '' }), JSON.stringify([]), form.id, sourceLabel]
+          `INSERT INTO deals (id, user_id, client_id, name, value, status, contact_info, comments, source_type, source_id, source_label, lead_notes)
+           VALUES ($1, $2, $3, $4, 0, 'Leads', $5::jsonb, $6::jsonb, 'form', $7, $8, $9)`,
+          [leadId, form.user_id, clientId, leadName, JSON.stringify({ name, company, country, tags, contactMethods, message: payload.message || '' }), JSON.stringify([]), form.id, sourceLabel, leadNotes || null]
         );
       }
 
