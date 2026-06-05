@@ -1783,6 +1783,40 @@ No markdown wrappers, just valid JSON.`;
     };
   };
 
+  const getConfiguredWhatsAppActorClientIds = async (userId: string): Promise<string[]> => {
+    const result = await pool.query('SELECT settings FROM users WHERE id = $1', [userId]);
+    const settings = result.rows[0]?.settings || {};
+    const actors = Array.isArray(settings.whatsappHubConfig?.actors) ? settings.whatsappHubConfig.actors : [];
+    return Array.from(new Set<string>(
+      actors
+        .filter((actor: any) => actor?.enabled !== false && String(actor?.clientId || '').trim())
+        .map((actor: any) => String(actor.clientId).trim())
+    ));
+  };
+
+  const getWhatsAppActorSqlFilter = async (userId: string, columnSql: string, values: any[]) => {
+    const actorClientIds = await getConfiguredWhatsAppActorClientIds(userId);
+    if (actorClientIds.length === 0) return '';
+    values.push(actorClientIds);
+    return ` AND ${columnSql} = ANY($${values.length}::text[])`;
+  };
+
+  const getWhatsAppHubClientIdFromPayload = (item: any) => String(
+    item?.client_id
+    || item?.clientId
+    || item?.hub_client_id
+    || item?.hubClientId
+    || item?.payload?.client_id
+    || item?.payload?.clientId
+    || ''
+  ).trim();
+
+  const isAllowedWhatsAppActorPayload = (item: any, actorClientIds: string[]) => {
+    if (actorClientIds.length === 0) return true;
+    const hubClientId = getWhatsAppHubClientIdFromPayload(item);
+    return hubClientId ? actorClientIds.includes(hubClientId) : false;
+  };
+
   const callWhatsAppHub = async (userId: string, path: string, init: RequestInit = {}) => {
     const config = await getWhatsAppHubConfig(userId);
     const response = await fetch(`${config.baseUrl}${path}`, {
@@ -2097,37 +2131,58 @@ No markdown wrappers, just valid JSON.`;
     }
   };
 
-  const syncWhatsAppHubMessages = async (userId: string, options: { targetPhone?: string; chatId?: string; limit?: number; since?: string } = {}) => {
-    const params = new URLSearchParams();
-    if (options.targetPhone) params.set('targetPhone', options.targetPhone);
-    if (options.chatId) params.set('chatId', options.chatId);
-    if (options.since) params.set('since', options.since);
-    params.set('limit', String(Math.min(Math.max(options.limit || 100, 1), WHATSAPP_HUB_MAX_MESSAGE_SYNC_LIMIT)));
-    const data = await callWhatsAppHub(userId, `/api/messages?${params.toString()}`);
-    const messages = Array.isArray(data.messages) ? data.messages : [];
-    for (const message of messages) {
-      await upsertWhatsAppMessage(userId, message);
+  const syncWhatsAppHubMessages = async (userId: string, options: { targetPhone?: string; chatId?: string; limit?: number; since?: string; clientId?: string } = {}) => {
+    const actorClientIds = await getConfiguredWhatsAppActorClientIds(userId);
+    const requestedClientIds = options.clientId
+      ? [options.clientId].filter(clientId => actorClientIds.length === 0 || actorClientIds.includes(clientId))
+      : (!options.targetPhone && !options.chatId && actorClientIds.length > 0 ? actorClientIds : ['']);
+    if (requestedClientIds.length === 0) return 0;
+    let synced = 0;
+    for (const requestedClientId of requestedClientIds) {
+      const params = new URLSearchParams();
+      if (options.targetPhone) params.set('targetPhone', options.targetPhone);
+      if (options.chatId) params.set('chatId', options.chatId);
+      if (requestedClientId) params.set('clientId', requestedClientId);
+      if (options.since) params.set('since', options.since);
+      params.set('limit', String(Math.min(Math.max(options.limit || 100, 1), WHATSAPP_HUB_MAX_MESSAGE_SYNC_LIMIT)));
+      const data = await callWhatsAppHub(userId, `/api/messages?${params.toString()}`);
+      const messages = (Array.isArray(data.messages) ? data.messages : [])
+        .filter((message: any) => isAllowedWhatsAppActorPayload(message, actorClientIds));
+      for (const message of messages) {
+        await upsertWhatsAppMessage(userId, message);
+      }
+      synced += messages.length;
     }
-    return messages.length;
+    return synced;
   };
 
   const syncWhatsAppHubChats = async (userId: string, limit = 100) => {
-    const data = await callWhatsAppHub(userId, `/api/chats?limit=${Math.min(Math.max(limit, 1), 500)}`).catch(() => ({ chats: [] }));
-    const chats = Array.isArray(data.chats) ? data.chats : [];
-    for (const chat of chats) {
-      const rawChatId = String(chat.raw_chat_id || chat.chat_id || '').trim();
-      const mapping = await findWhatsAppContactMapping(userId, rawChatId);
-      const conversationKey = normalizeWhatsAppConversationKey(mapping?.phone || chat.conversation_key || chat.conversation_id || chat.contact_phone || chat.chat_id);
-      if (!conversationKey) continue;
-      const contactPhone = normalizeWhatsAppPhone(mapping?.phone || chat.contact_phone || (!isLikelyWhatsAppChatId(conversationKey) ? conversationKey : ''));
-      await ensureWhatsAppConversation(userId, conversationKey, null, chat.last_message_at || new Date().toISOString(), {
-        contactPhone,
-        rawChatId,
-        conversationKey,
-        restoreDeleted: false
-      });
+    const actorClientIds = await getConfiguredWhatsAppActorClientIds(userId);
+    const requestedClientIds = actorClientIds.length > 0 ? actorClientIds : [''];
+    let synced = 0;
+    for (const requestedClientId of requestedClientIds) {
+      const params = new URLSearchParams();
+      params.set('limit', String(Math.min(Math.max(limit, 1), 500)));
+      if (requestedClientId) params.set('clientId', requestedClientId);
+      const data = await callWhatsAppHub(userId, `/api/chats?${params.toString()}`).catch(() => ({ chats: [] }));
+      const chats = (Array.isArray(data.chats) ? data.chats : [])
+        .filter((chat: any) => isAllowedWhatsAppActorPayload(chat, actorClientIds));
+      for (const chat of chats) {
+        const rawChatId = String(chat.raw_chat_id || chat.chat_id || '').trim();
+        const mapping = await findWhatsAppContactMapping(userId, rawChatId);
+        const conversationKey = normalizeWhatsAppConversationKey(mapping?.phone || chat.conversation_key || chat.conversation_id || chat.contact_phone || chat.chat_id);
+        if (!conversationKey) continue;
+        const contactPhone = normalizeWhatsAppPhone(mapping?.phone || chat.contact_phone || (!isLikelyWhatsAppChatId(conversationKey) ? conversationKey : ''));
+        await ensureWhatsAppConversation(userId, conversationKey, null, chat.last_message_at || new Date().toISOString(), {
+          contactPhone,
+          rawChatId,
+          conversationKey,
+          restoreDeleted: false
+        });
+      }
+      synced += chats.length;
     }
-    return chats.length;
+    return synced;
   };
 
   const mapWhatsAppMessageRow = (row: any) => ({
@@ -3178,6 +3233,7 @@ Return JSON only:
         values.push(chatId);
         where += ` AND (m.raw_chat_id = $${values.length} OR m.target_phone = $${values.length} OR m.conversation_key = $${values.length})`;
       }
+      where += await getWhatsAppActorSqlFilter(req.user.uid, 'm.hub_client_id', values);
       values.push(limit);
       const result = await pool.query(
         `SELECT m.*,
@@ -3281,6 +3337,7 @@ Return JSON only:
           values.push(chatId);
           where += ` AND (raw_chat_id = $${values.length} OR target_phone = $${values.length} OR conversation_key = $${values.length})`;
         }
+        where += await getWhatsAppActorSqlFilter(req.user.uid, 'hub_client_id', values);
         const latest = await pool.query(
           `SELECT MAX(COALESCE(source_created_at, created_at)) AS latest_at FROM whatsapp_messages WHERE ${where}`,
           values
@@ -3318,6 +3375,19 @@ Return JSON only:
           OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(c.tags) tag WHERE lower(tag) LIKE $${values.length})
         )`;
       }
+      const actorClientIds = await getConfiguredWhatsAppActorClientIds(req.user.uid);
+      let actorSql = '';
+      let lastMessageActorSql = '';
+      if (actorClientIds.length > 0) {
+        values.push(actorClientIds);
+        actorSql = `AND EXISTS (
+          SELECT 1 FROM whatsapp_messages actor_msg
+          WHERE actor_msg.conversation_id = c.id
+            AND actor_msg.user_id = c.user_id
+            AND actor_msg.hub_client_id = ANY($${values.length}::text[])
+        )`;
+        lastMessageActorSql = `AND m.hub_client_id = ANY($${values.length}::text[])`;
+      }
       const result = await pool.query(
         `SELECT c.*, cl.name AS client_name, cl.company AS client_company,
                 last_msg.body AS last_body,
@@ -3329,10 +3399,11 @@ Return JSON only:
            SELECT body, direction, hub_client_id
            FROM whatsapp_messages m
            WHERE m.conversation_id = c.id
+             ${lastMessageActorSql}
            ORDER BY COALESCE(m.source_created_at, m.created_at) DESC
            LIMIT 1
          ) last_msg ON true
-         WHERE c.user_id = $1 AND c.deleted_at IS NULL ${searchSql}
+         WHERE c.user_id = $1 AND c.deleted_at IS NULL ${searchSql} ${actorSql}
          ORDER BY COALESCE(c.last_message_at, c.updated_at) DESC
          LIMIT 200`,
         values
@@ -7189,11 +7260,14 @@ Return JSON only:
       );
       for (const user of usersRes.rows) {
         try {
+          const values: any[] = [user.id];
+          let where = 'user_id = $1';
+          where += await getWhatsAppActorSqlFilter(user.id, 'hub_client_id', values);
           const latest = await pool.query(
             `SELECT MAX(COALESCE(source_created_at, created_at)) AS latest_at
              FROM whatsapp_messages
-             WHERE user_id = $1`,
-            [user.id]
+             WHERE ${where}`,
+            values
           );
           const since = latest.rows[0]?.latest_at
             ? applyWhatsAppHistoryRecoveryLookback(new Date(latest.rows[0].latest_at).toISOString())
