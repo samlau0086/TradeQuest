@@ -107,6 +107,35 @@ function buildEmbedHtml(form: CustomerForm, endpoint: string) {
 </script>`;
 }
 
+function getMockValueForField(field: CustomerFormField) {
+  const key = field.key.toLowerCase();
+  if (key.includes('email')) return 'buyer@example.com';
+  if (key.includes('whatsapp')) return '+14155550123';
+  if (key.includes('phone') || key.includes('mobile')) return '+14155550123';
+  if (key.includes('company')) return 'Acme Solar Operations';
+  if (key.includes('country')) return 'United States';
+  if (key.includes('name')) return 'Alex Johnson';
+  if (key.includes('message') || field.type === 'textarea') return 'We are evaluating solar monitoring solutions for multiple sites and would like pricing information.';
+  if (field.type === 'number') return 100;
+  if (field.type === 'select') return field.options?.[0] || 'Option A';
+  return `Sample ${field.label || field.key}`;
+}
+
+function buildMockPayload(form: CustomerForm) {
+  return form.fields.reduce<Record<string, string | number>>((payload, field) => {
+    if (!field.key.trim()) return payload;
+    payload[field.key.trim()] = getMockValueForField(field);
+    return payload;
+  }, {});
+}
+
+function buildCurlCommand(endpoint: string, mockJson: string) {
+  const escapedJson = mockJson.replace(/'/g, `'\\''`);
+  return `curl -X POST '${endpoint}' \\
+  -H 'Content-Type: application/json' \\
+  -d '${escapedJson}'`;
+}
+
 export function CustomerForms() {
   const { language, notify } = useStore();
   const [forms, setForms] = useState<CustomerForm[]>([]);
@@ -121,6 +150,8 @@ export function CustomerForms() {
   const isNew = !draft.id;
   const publicEndpoint = draft.id ? `${window.location.origin}/api/public/customer-forms/${draft.id}/submit` : '';
   const embedHtml = useMemo(() => draft.id ? buildEmbedHtml(draft, publicEndpoint) : '', [draft, publicEndpoint]);
+  const mockJson = useMemo(() => draft.id ? JSON.stringify(buildMockPayload(draft), null, 2) : '', [draft]);
+  const curlCommand = useMemo(() => draft.id ? buildCurlCommand(publicEndpoint, mockJson) : '', [draft.id, publicEndpoint, mockJson]);
 
   const fetchForms = async () => {
     if (!token) return;
@@ -371,6 +402,26 @@ export function CustomerForms() {
                       <Clipboard className="h-3.5 w-3.5" />
                       {language === 'zh' ? '复制 API 地址' : 'Copy API URL'}
                     </button>
+                  </div>
+                  <div className="mt-3">
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Mock JSON</span>
+                      <button onClick={() => copyText(mockJson, 'Mock JSON')} className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:text-white">
+                        <Clipboard className="h-3.5 w-3.5" />
+                        {language === 'zh' ? '复制' : 'Copy'}
+                      </button>
+                    </div>
+                    <pre className="max-h-[220px] overflow-auto rounded-lg border border-slate-800 bg-slate-950 p-3 text-[11px] leading-relaxed text-slate-300">{mockJson}</pre>
+                  </div>
+                  <div className="mt-3">
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">cURL Test Request</span>
+                      <button onClick={() => copyText(curlCommand, 'cURL')} className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:text-white">
+                        <Clipboard className="h-3.5 w-3.5" />
+                        {language === 'zh' ? '复制' : 'Copy'}
+                      </button>
+                    </div>
+                    <pre className="max-h-[260px] overflow-auto whitespace-pre-wrap rounded-lg border border-slate-800 bg-slate-950 p-3 text-[11px] leading-relaxed text-slate-300">{curlCommand}</pre>
                   </div>
                   <div className="mt-3">
                     <div className="mb-2 flex items-center justify-between">
