@@ -92,6 +92,8 @@ Foreign Trade CRM is an AI-powered CRM for foreign trade teams. It combines clie
 
 - Knowledge base items store title, content, optional client association, and embedding vectors.
 - RAG search uses global knowledge plus client-specific knowledge when a client context is available.
+- Global RAG can import server-side folders. Set `KNOWLEDGE_IMPORT_DIR` or `RAG_IMPORT_DIR` on the server, place structured files under that folder, then use the Knowledge Base page to import the configured root or a relative subfolder.
+- Folder import supports `.txt`, `.md`, `.markdown`, `.json`, `.csv`, `.tsv`, `.html`, `.htm`, and `.pdf`. Re-importing the same relative file path updates the same knowledge item instead of creating duplicates.
 - Deleting a knowledge item hard-deletes both the content and the stored embedding from the same `knowledge_base` table.
 - After deletion, future RAG searches will not retrieve that item.
 - If knowledge update embedding generation fails, the content can update while the old embedding may remain; deleting does not have this issue.
@@ -875,6 +877,8 @@ Foreign Trade CRM 是一套面向外贸团队的 AI CRM。系统把客户/线索
 
 - 知识库条目包含标题、内容、可选客户关联和 embedding 向量。
 - RAG 会检索全局知识库；有客户上下文时也会检索客户专属知识。
+- 全局 RAG 支持从服务器指定文件夹批量导入。服务端配置 `KNOWLEDGE_IMPORT_DIR` 或 `RAG_IMPORT_DIR` 后，把结构化文件放入该目录，即可在知识库页面导入配置根目录或相对路径子目录。
+- 文件夹导入支持 `.txt`、`.md`、`.markdown`、`.json`、`.csv`、`.tsv`、`.html`、`.htm` 和 `.pdf`。重复导入同一个相对路径文件会更新同一条知识库，不会重复创建。
 - 删除知识库条目时，会从同一张 `knowledge_base` 表中硬删除内容和 embedding。
 - 删除后，后续 RAG 不会再检索到该条知识。
 - 如果更新知识库时 embedding 生成失败，正文可能已更新但旧 embedding 仍保留；删除操作没有这个问题。

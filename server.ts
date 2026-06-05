@@ -4,6 +4,7 @@ import multer from "multer";
 import { createRequire } from 'module';
 const customRequire = typeof require !== "undefined" ? require : createRequire(import.meta.url);
 const nodeCrypto = customRequire("crypto");
+const fsPromises = customRequire("fs/promises");
 const pdfParse = customRequire("pdf-parse");
 const nodemailer = customRequire("nodemailer");
 const geoip = customRequire("geoip-lite");
@@ -9209,6 +9210,90 @@ No markdown wrappers, just valid JSON.`;
     return `[${values.join(',')}]`;
   }
 
+  const SUPPORTED_KNOWLEDGE_FOLDER_EXTENSIONS = new Set([
+    '.txt', '.md', '.markdown', '.json', '.csv', '.tsv', '.html', '.htm', '.pdf'
+  ]);
+
+  const normalizeKnowledgeImportRoot = async () => {
+    const configured = String(process.env.KNOWLEDGE_IMPORT_DIR || process.env.RAG_IMPORT_DIR || '').trim();
+    if (!configured) return '';
+    return path.resolve(configured);
+  };
+
+  const parseKnowledgeFileBuffer = async (filePath: string, buffer: Buffer) => {
+    const ext = path.extname(filePath).toLowerCase();
+    if (ext === '.pdf') {
+      const data = await pdfParse(buffer);
+      return String(data.text || '').trim();
+    }
+    const raw = buffer.toString('utf-8');
+    if (ext === '.json') {
+      try {
+        return JSON.stringify(JSON.parse(raw), null, 2);
+      } catch {
+        return raw;
+      }
+    }
+    return raw;
+  };
+
+  const collectKnowledgeFiles = async (root: string, current: string, collected: string[], limit: number) => {
+    if (collected.length >= limit) return;
+    const entries = await fsPromises.readdir(current, { withFileTypes: true });
+    for (const entry of entries) {
+      if (collected.length >= limit) break;
+      if (entry.name.startsWith('.')) continue;
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        await collectKnowledgeFiles(root, fullPath, collected, limit);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const ext = path.extname(entry.name).toLowerCase();
+      if (!SUPPORTED_KNOWLEDGE_FOLDER_EXTENSIONS.has(ext)) continue;
+      const resolved = path.resolve(fullPath);
+      if (!resolved.startsWith(root + path.sep) && resolved !== root) continue;
+      collected.push(resolved);
+    }
+  };
+
+  const upsertKnowledgeItem = async (input: {
+    id: string;
+    userId: string;
+    clientId?: string | null;
+    title: string;
+    content: string;
+    llmConfig?: any;
+  }) => {
+    const embedding = await generateEmbedding(input.content, input.llmConfig);
+    const existing = await pool.query('SELECT id FROM knowledge_base WHERE id = $1 AND user_id = $2 LIMIT 1', [input.id, input.userId]);
+    if (embedding) {
+      await pool.query(
+        `INSERT INTO knowledge_base (id, user_id, client_id, title, content, embedding)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (id)
+         DO UPDATE SET title = EXCLUDED.title,
+                       content = EXCLUDED.content,
+                       client_id = EXCLUDED.client_id,
+                       embedding = EXCLUDED.embedding,
+                       updated_at = CURRENT_TIMESTAMP`,
+        [input.id, input.userId, input.clientId || null, input.title, input.content, formatVector(embedding)]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO knowledge_base (id, user_id, client_id, title, content)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (id)
+         DO UPDATE SET title = EXCLUDED.title,
+                       content = EXCLUDED.content,
+                       client_id = EXCLUDED.client_id,
+                       updated_at = CURRENT_TIMESTAMP`,
+        [input.id, input.userId, input.clientId || null, input.title, input.content]
+      );
+    }
+    return existing.rows[0] ? 'updated' : 'created';
+  };
+
   async function searchKnowledgeBase(userId: string, clientId: string | null, queryText: string, llmConfig?: any, limit: number = 5) {
     try {
       const queryEmbedding = await generateEmbedding(queryText, llmConfig);
@@ -9248,6 +9333,87 @@ No markdown wrappers, just valid JSON.`;
     } catch (e) {
       console.error('File parsing error:', e);
       res.status(500).json({ error: 'Failed to parse document' });
+    }
+  });
+
+  app.post('/api/knowledge-base/import-folder', authenticateToken, async (req: any, res) => {
+    try {
+      const root = await normalizeKnowledgeImportRoot();
+      if (!root) {
+        return res.status(400).json({
+          error: 'Knowledge import folder is not configured. Set KNOWLEDGE_IMPORT_DIR or RAG_IMPORT_DIR on the server.'
+        });
+      }
+      const relativeFolder = String(req.body?.folder || '').trim();
+      if (path.isAbsolute(relativeFolder)) {
+        return res.status(400).json({ error: 'Use a relative folder under the configured import root.' });
+      }
+      const targetDir = path.resolve(path.join(root, relativeFolder || '.'));
+      if (targetDir !== root && !targetDir.startsWith(root + path.sep)) {
+        return res.status(400).json({ error: 'Folder is outside the configured knowledge import root.' });
+      }
+      const maxFiles = Math.max(1, Math.min(500, Number(req.body?.maxFiles || 200)));
+      const stats = await fsPromises.stat(targetDir).catch(() => null);
+      if (!stats?.isDirectory()) return res.status(404).json({ error: 'Knowledge import folder was not found.' });
+
+      const files: string[] = [];
+      await collectKnowledgeFiles(root, targetDir, files, maxFiles);
+      const llmConfig = req.body?.llmConfig;
+      const result = {
+        rootConfigured: root,
+        folder: path.relative(root, targetDir) || '.',
+        scanned: files.length,
+        imported: 0,
+        updated: 0,
+        skipped: 0,
+        failed: 0,
+        items: [] as Array<{ path: string; title: string; status: string; error?: string }>
+      };
+
+      for (const filePath of files) {
+        const relativePath = path.relative(root, filePath).replace(/\\/g, '/');
+        try {
+          const buffer = await fsPromises.readFile(filePath);
+          const content = (await parseKnowledgeFileBuffer(filePath, buffer)).trim();
+          if (!content) {
+            result.skipped += 1;
+            result.items.push({ path: relativePath, title: relativePath, status: 'skipped_empty' });
+            continue;
+          }
+          const title = relativePath.replace(/\.[^.]+$/, '').replace(/[\/_-]+/g, ' ').trim() || path.basename(filePath);
+          const id = `kb_folder_${nodeCrypto.createHash('sha1').update(`${req.user.uid}:${relativePath}`).digest('hex')}`;
+          const mode = await upsertKnowledgeItem({
+            id,
+            userId: req.user.uid,
+            clientId: req.body?.clientId || null,
+            title,
+            content: [`Source file: ${relativePath}`, '', content].join('\n'),
+            llmConfig
+          });
+          if (mode === 'updated') result.updated += 1;
+          else result.imported += 1;
+          result.items.push({ path: relativePath, title, status: mode });
+        } catch (error: any) {
+          result.failed += 1;
+          result.items.push({ path: relativePath, title: relativePath, status: 'failed', error: error?.message || 'Failed to import file' });
+        }
+      }
+
+      const pointsAdded = result.imported > 0
+        ? Math.max(0, await getGlobalSettingNumber('point_event_add_knowledge', 3)) * result.imported
+        : 0;
+      if (pointsAdded > 0) {
+        await adjustUserPoints(req.user.uid, pointsAdded, 'Imported knowledge folder', 'import_knowledge_folder', null, {
+          folder: result.folder,
+          imported: result.imported,
+          updated: result.updated
+        });
+      }
+
+      res.json({ success: true, ...result, pointsAdded });
+    } catch (e: any) {
+      console.error('Knowledge folder import failed', e);
+      res.status(500).json({ error: e.message || 'Failed to import knowledge folder' });
     }
   });
 
