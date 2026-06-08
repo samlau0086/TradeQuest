@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useStore, EmailMessage } from '../store';
 import { useAuthStore } from '../authStore';
-import { Mail, Send, Reply, Trash2, ArrowLeft, RefreshCw, PenLine, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, MessageCircle, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2, MoreHorizontal, Star, Clock, Activity, Eye, MousePointerClick, Radar, Timer, Bold, Italic, List, Link2, Image as ImageIcon } from 'lucide-react';
+import { Mail, MailOpen, Send, Reply, Trash2, ArrowLeft, RefreshCw, PenLine, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, MessageCircle, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2, MoreHorizontal, Star, Clock, Activity, Eye, MousePointerClick, Radar, Timer, Bold, Italic, List, Link2, Image as ImageIcon } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { CommentItem } from './CommentItem';
 import { AddressInput } from './AddressInput';
@@ -1322,7 +1322,11 @@ export function Inbox() {
                   </div>
                   <div className="pt-0.5 flex-shrink-0">
                     <div className="w-7 h-7 rounded-full bg-cyan-950/50 border border-cyan-900/60 flex items-center justify-center">
-                      <Mail className="w-4 h-4 text-cyan-400" />
+                      {group.unreadCount > 0 ? (
+                        <Mail className="w-4 h-4 text-cyan-400" />
+                      ) : (
+                        <MailOpen className="w-4 h-4 text-slate-500" />
+                      )}
                     </div>
                   </div>
                   <div className="flex-1 min-w-0">
@@ -1386,8 +1390,12 @@ export function Inbox() {
                   className="rounded border-slate-700 bg-slate-800 text-cyan-500 focus:ring-cyan-500"
                 />
               </div>
-              <div className="pt-0.5 flex-shrink-0" title="Email">
-                <Mail className="w-4 h-4 text-cyan-400" />
+              <div className="pt-0.5 flex-shrink-0" title={email.read ? "Read email" : "Unread email"}>
+                {email.read ? (
+                  <MailOpen className="w-4 h-4 text-slate-500" />
+                ) : (
+                  <Mail className="w-4 h-4 text-cyan-400" />
+                )}
               </div>
               <div 
                 className={cn("pt-0.5 cursor-pointer transition-opacity flex-shrink-0", email.isImportant ? "opacity-100" : "opacity-0 group-hover:opacity-100")}
