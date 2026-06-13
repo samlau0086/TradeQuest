@@ -282,6 +282,150 @@ const pool = new Pool({
   keepAlive: true
 });
 
+type StartupCheckStatus = 'ok' | 'warning' | 'error' | 'idle';
+interface StartupCheckResult {
+  name: string;
+  status: StartupCheckStatus;
+  message: string;
+  details?: any;
+  checkedAt: string;
+}
+
+const startupDiagnostics: {
+  generatedAt: string | null;
+  checks: StartupCheckResult[];
+  workers: Record<string, { status: StartupCheckStatus; intervalMs?: number; registeredAt?: string; message?: string }>;
+} = {
+  generatedAt: null,
+  checks: [],
+  workers: {}
+};
+
+const recordStartupWorker = (name: string, intervalMs: number, message = 'registered') => {
+  startupDiagnostics.workers[name] = {
+    status: 'ok',
+    intervalMs,
+    registeredAt: new Date().toISOString(),
+    message
+  };
+};
+
+const runStartupDiagnostics = async () => {
+  const checkedAt = new Date().toISOString();
+  const checks: StartupCheckResult[] = [];
+  const addCheck = (name: string, status: StartupCheckStatus, message: string, details?: any) => {
+    checks.push({ name, status, message, details, checkedAt });
+  };
+
+  addCheck(
+    'DATABASE_URL',
+    process.env.DATABASE_URL ? 'ok' : 'error',
+    process.env.DATABASE_URL ? 'PostgreSQL connection string is configured.' : 'DATABASE_URL is missing; database-backed features will fail.'
+  );
+  addCheck(
+    'JWT_SECRET',
+    process.env.JWT_SECRET && process.env.JWT_SECRET !== 'fallback_secret_key' ? 'ok' : 'warning',
+    process.env.JWT_SECRET && process.env.JWT_SECRET !== 'fallback_secret_key'
+      ? 'JWT secret is configured.'
+      : 'JWT_SECRET is missing or using fallback_secret_key; set a strong secret in production.'
+  );
+  addCheck(
+    'AI provider fallback',
+    process.env.GEMINI_API_KEY ? 'ok' : 'warning',
+    process.env.GEMINI_API_KEY
+      ? 'GEMINI_API_KEY fallback is configured.'
+      : 'No GEMINI_API_KEY fallback detected. This is acceptable if users configure AI providers in Settings.'
+  );
+  addCheck(
+    'WhatsApp history recovery',
+    WHATSAPP_HISTORY_RECOVERY_LOOKBACK_MS > 0 ? 'ok' : 'idle',
+    `History recovery lookback is ${Math.round(WHATSAPP_HISTORY_RECOVERY_LOOKBACK_MS / 3600000)} hour(s).`
+  );
+
+  const ragImportDir = String(process.env.KNOWLEDGE_IMPORT_DIR || process.env.RAG_IMPORT_DIR || '').trim();
+  if (ragImportDir) {
+    try {
+      await fsPromises.mkdir(ragImportDir, { recursive: true });
+      await fsPromises.access(ragImportDir);
+      addCheck('RAG import directory', 'ok', `RAG import directory is available: ${ragImportDir}`);
+    } catch (error: any) {
+      addCheck('RAG import directory', 'error', `RAG import directory is not accessible: ${ragImportDir}`, error?.message || String(error));
+    }
+  } else {
+    addCheck('RAG import directory', 'warning', 'KNOWLEDGE_IMPORT_DIR/RAG_IMPORT_DIR is not configured; folder import is disabled.');
+  }
+
+  if (process.env.DATABASE_URL) {
+    try {
+      const result = await pool.query(`
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = ANY($1::text[])
+      `, [[
+        'users',
+        'agent_run_records',
+        'agent_opportunities',
+        'agent_tasks',
+        'agent_harness_runs',
+        'global_agent_plans',
+        'emails',
+        'whatsapp_messages',
+        'live_chat_sessions',
+        'knowledge_base'
+      ]]);
+      const found = new Set(result.rows.map((row: any) => row.table_name));
+      const missing = [
+        'users',
+        'agent_run_records',
+        'agent_opportunities',
+        'agent_tasks',
+        'agent_harness_runs',
+        'global_agent_plans',
+        'emails',
+        'whatsapp_messages',
+        'live_chat_sessions',
+        'knowledge_base'
+      ].filter(table => !found.has(table));
+      addCheck(
+        'Database migrations',
+        missing.length === 0 ? 'ok' : 'error',
+        missing.length === 0 ? 'Required database tables are present.' : `Missing required tables: ${missing.join(', ')}`,
+        { missing }
+      );
+    } catch (error: any) {
+      addCheck('Database migrations', 'error', 'Failed to verify required database tables.', error?.message || String(error));
+    }
+  }
+
+  const requiredWorkers = [
+    'external_notifications',
+    'idle_lead_release',
+    'client_agent_polling',
+    'agent_hub_scheduler',
+    'scheduled_email_sender',
+    'background_email_sync',
+    'scheduled_whatsapp_sender',
+    'whatsapp_customer_service_sync'
+  ];
+  const missingWorkers = requiredWorkers.filter(worker => !startupDiagnostics.workers[worker]);
+  addCheck(
+    'Background workers',
+    missingWorkers.length === 0 ? 'ok' : 'warning',
+    missingWorkers.length === 0 ? 'All expected background workers are registered.' : `Missing worker registrations: ${missingWorkers.join(', ')}`,
+    { registered: startupDiagnostics.workers, missing: missingWorkers }
+  );
+
+  startupDiagnostics.generatedAt = checkedAt;
+  startupDiagnostics.checks = checks;
+  if (checks.some(check => check.status === 'error')) {
+    console.warn('[startup diagnostics]', checks.filter(check => check.status === 'error'));
+  } else {
+    console.log('[startup diagnostics] completed', checks.map(check => `${check.name}:${check.status}`).join(', '));
+  }
+  return startupDiagnostics;
+};
+
 async function initDB() {
   if (!process.env.DATABASE_URL) {
     console.warn("DATABASE_URL not set. User data APIs will fail.");
@@ -2038,7 +2182,8 @@ No markdown wrappers, just valid JSON.`;
         agentPersistence: {
           status: Number(agentCounts.tasks || 0) + Number(agentCounts.opportunities || 0) + Number(agentCounts.run_records || 0) > 0 ? 'ok' : 'idle',
           ...agentCounts
-        }
+        },
+        startup: startupDiagnostics
       });
     } catch (e) {
       console.error('Failed to load system health', e);
@@ -2232,6 +2377,7 @@ No markdown wrappers, just valid JSON.`;
     }
   };
   setInterval(runExternalNotificationScheduler, 60 * 60 * 1000);
+  recordStartupWorker('external_notifications', 60 * 60 * 1000);
   setTimeout(runExternalNotificationScheduler, 30 * 1000);
 
   const getWhatsAppHubConfig = async (userId: string) => {
@@ -4389,6 +4535,7 @@ Return JSON only:
 
   // Run idle release periodically
   setInterval(releaseIdleLeads, 60 * 60 * 1000); // Check every hour
+  recordStartupWorker('idle_lead_release', 60 * 60 * 1000);
   
   // Agent Polling
   const runAgentPolling = async () => {
@@ -4564,6 +4711,7 @@ No markdown wrappers, just valid JSON.`;
 
   // Run agent polling frequently; per-client eligibility is controlled by agent_polling_interval_seconds.
   setInterval(runAgentPolling, 5 * 1000);
+  recordStartupWorker('client_agent_polling', 5 * 1000);
 
   const getAgentHubScheduleIntervalMs = (agent: any) => {
     const value = Math.max(1, Number(agent.scheduleIntervalValue || agent.scheduleIntervalMinutes || 1));
@@ -7786,6 +7934,7 @@ Return JSON only:
 
   void runAgentHubScheduler();
   setInterval(runAgentHubScheduler, 5 * 1000);
+  recordStartupWorker('agent_hub_scheduler', 5 * 1000);
   
   // Scheduled Emails Processor
   const processScheduledEmails = async () => {
@@ -7855,6 +8004,7 @@ Return JSON only:
 
   // Run scheduled emails processor every 1 minute
   setInterval(processScheduledEmails, 60 * 1000);
+  recordStartupWorker('scheduled_email_sender', 60 * 1000);
 
   const processBackgroundEmailSync = async () => {
     try {
@@ -7911,6 +8061,7 @@ Return JSON only:
   };
 
   setInterval(processBackgroundEmailSync, 60 * 1000);
+  recordStartupWorker('background_email_sync', 60 * 1000);
 
   const processScheduledWhatsAppMessages = async () => {
     try {
@@ -7969,6 +8120,7 @@ Return JSON only:
   };
 
   setInterval(processScheduledWhatsAppMessages, 60 * 1000);
+  recordStartupWorker('scheduled_whatsapp_sender', 60 * 1000);
 
   const processWhatsAppCustomerServiceSync = async () => {
     try {
@@ -8006,6 +8158,7 @@ Return JSON only:
   };
 
   setInterval(processWhatsAppCustomerServiceSync, 60 * 1000);
+  recordStartupWorker('whatsapp_customer_service_sync', 60 * 1000);
   
   // Deals API Endpoints
   app.get('/api/deals', authenticateToken, async (req: any, res) => {
@@ -11390,7 +11543,12 @@ No markdown wrappers, just valid JSON.`;
     });
   }
 
-  initDB().catch(console.error); // Do not block server startup
+  initDB()
+    .then(() => runStartupDiagnostics())
+    .catch((error) => {
+      console.error(error);
+      return runStartupDiagnostics().catch(console.error);
+    }); // Do not block server startup
   httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });

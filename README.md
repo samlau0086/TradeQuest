@@ -237,6 +237,7 @@ For compatibility, `/api/user/settings` still returns these arrays. On read, dat
 
 Agent Hub includes a Health tab backed by `GET /api/system/health`. It checks:
 
+- Startup diagnostics for required environment variables, RAG import directory access, database migrations, and background worker registration.
 - Email sync configuration and last background sync state.
 - WhatsApp Actor Hub configuration, actor pool, and customer-service agent state.
 - Live Chat session status.
@@ -410,7 +411,7 @@ Recommended near-term roadmap:
 
 - [x] Move critical Agent task, approval, and execution records from user settings JSON toward dedicated database tables.
 - [x] Add a system health page for email sync, WhatsApp sync, Live Chat agent, scheduler, notification delivery, RAG indexing, and LLM provider status.
-- [ ] Add startup checks for required directories, environment variables, database migrations, and background workers.
+- [x] Add startup checks for required directories, environment variables, database migrations, and background workers.
 - [ ] Add deployment health checks after GitHub Actions deployment.
 
 ### Phase 4: Unified Communication and CRM Workspace
@@ -1094,6 +1095,7 @@ Signal Scanner Agent 会定期扫描 CRM 信号，例如：
 
 Agent Hub 包含 Health 标签页，后端接口为 `GET /api/system/health`。它会检查：
 
+- 启动诊断：必要环境变量、RAG 导入目录访问、数据库迁移、后台 worker 注册。
 - 邮件同步配置和最近后台同步状态。
 - WhatsApp Actor Hub 配置、Actor 池和客服 Agent 状态。
 - Live Chat 会话状态。
@@ -1267,7 +1269,7 @@ Agent Execution Policy 使用的 Global Orchestrator action type：
 
 - [x] 将关键 Agent 任务、审批、执行记录从 user settings JSON 逐步迁移到独立数据库表。
 - [x] 增加系统健康检查页面，覆盖邮件同步、WhatsApp 同步、Live Chat Agent、Scheduler、通知投递、RAG 索引和 LLM Provider。
-- [ ] 启动时检查必要目录、环境变量、数据库迁移和后台 worker。
+- [x] 启动时检查必要目录、环境变量、数据库迁移和后台 worker。
 - [ ] GitHub Actions 部署后增加自动 health check。
 
 ### 阶段 4：统一沟通与 CRM 作战室

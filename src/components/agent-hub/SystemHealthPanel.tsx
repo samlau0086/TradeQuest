@@ -18,6 +18,11 @@ interface SystemHealth {
   rag: HealthSection;
   llm: HealthSection;
   agentPersistence: HealthSection;
+  startup?: {
+    generatedAt: string | null;
+    checks: Array<{ name: string; status: string; message: string; details?: any; checkedAt: string }>;
+    workers: Record<string, { status: string; intervalMs?: number; registeredAt?: string; message?: string }>;
+  };
 }
 
 interface SystemHealthPanelProps {
@@ -65,6 +70,30 @@ export function SystemHealthPanel({ language }: SystemHealthPanelProps) {
   }, [token]);
 
   const cards = useMemo(() => health ? [
+    {
+      id: 'startup',
+      title: isZh ? '启动检查' : 'Startup Checks',
+      description: isZh ? '环境变量、必要目录和数据库迁移检查。' : 'Environment, required directories, and database migration checks.',
+      status: health.startup?.checks?.some(check => check.status === 'error') ? 'warning' : 'ok',
+      metrics: [
+        [isZh ? '检查时间' : 'Checked at', health.startup?.generatedAt ? new Date(health.startup.generatedAt).toLocaleString() : '-'],
+        [isZh ? '通过' : 'OK', health.startup?.checks?.filter(check => check.status === 'ok').length || 0],
+        [isZh ? '警告' : 'Warnings', health.startup?.checks?.filter(check => check.status === 'warning').length || 0],
+        [isZh ? '错误' : 'Errors', health.startup?.checks?.filter(check => check.status === 'error').length || 0]
+      ],
+      details: health.startup?.checks?.map(check => `${check.name}: ${check.message}`) || []
+    },
+    {
+      id: 'workers',
+      title: isZh ? '后台 Worker' : 'Background Workers',
+      description: isZh ? '后台调度、同步、发送和通知 worker 注册状态。' : 'Background scheduler, sync, sender, and notification worker registration.',
+      status: Object.keys(health.startup?.workers || {}).length > 0 ? 'ok' : 'warning',
+      metrics: [
+        [isZh ? '已注册' : 'Registered', Object.keys(health.startup?.workers || {}).length],
+        [isZh ? '最近检查' : 'Last checked', health.startup?.generatedAt ? new Date(health.startup.generatedAt).toLocaleString() : '-']
+      ],
+      details: Object.entries(health.startup?.workers || {}).map(([name, worker]) => `${name}: ${worker.intervalMs ? `${Math.round(worker.intervalMs / 1000)}s` : worker.status}`)
+    },
     {
       id: 'email',
       title: isZh ? '邮件同步' : 'Email Sync',
@@ -208,6 +237,13 @@ export function SystemHealthPanel({ language }: SystemHealthPanelProps) {
                 </div>
               ))}
             </dl>
+            {'details' in card && Array.isArray(card.details) && card.details.length > 0 && (
+              <div className="mt-3 max-h-28 space-y-1 overflow-y-auto rounded border border-neutral-900 bg-neutral-950 p-2">
+                {card.details.slice(0, 12).map(detail => (
+                  <div key={detail} className="truncate text-[10px] text-slate-500" title={detail}>{detail}</div>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>
