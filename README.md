@@ -419,8 +419,8 @@ Recommended near-term roadmap:
 ### Phase 4: Unified Communication and CRM Workspace
 
 - [x] Add the shared Email, WhatsApp, and Live Chat conversation/message backend index and unified read APIs.
-- [x] Start Inbox migration to the shared conversation model: WhatsApp list hydration uses the unified API first, and Live Chat conversations appear as Inbox channel entries that open the Live Chat desk.
-- [ ] Migrate Inbox and Live Chat UI reads to the shared conversation model with owner, stage, follow-up due date, tags, and internal comments.
+- [x] Migrate the Inbox left conversation list to the shared conversation model. Email, WhatsApp, and Live Chat now share one list, search, channel filter, and chronological ordering; selecting an item opens the existing channel-specific detail view.
+- [ ] Migrate unified conversation writes for owner, stage, follow-up due date, tags, and internal comments across all channels.
 - [ ] Add unified conversation search across all channels.
 - [ ] Expand client/lead workroom widgets for AI Summary, Best Next Step, Quotes, Contacts, RAG evidence, pending tasks, and channel history.
 - [ ] Add customer-level and lead-level AI analysis diffing so unchanged records do not repeatedly consume AI calls.
@@ -1289,8 +1289,8 @@ Agent Execution Policy 使用的 Global Orchestrator action type：
 ### 阶段 4：统一沟通与 CRM 作战室
 
 - [x] 增加 Email、WhatsApp、Live Chat 统一 conversation/message 后端索引和统一读取 API。
-- [x] 开始将 Inbox 迁移到统一沟通模型：WhatsApp 列表优先读取统一 API，Live Chat 会话可作为 Inbox 渠道条目进入 Live Chat 座席。
-- [ ] 将 Inbox 和 Live Chat UI 逐步迁移到统一沟通模型，支持负责人、阶段、跟进时间、标签和内部备注。
+- [x] 将 Inbox 左侧会话列表迁移到统一沟通模型。Email、WhatsApp、Live Chat 共用同一列表、搜索、渠道筛选和时间排序；点击后打开原有渠道详情视图。
+- [ ] 继续迁移负责人、阶段、跟进时间、标签和内部备注等跨渠道写入能力。
 - [ ] 增加跨渠道统一搜索。
 - [ ] 强化客户/Lead 作战室 widgets：AI Summary、Best Next Step、Quotes、Contacts、RAG 依据、待处理任务和全渠道历史。
 - [ ] 客户级和 Lead 级 AI 分析增加 diff 机制，记录无变化时不重复消耗 AI。

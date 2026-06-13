@@ -124,6 +124,57 @@ function mapUnifiedWhatsAppConversation(row: UnifiedCommunicationConversation): 
   };
 }
 
+function emailToUnifiedConversation(email: EmailMessage): UnifiedCommunicationConversation {
+  const outbound = ['sent', 'outbound', 'scheduled'].includes(email.type);
+  return {
+    id: `local_email_${email.id}`,
+    channel: 'email',
+    source_id: email.id,
+    client_id: email.clientId,
+    status: email.type === 'draft' || email.type === 'scheduled' ? email.type : 'open',
+    direction: outbound ? 'outbound' : 'inbound',
+    title: email.subject || '(No Subject)',
+    subject: email.subject,
+    contact_name: email.senderName || (outbound ? email.recipient : email.sender),
+    contact_address: outbound ? email.recipient : email.sender,
+    last_message_preview: htmlEmailToText(email.body || '').slice(0, 500),
+    last_message_at: email.scheduledAt || email.date,
+    read: email.read,
+    is_important: email.isImportant,
+    todo_at: email.todoAt,
+    todo_note: email.todoNote,
+    tags: email.tags || [],
+    comments: email.comments || [],
+    metadata: { emailType: email.type, localFallback: true }
+  };
+}
+
+function whatsappToUnifiedConversation(conversation: InboxWhatsAppConversation): UnifiedCommunicationConversation {
+  return {
+    id: `local_whatsapp_${conversation.id}`,
+    channel: 'whatsapp',
+    source_id: conversation.id,
+    client_id: conversation.clientId,
+    client_name: conversation.clientName,
+    client_company: conversation.clientCompany,
+    status: 'open',
+    direction: conversation.lastDirection,
+    title: conversation.clientName || conversation.contactPhone || conversation.targetPhone,
+    contact_address: conversation.contactPhone || conversation.targetPhone,
+    last_message_preview: conversation.lastBody || '',
+    last_message_at: conversation.lastMessageAt,
+    tags: conversation.tags || [],
+    comments: conversation.comments || [],
+    metadata: {
+      targetPhone: conversation.targetPhone,
+      contactPhone: conversation.contactPhone,
+      rawChatId: conversation.rawChatId,
+      conversationKey: conversation.conversationKey,
+      localFallback: true
+    }
+  };
+}
+
 function decodeHtmlEntities(value: string) {
   const textarea = document.createElement('textarea');
   textarea.innerHTML = value;
@@ -428,18 +479,39 @@ export function Inbox() {
         });
       })
     : [];
-  const filteredLiveChatConversations = filter === 'inbox' && channelFilter !== 'email' && channelFilter !== 'whatsapp'
-    ? unifiedConversations.filter(conversation => {
-        if (conversation.channel !== 'live_chat') return false;
-        if (conversation.status === 'closed') return false;
-        if (followUpOnly && !conversation.todo_at) return false;
-        const termsToMatch = [...searchTags];
-        if (search.trim()) {
-          termsToMatch.push(...search.trim().toLowerCase().split(/\s+/));
-        }
+  const unifiedFallbackConversations = useMemo(() => ([
+    ...emails.map(emailToUnifiedConversation),
+    ...whatsappConversations.map(whatsappToUnifiedConversation)
+  ]), [emails, whatsappConversations]);
+  const unifiedConversationSource = unifiedConversations.length > 0 ? unifiedConversations : unifiedFallbackConversations;
+  const isUnifiedConversationInCurrentMailbox = (conversation: UnifiedCommunicationConversation) => {
+    if (channelFilter !== 'all' && conversation.channel !== channelFilter) return false;
+    const emailType = String(conversation.metadata?.emailType || conversation.status || '').toLowerCase();
+    if (conversation.channel === 'email') {
+      if (filter === 'inbox') return conversation.direction !== 'outbound' && !['draft', 'scheduled'].includes(emailType);
+      if (filter === 'sent') return conversation.direction === 'outbound' && !['draft', 'scheduled'].includes(emailType);
+      if (filter === 'scheduled') return emailType === 'scheduled' || conversation.status === 'scheduled';
+      if (filter === 'drafts') return emailType === 'draft' || conversation.status === 'draft';
+      return true;
+    }
+    return filter === 'inbox';
+  };
+  const hasUnifiedOpenFollowUp = (conversation: UnifiedCommunicationConversation) => {
+    if (conversation.todo_at) return true;
+    if (conversation.channel !== 'whatsapp') return false;
+    return hasOpenWhatsAppFollowUp(mapUnifiedWhatsAppConversation(conversation));
+  };
+  const unifiedConversationList = useMemo(() => {
+    const termsToMatch = [...searchTags];
+    if (search.trim()) termsToMatch.push(...search.trim().toLowerCase().split(/\s+/));
+    return unifiedConversationSource
+      .filter(conversation => {
+        if (!isUnifiedConversationInCurrentMailbox(conversation)) return false;
+        if (followUpOnly && !hasUnifiedOpenFollowUp(conversation)) return false;
         if (termsToMatch.length === 0) return true;
         const haystack = [
           conversation.title || '',
+          conversation.subject || '',
           conversation.contact_name || '',
           conversation.contact_address || '',
           conversation.client_name || '',
@@ -454,10 +526,10 @@ export function Inbox() {
             : haystack.includes(normalized);
         });
       })
-    : [];
-  const visibleFollowUpCount = filteredEmails.filter(email => !!email.todoAt).length
-    + filteredWhatsAppConversations.filter(hasOpenWhatsAppFollowUp).length
-    + filteredLiveChatConversations.filter(conversation => !!conversation.todo_at).length;
+      .sort((a, b) => new Date(b.last_message_at || 0).getTime() - new Date(a.last_message_at || 0).getTime());
+  }, [unifiedConversationSource, channelFilter, filter, followUpOnly, search, searchTags]);
+  const filteredLiveChatConversations: UnifiedCommunicationConversation[] = [];
+  const visibleFollowUpCount = unifiedConversationSource.filter(hasUnifiedOpenFollowUp).length;
 
   const whatsappContactOptions = useMemo<WhatsAppContactOption[]>(() => {
     const options: WhatsAppContactOption[] = [];
@@ -561,11 +633,17 @@ export function Inbox() {
     }));
   }, [filteredEmails, clients]);
 
-  const visibleEmailIds = channelFilter !== 'whatsapp' ? filteredEmails.map(email => email.id) : [];
-  const visibleWhatsAppIds = channelFilter !== 'email' && filter === 'inbox' ? filteredWhatsAppConversations.map(conversation => conversation.id) : [];
+  const visibleEmailIds = unifiedConversationList
+    .filter(conversation => conversation.channel === 'email')
+    .map(conversation => conversation.source_id)
+    .filter(id => emails.some(email => email.id === id));
+  const visibleWhatsAppIds = unifiedConversationList
+    .filter(conversation => conversation.channel === 'whatsapp')
+    .map(conversation => conversation.source_id)
+    .filter(id => whatsappConversations.some(conversation => conversation.id === id) || unifiedConversations.some(conversation => conversation.channel === 'whatsapp' && conversation.source_id === id));
   const selectedCount = selectedIds.size + selectedWhatsAppIds.size;
   const selectableVisibleCount = visibleEmailIds.length + visibleWhatsAppIds.length;
-  const totalVisibleCount = selectableVisibleCount + filteredLiveChatConversations.length;
+  const totalVisibleCount = unifiedConversationList.length;
   const allVisibleSelected = selectableVisibleCount > 0
     && visibleEmailIds.every(id => selectedIds.has(id))
     && visibleWhatsAppIds.every(id => selectedWhatsAppIds.has(id));
@@ -891,6 +969,26 @@ export function Inbox() {
     setSelectedWhatsAppClientId(conversation.clientId || null);
   };
 
+  const handleSelectUnifiedConversation = (conversation: UnifiedCommunicationConversation) => {
+    if (conversation.channel === 'email') {
+      handleSelect(conversation.source_id);
+      return;
+    }
+    if (conversation.channel === 'whatsapp') {
+      const mapped = mapUnifiedWhatsAppConversation(conversation);
+      setWhatsappConversations(prev => prev.some(item => item.id === mapped.id) ? prev : [mapped, ...prev]);
+      handleSelectWhatsApp(mapped);
+      return;
+    }
+    sessionStorage.setItem(LIVE_CHAT_SELECTED_SESSION_KEY, conversation.source_id);
+    selectEmail(null);
+    setSelectedWhatsAppPhone(null);
+    setSelectedWhatsAppClientId(null);
+    setIsComposing(false);
+    setIsStartingWhatsApp(false);
+    setView('live-chat');
+  };
+
   const handleDeleteWhatsAppConversation = (conversation: InboxWhatsAppConversation) => {
     setConfirmDialog({
       message: `Are you sure you want to delete this WhatsApp conversation with ${conversation.clientName || conversation.targetPhone}? This will remove the saved conversation and messages from this system.`,
@@ -1210,23 +1308,13 @@ export function Inbox() {
             )}
           </div>
           <div className="flex items-center justify-between gap-2">
-            <div className="inline-flex bg-slate-950 border border-slate-800 rounded-md p-1">
-              <button
-                onClick={() => setEmailListMode('list')}
-                className={cn("px-2 py-1 rounded text-[10px] font-bold transition-colors", emailListMode === 'list' ? "bg-slate-700 text-white" : "text-slate-500 hover:text-slate-300")}
-              >
-                List
-              </button>
-              <button
-                onClick={() => setEmailListMode('conversation')}
-                className={cn("px-2 py-1 rounded text-[10px] font-bold transition-colors", emailListMode === 'conversation' ? "bg-slate-700 text-white" : "text-slate-500 hover:text-slate-300")}
-              >
-                By Customer
-              </button>
+            <div className="inline-flex items-center gap-1.5 rounded-md border border-slate-800 bg-slate-950 px-2 py-1 text-[10px] font-bold text-slate-400">
+              <Database className="h-3 w-3 text-cyan-400" />
+              {language === 'zh' ? '统一会话视图' : 'Unified conversations'}
             </div>
-            {emailListMode === 'conversation' && channelFilter !== 'whatsapp' && (
-              <span className="text-[10px] text-slate-500">{emailConversationGroups.length} conversations</span>
-            )}
+            <span className="text-[10px] text-slate-500">
+              {unifiedConversationList.length} {language === 'zh' ? '条' : 'items'}
+            </span>
           </div>
           <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500">
             <span className="inline-flex min-w-0 items-center gap-1">
@@ -1327,7 +1415,124 @@ export function Inbox() {
               {isUnifiedConversationLoading ? 'Loading conversations...' : 'No conversations found.'}
             </div>
           )}
-          {filteredLiveChatConversations.map(conversation => {
+          {unifiedConversationList.map(conversation => {
+            const isEmail = conversation.channel === 'email';
+            const isWhatsApp = conversation.channel === 'whatsapp';
+            const isLiveChat = conversation.channel === 'live_chat';
+            const isSelected = isEmail
+              ? selectedEmailId === conversation.source_id
+              : isWhatsApp
+                ? selectedWhatsAppPhone === (conversation.metadata?.targetPhone || conversation.contact_address || conversation.source_id)
+                : false;
+            const email = isEmail ? emails.find(item => item.id === conversation.source_id) : null;
+            const whatsappConversation = isWhatsApp ? mapUnifiedWhatsAppConversation(conversation) : null;
+            const client = conversation.client_id ? clients.find(c => c.id === conversation.client_id) : null;
+            const Icon = isWhatsApp ? MessageCircle : isLiveChat ? MessageSquare : (conversation.read ? MailOpen : Mail);
+            const iconColor = isWhatsApp ? 'text-green-400' : isLiveChat ? 'text-violet-300' : conversation.read ? 'text-slate-500' : 'text-cyan-400';
+            const iconBg = isWhatsApp ? 'bg-green-950/50 border-green-900/60' : isLiveChat ? 'bg-violet-950/50 border-violet-900/60' : 'bg-cyan-950/50 border-cyan-900/60';
+            const channelLabel = isWhatsApp
+              ? `WhatsApp ${conversation.direction === 'outbound' ? 'sent' : 'inbox'}`
+              : isLiveChat
+                ? `Live Chat ${conversation.status || 'open'}`
+                : email?.type === 'draft'
+                  ? 'Draft'
+                  : email?.type === 'scheduled'
+                    ? 'Scheduled Email'
+                    : conversation.direction === 'outbound'
+                      ? 'Email sent'
+                      : 'Email inbox';
+            const title = isEmail
+              ? (filter === 'inbox' ? (email?.senderName || conversation.contact_name || conversation.contact_address || 'Email') : (conversation.contact_address || conversation.contact_name || 'Email'))
+              : client?.name || conversation.client_name || conversation.title || conversation.contact_name || conversation.contact_address || (isWhatsApp ? 'WhatsApp' : 'Live Chat');
+            const subtitle = isEmail ? (conversation.subject || conversation.title || '(No Subject)') : (conversation.contact_address || conversation.client_company || '');
+            return (
+              <div
+                key={`${conversation.channel}_${conversation.source_id}`}
+                onClick={() => handleSelectUnifiedConversation(conversation)}
+                className={cn(
+                  "cursor-pointer border-b border-slate-800/50 p-4 transition-colors flex gap-3 group relative",
+                  isSelected ? (isWhatsApp ? "bg-green-950/20" : "bg-cyan-950/20") : "hover:bg-slate-800/30",
+                  isEmail && !conversation.read && filter === 'inbox' && "bg-slate-800/40"
+                )}
+              >
+                {(isEmail || isWhatsApp) && (
+                  <div
+                    className={cn("pt-0.5 transition-opacity", (isEmail ? selectedIds.has(conversation.source_id) : selectedWhatsAppIds.has(conversation.source_id)) ? "opacity-100" : "opacity-0 group-hover:opacity-100")}
+                    onClick={(e) => isEmail ? toggleSelection(e, conversation.source_id) : toggleWhatsAppSelection(e, conversation.source_id)}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isEmail ? selectedIds.has(conversation.source_id) : selectedWhatsAppIds.has(conversation.source_id)}
+                      onChange={() => {}}
+                      className={cn("rounded border-slate-700 bg-slate-800 focus:ring-cyan-500", isWhatsApp ? "text-green-500" : "text-cyan-500")}
+                    />
+                  </div>
+                )}
+                <div className="pt-0.5 flex-shrink-0">
+                  <div className={cn("w-7 h-7 rounded-full border flex items-center justify-center", iconBg)}>
+                    <Icon className={cn("w-4 h-4", iconColor)} />
+                  </div>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-1 gap-2">
+                    <span className={cn("text-sm font-bold truncate", isEmail && !conversation.read && filter === 'inbox' ? "text-white" : "text-slate-200")}>
+                      {title}
+                    </span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="text-[10px] text-slate-500">
+                        {conversation.last_message_at ? new Date(conversation.last_message_at).toLocaleDateString() : channelLabel}
+                      </span>
+                      {(conversation.is_important || (conversation.tags || []).includes('important')) && (
+                        <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                      )}
+                      {isWhatsApp && whatsappConversation && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteWhatsAppConversation(whatsappConversation);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 p-1 rounded text-slate-500 hover:text-red-300 hover:bg-red-500/10 transition-opacity"
+                          title="Delete WhatsApp conversation"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className={cn(
+                    "text-[10px] font-bold uppercase mb-1",
+                    isWhatsApp ? 'text-green-400' : isLiveChat ? 'text-violet-300' : 'text-cyan-400'
+                  )}>
+                    {channelLabel}
+                  </div>
+                  {subtitle && (
+                    <div className={cn("text-xs font-medium mb-1 truncate", isEmail && !conversation.read && filter === 'inbox' ? "text-slate-200" : "text-slate-400")}>
+                      {subtitle}
+                    </div>
+                  )}
+                  {conversation.last_message_preview && (
+                    <div className="text-xs text-slate-500 line-clamp-2">
+                      {conversation.last_message_preview}
+                    </div>
+                  )}
+                  {conversation.tags && conversation.tags.length > 0 && (
+                    <div className="flex gap-1 mt-2 overflow-x-auto scrollbar-hide">
+                      {conversation.tags.slice(0, 4).map(t => (
+                        <span key={t} className={cn(
+                          "text-[9px] bg-slate-800 px-1.5 py-0.5 rounded-full whitespace-nowrap",
+                          isWhatsApp ? 'text-green-300' : isLiveChat ? 'text-violet-200' : 'text-slate-400'
+                        )}>
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {false && filteredLiveChatConversations.map(conversation => {
             const client = conversation.client_id ? clients.find(c => c.id === conversation.client_id) : null;
             return (
               <div
@@ -1379,7 +1584,7 @@ export function Inbox() {
               </div>
             );
           })}
-          {filteredWhatsAppConversations.map(conversation => {
+          {false && filteredWhatsAppConversations.map(conversation => {
             const displayPhone = conversation.contactPhone || conversation.targetPhone;
             const rawChatId = conversation.rawChatId || (/@(?:lid|c\.us|g\.us)$/i.test(conversation.targetPhone) ? conversation.targetPhone : '');
             const client = conversation.clientId ? clients.find(c => c.id === conversation.clientId) : matchWhatsAppClient(displayPhone);
@@ -1456,7 +1661,7 @@ export function Inbox() {
               </div>
             );
           })}
-          {channelFilter !== 'whatsapp' && emailListMode === 'conversation' && emailConversationGroups.map(group => {
+          {false && channelFilter !== 'whatsapp' && emailListMode === 'conversation' && emailConversationGroups.map(group => {
             const groupIds = group.emails.map(email => email.id);
             const groupSelected = groupIds.length > 0 && groupIds.every(id => selectedIds.has(id));
             const groupIndeterminate = groupIds.some(id => selectedIds.has(id)) && !groupSelected;
@@ -1534,7 +1739,7 @@ export function Inbox() {
               </div>
             );
           })}
-          {channelFilter !== 'whatsapp' && emailListMode === 'list' && filteredEmails.map(email => (
+          {false && channelFilter !== 'whatsapp' && emailListMode === 'list' && filteredEmails.map(email => (
             <div 
               key={email.id}
               onClick={() => handleSelect(email.id)}
