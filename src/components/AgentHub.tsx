@@ -15,6 +15,7 @@ import { AgentFleetPanel } from './agent-hub/AgentFleetPanel';
 import { AgentTaskQueuePanel } from './agent-hub/AgentTaskQueuePanel';
 import { ApprovalCenterPanel } from './agent-hub/ApprovalCenterPanel';
 import { ExecutionLogsPanel } from './agent-hub/ExecutionLogsPanel';
+import { SystemHealthPanel } from './agent-hub/SystemHealthPanel';
 import { useAgentChat, useAgentConfigActions, useAgentHubData, useAgentOperations } from './agent-hub/hooks';
 
 export function AgentHub() {
@@ -271,6 +272,10 @@ export function AgentHub() {
             onClearAgentRunRecords={clearAgentRunRecords}
             onDeleteAgentRunRecord={deleteAgentRunRecord}
           />
+        )}
+
+        {tab === 'health' && (
+          <SystemHealthPanel language={language} />
         )}
 
         {tab === 'global' && (

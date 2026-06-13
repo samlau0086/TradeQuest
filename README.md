@@ -221,6 +221,31 @@ Execution output is shown as a timeline. By default only part of long step lists
 
 Older direct scheduled agent execution has been optimized to route through the opportunity mechanism first. This avoids conflicting execution paths and keeps scheduled work, event-triggered work, and manual work in one governance model.
 
+### Agent State Persistence
+
+Critical Agent Hub state is gradually moving out of `users.settings` JSONB and into dedicated database tables:
+
+- `agent_run_records`
+- `agent_opportunities`
+- `agent_tasks`
+- `agent_harness_runs`
+- `global_agent_plans`
+
+For compatibility, `/api/user/settings` still returns these arrays. On read, database rows and legacy JSON arrays are merged by `updatedAt`, with the newest record winning. On write, incoming Agent arrays are synced back into the dedicated tables. This keeps older frontend flows working while making task, approval, and execution records more stable and queryable.
+
+### System Health
+
+Agent Hub includes a Health tab backed by `GET /api/system/health`. It checks:
+
+- Email sync configuration and last background sync state.
+- WhatsApp Actor Hub configuration, actor pool, and customer-service agent state.
+- Live Chat session status.
+- Agent scheduler polling interval, scheduled agents, and event-triggered agents.
+- Bark/Webhook notification configuration.
+- RAG item count, embedding count, and import directory configuration.
+- LLM provider and module mapping configuration.
+- Agent persistence table counts.
+
 ## Agent Schedules and Event Triggers
 
 Agents can be configured to run periodically:
@@ -383,8 +408,8 @@ Recommended near-term roadmap:
 
 ### Phase 3: Data and Background Worker Hardening
 
-- [ ] Move critical Agent task, approval, and execution records from user settings JSON toward dedicated database tables.
-- [ ] Add a system health page for email sync, WhatsApp sync, Live Chat agent, scheduler, notification delivery, RAG indexing, and LLM provider status.
+- [x] Move critical Agent task, approval, and execution records from user settings JSON toward dedicated database tables.
+- [x] Add a system health page for email sync, WhatsApp sync, Live Chat agent, scheduler, notification delivery, RAG indexing, and LLM provider status.
 - [ ] Add startup checks for required directories, environment variables, database migrations, and background workers.
 - [ ] Add deployment health checks after GitHub Actions deployment.
 
@@ -1053,6 +1078,31 @@ Signal Scanner Agent 会定期扫描 CRM 信号，例如：
 
 旧的直接定时执行逻辑已经优化为先进入机会任务机制，避免定时执行、事件触发和手动执行互相冲突。
 
+### Agent 状态持久化
+
+关键 Agent Hub 状态正在从 `users.settings` JSONB 逐步迁移到独立数据库表：
+
+- `agent_run_records`
+- `agent_opportunities`
+- `agent_tasks`
+- `agent_harness_runs`
+- `global_agent_plans`
+
+为保持兼容，`/api/user/settings` 仍会返回这些数组。读取时，数据库表记录和旧 JSON 数组会按 `updatedAt` 合并，较新的记录优先。写入时，传入的 Agent 数组会同步回独立表。这样既不破坏现有前端流程，也能让任务、审批和执行记录更稳定、更方便查询。
+
+### 系统健康检查
+
+Agent Hub 包含 Health 标签页，后端接口为 `GET /api/system/health`。它会检查：
+
+- 邮件同步配置和最近后台同步状态。
+- WhatsApp Actor Hub 配置、Actor 池和客服 Agent 状态。
+- Live Chat 会话状态。
+- Agent Scheduler 轮询周期、定时 Agent 和事件触发 Agent。
+- Bark/Webhook 通知配置。
+- RAG 条目数量、embedding 数量和导入目录配置。
+- LLM Provider 和模块映射配置。
+- Agent 独立持久化表记录数量。
+
 ## Agent 定期运行与事件触发
 
 Agent 可以配置定期运行：
@@ -1215,8 +1265,8 @@ Agent Execution Policy 使用的 Global Orchestrator action type：
 
 ### 阶段 3：数据与后台任务加固
 
-- [ ] 将关键 Agent 任务、审批、执行记录从 user settings JSON 逐步迁移到独立数据库表。
-- [ ] 增加系统健康检查页面，覆盖邮件同步、WhatsApp 同步、Live Chat Agent、Scheduler、通知投递、RAG 索引和 LLM Provider。
+- [x] 将关键 Agent 任务、审批、执行记录从 user settings JSON 逐步迁移到独立数据库表。
+- [x] 增加系统健康检查页面，覆盖邮件同步、WhatsApp 同步、Live Chat Agent、Scheduler、通知投递、RAG 索引和 LLM Provider。
 - [ ] 启动时检查必要目录、环境变量、数据库迁移和后台 worker。
 - [ ] GitHub Actions 部署后增加自动 health check。
 

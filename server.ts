@@ -350,6 +350,93 @@ async function initDB() {
 
       CREATE INDEX IF NOT EXISTS idx_api_tokens_user_created
       ON api_tokens (user_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS agent_run_records (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        agent_id VARCHAR(128),
+        agent_name VARCHAR(255),
+        trigger VARCHAR(64),
+        status VARCHAR(64),
+        related_run_id VARCHAR(128),
+        related_run_type VARCHAR(64),
+        data JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        completed_at TIMESTAMP WITH TIME ZONE
+      );
+
+      CREATE TABLE IF NOT EXISTS agent_opportunities (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        recommended_agent_id VARCHAR(128),
+        recommended_agent_name VARCHAR(255),
+        source VARCHAR(128),
+        target_type VARCHAR(64),
+        target_id VARCHAR(128),
+        status VARCHAR(64),
+        risk VARCHAR(64),
+        dedupe_key TEXT,
+        related_run_id VARCHAR(128),
+        related_run_type VARCHAR(64),
+        data JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        completed_at TIMESTAMP WITH TIME ZONE
+      );
+
+      CREATE TABLE IF NOT EXISTS agent_tasks (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        agent_id VARCHAR(128),
+        agent_name VARCHAR(255),
+        source VARCHAR(128),
+        trigger_type VARCHAR(64),
+        entity_type VARCHAR(64),
+        entity_id VARCHAR(128),
+        status VARCHAR(64),
+        risk VARCHAR(64),
+        approval_status VARCHAR(64),
+        dedupe_key TEXT,
+        run_id VARCHAR(128),
+        run_type VARCHAR(64),
+        source_ref_type VARCHAR(64),
+        source_ref_id VARCHAR(128),
+        data JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        completed_at TIMESTAMP WITH TIME ZONE
+      );
+
+      CREATE TABLE IF NOT EXISTS agent_harness_runs (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        status VARCHAR(64),
+        summary TEXT,
+        data JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        completed_at TIMESTAMP WITH TIME ZONE
+      );
+
+      CREATE TABLE IF NOT EXISTS global_agent_plans (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        status VARCHAR(64),
+        summary TEXT,
+        data JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        completed_at TIMESTAMP WITH TIME ZONE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_agent_run_records_user_created ON agent_run_records (user_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_agent_opportunities_user_status ON agent_opportunities (user_id, status, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_agent_opportunities_user_dedupe ON agent_opportunities (user_id, dedupe_key);
+      CREATE INDEX IF NOT EXISTS idx_agent_tasks_user_status ON agent_tasks (user_id, status, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_agent_tasks_user_run ON agent_tasks (user_id, run_id, run_type);
+      CREATE INDEX IF NOT EXISTS idx_agent_harness_runs_user_status ON agent_harness_runs (user_id, status, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_global_agent_plans_user_status ON global_agent_plans (user_id, status, created_at DESC);
       
       CREATE TABLE IF NOT EXISTS clients (
         id VARCHAR(128) PRIMARY KEY,
@@ -1436,7 +1523,13 @@ No markdown wrappers, just valid JSON.`;
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'User not found' });
       }
-      res.json(result.rows[0].settings || {});
+      const settings = typeof result.rows[0].settings === 'string'
+        ? JSON.parse(result.rows[0].settings || '{}')
+        : (result.rows[0].settings || {});
+      await bootstrapAgentStateTablesFromSettings(req.user.uid, settings);
+      const hydratedSettings = await hydrateAgentStateFromTables(req.user.uid, settings);
+      await syncAgentStateTablesFromSettings(req.user.uid, hydratedSettings);
+      res.json(hydratedSettings);
     } catch (e) {
       console.error('Failed to fetch settings', e);
       res.status(500).json({ error: 'Failed to fetch user settings' });
@@ -1490,6 +1583,191 @@ No markdown wrappers, just valid JSON.`;
       });
     });
     return Array.from(byId.values()).sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
+  };
+
+  const agentStateTableConfigs: Record<string, {
+    table: string;
+    limit: number;
+    columns: string[];
+    values: (item: any) => Record<string, any>;
+  }> = {
+    agentRunRecords: {
+      table: 'agent_run_records',
+      limit: 200,
+      columns: ['agent_id', 'agent_name', 'trigger', 'status', 'related_run_id', 'related_run_type', 'completed_at'],
+      values: (item: any) => ({
+        agent_id: item.agentId || null,
+        agent_name: item.agentName || null,
+        trigger: item.trigger || null,
+        status: item.status || null,
+        related_run_id: item.relatedRunId || null,
+        related_run_type: item.relatedRunType || null,
+        completed_at: item.completedAt || null
+      })
+    },
+    agentOpportunities: {
+      table: 'agent_opportunities',
+      limit: 300,
+      columns: ['recommended_agent_id', 'recommended_agent_name', 'source', 'target_type', 'target_id', 'status', 'risk', 'dedupe_key', 'related_run_id', 'related_run_type', 'completed_at'],
+      values: (item: any) => ({
+        recommended_agent_id: item.recommendedAgentId || null,
+        recommended_agent_name: item.recommendedAgentName || null,
+        source: item.source || null,
+        target_type: item.targetType || null,
+        target_id: item.targetId || null,
+        status: item.status || null,
+        risk: item.risk || null,
+        dedupe_key: item.dedupeKey || null,
+        related_run_id: item.relatedRunId || null,
+        related_run_type: item.relatedRunType || null,
+        completed_at: item.completedAt || null
+      })
+    },
+    agentTasks: {
+      table: 'agent_tasks',
+      limit: 500,
+      columns: ['agent_id', 'agent_name', 'source', 'trigger_type', 'entity_type', 'entity_id', 'status', 'risk', 'approval_status', 'dedupe_key', 'run_id', 'run_type', 'source_ref_type', 'source_ref_id', 'completed_at'],
+      values: (item: any) => ({
+        agent_id: item.agentId || null,
+        agent_name: item.agentName || null,
+        source: item.source || null,
+        trigger_type: item.triggerType || null,
+        entity_type: item.entityType || null,
+        entity_id: item.entityId || null,
+        status: item.status || null,
+        risk: item.risk || null,
+        approval_status: item.approvalStatus || null,
+        dedupe_key: item.dedupeKey || null,
+        run_id: item.runId || null,
+        run_type: item.runType || null,
+        source_ref_type: item.sourceRefType || null,
+        source_ref_id: item.sourceRefId || null,
+        completed_at: item.completedAt || null
+      })
+    },
+    agentHarnessRuns: {
+      table: 'agent_harness_runs',
+      limit: 300,
+      columns: ['status', 'summary', 'completed_at'],
+      values: (item: any) => ({
+        status: item.status || null,
+        summary: item.summary || null,
+        completed_at: item.completedAt || null
+      })
+    },
+    globalAgentPlans: {
+      table: 'global_agent_plans',
+      limit: 300,
+      columns: ['status', 'summary', 'completed_at'],
+      values: (item: any) => ({
+        status: item.status || null,
+        summary: item.summary || null,
+        completed_at: item.completedAt || null
+      })
+    }
+  };
+
+  const agentStateSettingKeys = Object.keys(agentStateTableConfigs);
+
+  const rowDataToSettingItem = (row: any) => {
+    const data = typeof row.data === 'string' ? JSON.parse(row.data || '{}') : (row.data || {});
+    return {
+      ...data,
+      id: data.id || row.id,
+      createdAt: data.createdAt || row.created_at?.toISOString?.() || row.created_at,
+      updatedAt: data.updatedAt || row.updated_at?.toISOString?.() || row.updated_at,
+      completedAt: data.completedAt || row.completed_at?.toISOString?.() || row.completed_at || data.completedAt
+    };
+  };
+
+  const hydrateAgentStateFromTables = async (userId: string, settings: any = {}) => {
+    const nextSettings = { ...settings };
+    await Promise.all(agentStateSettingKeys.map(async key => {
+      const config = agentStateTableConfigs[key];
+      const result = await pool.query(
+        `SELECT id, data, created_at, updated_at, completed_at FROM ${config.table} WHERE user_id = $1 ORDER BY updated_at DESC, created_at DESC LIMIT $2`,
+        [userId, config.limit]
+      );
+      if (result.rows.length > 0) {
+        nextSettings[key] = mergeSettingsArrayById(
+          Array.isArray(nextSettings[key]) ? nextSettings[key] : [],
+          result.rows.map(rowDataToSettingItem)
+        ).slice(0, config.limit);
+      }
+    }));
+    if (Array.isArray(nextSettings.agentOpportunities)) {
+      const taskById = new Map<string, any>();
+      (Array.isArray(nextSettings.agentTasks) ? nextSettings.agentTasks : []).forEach((task: any) => {
+        if (task?.id) taskById.set(task.id, task);
+      });
+      nextSettings.agentOpportunities.forEach((opportunity: any) => {
+        const task = agentTaskFromOpportunity(opportunity);
+        const existingTask = taskById.get(task.id);
+        taskById.set(task.id, existingTask ? { ...existingTask, ...task, retryCount: existingTask.retryCount || 0 } : task);
+      });
+      nextSettings.agentTasks = Array.from(taskById.values())
+        .sort((a: any, b: any) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime())
+        .slice(0, 500);
+    }
+    return nextSettings;
+  };
+
+  const syncAgentStateTableFromSettings = async (userId: string, key: string, settings: any = {}) => {
+    const config = agentStateTableConfigs[key];
+    if (!config) return;
+    const items = Array.isArray(settings[key]) ? settings[key].filter((item: any) => item?.id).slice(0, config.limit) : [];
+    if (items.length === 0) {
+      await pool.query(`DELETE FROM ${config.table} WHERE user_id = $1`, [userId]);
+      return;
+    }
+    for (const item of items) {
+      const now = new Date().toISOString();
+      const createdAt = item.createdAt || now;
+      const updatedAt = item.updatedAt || now;
+      const extracted = config.values(item);
+      const valueColumns = ['id', 'user_id', ...config.columns, 'data', 'created_at', 'updated_at'];
+      const values = [
+        item.id,
+        userId,
+        ...config.columns.map(column => extracted[column] ?? null),
+        JSON.stringify(item),
+        createdAt,
+        updatedAt
+      ];
+      const placeholders = valueColumns.map((_, index) => `$${index + 1}`);
+      const updateColumns = [...config.columns, 'data', 'created_at', 'updated_at']
+        .map(column => `${column} = EXCLUDED.${column}`)
+        .join(', ');
+      await pool.query(
+        `INSERT INTO ${config.table} (${valueColumns.join(', ')})
+         VALUES (${placeholders.join(', ')})
+         ON CONFLICT (id) DO UPDATE SET ${updateColumns}`,
+        values
+      );
+    }
+    await pool.query(`DELETE FROM ${config.table} WHERE user_id = $1 AND NOT (id = ANY($2::varchar[]))`, [userId, items.map((item: any) => item.id)]);
+  };
+
+  const syncAgentStateTablesFromSettings = async (userId: string, settings: any = {}, keys?: string[]) => {
+    const keysToSync = (keys || agentStateSettingKeys).filter(key => agentStateTableConfigs[key]);
+    for (const key of keysToSync) {
+      // eslint-disable-next-line no-await-in-loop
+      await syncAgentStateTableFromSettings(userId, key, settings);
+    }
+  };
+
+  const bootstrapAgentStateTablesFromSettings = async (userId: string, settings: any = {}) => {
+    for (const key of agentStateSettingKeys) {
+      const config = agentStateTableConfigs[key];
+      const items = Array.isArray(settings[key]) ? settings[key].filter((item: any) => item?.id) : [];
+      if (items.length === 0) continue;
+      // eslint-disable-next-line no-await-in-loop
+      const count = await pool.query(`SELECT COUNT(*)::int AS count FROM ${config.table} WHERE user_id = $1`, [userId]);
+      if (Number(count.rows[0]?.count || 0) === 0) {
+        // eslint-disable-next-line no-await-in-loop
+        await syncAgentStateTableFromSettings(userId, key, settings);
+      }
+    }
   };
 
   const SYSTEM_AGENT_IDS = new Set([
@@ -1632,16 +1910,139 @@ No markdown wrappers, just valid JSON.`;
   app.patch('/api/user/settings', authenticateToken, async (req: any, res) => {
     try {
       const existingRes = await pool.query('SELECT settings FROM users WHERE id = $1', [req.user.uid]);
-      const existingSettings = existingRes.rows[0]?.settings || {};
+      const rawExistingSettings = typeof existingRes.rows[0]?.settings === 'string'
+        ? JSON.parse(existingRes.rows[0]?.settings || '{}')
+        : (existingRes.rows[0]?.settings || {});
+      const existingSettings = await hydrateAgentStateFromTables(req.user.uid, rawExistingSettings);
       const nextSettings = mergeUserSettings(existingSettings, req.body || {});
       const result = await pool.query(
         'UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING settings',
         [JSON.stringify(nextSettings), req.user.uid]
       );
-      res.json(result.rows[0].settings || {});
+      const incomingKeys = Object.keys(req.body || {}).filter(key => agentStateTableConfigs[key]);
+      if (incomingKeys.length > 0) {
+        await syncAgentStateTablesFromSettings(req.user.uid, nextSettings, incomingKeys);
+      }
+      const hydratedSettings = await hydrateAgentStateFromTables(req.user.uid, result.rows[0].settings || nextSettings);
+      res.json(hydratedSettings);
     } catch (e) {
       console.error('Failed to update settings', e);
       res.status(500).json({ error: 'Failed to update user settings' });
+    }
+  });
+
+  app.get('/api/system/health', authenticateToken, async (req: any, res) => {
+    try {
+      const settingsRes = await pool.query('SELECT settings FROM users WHERE id = $1', [req.user.uid]);
+      if (settingsRes.rows.length === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      const settings = typeof settingsRes.rows[0].settings === 'string'
+        ? JSON.parse(settingsRes.rows[0].settings || '{}')
+        : (settingsRes.rows[0].settings || {});
+      const [
+        globalSettingsRes,
+        knowledgeRes,
+        liveChatRes,
+        agentCountsRes
+      ] = await Promise.all([
+        pool.query("SELECT key, value FROM global_settings WHERE key IN ('agent_polling_interval_seconds', 'agent_polling_interval_hours')"),
+        pool.query(`
+          SELECT COUNT(*)::int AS total,
+                 COUNT(*) FILTER (WHERE embedding IS NOT NULL)::int AS embedded,
+                 MAX(updated_at) AS last_updated_at
+          FROM knowledge_base
+          WHERE user_id = $1
+        `, [req.user.uid]),
+        pool.query(`
+          SELECT COUNT(*)::int AS total,
+                 COUNT(*) FILTER (WHERE status = 'open')::int AS open,
+                 MAX(updated_at) AS last_updated_at
+          FROM live_chat_sessions
+          WHERE user_id = $1
+        `, [req.user.uid]),
+        pool.query(`
+          SELECT
+            (SELECT COUNT(*)::int FROM agent_tasks WHERE user_id = $1) AS tasks,
+            (SELECT COUNT(*)::int FROM agent_opportunities WHERE user_id = $1) AS opportunities,
+            (SELECT COUNT(*)::int FROM agent_run_records WHERE user_id = $1) AS run_records,
+            (SELECT COUNT(*)::int FROM agent_harness_runs WHERE user_id = $1) AS harness_runs,
+            (SELECT COUNT(*)::int FROM global_agent_plans WHERE user_id = $1) AS global_plans
+        `, [req.user.uid])
+      ]);
+      const globalSettings = globalSettingsRes.rows.reduce((acc: Record<string, any>, row: any) => ({
+        ...acc,
+        [row.key]: typeof row.value === 'string' ? JSON.parse(row.value) : row.value
+      }), {});
+      const inboxConfigs = Array.isArray(settings.inboxConfigs) ? settings.inboxConfigs : [];
+      const outboxConfigs = Array.isArray(settings.outboxConfigs) ? settings.outboxConfigs : [];
+      const whatsappActors = Array.isArray(settings.whatsappHubConfig?.actors) ? settings.whatsappHubConfig.actors : [];
+      const agents = Array.isArray(settings.agentHubAgents) ? settings.agentHubAgents : [];
+      const llmConfigs = Array.isArray(settings.llmConfigs) ? settings.llmConfigs : [];
+      const notificationConfig = settings.externalNotificationConfig || {};
+      const emailSyncState = settings.emailBackgroundSyncState || {};
+      const pollingSeconds = globalSettings.agent_polling_interval_seconds !== undefined
+        ? Number(globalSettings.agent_polling_interval_seconds)
+        : Number(globalSettings.agent_polling_interval_hours || 0) * 3600;
+      const agentCounts = agentCountsRes.rows[0] || {};
+      res.json({
+        generatedAt: new Date().toISOString(),
+        emailSync: {
+          status: inboxConfigs.length > 0 ? 'ok' : 'warning',
+          inboxConfigs: inboxConfigs.length,
+          outboxConfigs: outboxConfigs.length,
+          backgroundEnabled: true,
+          lastSyncAt: emailSyncState.lastRunAt || emailSyncState.lastSyncAt || null,
+          lastError: emailSyncState.lastError || null
+        },
+        whatsappSync: {
+          status: whatsappActors.length > 0 || settings.whatsappHubConfig?.baseUrl ? 'ok' : 'warning',
+          actorCount: whatsappActors.length,
+          hubConfigured: !!settings.whatsappHubConfig?.baseUrl,
+          customerServiceAgentEnabled: !!settings.whatsappCustomerServiceAgentEnabled,
+          processedMessageCount: Object.keys(settings.whatsappCustomerServiceAgentState?.processedMessageIds || {}).length
+        },
+        liveChat: {
+          status: liveChatRes.rows[0]?.total > 0 ? 'ok' : 'idle',
+          totalSessions: liveChatRes.rows[0]?.total || 0,
+          openSessions: liveChatRes.rows[0]?.open || 0,
+          lastUpdatedAt: liveChatRes.rows[0]?.last_updated_at || null,
+          agentConfigured: agents.some((agent: any) => agent.id === 'live_chat_agent')
+        },
+        scheduler: {
+          status: pollingSeconds > 0 ? 'ok' : 'warning',
+          pollingSeconds,
+          activeScheduledAgents: agents.filter((agent: any) => agent.status === 'active' && agent.scheduleEnabled).length,
+          activeEventAgents: agents.filter((agent: any) => (agent.eventTriggers || []).length > 0).length
+        },
+        notifications: {
+          status: notificationConfig.enabled ? 'ok' : 'warning',
+          enabled: !!notificationConfig.enabled,
+          barkEnabled: !!notificationConfig.barkEnabled,
+          webhookEnabled: !!notificationConfig.webhookEnabled,
+          enabledEvents: Object.entries(notificationConfig.events || {}).filter(([, value]) => value !== false).map(([key]) => key)
+        },
+        rag: {
+          status: Number(knowledgeRes.rows[0]?.total || 0) > 0 ? 'ok' : 'warning',
+          knowledgeItems: knowledgeRes.rows[0]?.total || 0,
+          embeddedItems: knowledgeRes.rows[0]?.embedded || 0,
+          lastUpdatedAt: knowledgeRes.rows[0]?.last_updated_at || null,
+          importDirConfigured: !!(process.env.KNOWLEDGE_IMPORT_DIR || process.env.RAG_IMPORT_DIR)
+        },
+        llm: {
+          status: llmConfigs.length > 0 ? 'ok' : 'warning',
+          configuredProviders: llmConfigs.length,
+          activeLLMId: settings.activeLLMId || null,
+          mappedModules: Object.keys(settings.llmMappings || {}).length
+        },
+        agentPersistence: {
+          status: Number(agentCounts.tasks || 0) + Number(agentCounts.opportunities || 0) + Number(agentCounts.run_records || 0) > 0 ? 'ok' : 'idle',
+          ...agentCounts
+        }
+      });
+    } catch (e) {
+      console.error('Failed to load system health', e);
+      res.status(500).json({ error: 'Failed to load system health' });
     }
   });
 

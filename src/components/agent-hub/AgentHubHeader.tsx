@@ -1,5 +1,5 @@
 import React from 'react';
-import { Cpu, ListChecks, MessageSquare, Plus, Server, ShieldCheck, Zap } from 'lucide-react';
+import { Activity, Cpu, ListChecks, MessageSquare, Plus, Server, ShieldCheck, Zap } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { AgentHubTab } from './shared';
 
@@ -85,6 +85,7 @@ export function AgentHubHeader({
             {tabButton('approvals', isZh ? '审批' : 'Approvals', <ShieldCheck className="h-4 w-4" />, pendingCount)}
             {tabButton('runs', isZh ? '运行' : 'Runs', <ListChecks className="h-4 w-4" />, runCount)}
             {tabButton('fleet', isZh ? '配置' : 'Config', <Server className="h-4 w-4" />, activeAgentCount)}
+            {tabButton('health', isZh ? '健康' : 'Health', <Activity className="h-4 w-4" />)}
           </div>
           <div className="flex items-center gap-2 border-l border-neutral-800 pl-3">
             <button
