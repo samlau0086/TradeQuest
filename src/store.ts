@@ -3237,6 +3237,9 @@ export const useStore = create<StoreState>((set, get) => ({
             return e;
           }).filter(e => !(data.deletedIds && data.deletedIds.includes(e.id)))
         }));
+        if (data.ignoredTaskCount > 0) {
+          await get().fetchUserSettings();
+        }
       } else {
         const data = await res.json().catch(() => ({}));
         get().notify(data.error || 'Failed to delete emails.', 'error');

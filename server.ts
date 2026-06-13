@@ -5825,7 +5825,7 @@ No markdown wrappers, just valid JSON.`;
       const item = addAgentOpportunityToSettings(settings, opportunity);
       if (item) created.push(item);
     };
-    const [clientsRes, dealsRes, emailsRes] = await Promise.all([
+    const [clientsRes, dealsRes, emailsRes, deletedEmailsRes] = await Promise.all([
       pool.query(`SELECT id, name, company, country, status, last_contact, lead_score, lead_summary, lead_next_step, agent_next_step, updated_at FROM clients WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 200`, [userId]),
       pool.query(`SELECT id, client_id, name, status, value, lead_score, lead_summary, lead_next_step, updated_at FROM deals WHERE user_id = $1 AND pending_delete = FALSE ORDER BY updated_at DESC LIMIT 200`, [userId]),
       pool.query(`
@@ -5835,10 +5835,18 @@ No markdown wrappers, just valid JSON.`;
         WHERE e.user_id = $1 AND e.pending_delete = FALSE
         ORDER BY e.date DESC
         LIMIT 300
+      `, [userId]),
+      pool.query(`
+        SELECT id, client_id, sender, recipient, subject, date, type
+        FROM emails
+        WHERE user_id = $1 AND pending_delete = TRUE
+        ORDER BY date DESC
+        LIMIT 500
       `, [userId])
     ]);
     const clientsById = new Map(clientsRes.rows.map((client: any) => [client.id, client]));
     const inboundEmails = emailsRes.rows.filter((email: any) => ['inbox', 'inbound'].includes(email.type));
+    const deletedEmailThreadKeys = new Set(deletedEmailsRes.rows.map((email: any) => getEmailOpportunityThreadKey(email)));
 
     inboundEmails.filter((email: any) => !email.read).slice(0, 20).forEach((email: any) => {
       add({
@@ -5927,6 +5935,7 @@ No markdown wrappers, just valid JSON.`;
     const trackedEmailThreads = new Map<string, { representative: any; emails: any[]; trackingCount: number }>();
     emailsRes.rows.filter((email: any) => ['sent', 'outbound'].includes(email.type) && Array.isArray(email.tracking_events) && email.tracking_events.length >= 3).forEach((email: any) => {
       const threadKey = getEmailOpportunityThreadKey(email);
+      if (deletedEmailThreadKeys.has(threadKey)) return;
       const current = trackedEmailThreads.get(threadKey);
       const emailTime = new Date(email.date || 0).getTime();
       const representativeTime = current ? new Date(current.representative.date || 0).getTime() : -1;
@@ -5989,6 +5998,80 @@ No markdown wrappers, just valid JSON.`;
       syncAgentTaskFromOpportunity(settings, nextOpportunity);
       return nextOpportunity;
     });
+  };
+
+  const ignoreAgentOpportunitiesForDeletedEmails = (settings: any, deletedEmailIds: string[], reason: string, nowIso = new Date().toISOString()) => {
+    const emailIdSet = new Set(deletedEmailIds.filter(Boolean));
+    if (emailIdSet.size === 0) return 0;
+    let changed = 0;
+    const ignoredOpportunityIds = new Set<string>();
+    const ignoredRunRefs: { id: string; type?: string | null }[] = [];
+    const shouldIgnore = (item: any) => {
+      if (!item) return false;
+      if (item.targetType === 'email' && emailIdSet.has(item.targetId)) return true;
+      const related = Array.isArray(item.metadata?.relatedEmailIds) ? item.metadata.relatedEmailIds : [];
+      return related.some((id: string) => emailIdSet.has(id));
+    };
+
+    settings.agentOpportunities = (Array.isArray(settings.agentOpportunities) ? settings.agentOpportunities : []).map((opportunity: any) => {
+      if (!shouldIgnore(opportunity) || ['ignored', 'completed'].includes(opportunity.status)) return opportunity;
+      changed += 1;
+      if (opportunity.id) ignoredOpportunityIds.add(opportunity.id);
+      if (opportunity.relatedRunId) ignoredRunRefs.push({ id: opportunity.relatedRunId, type: opportunity.relatedRunType });
+      const nextOpportunity = {
+        ...opportunity,
+        status: 'ignored',
+        completedAt: nowIso,
+        updatedAt: nowIso,
+        resultSummary: reason
+      };
+      rememberAgentOpportunityDedupe(settings, nextOpportunity, { status: 'ignored', completedAt: nowIso, updatedAt: nowIso });
+      syncAgentTaskFromOpportunity(settings, nextOpportunity);
+      return nextOpportunity;
+    });
+
+    settings.agentTasks = (Array.isArray(settings.agentTasks) ? settings.agentTasks : []).map((task: any) => {
+      const taskLike = { targetType: task.entityType, targetId: task.entityId, metadata: task.metadata };
+      if (!shouldIgnore(taskLike) || ['ignored', 'completed'].includes(task.status)) return task;
+      changed += 1;
+      return {
+        ...task,
+        status: 'ignored',
+        approvalStatus: 'rejected',
+        completedAt: nowIso,
+        updatedAt: nowIso,
+        resultSummary: reason
+      };
+    });
+
+    const runContainsIgnoredOpportunity = (run: any, expectedType: 'harness' | 'global') => {
+      if (ignoredRunRefs.some(ref => ref.id === run.id && (!ref.type || ref.type === expectedType))) return true;
+      return (run.steps || []).some((step: any) => ignoredOpportunityIds.has(step?.payload?.opportunityId));
+    };
+    settings.agentHarnessRuns = (Array.isArray(settings.agentHarnessRuns) ? settings.agentHarnessRuns : []).map((run: any) => {
+      if (!runContainsIgnoredOpportunity(run, 'harness') || ['completed', 'failed', 'rejected'].includes(run.status)) return run;
+      changed += 1;
+      return {
+        ...run,
+        status: 'rejected',
+        completedAt: nowIso,
+        updatedAt: nowIso,
+        summary: reason
+      };
+    });
+    settings.globalAgentPlans = (Array.isArray(settings.globalAgentPlans) ? settings.globalAgentPlans : []).map((plan: any) => {
+      if (!runContainsIgnoredOpportunity(plan, 'global') || ['completed', 'failed', 'rejected'].includes(plan.status)) return plan;
+      changed += 1;
+      return {
+        ...plan,
+        status: 'rejected',
+        completedAt: nowIso,
+        updatedAt: nowIso,
+        summary: reason
+      };
+    });
+
+    return changed;
   };
 
   const activeOpportunityDispatches = new Set<string>();
@@ -12180,6 +12263,7 @@ No markdown wrappers, just valid JSON.`;
 
       let deletedIds = [];
       let pendingIds = [];
+      let ignoredTaskCount = 0;
 
       for (const id of ids) {
         const emailRes = await pool.query('SELECT * FROM emails WHERE id = $1 AND user_id = $2', [id, req.user.uid]);
@@ -12209,7 +12293,35 @@ No markdown wrappers, just valid JSON.`;
           deletedIds.push(id);
         }
       }
-      res.json({ success: true, deletedIds, pendingIds });
+
+      const affectedEmailIds = [...deletedIds, ...pendingIds].filter(Boolean);
+      if (affectedEmailIds.length > 0) {
+        await pool.query(
+          `UPDATE communication_conversations
+           SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+           WHERE user_id = $1 AND channel = 'email' AND source_id = ANY($2::varchar[])`,
+          [req.user.uid, affectedEmailIds]
+        );
+
+        const settingsRes = await pool.query('SELECT settings FROM users WHERE id = $1', [req.user.uid]);
+        const rawSettings = settingsRes.rows[0]
+          ? (typeof settingsRes.rows[0].settings === 'string' ? JSON.parse(settingsRes.rows[0].settings || '{}') : (settingsRes.rows[0].settings || {}))
+          : {};
+        const settings = await hydrateAgentStateFromTables(req.user.uid, rawSettings);
+        ignoredTaskCount = ignoreAgentOpportunitiesForDeletedEmails(
+          settings,
+          affectedEmailIds,
+          settings.language === 'zh'
+            ? '关联邮件已删除，相关机会任务已关闭以避免重复派发。'
+            : 'Related email was deleted; linked opportunity task was closed to prevent redispatch.'
+        );
+        if (ignoredTaskCount > 0) {
+          await pool.query('UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [JSON.stringify(settings), req.user.uid]);
+          await syncAgentStateTablesFromSettings(req.user.uid, settings, ['agentOpportunities', 'agentTasks', 'agentHarnessRuns', 'globalAgentPlans']);
+        }
+      }
+
+      res.json({ success: true, deletedIds, pendingIds, ignoredTaskCount });
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: String(e) });
