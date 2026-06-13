@@ -34,6 +34,8 @@ Foreign Trade CRM is an AI-powered CRM for foreign trade teams. It combines clie
 
 - Email and WhatsApp messages are integrated into one inbox.
 - Inbox supports inbox, sent, drafts, scheduled messages, conversational view, customer grouping, tags, comments, and channel icons.
+- Email, WhatsApp, and Live Chat now have a shared `communication_conversations` / `communication_messages` backend index. Existing channel tables remain the source of truth while the unified model powers the next CRM workspace iteration.
+- Authenticated APIs expose this unified layer through `GET /api/conversations` and `GET /api/conversations/:id/messages`.
 - Unmatched email senders/recipients and WhatsApp numbers provide both `New Lead` and `Add to Existing Client` actions.
 - `Add to Existing Client` adds the current email/WhatsApp contact method to the selected client and the selected contact target, then links the message or conversation to that client.
 - WhatsApp conversations are persisted in the CRM database and loaded incrementally.
@@ -412,11 +414,13 @@ Recommended near-term roadmap:
 - [x] Move critical Agent task, approval, and execution records from user settings JSON toward dedicated database tables.
 - [x] Add a system health page for email sync, WhatsApp sync, Live Chat agent, scheduler, notification delivery, RAG indexing, and LLM provider status.
 - [x] Add startup checks for required directories, environment variables, database migrations, and background workers.
-- [ ] Add deployment health checks after GitHub Actions deployment.
+- [x] Add deployment health checks after GitHub Actions deployment.
 
 ### Phase 4: Unified Communication and CRM Workspace
 
-- [ ] Normalize Email, WhatsApp, and Live Chat into a shared conversation model with owner, stage, follow-up due date, tags, and internal comments.
+- [x] Add the shared Email, WhatsApp, and Live Chat conversation/message backend index and unified read APIs.
+- [x] Start Inbox migration to the shared conversation model: WhatsApp list hydration uses the unified API first, and Live Chat conversations appear as Inbox channel entries that open the Live Chat desk.
+- [ ] Migrate Inbox and Live Chat UI reads to the shared conversation model with owner, stage, follow-up due date, tags, and internal comments.
 - [ ] Add unified conversation search across all channels.
 - [ ] Expand client/lead workroom widgets for AI Summary, Best Next Step, Quotes, Contacts, RAG evidence, pending tasks, and channel history.
 - [ ] Add customer-level and lead-level AI analysis diffing so unchanged records do not repeatedly consume AI calls.
@@ -822,9 +826,15 @@ The project includes Docker-based deployment support.
 The deployment workflow:
 
 1. Checks out the repository.
-2. Syncs files to the VPS.
-3. Runs `docker compose down`.
-4. Runs `docker compose up -d --build`.
+2. Ensures the deploy target and `/opt/ai-crm/rag-import` exist on the VPS.
+3. Syncs files to the VPS.
+4. Builds the Docker image before replacing the running container.
+5. Starts containers with `docker compose up -d --remove-orphans`.
+6. Polls `/api/healthz` until the app and database are ready, or prints container status/logs when the check fails.
+
+Optional GitHub Actions secret:
+
+- `HEALTHCHECK_URL`: override the default `http://127.0.0.1:3003/api/healthz` if the container is exposed on another host or port.
 
 If Docker build fails with a snapshot/parent layer error, it is usually a Docker/buildkit cache issue on the VPS rather than a TypeScript build error. Clean Docker builder/cache on the server and rerun deployment.
 
@@ -854,6 +864,8 @@ Recent schema/state additions:
 - `whatsapp_message_translations.target_language`: stores the customer-facing language used for outbound pre-send translation.
 - `live_chat_sessions`: website live chat conversations, visitor identity, client link, status, tags, and human takeover state.
 - `live_chat_messages`: visitor, agent, operator, and system messages for live chat sessions.
+- `communication_conversations`: unified Email, WhatsApp, and Live Chat conversation index for cross-channel CRM workflows.
+- `communication_messages`: unified message index linked to `communication_conversations`.
 - `api_tokens`: hashed website/API integration tokens with scoped permissions, token templates, revoke state, and last-used tracking.
 - User settings include WhatsApp-only translation state such as `whatsappAutoTranslateConfig` and `whatsappOutboundAutoTranslateConfig`.
 
@@ -898,6 +910,8 @@ Foreign Trade CRM 是一套面向外贸团队的 AI CRM。系统把客户/线索
 
 - 邮件和 WhatsApp 消息整合在同一个收件箱。
 - 支持收件、已发送、草稿、定时发送、会话视图、按客户分组、标签、评论和渠道图标。
+- Email、WhatsApp 和 Live Chat 已有统一的 `communication_conversations` / `communication_messages` 后端索引。原渠道表仍作为事实来源，统一模型用于后续 CRM 作战室迭代。
+- 登录后的接口可通过 `GET /api/conversations` 和 `GET /api/conversations/:id/messages` 读取统一沟通层。
 - WhatsApp 对话会固化到 CRM 数据库，并增量同步。
 - 已删除的 WhatsApp 对话/消息不会因为重新进入收件箱而恢复；除非收到新消息或再次主动发消息。
 - WhatsApp 会按手机号、Hub chatId（如 `@lid`、`@c.us`）以及已建立的 chatId -> 手机号映射做会话身份去重，避免同步后同一会话变成多个收件箱条目。
@@ -1270,11 +1284,13 @@ Agent Execution Policy 使用的 Global Orchestrator action type：
 - [x] 将关键 Agent 任务、审批、执行记录从 user settings JSON 逐步迁移到独立数据库表。
 - [x] 增加系统健康检查页面，覆盖邮件同步、WhatsApp 同步、Live Chat Agent、Scheduler、通知投递、RAG 索引和 LLM Provider。
 - [x] 启动时检查必要目录、环境变量、数据库迁移和后台 worker。
-- [ ] GitHub Actions 部署后增加自动 health check。
+- [x] GitHub Actions 部署后增加自动 health check。
 
 ### 阶段 4：统一沟通与 CRM 作战室
 
-- [ ] 将 Email、WhatsApp、Live Chat 归一为统一 conversation 模型，支持负责人、阶段、跟进时间、标签和内部备注。
+- [x] 增加 Email、WhatsApp、Live Chat 统一 conversation/message 后端索引和统一读取 API。
+- [x] 开始将 Inbox 迁移到统一沟通模型：WhatsApp 列表优先读取统一 API，Live Chat 会话可作为 Inbox 渠道条目进入 Live Chat 座席。
+- [ ] 将 Inbox 和 Live Chat UI 逐步迁移到统一沟通模型，支持负责人、阶段、跟进时间、标签和内部备注。
 - [ ] 增加跨渠道统一搜索。
 - [ ] 强化客户/Lead 作战室 widgets：AI Summary、Best Next Step、Quotes、Contacts、RAG 依据、待处理任务和全渠道历史。
 - [ ] 客户级和 Lead 级 AI 分析增加 diff 机制，记录无变化时不重复消耗 AI。
@@ -1639,9 +1655,15 @@ npm run dev
 部署流程：
 
 1. 拉取仓库代码。
-2. 同步文件到 VPS。
-3. 执行 `docker compose down`。
-4. 执行 `docker compose up -d --build`。
+2. 确保 VPS 上部署目录和 `/opt/ai-crm/rag-import` 已存在。
+3. 同步文件到 VPS。
+4. 先构建 Docker 镜像，再替换运行中的容器。
+5. 使用 `docker compose up -d --remove-orphans` 启动容器。
+6. 轮询 `/api/healthz`，确认应用和数据库可用；如果检查失败，会输出容器状态和最近日志。
+
+可选 GitHub Actions Secret：
+
+- `HEALTHCHECK_URL`：如果容器暴露的地址或端口不是默认的 `http://127.0.0.1:3003/api/healthz`，可用此项覆盖。
 
 如果 Docker build 出现 snapshot/parent layer 错误，通常是 VPS 上 Docker/buildkit 缓存问题，不是 TypeScript 构建错误。清理服务器 Docker builder/cache 后重新部署。
 
@@ -1669,6 +1691,8 @@ npm run dev
 - `deals.product_ids`：报价/Deal 关联产品 ID 的 JSON 数组。
 - `whatsapp_message_translations.kind`：区分入站翻译和出站原文记录。
 - `whatsapp_message_translations.target_language`：保存发送前翻译所使用的客户侧目标语言。
+- `communication_conversations`：Email、WhatsApp、Live Chat 统一沟通索引，用于跨渠道 CRM 工作流。
+- `communication_messages`：关联到 `communication_conversations` 的统一消息索引。
 - `live_chat_sessions`：网站 live chat 会话、访客身份、客户关联、状态、标签和人工接管状态。
 - `live_chat_messages`：live chat 会话中的访客、Agent、座席和系统消息。
 - `api_tokens`：网站/API 集成 token 的 hash、权限范围、权限模板、吊销状态和最近使用时间。

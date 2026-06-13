@@ -28,6 +28,7 @@ jobs:
           VPS_USERNAME: ${{ secrets.VPS_USERNAME }}
           VPS_PRIVATE_KEY: ${{ secrets.VPS_PRIVATE_KEY }}
           VPS_PORT: ${{ secrets.VPS_PORT || 22 }}
+          HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL || 'http://127.0.0.1:3003/api/healthz' }}
         run: |
           set -Eeuo pipefail
           trap 'echo "::error::Deployment failed at line $LINENO while running: $BASH_COMMAND"' ERR
@@ -59,7 +60,7 @@ jobs:
             ./ "$VPS_USERNAME@$VPS_HOST:$DEPLOY_TARGET/"
 
           echo "Rebuilding containers..."
-          ssh $SSH_OPTS "$VPS_USERNAME@$VPS_HOST" "DEPLOY_TARGET='$DEPLOY_TARGET' RAG_IMPORT_DIR='$RAG_IMPORT_DIR' bash -s" <<'REMOTE_DEPLOY'
+          ssh $SSH_OPTS "$VPS_USERNAME@$VPS_HOST" "DEPLOY_TARGET='$DEPLOY_TARGET' RAG_IMPORT_DIR='$RAG_IMPORT_DIR' HEALTHCHECK_URL='$HEALTHCHECK_URL' bash -s" <<'REMOTE_DEPLOY'
           set -Eeuo pipefail
           mkdir -p "$RAG_IMPORT_DIR"
           cd "$DEPLOY_TARGET"
@@ -76,5 +77,24 @@ jobs:
 
           echo "Starting updated containers..."
           docker compose up -d --remove-orphans
+
+          echo "Waiting for application health check..."
+          for attempt in $(seq 1 30); do
+            if curl -fsS "$HEALTHCHECK_URL" >/tmp/ai-crm-healthz.json; then
+              echo "Health check passed on attempt $attempt."
+              cat /tmp/ai-crm-healthz.json
+              break
+            fi
+
+            if [ "$attempt" -eq 30 ]; then
+              echo "::error::Health check failed after $attempt attempts: $HEALTHCHECK_URL"
+              docker compose ps
+              docker compose logs --tail=120
+              exit 1
+            fi
+
+            sleep 5
+          done
+
           docker image prune -f || true
           REMOTE_DEPLOY

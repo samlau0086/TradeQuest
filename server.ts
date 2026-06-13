@@ -372,6 +372,8 @@ const runStartupDiagnostics = async () => {
         'emails',
         'whatsapp_messages',
         'live_chat_sessions',
+        'communication_conversations',
+        'communication_messages',
         'knowledge_base'
       ]]);
       const found = new Set(result.rows.map((row: any) => row.table_name));
@@ -385,6 +387,8 @@ const runStartupDiagnostics = async () => {
         'emails',
         'whatsapp_messages',
         'live_chat_sessions',
+        'communication_conversations',
+        'communication_messages',
         'knowledge_base'
       ].filter(table => !found.has(table));
       addCheck(
@@ -424,6 +428,410 @@ const runStartupDiagnostics = async () => {
     console.log('[startup diagnostics] completed', checks.map(check => `${check.name}:${check.status}`).join(', '));
   }
   return startupDiagnostics;
+};
+
+const communicationId = (prefix: string, parts: Array<string | null | undefined>) => {
+  const hash = nodeCrypto.createHash('sha1').update(parts.map(part => String(part || '')).join(':')).digest('hex');
+  return `${prefix}_${hash}`.slice(0, 128);
+};
+
+const normalizeCommunicationBody = (value: any, limit = 8000) => (
+  String(value || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, limit)
+);
+
+const upsertCommunicationConversation = async (input: {
+  userId: string;
+  channel: 'email' | 'whatsapp' | 'live_chat';
+  sourceId: string;
+  clientId?: string | null;
+  leadId?: string | null;
+  ownerId?: string | null;
+  stage?: string | null;
+  status?: string | null;
+  direction?: string | null;
+  title?: string | null;
+  subject?: string | null;
+  contactName?: string | null;
+  contactAddress?: string | null;
+  lastMessagePreview?: string | null;
+  lastMessageAt?: string | Date | null;
+  read?: boolean | null;
+  isImportant?: boolean | null;
+  todoAt?: string | Date | null;
+  todoNote?: string | null;
+  tags?: any[];
+  comments?: any[];
+  metadata?: any;
+  deletedAt?: string | Date | null;
+}) => {
+  const id = communicationId('comm', [input.userId, input.channel, input.sourceId]);
+  const result = await pool.query(
+    `INSERT INTO communication_conversations
+       (id, user_id, channel, source_id, client_id, lead_id, owner_id, stage, status, direction, title, subject,
+        contact_name, contact_address, last_message_preview, last_message_at, read, is_important, todo_at, todo_note,
+        tags, comments, metadata, deleted_at)
+     VALUES
+       ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, 'open'), $10, $11, $12,
+        $13, $14, $15, $16, COALESCE($17, false), COALESCE($18, false), $19, $20,
+        COALESCE($21::jsonb, '[]'::jsonb), COALESCE($22::jsonb, '[]'::jsonb), COALESCE($23::jsonb, '{}'::jsonb), $24)
+     ON CONFLICT (user_id, channel, source_id)
+     DO UPDATE SET
+       client_id = COALESCE(EXCLUDED.client_id, communication_conversations.client_id),
+       lead_id = COALESCE(EXCLUDED.lead_id, communication_conversations.lead_id),
+       owner_id = COALESCE(EXCLUDED.owner_id, communication_conversations.owner_id),
+       stage = COALESCE(EXCLUDED.stage, communication_conversations.stage),
+       status = COALESCE(EXCLUDED.status, communication_conversations.status),
+       direction = COALESCE(EXCLUDED.direction, communication_conversations.direction),
+       title = COALESCE(EXCLUDED.title, communication_conversations.title),
+       subject = COALESCE(EXCLUDED.subject, communication_conversations.subject),
+       contact_name = COALESCE(EXCLUDED.contact_name, communication_conversations.contact_name),
+       contact_address = COALESCE(EXCLUDED.contact_address, communication_conversations.contact_address),
+       last_message_preview = COALESCE(EXCLUDED.last_message_preview, communication_conversations.last_message_preview),
+       last_message_at = GREATEST(COALESCE(communication_conversations.last_message_at, EXCLUDED.last_message_at), COALESCE(EXCLUDED.last_message_at, communication_conversations.last_message_at)),
+       read = COALESCE(EXCLUDED.read, communication_conversations.read),
+       is_important = COALESCE(EXCLUDED.is_important, communication_conversations.is_important),
+       todo_at = COALESCE(EXCLUDED.todo_at, communication_conversations.todo_at),
+       todo_note = COALESCE(EXCLUDED.todo_note, communication_conversations.todo_note),
+       tags = CASE WHEN $25::boolean THEN COALESCE(EXCLUDED.tags, '[]'::jsonb) ELSE communication_conversations.tags END,
+       comments = CASE WHEN $26::boolean THEN COALESCE(EXCLUDED.comments, '[]'::jsonb) ELSE communication_conversations.comments END,
+       metadata = COALESCE(communication_conversations.metadata, '{}'::jsonb) || COALESCE(EXCLUDED.metadata, '{}'::jsonb),
+       deleted_at = EXCLUDED.deleted_at,
+       updated_at = CURRENT_TIMESTAMP
+     RETURNING *`,
+    [
+      id,
+      input.userId,
+      input.channel,
+      input.sourceId,
+      input.clientId || null,
+      input.leadId || null,
+      input.ownerId || null,
+      input.stage || null,
+      input.status || null,
+      input.direction || null,
+      input.title || null,
+      input.subject || null,
+      input.contactName || null,
+      input.contactAddress || null,
+      normalizeCommunicationBody(input.lastMessagePreview, 500) || null,
+      input.lastMessageAt || null,
+      input.read ?? null,
+      input.isImportant ?? null,
+      input.todoAt || null,
+      input.todoNote || null,
+      JSON.stringify(Array.isArray(input.tags) ? input.tags : []),
+      JSON.stringify(Array.isArray(input.comments) ? input.comments : []),
+      JSON.stringify(input.metadata || {}),
+      input.deletedAt || null,
+      input.tags !== undefined,
+      input.comments !== undefined
+    ]
+  );
+  return result.rows[0];
+};
+
+const upsertCommunicationMessage = async (input: {
+  userId: string;
+  channel: 'email' | 'whatsapp' | 'live_chat';
+  sourceId: string;
+  sourceMessageId: string;
+  conversation?: any;
+  conversationData?: Parameters<typeof upsertCommunicationConversation>[0];
+  direction?: string | null;
+  sender?: string | null;
+  recipient?: string | null;
+  body?: string | null;
+  messageType?: string | null;
+  payload?: any;
+  sourceCreatedAt?: string | Date | null;
+}) => {
+  const conversation = input.conversation || await upsertCommunicationConversation({
+    ...(input.conversationData || {
+      userId: input.userId,
+      channel: input.channel,
+      sourceId: input.sourceId
+    }),
+    userId: input.userId,
+    channel: input.channel,
+    sourceId: input.sourceId
+  });
+  const messageId = communicationId('comm_msg', [input.userId, input.channel, input.sourceMessageId]);
+  await pool.query(
+    `INSERT INTO communication_messages
+       (id, conversation_id, user_id, channel, source_id, source_message_id, direction, sender, recipient, body, message_type, payload, source_created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12::jsonb, '{}'::jsonb), $13)
+     ON CONFLICT (user_id, channel, source_message_id)
+     DO UPDATE SET
+       conversation_id = EXCLUDED.conversation_id,
+       source_id = EXCLUDED.source_id,
+       direction = COALESCE(EXCLUDED.direction, communication_messages.direction),
+       sender = COALESCE(EXCLUDED.sender, communication_messages.sender),
+       recipient = COALESCE(EXCLUDED.recipient, communication_messages.recipient),
+       body = COALESCE(EXCLUDED.body, communication_messages.body),
+       message_type = COALESCE(EXCLUDED.message_type, communication_messages.message_type),
+       payload = COALESCE(communication_messages.payload, '{}'::jsonb) || COALESCE(EXCLUDED.payload, '{}'::jsonb),
+       source_created_at = COALESCE(EXCLUDED.source_created_at, communication_messages.source_created_at)`,
+    [
+      messageId,
+      conversation.id,
+      input.userId,
+      input.channel,
+      input.sourceId,
+      input.sourceMessageId,
+      input.direction || null,
+      input.sender || null,
+      input.recipient || null,
+      normalizeCommunicationBody(input.body),
+      input.messageType || null,
+      JSON.stringify(input.payload || {}),
+      input.sourceCreatedAt || null
+    ]
+  );
+  return conversation;
+};
+
+const backfillUnifiedCommunicationTables = async (userId?: string) => {
+  if (!process.env.DATABASE_URL) return;
+  const userFilter = userId ? 'WHERE user_id = $1' : '';
+  const params = userId ? [userId] : [];
+
+  await pool.query(
+    `INSERT INTO communication_conversations
+       (id, user_id, channel, source_id, client_id, status, direction, title, subject, contact_name, contact_address,
+        last_message_preview, last_message_at, read, is_important, todo_at, todo_note, tags, comments, metadata, deleted_at, created_at, updated_at)
+     SELECT
+       'comm_' || md5(user_id || ':email:' || id),
+       user_id,
+       'email',
+       id,
+       client_id,
+       CASE WHEN type IN ('draft', 'scheduled') THEN type ELSE 'open' END,
+       CASE WHEN type IN ('sent', 'outbound', 'scheduled') THEN 'outbound' ELSE 'inbound' END,
+       COALESCE(NULLIF(subject, ''), '(No Subject)'),
+       subject,
+       COALESCE(NULLIF(sender_name, ''), sender, recipient),
+       CASE WHEN type IN ('sent', 'outbound', 'scheduled') THEN recipient ELSE sender END,
+       LEFT(regexp_replace(COALESCE(body, ''), '<[^>]+>', ' ', 'g'), 500),
+       date,
+       COALESCE(read, false),
+       COALESCE(is_important, false),
+       todo_at,
+       todo_note,
+       COALESCE(tags, '[]'::jsonb),
+       COALESCE(comments, '[]'::jsonb),
+       jsonb_build_object('emailType', type, 'inboxConfigId', inbox_config_id, 'outboxConfigId', outbox_config_id, 'senderCountry', sender_country),
+       CASE WHEN COALESCE(pending_delete, false) THEN CURRENT_TIMESTAMP ELSE NULL END,
+       COALESCE(date, CURRENT_TIMESTAMP),
+       CURRENT_TIMESTAMP
+     FROM emails
+     ${userFilter}
+     ON CONFLICT (user_id, channel, source_id)
+     DO UPDATE SET
+       client_id = COALESCE(EXCLUDED.client_id, communication_conversations.client_id),
+       status = EXCLUDED.status,
+       direction = EXCLUDED.direction,
+       title = EXCLUDED.title,
+       subject = EXCLUDED.subject,
+       contact_name = EXCLUDED.contact_name,
+       contact_address = EXCLUDED.contact_address,
+       last_message_preview = EXCLUDED.last_message_preview,
+       last_message_at = EXCLUDED.last_message_at,
+       read = EXCLUDED.read,
+       is_important = EXCLUDED.is_important,
+       todo_at = EXCLUDED.todo_at,
+       todo_note = EXCLUDED.todo_note,
+       tags = EXCLUDED.tags,
+       comments = EXCLUDED.comments,
+       metadata = COALESCE(communication_conversations.metadata, '{}'::jsonb) || EXCLUDED.metadata,
+       deleted_at = EXCLUDED.deleted_at,
+       updated_at = CURRENT_TIMESTAMP`,
+    params
+  );
+
+  await pool.query(
+    `INSERT INTO communication_messages
+       (id, conversation_id, user_id, channel, source_id, source_message_id, direction, sender, recipient, body, message_type, payload, source_created_at, created_at)
+     SELECT
+       'comm_msg_' || md5(user_id || ':email:' || id),
+       'comm_' || md5(user_id || ':email:' || id),
+       user_id,
+       'email',
+       id,
+       id,
+       CASE WHEN type IN ('sent', 'outbound', 'scheduled') THEN 'outbound' ELSE 'inbound' END,
+       sender,
+       recipient,
+       COALESCE(body, ''),
+       'email',
+       jsonb_build_object('subject', subject, 'attachments', COALESCE(attachments, '[]'::jsonb), 'cc', cc, 'bcc', bcc),
+       date,
+       COALESCE(date, CURRENT_TIMESTAMP)
+     FROM emails
+     ${userFilter}
+     ON CONFLICT (user_id, channel, source_message_id)
+     DO UPDATE SET
+       body = EXCLUDED.body,
+       payload = COALESCE(communication_messages.payload, '{}'::jsonb) || EXCLUDED.payload,
+       source_created_at = EXCLUDED.source_created_at`,
+    params
+  );
+
+  await pool.query(
+    `INSERT INTO communication_conversations
+       (id, user_id, channel, source_id, client_id, status, direction, title, contact_address, last_message_preview,
+        last_message_at, tags, comments, metadata, deleted_at, created_at, updated_at)
+     SELECT
+       'comm_' || md5(c.user_id || ':whatsapp:' || c.id),
+       c.user_id,
+       'whatsapp',
+       c.id,
+       c.client_id,
+       'open',
+       last_msg.direction,
+       COALESCE(cl.name, c.contact_phone, c.target_phone),
+       COALESCE(c.contact_phone, c.target_phone),
+       LEFT(COALESCE(last_msg.body, ''), 500),
+       COALESCE(c.last_message_at, c.updated_at),
+       COALESCE(c.tags, '[]'::jsonb),
+       COALESCE(c.comments, '[]'::jsonb),
+       jsonb_build_object('targetPhone', c.target_phone, 'contactPhone', c.contact_phone, 'rawChatId', c.raw_chat_id, 'conversationKey', c.conversation_key),
+       c.deleted_at,
+       c.created_at,
+       CURRENT_TIMESTAMP
+     FROM whatsapp_conversations c
+     LEFT JOIN clients cl ON cl.id = c.client_id
+     LEFT JOIN LATERAL (
+       SELECT body, direction
+       FROM whatsapp_messages m
+       WHERE m.conversation_id = c.id
+       ORDER BY COALESCE(m.source_created_at, m.created_at) DESC
+       LIMIT 1
+     ) last_msg ON true
+     ${userFilter ? 'WHERE c.user_id = $1' : ''}
+     ON CONFLICT (user_id, channel, source_id)
+     DO UPDATE SET
+       client_id = COALESCE(EXCLUDED.client_id, communication_conversations.client_id),
+       direction = COALESCE(EXCLUDED.direction, communication_conversations.direction),
+       title = EXCLUDED.title,
+       contact_address = EXCLUDED.contact_address,
+       last_message_preview = EXCLUDED.last_message_preview,
+       last_message_at = EXCLUDED.last_message_at,
+       tags = EXCLUDED.tags,
+       comments = EXCLUDED.comments,
+       metadata = COALESCE(communication_conversations.metadata, '{}'::jsonb) || EXCLUDED.metadata,
+       deleted_at = EXCLUDED.deleted_at,
+       updated_at = CURRENT_TIMESTAMP`,
+    params
+  );
+
+  await pool.query(
+    `INSERT INTO communication_messages
+       (id, conversation_id, user_id, channel, source_id, source_message_id, direction, sender, recipient, body, message_type, payload, source_created_at, created_at)
+     SELECT
+       'comm_msg_' || md5(m.user_id || ':whatsapp:' || m.id),
+       'comm_' || md5(m.user_id || ':whatsapp:' || m.conversation_id),
+       m.user_id,
+       'whatsapp',
+       m.conversation_id,
+       m.id,
+       m.direction,
+       m.sender,
+       m.recipient,
+       COALESCE(m.body, ''),
+       m.message_type,
+       COALESCE(m.payload, '{}'::jsonb),
+       COALESCE(m.source_created_at, m.created_at),
+       COALESCE(m.source_created_at, m.created_at)
+     FROM whatsapp_messages m
+     ${userFilter}
+     ON CONFLICT (user_id, channel, source_message_id)
+     DO UPDATE SET
+       conversation_id = EXCLUDED.conversation_id,
+       body = EXCLUDED.body,
+       message_type = EXCLUDED.message_type,
+       payload = COALESCE(communication_messages.payload, '{}'::jsonb) || EXCLUDED.payload,
+       source_created_at = EXCLUDED.source_created_at`,
+    params
+  );
+
+  await pool.query(
+    `INSERT INTO communication_conversations
+       (id, user_id, channel, source_id, client_id, status, title, contact_name, contact_address, last_message_preview,
+        last_message_at, tags, metadata, created_at, updated_at)
+     SELECT
+       'comm_' || md5(s.user_id || ':live_chat:' || s.id),
+       s.user_id,
+       'live_chat',
+       s.id,
+       s.client_id,
+       s.status,
+       COALESCE(NULLIF(s.visitor_name, ''), NULLIF(s.visitor_email, ''), 'Live Chat'),
+       s.visitor_name,
+       COALESCE(s.visitor_email, s.visitor_phone),
+       LEFT(COALESCE(last_msg.body, ''), 500),
+       COALESCE(s.last_message_at, s.updated_at),
+       COALESCE(s.tags, '[]'::jsonb),
+       COALESCE(s.metadata, '{}'::jsonb) || jsonb_build_object('priority', s.priority, 'humanTakeover', s.human_takeover, 'pageUrl', s.page_url, 'assignedAgentId', s.assigned_agent_id),
+       s.created_at,
+       CURRENT_TIMESTAMP
+     FROM live_chat_sessions s
+     LEFT JOIN LATERAL (
+       SELECT body
+       FROM live_chat_messages m
+       WHERE m.session_id = s.id AND m.role <> 'system'
+       ORDER BY m.created_at DESC
+       LIMIT 1
+     ) last_msg ON true
+     ${userFilter ? 'WHERE s.user_id = $1' : ''}
+     ON CONFLICT (user_id, channel, source_id)
+     DO UPDATE SET
+       client_id = COALESCE(EXCLUDED.client_id, communication_conversations.client_id),
+       status = EXCLUDED.status,
+       title = EXCLUDED.title,
+       contact_name = EXCLUDED.contact_name,
+       contact_address = EXCLUDED.contact_address,
+       last_message_preview = EXCLUDED.last_message_preview,
+       last_message_at = EXCLUDED.last_message_at,
+       tags = EXCLUDED.tags,
+       metadata = COALESCE(communication_conversations.metadata, '{}'::jsonb) || EXCLUDED.metadata,
+       updated_at = CURRENT_TIMESTAMP`,
+    params
+  );
+
+  await pool.query(
+    `INSERT INTO communication_messages
+       (id, conversation_id, user_id, channel, source_id, source_message_id, direction, sender, body, message_type, payload, source_created_at, created_at)
+     SELECT
+       'comm_msg_' || md5(m.user_id || ':live_chat:' || m.id),
+       'comm_' || md5(m.user_id || ':live_chat:' || m.session_id),
+       m.user_id,
+       'live_chat',
+       m.session_id,
+       m.id,
+       CASE WHEN m.role = 'visitor' THEN 'inbound' ELSE 'outbound' END,
+       m.sender_name,
+       m.body,
+       m.role,
+       COALESCE(m.metadata, '{}'::jsonb),
+       m.created_at,
+       m.created_at
+     FROM live_chat_messages m
+     ${userFilter}
+     ON CONFLICT (user_id, channel, source_message_id)
+     DO UPDATE SET
+       conversation_id = EXCLUDED.conversation_id,
+       body = EXCLUDED.body,
+       message_type = EXCLUDED.message_type,
+       payload = COALESCE(communication_messages.payload, '{}'::jsonb) || EXCLUDED.payload,
+       source_created_at = EXCLUDED.source_created_at`,
+    params
+  );
 };
 
 async function initDB() {
@@ -998,6 +1406,69 @@ async function initDB() {
       CREATE INDEX IF NOT EXISTS idx_live_chat_messages_session_created
       ON live_chat_messages (session_id, created_at ASC);
 
+      CREATE TABLE IF NOT EXISTS communication_conversations (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        channel VARCHAR(32) NOT NULL,
+        source_id VARCHAR(128) NOT NULL,
+        client_id VARCHAR(128) REFERENCES clients(id) ON DELETE SET NULL,
+        lead_id VARCHAR(128) REFERENCES deals(id) ON DELETE SET NULL,
+        owner_id VARCHAR(128),
+        stage VARCHAR(64),
+        status VARCHAR(32) DEFAULT 'open',
+        direction VARCHAR(32),
+        title TEXT,
+        subject TEXT,
+        contact_name VARCHAR(255),
+        contact_address VARCHAR(255),
+        last_message_preview TEXT,
+        last_message_at TIMESTAMP WITH TIME ZONE,
+        read BOOLEAN DEFAULT FALSE,
+        is_important BOOLEAN DEFAULT FALSE,
+        todo_at TIMESTAMP WITH TIME ZONE,
+        todo_note TEXT,
+        tags JSONB DEFAULT '[]'::jsonb,
+        comments JSONB DEFAULT '[]'::jsonb,
+        metadata JSONB DEFAULT '{}'::jsonb,
+        deleted_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, channel, source_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_communication_conversations_user_updated
+      ON communication_conversations (user_id, updated_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_communication_conversations_user_channel
+      ON communication_conversations (user_id, channel, last_message_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_communication_conversations_client
+      ON communication_conversations (user_id, client_id, last_message_at DESC);
+
+      CREATE TABLE IF NOT EXISTS communication_messages (
+        id VARCHAR(128) PRIMARY KEY,
+        conversation_id VARCHAR(128) REFERENCES communication_conversations(id) ON DELETE CASCADE,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        channel VARCHAR(32) NOT NULL,
+        source_id VARCHAR(128) NOT NULL,
+        source_message_id VARCHAR(128) NOT NULL,
+        direction VARCHAR(32),
+        sender VARCHAR(255),
+        recipient VARCHAR(255),
+        body TEXT,
+        message_type VARCHAR(64),
+        payload JSONB DEFAULT '{}'::jsonb,
+        source_created_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, channel, source_message_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_communication_messages_conversation_created
+      ON communication_messages (conversation_id, source_created_at ASC);
+
+      CREATE INDEX IF NOT EXISTS idx_communication_messages_user_channel
+      ON communication_messages (user_id, channel, source_created_at DESC);
+
       -- Migrate existing clients to a default deal if none exist for that client
       INSERT INTO deals (id, user_id, client_id, name, status, created_at, updated_at)
       SELECT 
@@ -1124,6 +1595,119 @@ async function startServer() {
 
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
+  app.get('/api/healthz', async (_req, res) => {
+    const checks: Record<string, any> = {
+      server: { status: 'ok' },
+      database: {
+        status: process.env.DATABASE_URL ? 'checking' : 'error',
+        message: process.env.DATABASE_URL ? '' : 'DATABASE_URL is missing'
+      },
+      startup: {
+        status: startupDiagnostics.checks.some((check) => check.status === 'error') ? 'warning' : 'ok',
+        checkedAt: startupDiagnostics.generatedAt,
+        errors: startupDiagnostics.checks.filter((check) => check.status === 'error').map((check) => check.message),
+        warnings: startupDiagnostics.checks.filter((check) => check.status === 'warning').map((check) => check.message)
+      }
+    };
+
+    if (process.env.DATABASE_URL) {
+      try {
+        await pool.query('SELECT 1');
+        checks.database = { status: 'ok' };
+      } catch (error: any) {
+        checks.database = { status: 'error', message: error?.message || String(error) };
+      }
+    }
+
+    const ok = checks.server.status === 'ok' && checks.database.status === 'ok';
+    res.status(ok ? 200 : 503).json({
+      status: ok ? 'ok' : 'error',
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+      checks
+    });
+  });
+
+  app.get('/api/conversations', authenticateToken, async (req: any, res) => {
+    try {
+      await backfillUnifiedCommunicationTables(req.user.uid).catch((error: any) => {
+        console.warn('Unified conversation backfill skipped during API read', error?.message || error);
+      });
+
+      const values: any[] = [req.user.uid];
+      const filters = ['c.user_id = $1'];
+      const channel = String(req.query.channel || '').trim();
+      const status = String(req.query.status || '').trim();
+      const search = String(req.query.search || '').trim().toLowerCase();
+      const clientId = String(req.query.clientId || '').trim();
+      const includeDeleted = String(req.query.includeDeleted || '').toLowerCase() === 'true';
+      const limit = Math.min(Math.max(Number(req.query.limit || 100), 1), 300);
+      if (!includeDeleted) filters.push('c.deleted_at IS NULL');
+
+      if (channel && ['email', 'whatsapp', 'live_chat'].includes(channel)) {
+        values.push(channel);
+        filters.push(`c.channel = $${values.length}`);
+      }
+      if (status && status !== 'all') {
+        values.push(status);
+        filters.push(`c.status = $${values.length}`);
+      }
+      if (clientId) {
+        values.push(clientId);
+        filters.push(`c.client_id = $${values.length}`);
+      }
+      if (search) {
+        values.push(`%${search}%`);
+        filters.push(`(
+          lower(COALESCE(c.title, '')) LIKE $${values.length}
+          OR lower(COALESCE(c.subject, '')) LIKE $${values.length}
+          OR lower(COALESCE(c.contact_name, '')) LIKE $${values.length}
+          OR lower(COALESCE(c.contact_address, '')) LIKE $${values.length}
+          OR lower(COALESCE(c.last_message_preview, '')) LIKE $${values.length}
+          OR lower(COALESCE(cl.name, '')) LIKE $${values.length}
+          OR lower(COALESCE(cl.company, '')) LIKE $${values.length}
+        )`);
+      }
+
+      values.push(limit);
+      const result = await pool.query(
+        `SELECT c.*, cl.name AS client_name, cl.company AS client_company
+         FROM communication_conversations c
+         LEFT JOIN clients cl ON cl.id = c.client_id
+         WHERE ${filters.join(' AND ')}
+         ORDER BY COALESCE(c.last_message_at, c.updated_at, c.created_at) DESC
+         LIMIT $${values.length}`,
+        values
+      );
+      res.json({ conversations: result.rows });
+    } catch (e: any) {
+      console.error('Failed to fetch unified conversations', e);
+      res.status(500).json({ error: e.message || 'Failed to fetch conversations' });
+    }
+  });
+
+  app.get('/api/conversations/:id/messages', authenticateToken, async (req: any, res) => {
+    try {
+      const conversationRes = await pool.query(
+        `SELECT id FROM communication_conversations WHERE id = $1 AND user_id = $2 LIMIT 1`,
+        [req.params.id, req.user.uid]
+      );
+      if (conversationRes.rows.length === 0) return res.status(404).json({ error: 'Conversation not found' });
+      const result = await pool.query(
+        `SELECT *
+         FROM communication_messages
+         WHERE conversation_id = $1 AND user_id = $2
+         ORDER BY COALESCE(source_created_at, created_at) ASC
+         LIMIT 500`,
+        [req.params.id, req.user.uid]
+      );
+      res.json({ messages: result.rows });
+    } catch (e: any) {
+      console.error('Failed to fetch unified conversation messages', e);
+      res.status(500).json({ error: e.message || 'Failed to fetch conversation messages' });
+    }
+  });
+
   app.use((req, res, next) => {
     if (req.path.startsWith('/api/live-chat/public/') || req.path.startsWith('/api/public/customer-forms/')) {
       res.header('Access-Control-Allow-Origin', '*');
@@ -2739,6 +3323,43 @@ No markdown wrappers, just valid JSON.`;
          )`,
       [userId, messageId, conversation.id, hubClientId, body, Number.isFinite(timeMs) ? new Date(timeMs).toISOString() : messageTime]
     );
+    await upsertCommunicationMessage({
+      userId,
+      channel: 'whatsapp',
+      sourceId: conversation.id,
+      sourceMessageId: messageId,
+      direction,
+      sender: message.sender || '',
+      recipient: message.recipient || '',
+      body,
+      messageType: storageMessageType,
+      payload: {
+        ...storagePayload,
+        hubClientId,
+        targetPhone,
+        contactPhone: identity.contactPhone || null,
+        rawChatId: identity.rawChatId || null
+      },
+      sourceCreatedAt: message.created_at || messageTime,
+      conversationData: {
+        userId,
+        channel: 'whatsapp',
+        sourceId: conversation.id,
+        clientId: conversation.clientId || null,
+        status: 'open',
+        direction,
+        title: identity.contactPhone || targetPhone,
+        contactAddress: identity.contactPhone || targetPhone,
+        lastMessagePreview: body,
+        lastMessageAt: message.created_at || messageTime,
+        metadata: {
+          targetPhone,
+          contactPhone: identity.contactPhone || null,
+          rawChatId: identity.rawChatId || null,
+          hubClientId
+        }
+      }
+    }).catch((error: any) => console.warn('Failed to sync WhatsApp message to unified conversation', error?.message || error));
     if (isNewInboundMessage) {
       void handleWhatsAppCustomerServiceInbound(userId, {
         messageId,
@@ -5936,6 +6557,44 @@ No markdown wrappers, just valid JSON.`;
        WHERE id = $1 AND user_id = $2`,
       [input.sessionId, input.userId]
     );
+    const sessionRes = await pool.query(
+      `SELECT * FROM live_chat_sessions WHERE id = $1 AND user_id = $2 LIMIT 1`,
+      [input.sessionId, input.userId]
+    );
+    const session = sessionRes.rows[0];
+    if (session) {
+      await upsertCommunicationMessage({
+        userId: input.userId,
+        channel: 'live_chat',
+        sourceId: input.sessionId,
+        sourceMessageId: id,
+        direction: input.role === 'visitor' ? 'inbound' : 'outbound',
+        sender: input.senderName || input.role,
+        body: input.body,
+        messageType: input.role,
+        payload: input.metadata || {},
+        sourceCreatedAt: result.rows[0].created_at,
+        conversationData: {
+          userId: input.userId,
+          channel: 'live_chat',
+          sourceId: input.sessionId,
+          clientId: session.client_id || null,
+          status: session.status || 'open',
+          title: session.visitor_name || session.visitor_email || 'Live Chat',
+          contactName: session.visitor_name || null,
+          contactAddress: session.visitor_email || session.visitor_phone || null,
+          lastMessagePreview: input.body,
+          lastMessageAt: result.rows[0].created_at,
+          tags: Array.isArray(session.tags) ? session.tags : [],
+          metadata: {
+            priority: session.priority,
+            humanTakeover: session.human_takeover,
+            pageUrl: session.page_url,
+            assignedAgentId: session.assigned_agent_id
+          }
+        }
+      }).catch((error: any) => console.warn('Failed to sync live chat message to unified conversation', error?.message || error));
+    }
     return result.rows[0];
   };
 
@@ -11414,6 +12073,37 @@ No markdown wrappers, just valid JSON.`;
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
         [id, req.user.uid, clientId || null, sender, senderName, recipient, cc, bcc, subject, finalBody, date || new Date().toISOString(), !!read, type, JSON.stringify(tags || []), JSON.stringify(comments || []), scheduledAt || null, JSON.stringify(attachments || []), inboxConfigId || null, resolvedOutboxConfigId]
       );
+      await upsertCommunicationMessage({
+        userId: req.user.uid,
+        channel: 'email',
+        sourceId: id,
+        sourceMessageId: id,
+        direction: type === 'sent' || type === 'outbound' || type === 'scheduled' ? 'outbound' : 'inbound',
+        sender,
+        recipient,
+        body: finalBody,
+        messageType: 'email',
+        payload: { subject, cc, bcc, attachments: attachments || [], emailType: type },
+        sourceCreatedAt: date || new Date().toISOString(),
+        conversationData: {
+          userId: req.user.uid,
+          channel: 'email',
+          sourceId: id,
+          clientId: clientId || null,
+          status: type === 'draft' || type === 'scheduled' ? type : 'open',
+          direction: type === 'sent' || type === 'outbound' || type === 'scheduled' ? 'outbound' : 'inbound',
+          title: subject || '(No Subject)',
+          subject,
+          contactName: senderName || sender || recipient,
+          contactAddress: type === 'sent' || type === 'outbound' || type === 'scheduled' ? recipient : sender,
+          lastMessagePreview: finalBody,
+          lastMessageAt: date || new Date().toISOString(),
+          read: !!read,
+          tags: tags || [],
+          comments: comments || [],
+          metadata: { inboxConfigId: inboxConfigId || null, outboxConfigId: resolvedOutboxConfigId || null, emailType: type }
+        }
+      }).catch((error: any) => console.warn('Failed to sync email to unified conversation', error?.message || error));
       if (clientId) {
         await pool.query(`UPDATE clients SET last_contact = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND user_id = $2`, [clientId, req.user.uid]);
       }
@@ -11458,6 +12148,31 @@ No markdown wrappers, just valid JSON.`;
       
       if (setClauses.length > 0) {
         await pool.query(`UPDATE emails SET ${setClauses.join(', ')} WHERE id = $1 AND user_id = $2`, values);
+        const updatedEmailRes = await pool.query(`SELECT * FROM emails WHERE id = $1 AND user_id = $2 LIMIT 1`, [id, req.user.uid]);
+        const email = updatedEmailRes.rows[0];
+        if (email) {
+          await upsertCommunicationConversation({
+            userId: req.user.uid,
+            channel: 'email',
+            sourceId: email.id,
+            clientId: email.client_id || null,
+            status: ['draft', 'scheduled'].includes(email.type) ? email.type : 'open',
+            direction: ['sent', 'outbound', 'scheduled'].includes(email.type) ? 'outbound' : 'inbound',
+            title: email.subject || '(No Subject)',
+            subject: email.subject,
+            contactName: email.sender_name || email.sender || email.recipient,
+            contactAddress: ['sent', 'outbound', 'scheduled'].includes(email.type) ? email.recipient : email.sender,
+            lastMessagePreview: email.body,
+            lastMessageAt: email.date,
+            read: !!email.read,
+            isImportant: !!email.is_important,
+            todoAt: email.todo_at || null,
+            todoNote: email.todo_note || null,
+            tags: Array.isArray(email.tags) ? email.tags : [],
+            comments: Array.isArray(email.comments) ? email.comments : [],
+            metadata: { inboxConfigId: email.inbox_config_id || null, outboxConfigId: email.outbox_config_id || null, emailType: email.type }
+          }).catch((error: any) => console.warn('Failed to sync updated email to unified conversation', error?.message || error));
+        }
       }
       res.json({ success: true });
     } catch (e) {
@@ -11544,7 +12259,12 @@ No markdown wrappers, just valid JSON.`;
   }
 
   initDB()
-    .then(() => runStartupDiagnostics())
+    .then(async () => {
+      await backfillUnifiedCommunicationTables().catch((error: any) => {
+        console.warn('Unified communication backfill failed during startup', error?.message || error);
+      });
+      return runStartupDiagnostics();
+    })
     .catch((error) => {
       console.error(error);
       return runStartupDiagnostics().catch(console.error);

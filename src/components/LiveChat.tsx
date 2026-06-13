@@ -27,6 +27,8 @@ function statusLabel(status: string, language: string) {
   return status === 'closed' ? 'Closed' : status === 'pending' ? 'Pending' : 'Open';
 }
 
+const LIVE_CHAT_SELECTED_SESSION_KEY = 'tradequest.liveChat.selectedSessionId';
+
 export function LiveChat() {
   const {
     liveChatSessions,
@@ -72,7 +74,18 @@ export function LiveChat() {
   }, [fetchLiveChatSessions, liveChatSocketStatus]);
 
   useEffect(() => {
-    if (!selectedId && liveChatSessions[0]) setSelectedId(liveChatSessions[0].id);
+    if (selectedId) return;
+    const requestedId = sessionStorage.getItem(LIVE_CHAT_SELECTED_SESSION_KEY);
+    if (requestedId) {
+      const requestedSession = liveChatSessions.find(session => session.id === requestedId);
+      if (requestedSession) {
+        setSelectedId(requestedSession.id);
+        setSessionTab(requestedSession.status === 'closed' ? 'all' : requestedSession.status === 'pending' ? 'pending' : 'open');
+        sessionStorage.removeItem(LIVE_CHAT_SELECTED_SESSION_KEY);
+        return;
+      }
+    }
+    if (liveChatSessions[0]) setSelectedId(liveChatSessions[0].id);
   }, [liveChatSessions, selectedId]);
 
   useEffect(() => {

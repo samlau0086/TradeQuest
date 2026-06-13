@@ -31,6 +31,30 @@ interface InboxWhatsAppConversation {
   lastHubClientId?: string;
 }
 
+interface UnifiedCommunicationConversation {
+  id: string;
+  channel: 'email' | 'whatsapp' | 'live_chat';
+  source_id: string;
+  client_id?: string;
+  client_name?: string;
+  client_company?: string;
+  status?: string;
+  direction?: 'inbound' | 'outbound';
+  title?: string;
+  subject?: string;
+  contact_name?: string;
+  contact_address?: string;
+  last_message_preview?: string;
+  last_message_at?: string;
+  read?: boolean;
+  is_important?: boolean;
+  todo_at?: string;
+  todo_note?: string;
+  tags?: string[];
+  comments?: any[];
+  metadata?: any;
+}
+
 interface WhatsAppContactOption {
   key: string;
   clientId: string;
@@ -44,8 +68,11 @@ interface WhatsAppContactOption {
 }
 
 const WHATSAPP_CONVERSATION_CACHE_KEY = 'tradequest.whatsapp.conversations.cache.v1';
+const LIVE_CHAT_SELECTED_SESSION_KEY = 'tradequest.liveChat.selectedSessionId';
 const WHATSAPP_CONVERSATION_POLL_MS = 20_000;
 const WHATSAPP_FOLLOW_UP_MARKER = '__FOLLOW_UP__';
+
+type InboxChannelFilter = 'all' | 'email' | 'whatsapp' | 'live_chat';
 
 const hasOpenWhatsAppFollowUp = (conversation: InboxWhatsAppConversation) => {
   const marker = [...(conversation.comments || [])]
@@ -76,6 +103,25 @@ function writeCachedWhatsAppConversations(conversations: InboxWhatsAppConversati
   } catch {
     // Session storage is an optional speed cache only.
   }
+}
+
+function mapUnifiedWhatsAppConversation(row: UnifiedCommunicationConversation): InboxWhatsAppConversation {
+  const metadata = row.metadata || {};
+  return {
+    id: row.source_id,
+    targetPhone: metadata.targetPhone || row.contact_address || row.title || row.source_id,
+    contactPhone: metadata.contactPhone || row.contact_address || undefined,
+    rawChatId: metadata.rawChatId || undefined,
+    conversationKey: metadata.conversationKey || metadata.targetPhone || row.contact_address || undefined,
+    clientId: row.client_id,
+    clientName: row.client_name,
+    clientCompany: row.client_company,
+    tags: Array.isArray(row.tags) ? row.tags : [],
+    comments: Array.isArray(row.comments) ? row.comments : [],
+    lastMessageAt: row.last_message_at,
+    lastBody: row.last_message_preview,
+    lastDirection: row.direction
+  };
 }
 
 function decodeHtmlEntities(value: string) {
@@ -157,10 +203,10 @@ function getInboxFilterForEmail(email: EmailMessage): 'inbox' | 'sent' | 'schedu
 }
 
 export function Inbox() {
-  const { emails, markEmailRead, clients, logs, deals, knowledgeBase, products, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail, notify, language, llmConfigs, activeLLMId, llmMappings, inboxFollowUpFilterRequest } = useStore();
+  const { emails, markEmailRead, clients, logs, deals, knowledgeBase, products, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail, notify, language, llmConfigs, activeLLMId, llmMappings, inboxFollowUpFilterRequest, setView } = useStore();
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'inbox-layout' });
   const [filter, setFilter] = useState<'inbox' | 'sent' | 'scheduled' | 'drafts'>('inbox');
-  const [channelFilter, setChannelFilter] = useState<'all' | 'email' | 'whatsapp'>('all');
+  const [channelFilter, setChannelFilter] = useState<InboxChannelFilter>('all');
   const [emailListMode, setEmailListMode] = useState<'list' | 'conversation'>('list');
   const [search, setSearch] = useState('');
   const [searchTags, setSearchTags] = useState<string[]>([]);
@@ -192,6 +238,8 @@ export function Inbox() {
   const [todoNote, setTodoNote] = useState('');
   const [tagModalEmail, setTagModalEmail] = useState<string | null>(null);
   const [tagInput, setTagInput] = useState('');
+  const [unifiedConversations, setUnifiedConversations] = useState<UnifiedCommunicationConversation[]>([]);
+  const [isUnifiedConversationLoading, setIsUnifiedConversationLoading] = useState(false);
   const [whatsappConversations, setWhatsappConversations] = useState<InboxWhatsAppConversation[]>(() => readCachedWhatsAppConversations());
   const [selectedWhatsAppPhone, setSelectedWhatsAppPhone] = useState<string | null>(null);
   const [selectedWhatsAppClientId, setSelectedWhatsAppClientId] = useState<string | null>(null);
@@ -216,8 +264,39 @@ export function Inbox() {
     writeCachedWhatsAppConversations(conversations);
   };
 
+  const fetchUnifiedConversations = async () => {
+    setIsUnifiedConversationLoading(true);
+    try {
+      const res = await fetch('/api/conversations?limit=300', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to load unified conversations.');
+      const conversations = Array.isArray(data.conversations) ? data.conversations : [];
+      setUnifiedConversations(conversations);
+      const unifiedWhatsApp = conversations
+        .filter((conversation: UnifiedCommunicationConversation) => conversation.channel === 'whatsapp')
+        .map(mapUnifiedWhatsAppConversation);
+      if (unifiedWhatsApp.length > 0) updateWhatsAppConversationState(unifiedWhatsApp);
+      return conversations;
+    } catch (error) {
+      console.warn('Unified conversations unavailable in inbox', error);
+      return [];
+    } finally {
+      setIsUnifiedConversationLoading(false);
+    }
+  };
+
   const fetchCachedWhatsAppConversations = async () => {
     try {
+      const unified = await fetchUnifiedConversations();
+      const unifiedWhatsApp = unified
+        .filter((conversation: UnifiedCommunicationConversation) => conversation.channel === 'whatsapp')
+        .map(mapUnifiedWhatsAppConversation);
+      if (unifiedWhatsApp.length > 0) {
+        updateWhatsAppConversationState(unifiedWhatsApp);
+        return;
+      }
       const res = await fetch('/api/whatsapp-hub/conversations', {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
@@ -292,7 +371,7 @@ export function Inbox() {
     };
   }, [search]);
 
-  const filteredEmails = channelFilter === 'whatsapp' ? [] : emails.filter(e => {
+  const filteredEmails = channelFilter === 'whatsapp' || channelFilter === 'live_chat' ? [] : emails.filter(e => {
     // Support both new ('inbox'/'sent') and legacy ('inbound'/'outbound') types
     const typeMatch = (filter === 'inbox' && (e.type === 'inbox' || e.type === 'inbound')) ||
                       (filter === 'sent' && (e.type === 'sent' || e.type === 'outbound')) ||
@@ -326,7 +405,7 @@ export function Inbox() {
     return true;
   });
 
-  const filteredWhatsAppConversations = filter === 'inbox' && channelFilter !== 'email'
+  const filteredWhatsAppConversations = filter === 'inbox' && channelFilter !== 'email' && channelFilter !== 'live_chat'
     ? whatsappConversations.filter(conversation => {
         if (followUpOnly && !hasOpenWhatsAppFollowUp(conversation)) return false;
         const termsToMatch = [...searchTags];
@@ -349,8 +428,36 @@ export function Inbox() {
         });
       })
     : [];
+  const filteredLiveChatConversations = filter === 'inbox' && channelFilter !== 'email' && channelFilter !== 'whatsapp'
+    ? unifiedConversations.filter(conversation => {
+        if (conversation.channel !== 'live_chat') return false;
+        if (conversation.status === 'closed') return false;
+        if (followUpOnly && !conversation.todo_at) return false;
+        const termsToMatch = [...searchTags];
+        if (search.trim()) {
+          termsToMatch.push(...search.trim().toLowerCase().split(/\s+/));
+        }
+        if (termsToMatch.length === 0) return true;
+        const haystack = [
+          conversation.title || '',
+          conversation.contact_name || '',
+          conversation.contact_address || '',
+          conversation.client_name || '',
+          conversation.client_company || '',
+          conversation.last_message_preview || '',
+          ...(conversation.tags || [])
+        ].join(' ').toLowerCase();
+        return termsToMatch.every(term => {
+          const normalized = term.toLowerCase();
+          return normalized.startsWith('#')
+            ? (conversation.tags || []).some(tag => tag.toLowerCase() === normalized)
+            : haystack.includes(normalized);
+        });
+      })
+    : [];
   const visibleFollowUpCount = filteredEmails.filter(email => !!email.todoAt).length
-    + filteredWhatsAppConversations.filter(hasOpenWhatsAppFollowUp).length;
+    + filteredWhatsAppConversations.filter(hasOpenWhatsAppFollowUp).length
+    + filteredLiveChatConversations.filter(conversation => !!conversation.todo_at).length;
 
   const whatsappContactOptions = useMemo<WhatsAppContactOption[]>(() => {
     const options: WhatsAppContactOption[] = [];
@@ -457,8 +564,9 @@ export function Inbox() {
   const visibleEmailIds = channelFilter !== 'whatsapp' ? filteredEmails.map(email => email.id) : [];
   const visibleWhatsAppIds = channelFilter !== 'email' && filter === 'inbox' ? filteredWhatsAppConversations.map(conversation => conversation.id) : [];
   const selectedCount = selectedIds.size + selectedWhatsAppIds.size;
-  const visibleCount = visibleEmailIds.length + visibleWhatsAppIds.length;
-  const allVisibleSelected = visibleCount > 0
+  const selectableVisibleCount = visibleEmailIds.length + visibleWhatsAppIds.length;
+  const totalVisibleCount = selectableVisibleCount + filteredLiveChatConversations.length;
+  const allVisibleSelected = selectableVisibleCount > 0
     && visibleEmailIds.every(id => selectedIds.has(id))
     && visibleWhatsAppIds.every(id => selectedWhatsAppIds.has(id));
   const someVisibleSelected = visibleEmailIds.some(id => selectedIds.has(id)) || visibleWhatsAppIds.some(id => selectedWhatsAppIds.has(id));
@@ -994,11 +1102,12 @@ export function Inbox() {
               </button>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-1 rounded-lg border border-slate-800 bg-slate-950 p-1">
+          <div className="grid grid-cols-4 gap-1 rounded-lg border border-slate-800 bg-slate-950 p-1">
             {([
               { value: 'all', label: 'All', icon: null },
               { value: 'email', label: 'Email', icon: Mail },
-              { value: 'whatsapp', label: 'WhatsApp', icon: MessageCircle }
+              { value: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
+              { value: 'live_chat', label: 'Live Chat', icon: MessageSquare }
             ] as const).map(option => {
               const Icon = option.icon;
               return (
@@ -1007,11 +1116,12 @@ export function Inbox() {
                   type="button"
                   onClick={() => {
                     setChannelFilter(option.value);
-                    if (option.value === 'whatsapp') {
+                    if (option.value === 'whatsapp' || option.value === 'live_chat') {
                       setFilter('inbox');
                       setEmailListMode('list');
                       selectEmail(null);
-                    } else if (selectedWhatsAppPhone && option.value === 'email') {
+                    }
+                    if (option.value !== 'whatsapp' && selectedWhatsAppPhone) {
                       setSelectedWhatsAppPhone(null);
                       setSelectedWhatsAppClientId(null);
                     }
@@ -1023,7 +1133,7 @@ export function Inbox() {
                       : "text-slate-500 hover:bg-slate-900 hover:text-slate-300"
                   )}
                 >
-                  {Icon && <Icon className={cn("h-3.5 w-3.5", option.value === 'whatsapp' ? 'text-green-400' : 'text-cyan-400')} />}
+                  {Icon && <Icon className={cn("h-3.5 w-3.5", option.value === 'whatsapp' ? 'text-green-400' : option.value === 'live_chat' ? 'text-violet-400' : 'text-cyan-400')} />}
                   <span>{option.label}</span>
                 </button>
               );
@@ -1140,7 +1250,7 @@ export function Inbox() {
         </div>
         
         <div className="flex-1 overflow-y-auto scrollbar-thin pb-48">
-          {visibleCount > 0 && (
+          {selectableVisibleCount > 0 && (
             <div className="p-3 px-4 border-b border-slate-800 bg-slate-900/70 text-xs text-slate-400 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <label className="flex items-center gap-2">
@@ -1212,9 +1322,63 @@ export function Inbox() {
               )}
             </div>
           )}
-          {filteredEmails.length === 0 && filteredWhatsAppConversations.length === 0 && (
-            <div className="p-8 text-center text-sm text-slate-500 italic">No conversations found.</div>
+          {totalVisibleCount === 0 && (
+            <div className="p-8 text-center text-sm text-slate-500 italic">
+              {isUnifiedConversationLoading ? 'Loading conversations...' : 'No conversations found.'}
+            </div>
           )}
+          {filteredLiveChatConversations.map(conversation => {
+            const client = conversation.client_id ? clients.find(c => c.id === conversation.client_id) : null;
+            return (
+              <div
+                key={`lc_${conversation.id}`}
+                onClick={() => {
+                  sessionStorage.setItem(LIVE_CHAT_SELECTED_SESSION_KEY, conversation.source_id);
+                  selectEmail(null);
+                  setSelectedWhatsAppPhone(null);
+                  setSelectedWhatsAppClientId(null);
+                  setView('live-chat');
+                }}
+                className="cursor-pointer border-b border-slate-800/50 p-4 transition-colors flex gap-3 group relative hover:bg-slate-800/30"
+              >
+                <div className="pt-0.5 flex-shrink-0">
+                  <div className="w-7 h-7 rounded-full bg-violet-950/50 border border-violet-900/60 flex items-center justify-center">
+                    <MessageSquare className="w-4 h-4 text-violet-300" />
+                  </div>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-1 gap-2">
+                    <span className="text-sm font-bold truncate text-slate-200">
+                      {client?.name || conversation.client_name || conversation.title || conversation.contact_name || 'Live Chat'}
+                    </span>
+                    <span className="text-[10px] text-slate-500 shrink-0">
+                      {conversation.last_message_at ? new Date(conversation.last_message_at).toLocaleDateString() : 'Live Chat'}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-violet-300 font-bold uppercase mb-1">
+                    Live Chat {conversation.status || 'open'}
+                  </div>
+                  {(conversation.contact_address || conversation.client_company) && (
+                    <div className="mb-1 truncate text-[10px] text-slate-600">
+                      {[conversation.contact_address, conversation.client_company].filter(Boolean).join(' · ')}
+                    </div>
+                  )}
+                  <div className="text-xs font-medium mb-1 truncate text-slate-400">
+                    {conversation.last_message_preview || 'Open live chat conversation'}
+                  </div>
+                  {conversation.tags && conversation.tags.length > 0 && (
+                    <div className="flex gap-1 mb-1 overflow-x-auto scrollbar-hide">
+                      {conversation.tags.slice(0, 4).map(t => (
+                        <span key={t} className="text-[9px] bg-slate-800 text-violet-200 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
           {filteredWhatsAppConversations.map(conversation => {
             const displayPhone = conversation.contactPhone || conversation.targetPhone;
             const rawChatId = conversation.rawChatId || (/@(?:lid|c\.us|g\.us)$/i.test(conversation.targetPhone) ? conversation.targetPhone : '');
