@@ -146,6 +146,10 @@ export function AgentHub() {
           language={language}
           tab={tab}
           t={t}
+          taskCount={visibleTasks.length}
+          pendingCount={pendingItems.length}
+          runCount={runLogs.length}
+          activeAgentCount={activeAgents}
           onTabChange={setTab}
           onCreateAgent={() => {
             setDraftAgent(emptyAgent());
