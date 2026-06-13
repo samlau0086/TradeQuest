@@ -23,6 +23,32 @@ type WhatsAppLoadStats = {
   unlinked: number;
 };
 
+type DashboardConversation = {
+  id: string;
+  channel: 'email' | 'whatsapp' | 'live_chat';
+  source_id?: string;
+  client_id?: string;
+  title?: string;
+  subject?: string;
+  contact_name?: string;
+  contact_address?: string;
+  last_message_preview?: string;
+  todo_at?: string | null;
+  todo_note?: string | null;
+  deleted_at?: string | null;
+};
+
+type DashboardTodoItem = {
+  id: string;
+  channel: 'email' | 'whatsapp' | 'live_chat';
+  sourceId?: string;
+  subject: string;
+  contact?: string;
+  todoAt: string;
+  todoNote?: string | null;
+  clientId?: string;
+};
+
 function MetricCard({ icon, label, value, subtext, tone = 'cyan' }: { icon: React.ReactNode; label: string; value: string | number; subtext?: string; tone?: 'cyan' | 'emerald' | 'amber' | 'rose' }) {
   const toneClass = {
     cyan: 'text-cyan-400 bg-cyan-950/30 border-cyan-900/40',
@@ -408,6 +434,7 @@ export function Dashboard() {
   const [dailySummary, setDailySummary] = useState<DashboardDailySummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [whatsAppLoad, setWhatsAppLoad] = useState<WhatsAppLoadStats>({ conversations: 0, inbound: 0, outbound: 0, unlinked: 0 });
+  const [communicationConversations, setCommunicationConversations] = useState<DashboardConversation[]>([]);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -430,6 +457,17 @@ export function Dashboard() {
     let cancelled = false;
     const token = localStorage.getItem('token');
     if (!token) return;
+    const loadCommunicationConversations = async () => {
+      try {
+        const res = await fetch('/api/conversations?limit=500', { headers: { Authorization: `Bearer ${token}` } });
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled) {
+          setCommunicationConversations(Array.isArray(data.conversations) ? data.conversations : []);
+        }
+      } catch {
+        if (!cancelled) setCommunicationConversations([]);
+      }
+    };
     const loadWhatsAppStats = async () => {
       try {
         const [conversationsRes, messagesRes] = await Promise.all([
@@ -451,8 +489,12 @@ export function Dashboard() {
         if (!cancelled) setWhatsAppLoad({ conversations: 0, inbound: 0, outbound: 0, unlinked: 0 });
       }
     };
+    loadCommunicationConversations();
     loadWhatsAppStats();
-    const interval = window.setInterval(loadWhatsAppStats, 60_000);
+    const interval = window.setInterval(() => {
+      loadCommunicationConversations();
+      loadWhatsAppStats();
+    }, 60_000);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
@@ -468,12 +510,49 @@ export function Dashboard() {
   });
 
   const now = Date.now();
-  const upcomingTodos = emails.filter(e => {
-    if (!e.todoAt) return false;
-    const todoTime = new Date(e.todoAt).getTime();
+  const allFollowUpTodos = useMemo<DashboardTodoItem[]>(() => {
+    const unifiedTodos = communicationConversations
+      .filter(conversation => conversation.todo_at && !conversation.deleted_at)
+      .map(conversation => ({
+        id: `conversation:${conversation.id}`,
+        channel: conversation.channel,
+        sourceId: conversation.source_id,
+        subject: conversation.title || conversation.subject || conversation.contact_name || conversation.contact_address || 'Conversation',
+        contact: conversation.contact_name || conversation.contact_address,
+        todoAt: conversation.todo_at!,
+        todoNote: conversation.todo_note,
+        clientId: conversation.client_id
+      }));
+
+    const unifiedEmailSourceIds = new Set(
+      unifiedTodos
+        .filter(todo => todo.channel === 'email' && todo.sourceId)
+        .map(todo => todo.sourceId)
+    );
+
+    const legacyEmailTodos = emails
+      .filter(email => email.todoAt && !email.pendingDelete && !unifiedEmailSourceIds.has(email.id))
+      .map(email => ({
+        id: `email:${email.id}`,
+        channel: 'email' as const,
+        sourceId: email.id,
+        subject: email.subject || '(No Subject)',
+        contact: email.sender || email.recipient,
+        todoAt: email.todoAt!,
+        todoNote: email.todoNote,
+        clientId: email.clientId
+      }));
+
+    return [...unifiedTodos, ...legacyEmailTodos]
+      .filter(todo => !Number.isNaN(new Date(todo.todoAt).getTime()))
+      .sort((a, b) => new Date(a.todoAt).getTime() - new Date(b.todoAt).getTime());
+  }, [communicationConversations, emails]);
+
+  const upcomingTodos = allFollowUpTodos.filter(todo => {
+    const todoTime = new Date(todo.todoAt).getTime();
     // approaching = past due or within next 24 hours
-    return todoTime - now < 24 * 60 * 60 * 1000 && !e.pendingDelete;
-  }).sort((a, b) => new Date(a.todoAt!).getTime() - new Date(b.todoAt!).getTime());
+    return todoTime - now < 24 * 60 * 60 * 1000;
+  });
 
   const operations = useMemo(() => {
     const today = new Date();
@@ -566,7 +645,7 @@ export function Dashboard() {
 
     const dealValue = deals.reduce((sum, deal) => sum + (Number(deal.value) || 0), 0);
     const wonValue = deals.filter(deal => deal.status === 'Closed Won').reduce((sum, deal) => sum + (Number(deal.value) || 0), 0);
-    const openTodos = emails.filter(email => email.todoAt && !email.pendingDelete).length;
+    const openTodos = allFollowUpTodos.length;
     const quoteDrafts = quotes.filter(quote => String(quote.status).toLowerCase() === 'draft').length;
     const conversionRate = clients.length > 0 ? Math.round((clients.filter(client => client.status === 'Closed Won').length / clients.length) * 100) : 0;
 
@@ -585,7 +664,7 @@ export function Dashboard() {
       contributionDays,
       contributionTotal
     };
-  }, [clients, deals, emails, expLogs, language, logs, publicClients, quotes, t, whatsAppLoad]);
+  }, [allFollowUpTodos.length, clients, deals, emails, expLogs, language, logs, publicClients, quotes, t, whatsAppLoad]);
 
   const todayKey = formatDateKey(new Date());
   const summaryCacheKey = `tradequest:dashboard-daily-summary:${profile?.id || profile?.email || 'local'}:${language}:${todayKey}`;
@@ -611,10 +690,11 @@ export function Dashboard() {
     dealPipeline: operations.dealStageRows.map(row => ({ stage: row.label, count: row.value })),
     activityTrend: operations.activityTrend.map(point => ({ date: point.meta, events: point.value })),
     whatsapp: operations.whatsappRows.map(row => ({ label: row.label, value: row.value })),
-    upcomingTodos: upcomingTodos.slice(0, 5).map(email => ({
-      subject: email.subject,
-      contact: email.sender || email.recipient,
-      todoAt: email.todoAt
+    upcomingTodos: upcomingTodos.slice(0, 5).map(todo => ({
+      channel: todo.channel,
+      subject: todo.subject,
+      contact: todo.contact,
+      todoAt: todo.todoAt
     })),
     recentSignals: [
       ...logs.slice(-8).map(log => ({ type: 'log', date: log.date, text: log.content })),
@@ -840,7 +920,7 @@ export function Dashboard() {
                 </div>
               </div>
               <div className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-200">
-                {operations.openTodos} {language === 'zh' ? '封邮件待跟进' : 'email todos'}
+                {operations.openTodos} {language === 'zh' ? '待跟进项' : 'follow-up todos'}
               </div>
             </div>
           </button>
@@ -1055,8 +1135,9 @@ export function Dashboard() {
                 </h2>
                 <div className="space-y-3">
                   {upcomingTodos.map((todo) => {
-                    const dueTime = new Date(todo.todoAt!).getTime();
+                    const dueTime = new Date(todo.todoAt).getTime();
                     const isPastDue = dueTime < now;
+                    const TodoIcon = todo.channel === 'whatsapp' ? MessageCircle : Mail;
                     return (
                       <div 
                         key={todo.id} 
@@ -1071,22 +1152,23 @@ export function Dashboard() {
                               "w-10 h-10 rounded-full flex shrink-0 items-center justify-center border mt-0.5",
                               isPastDue ? "bg-red-500/20 border-red-500/50 text-red-400" : "bg-slate-800 border-slate-700 text-slate-500"
                             )}>
-                              <Mail className="w-5 h-5" />
+                              <TodoIcon className="w-5 h-5" />
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className={cn("font-bold text-sm truncate", isPastDue ? "text-red-400" : "text-white")}>{todo.subject}</div>
+                              {todo.contact && <div className="text-xs text-slate-500 mt-1 truncate">{todo.contact}</div>}
                               {todo.todoNote && <div className="text-xs text-slate-400 mt-1">{todo.todoNote}</div>}
                               <div className="text-[10px] text-slate-500 mt-2 flex items-center gap-1 font-medium">
                                 <Clock className="w-3 h-3" />
                                 <span className={isPastDue ? "text-red-400" : ""}>
                                   {isPastDue ? t('Past Due: ') : t('Due: ')}
-                                  {new Date(todo.todoAt!).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' })}
+                                  {new Date(todo.todoAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' })}
                                 </span>
                               </div>
                             </div>
                           </div>
                           <button
-                             onClick={() => setView('inbox')}
+                             onClick={openInboxFollowUps}
                              className="shrink-0 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border-slate-700 hover:border-cyan-500 text-xs font-bold text-slate-300 rounded-lg transition-colors border shadow-sm"
                           >
                              {t('View')}

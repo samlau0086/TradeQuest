@@ -54,6 +54,19 @@ export function AgentTaskQueuePanel({
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
   const [bulkAgentId, setBulkAgentId] = useState('');
   const taskOpportunityId = (task: AgentTask) => linkedOpportunityIdFromTask(task);
+  const taskEntityLabel = (task: AgentTask) => {
+    const labels: Record<string, string> = {
+      client: isZh ? '客户' : 'Client',
+      lead: isZh ? '线索' : 'Lead',
+      email: isZh ? '邮件' : 'Email',
+      whatsapp: isZh ? 'WhatsApp' : 'WhatsApp',
+      live_chat: isZh ? 'Live Chat' : 'Live Chat',
+      conversation: isZh ? '统一会话' : 'Conversation',
+      system: isZh ? '系统' : 'System'
+    };
+    const type = task.entityType || 'system';
+    return `${labels[type] || type}:${task.entityId || '-'}`;
+  };
   const taskFilterOptions: { id: AgentTaskQueueFilter; label: string }[] = [
     { id: 'active', label: isZh ? '待处理' : 'Active' },
     { id: 'open', label: isZh ? '开放' : 'Open' },
@@ -370,7 +383,7 @@ export function AgentTaskQueuePanel({
                       </span>
                       <span className={cn('rounded border px-2 py-0.5 text-[10px] font-bold uppercase', riskClass(task.risk))}>{task.risk}</span>
                       <span className="rounded border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-[10px] text-slate-400">{task.agentName || task.agentId}</span>
-                      {task.entityType && <span className="rounded border border-neutral-800 px-2 py-0.5 text-[10px] text-slate-500">{task.entityType}:{task.entityId}</span>}
+                      {task.entityType && <span className="rounded border border-neutral-800 px-2 py-0.5 text-[10px] text-slate-500">{taskEntityLabel(task)}</span>}
                       {task.runId && <span className="rounded border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] text-blue-300">{task.runType}:{task.runId}</span>}
                       <span className="rounded border border-neutral-800 px-2 py-0.5 text-[10px] text-slate-500">{task.triggerType}</span>
                     </div>
@@ -478,7 +491,7 @@ export function AgentTaskQueuePanel({
                 <dl className="grid gap-3 text-xs sm:grid-cols-2">
                   <div>
                     <dt className="text-slate-500">{isZh ? '主体' : 'Entity'}</dt>
-                    <dd className="mt-1 font-mono text-slate-200">{selectedTask.entityType || 'system'}:{selectedTask.entityId || '-'}</dd>
+                    <dd className="mt-1 font-mono text-slate-200">{taskEntityLabel(selectedTask)}</dd>
                   </div>
                   <div>
                     <dt className="text-slate-500">{isZh ? '来源' : 'Source'}</dt>
@@ -533,7 +546,7 @@ export function AgentTaskQueuePanel({
                 <div className="grid gap-3 text-xs">
                   <div className="rounded border border-neutral-800 bg-black px-3 py-2">
                     <div className="text-slate-500">{isZh ? '预计影响记录' : 'Affected record'}</div>
-                    <div className="mt-1 font-mono text-slate-200">{selectedTask.entityType || 'system'}:{selectedTask.entityId || '-'}</div>
+                    <div className="mt-1 font-mono text-slate-200">{taskEntityLabel(selectedTask)}</div>
                   </div>
                   <div className="rounded border border-neutral-800 bg-black px-3 py-2">
                     <div className="text-slate-500">{isZh ? '执行智能体' : 'Executing agent'}</div>

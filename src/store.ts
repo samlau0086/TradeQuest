@@ -469,7 +469,7 @@ export type AgentOpportunityRisk = 'low' | 'medium' | 'high';
 export type AgentTaskStatus = 'open' | 'queued' | 'approval_required' | 'running' | 'completed' | 'failed' | 'skipped' | 'ignored';
 export type AgentTaskRisk = 'low' | 'medium' | 'high';
 export type AgentTaskTriggerType = 'signal' | 'event' | 'schedule' | 'manual' | 'console' | 'system';
-export type AgentTaskEntityType = 'client' | 'lead' | 'email' | 'whatsapp' | 'live_chat' | 'system';
+export type AgentTaskEntityType = 'client' | 'lead' | 'email' | 'whatsapp' | 'live_chat' | 'conversation' | 'system';
 export type AgentTaskApprovalStatus = 'not_required' | 'required' | 'pending' | 'approved' | 'rejected';
 
 export interface AgentOpportunity {
@@ -481,7 +481,7 @@ export interface AgentOpportunity {
   objective: string;
   risk: AgentOpportunityRisk;
   status: AgentOpportunityStatus;
-  targetType?: 'client' | 'lead' | 'email' | 'whatsapp' | 'system';
+  targetType?: AgentTaskEntityType;
   targetId?: string;
   source: string;
   dedupeKey: string;
