@@ -425,6 +425,7 @@ Recommended near-term roadmap:
 - [x] Connect Dashboard follow-up workload and Agent Hub task entity typing to the unified conversation model, so email, WhatsApp, and Live Chat reminders can be surfaced consistently.
 - [x] Add unified conversation search across all channels. Search now covers conversation fields, linked client fields, tags, comments, metadata, and historical message bodies.
 - [x] Add a shared conversation detail header for Email and WhatsApp. The right-side detail pane now shares channel identity, linked client entry, tags, owner, stage, and primary actions while preserving each channel's existing body and send/reply behavior.
+- [x] Add a shared follow-up status strip to Email and WhatsApp details. Operators can see, set, clear, and complete conversation follow-up reminders from the same location; Email remains backward-compatible with `todoAt`, and WhatsApp remains compatible with its existing follow-up marker comments.
 - [ ] Expand client/lead workroom widgets for AI Summary, Best Next Step, Quotes, Contacts, RAG evidence, pending tasks, and channel history.
 - [ ] Add customer-level and lead-level AI analysis diffing so unchanged records do not repeatedly consume AI calls.
 
@@ -1298,6 +1299,7 @@ Agent Execution Policy 使用的 Global Orchestrator action type：
 - [x] 将 Dashboard 待跟进负载和 Agent Hub 任务主体类型接入统一 conversation 模型，让 Email、WhatsApp、Live Chat 的提醒能一致呈现。
 - [x] 增加跨渠道统一搜索。搜索覆盖会话字段、关联客户字段、标签、备注、metadata 和历史消息正文。
 - [x] 为 Email 和 WhatsApp 右侧详情加入共享 conversation header。详情页已共享渠道标识、关联客户入口、标签、负责人、阶段和主要动作，同时保留各渠道原有正文、发送和回复逻辑。
+- [x] 为 Email 和 WhatsApp 详情加入共享待跟进状态条。运营人员可在同一位置查看、设置、取消和完成会话待跟进；Email 兼容旧 `todoAt` 字段，WhatsApp 兼容原 follow-up marker comments。
 - [ ] 强化客户/Lead 作战室 widgets：AI Summary、Best Next Step、Quotes、Contacts、RAG 依据、待处理任务和全渠道历史。
 - [ ] 客户级和 Lead 级 AI 分析增加 diff 机制，记录无变化时不重复消耗 AI。
 

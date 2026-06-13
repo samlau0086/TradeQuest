@@ -201,18 +201,143 @@ function ConversationDetailHeader({
   );
 }
 
-const hasOpenWhatsAppFollowUp = (conversation: InboxWhatsAppConversation) => {
+function ConversationFollowUpStrip({
+  language,
+  dueAt,
+  note,
+  disabled,
+  onSet,
+  onClear,
+  onComplete
+}: {
+  language: string;
+  dueAt?: string | null;
+  note?: string | null;
+  disabled?: boolean;
+  onSet?: (dueAt: string, note: string) => void | Promise<void>;
+  onClear?: () => void | Promise<void>;
+  onComplete?: () => void | Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draftAt, setDraftAt] = useState('');
+  const [draftNote, setDraftNote] = useState('');
+  const isPastDue = dueAt ? new Date(dueAt).getTime() < Date.now() : false;
+  const toLocalValue = (value?: string | null) => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 16);
+  };
+  const openEditor = () => {
+    setDraftAt(toLocalValue(dueAt) || toLocalValue(new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()));
+    setDraftNote(note || '');
+    setEditing(true);
+  };
+
+  return (
+    <div className="border-b border-slate-800 bg-slate-950/70 px-4 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2 text-xs">
+          <CalendarClock className={cn("h-4 w-4", dueAt ? (isPastDue ? 'text-red-300' : 'text-emerald-300') : 'text-slate-500')} />
+          {dueAt ? (
+            <div className="min-w-0">
+              <span className={cn("font-bold", isPastDue ? 'text-red-300' : 'text-emerald-300')}>
+                {language === 'zh' ? '待跟进' : 'Follow-up'}: {new Date(dueAt).toLocaleString()}
+              </span>
+              {note && <span className="ml-2 text-slate-500">{note}</span>}
+            </div>
+          ) : (
+            <span className="text-slate-500">{language === 'zh' ? '当前会话未设置待跟进。' : 'No follow-up reminder is set for this conversation.'}</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={openEditor}
+            disabled={disabled || !onSet}
+            className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[10px] font-bold text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50"
+          >
+            {dueAt ? (language === 'zh' ? '修改' : 'Edit') : (language === 'zh' ? '设为待跟进' : 'Set follow-up')}
+          </button>
+          {dueAt && (
+            <>
+              <button
+                type="button"
+                onClick={() => onComplete?.()}
+                disabled={disabled || !onComplete}
+                className="rounded border border-blue-500/30 px-2 py-1 text-[10px] font-bold text-blue-200 hover:bg-blue-500/10 disabled:opacity-50"
+              >
+                {language === 'zh' ? '完成' : 'Complete'}
+              </button>
+              <button
+                type="button"
+                onClick={() => onClear?.()}
+                disabled={disabled || !onClear}
+                className="rounded border border-slate-700 px-2 py-1 text-[10px] font-bold text-slate-400 hover:text-slate-200 disabled:opacity-50"
+              >
+                {language === 'zh' ? '取消' : 'Clear'}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+      {editing && (
+        <div className="mt-2 grid gap-2 rounded-lg border border-slate-800 bg-slate-950 p-2 sm:grid-cols-[180px_1fr_auto_auto]">
+          <input
+            type="datetime-local"
+            value={draftAt}
+            min={new Date().toISOString().slice(0, 16)}
+            onChange={event => setDraftAt(event.target.value)}
+            className="rounded border border-slate-800 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500"
+          />
+          <input
+            value={draftNote}
+            onChange={event => setDraftNote(event.target.value)}
+            placeholder={language === 'zh' ? '跟进备注' : 'Follow-up note'}
+            className="rounded border border-slate-800 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500"
+          />
+          <button
+            type="button"
+            onClick={async () => {
+              if (!draftAt || !onSet) return;
+              await onSet(new Date(draftAt).toISOString(), draftNote);
+              setEditing(false);
+            }}
+            className="rounded bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500"
+          >
+            {language === 'zh' ? '保存' : 'Save'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setEditing(false)}
+            className="rounded border border-slate-700 px-3 py-1.5 text-xs font-bold text-slate-400 hover:text-slate-200"
+          >
+            {language === 'zh' ? '关闭' : 'Close'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const getWhatsAppFollowUp = (conversation?: InboxWhatsAppConversation | null) => {
+  if (!conversation) return null;
   const marker = [...(conversation.comments || [])]
     .reverse()
     .find(comment => String(comment.content || '').startsWith(WHATSAPP_FOLLOW_UP_MARKER));
-  if (!marker) return false;
+  if (!marker) return null;
   try {
     const parsed = JSON.parse(String(marker.content).slice(WHATSAPP_FOLLOW_UP_MARKER.length));
-    return parsed?.status === 'open' && !!parsed?.dueAt;
+    return parsed?.status === 'open' && parsed?.dueAt
+      ? { dueAt: String(parsed.dueAt), note: parsed.note ? String(parsed.note) : '' }
+      : null;
   } catch {
-    return false;
+    return null;
   }
 };
+
+const hasOpenWhatsAppFollowUp = (conversation: InboxWhatsAppConversation) => Boolean(getWhatsAppFollowUp(conversation));
 
 function readCachedWhatsAppConversations(): InboxWhatsAppConversation[] {
   try {
@@ -392,8 +517,6 @@ export function Inbox() {
   const [followUpOnly, setFollowUpOnly] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
   const [composeDefaults, setComposeDefaults] = useState<{recipient: string, subject: string, originalEmailBody?: string, initialBody?: string, draftId?: string, replyToEmailId?: string, initialOutboxId?: string} | null>(null);
-  const [isAddingTag, setIsAddingTag] = useState(false);
-  const [newTag, setNewTag] = useState('');
   const [commentText, setCommentText] = useState('');
   const [commentAttachments, setCommentAttachments] = useState<File[]>([]);
   const [showCommentAttachmentModal, setShowCommentAttachmentModal] = useState(false);
@@ -1191,6 +1314,45 @@ export function Inbox() {
     }
     return null;
   }, [activeWhatsAppConversation, selectedEmail, selectedWhatsAppPhone, unifiedConversationSource]);
+  const activeWhatsAppFollowUp = getWhatsAppFollowUp(activeWhatsAppConversation);
+  const activeFollowUpAt = activeUnifiedConversation?.todo_at || selectedEmail?.todoAt || activeWhatsAppFollowUp?.dueAt || null;
+  const activeFollowUpNote = activeUnifiedConversation?.todo_note || selectedEmail?.todoNote || activeWhatsAppFollowUp?.note || null;
+
+  const updateActiveConversationFollowUp = async (dueAt: string | null, note: string | null, status: 'open' | 'completed' | 'canceled' = 'open') => {
+    if (activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback) {
+      await patchUnifiedConversation(activeUnifiedConversation, { todoAt: status === 'open' ? dueAt : null, todoNote: status === 'open' ? note : null });
+      applyUnifiedConversationUpdate(activeUnifiedConversation, {
+        todo_at: status === 'open' ? dueAt || undefined : undefined,
+        todo_note: status === 'open' ? note || undefined : undefined
+      });
+    }
+    if (selectedEmail) {
+      editEmail(selectedEmail.id, {
+        todoAt: status === 'open' ? dueAt as any : null as any,
+        todoNote: status === 'open' ? note as any : null as any
+      });
+      if (status === 'completed') addEmailComment(selectedEmail.id, language === 'zh' ? '跟进任务已完成。' : 'Follow-up task completed.');
+    }
+    if (activeWhatsAppConversation) {
+      const markerPayload = status === 'open'
+        ? { status: 'open', dueAt, note: note || `Follow up WhatsApp conversation with ${activeWhatsAppConversation.clientName || activeWhatsAppConversation.targetPhone}.` }
+        : status === 'completed'
+          ? { status: 'completed', completedAt: new Date().toISOString() }
+          : { status: 'canceled', canceledAt: new Date().toISOString() };
+      const comments = await addWhatsAppConversationComment(activeWhatsAppConversation, `${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify(markerPayload)}`);
+      updateWhatsAppConversationState(whatsappConversations.map(item => (
+        item.id === activeWhatsAppConversation.id ? { ...item, comments } : item
+      )));
+    }
+    notify(
+      status === 'open'
+        ? (language === 'zh' ? '待跟进时间已更新。' : 'Follow-up reminder updated.')
+        : status === 'completed'
+          ? (language === 'zh' ? '待跟进已标记完成。' : 'Follow-up marked complete.')
+          : (language === 'zh' ? '待跟进已取消。' : 'Follow-up cleared.'),
+      'success'
+    );
+  };
 
   const handleSelect = (id: string) => {
     setIsComposing(false);
@@ -1303,18 +1465,6 @@ export function Inbox() {
   const toggleImportant = (email: EmailMessage) => {
     editEmail(email.id, { isImportant: !email.isImportant });
     setActiveMenu(null);
-  };
-
-  const handleAddTag = () => {
-    if (!selectedEmail || !newTag.trim()) return;
-    let tg = newTag.trim();
-    if (!tg.startsWith('#')) tg = '#' + tg;
-    const currentTags = selectedEmail.tags || [];
-    if (!currentTags.includes(tg)) {
-      editEmail(selectedEmail.id, { tags: [...currentTags, tg] });
-    }
-    setNewTag('');
-    setIsAddingTag(false);
   };
 
   const handleAddToRag = async () => {
@@ -2292,6 +2442,14 @@ export function Inbox() {
                 ) : undefined}
               />
             )}
+            <ConversationFollowUpStrip
+              language={language}
+              dueAt={activeFollowUpAt}
+              note={activeFollowUpNote}
+              onSet={(dueAt, note) => updateActiveConversationFollowUp(dueAt, note, 'open')}
+              onClear={() => updateActiveConversationFollowUp(null, null, 'canceled')}
+              onComplete={() => updateActiveConversationFollowUp(null, null, 'completed')}
+            />
             <WhatsAppChatModal
               key={activeWhatsAppConversation?.id || selectedWhatsAppPhone}
               embedded
@@ -2398,6 +2556,14 @@ export function Inbox() {
                 </>
               )}
             />
+            <ConversationFollowUpStrip
+              language={language}
+              dueAt={activeFollowUpAt}
+              note={activeFollowUpNote}
+              onSet={(dueAt, note) => updateActiveConversationFollowUp(dueAt, note, 'open')}
+              onClear={() => updateActiveConversationFollowUp(null, null, 'canceled')}
+              onComplete={() => updateActiveConversationFollowUp(null, null, 'completed')}
+            />
             
             <div className="p-6 overflow-y-auto scrollbar-thin flex-1">
                {/* Tracking Details */}
@@ -2452,26 +2618,6 @@ export function Inbox() {
                    )}
                  </div>
                )}
-
-               {/* Tags Row */}
-               <div className="flex flex-wrap items-center gap-2 mb-4">
-                 {selectedEmail.tags?.map(tg => (
-                   <span key={tg} className="text-[10px] items-center flex gap-1 px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
-                     <Tag className="w-3 h-3" /> {tg}
-                   </span>
-                 ))}
-                 {isAddingTag ? (
-                   <input 
-                     type="text" autoFocus value={newTag} onChange={e => setNewTag(e.target.value)} onKeyDown={e => { if(e.key === 'Enter') handleAddTag(); }} onBlur={() => setIsAddingTag(false)} 
-                     className="text-[10px] bg-slate-900 border border-slate-700 rounded px-2 py-0.5 w-20 text-slate-300 focus:outline-none" 
-                     placeholder="tag..." 
-                   />
-                 ) : (
-                   <button onClick={() => setIsAddingTag(true)} className="text-[10px] px-2 py-0.5 rounded-full border border-dashed border-slate-600 text-slate-500 hover:text-slate-300 hover:border-slate-500">
-                     + add tag
-                   </button>
-                 )}
-               </div>
 
                <h2 className="text-xl font-bold text-slate-200 mb-6">{selectedEmail.subject}</h2>
                <div 
