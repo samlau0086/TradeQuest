@@ -78,6 +78,129 @@ type InboxChannelFilter = 'all' | 'email' | 'whatsapp' | 'live_chat';
 const CONVERSATION_STAGES = ['Leads', 'Contacted', 'Sample Sent', 'Negotiating', 'Closed Won'];
 const normalizeTagSearchTerm = (term: string) => term.trim().replace(/^#/, '').toLowerCase();
 
+function ConversationDetailHeader({
+  language,
+  channel,
+  title,
+  subtitle,
+  clientId,
+  clientName,
+  tags = [],
+  ownerId,
+  stage,
+  currentUser,
+  onBack,
+  onClientClick,
+  onOwnerChange,
+  onStageChange,
+  onDelete,
+  actions,
+  meta
+}: {
+  language: string;
+  channel: 'email' | 'whatsapp' | 'live_chat';
+  title: string;
+  subtitle?: string;
+  clientId?: string;
+  clientName?: string;
+  tags?: string[];
+  ownerId?: string;
+  stage?: string;
+  currentUser?: { id: string } | null;
+  onBack: () => void;
+  onClientClick?: () => void;
+  onOwnerChange?: (ownerId: string | null) => void;
+  onStageChange?: (stage: string | null) => void;
+  onDelete?: () => void;
+  actions?: React.ReactNode;
+  meta?: React.ReactNode;
+}) {
+  const Icon = channel === 'whatsapp' ? MessageCircle : channel === 'live_chat' ? MessageSquare : Mail;
+  const accent = channel === 'whatsapp'
+    ? 'text-green-400 bg-green-950/50 border-green-900/60'
+    : channel === 'live_chat'
+      ? 'text-violet-300 bg-violet-950/50 border-violet-900/60'
+      : 'text-cyan-400 bg-cyan-950/50 border-cyan-900/60';
+  const label = channel === 'whatsapp'
+    ? 'WhatsApp'
+    : channel === 'live_chat'
+      ? 'Live Chat'
+      : 'Email';
+
+  return (
+    <div className="border-b border-slate-800 bg-slate-900/80 px-4 py-3 sticky top-0 md:static backdrop-blur-sm z-10">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <button onClick={onBack} className="md:hidden p-2 -ml-2 text-slate-400 hover:text-white">
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <div className={cn("w-10 h-10 rounded-full border flex items-center justify-center shrink-0", accent)}>
+            <Icon className="w-5 h-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="font-bold text-white text-sm truncate">{title}</div>
+              <span className="rounded border border-slate-700 bg-slate-950 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-400">
+                {label}
+              </span>
+              {clientId && (
+                <button
+                  type="button"
+                  onClick={onClientClick}
+                  className="rounded border border-cyan-700/60 bg-cyan-950/30 px-2 py-0.5 text-[10px] font-bold text-cyan-300 hover:bg-cyan-900/40"
+                >
+                  {clientName || (language === 'zh' ? '已关联客户' : 'Linked client')}
+                </button>
+              )}
+            </div>
+            {subtitle && <div className="mt-1 truncate text-[10px] text-slate-500">{subtitle}</div>}
+            {meta && <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-slate-500">{meta}</div>}
+            {tags.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {tags.slice(0, 8).map(tag => (
+                  <span key={tag} className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-950 px-2 py-0.5 text-[10px] text-slate-300">
+                    <Tag className="h-3 w-3" /> {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="mt-3 grid max-w-xl grid-cols-1 gap-2 sm:grid-cols-2">
+              <select
+                value={ownerId || ''}
+                onChange={event => onOwnerChange?.(event.target.value || null)}
+                disabled={!onOwnerChange}
+                className="min-w-0 rounded border border-slate-800 bg-slate-950 px-2 py-1 text-[10px] font-bold text-slate-400 outline-none hover:border-slate-700 focus:border-blue-500 disabled:opacity-50"
+                title={language === 'zh' ? '负责人' : 'Owner'}
+              >
+                <option value="">{language === 'zh' ? '未分配负责人' : 'Owner: Unassigned'}</option>
+                {currentUser && <option value={currentUser.id}>{language === 'zh' ? '负责人：我' : 'Owner: Me'}</option>}
+              </select>
+              <select
+                value={stage || ''}
+                onChange={event => onStageChange?.(event.target.value || null)}
+                disabled={!onStageChange}
+                className="min-w-0 rounded border border-slate-800 bg-slate-950 px-2 py-1 text-[10px] font-bold text-slate-400 outline-none hover:border-slate-700 focus:border-purple-500 disabled:opacity-50"
+                title={language === 'zh' ? '阶段' : 'Stage'}
+              >
+                <option value="">{language === 'zh' ? '未设置阶段' : 'No stage'}</option>
+                {CONVERSATION_STAGES.map(item => <option key={item} value={item}>{item}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {actions}
+          {onDelete && (
+            <button onClick={onDelete} className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-900/30 rounded transition-colors" title="Delete">
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const hasOpenWhatsAppFollowUp = (conversation: InboxWhatsAppConversation) => {
   const marker = [...(conversation.comments || [])]
     .reverse()
@@ -1051,6 +1174,23 @@ export function Inbox() {
       || matchWhatsAppClient(activeWhatsAppConversation?.targetPhone || selectedWhatsAppPhone)
       || null
     : null;
+  const activeUnifiedConversation = useMemo(() => {
+    if (selectedEmail) {
+      return unifiedConversationSource.find(conversation => conversation.channel === 'email' && conversation.source_id === selectedEmail.id)
+        || emailToUnifiedConversation(selectedEmail);
+    }
+    if (selectedWhatsAppPhone) {
+      return unifiedConversationSource.find(conversation => (
+        conversation.channel === 'whatsapp'
+        && (
+          conversation.source_id === activeWhatsAppConversation?.id
+          || conversation.metadata?.targetPhone === selectedWhatsAppPhone
+          || conversation.contact_address === selectedWhatsAppPhone
+        )
+      )) || (activeWhatsAppConversation ? whatsappToUnifiedConversation(activeWhatsAppConversation) : null);
+    }
+    return null;
+  }, [activeWhatsAppConversation, selectedEmail, selectedWhatsAppPhone, unifiedConversationSource]);
 
   const handleSelect = (id: string) => {
     setIsComposing(false);
@@ -2124,23 +2264,33 @@ export function Inbox() {
         ) : selectedWhatsAppPhone ? (
           <div className="flex-1 flex flex-col min-h-0">
             {activeWhatsAppConversation && (
-              <div className="px-4 py-3 border-b border-slate-800 bg-slate-900/80 flex items-center justify-between gap-3">
-                <button onClick={() => { setSelectedWhatsAppPhone(null); setSelectedWhatsAppClientId(null); }} className="md:hidden p-2 -ml-2 text-slate-400 hover:text-white">
-                  <ArrowLeft className="w-5 h-5" />
-                </button>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-bold text-slate-200 truncate">{activeWhatsAppClient?.name || activeWhatsAppConversation.clientName || activeWhatsAppConversation.targetPhone}</div>
-                  <div className="text-[10px] text-green-400 font-bold uppercase">WhatsApp conversation</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleDeleteWhatsAppConversation(activeWhatsAppConversation)}
-                  className="p-2 rounded-lg text-slate-400 hover:text-red-300 hover:bg-red-500/10"
-                  title="Delete WhatsApp conversation"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
+              <ConversationDetailHeader
+                language={language}
+                channel="whatsapp"
+                title={activeWhatsAppClient?.name || activeWhatsAppConversation.clientName || activeWhatsAppConversation.targetPhone}
+                subtitle={activeWhatsAppConversation.contactPhone || activeWhatsAppConversation.targetPhone}
+                clientId={activeWhatsAppClient?.id || activeWhatsAppConversation.clientId}
+                clientName={activeWhatsAppClient?.name || activeWhatsAppConversation.clientName}
+                tags={activeUnifiedConversation?.tags || activeWhatsAppConversation.tags || []}
+                ownerId={activeUnifiedConversation?.owner_id}
+                stage={activeUnifiedConversation?.stage}
+                currentUser={currentUser}
+                onBack={() => { setSelectedWhatsAppPhone(null); setSelectedWhatsAppClientId(null); }}
+                onClientClick={() => {
+                  const id = activeWhatsAppClient?.id || activeWhatsAppConversation.clientId;
+                  if (id) selectClient(id);
+                }}
+                onOwnerChange={activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback ? (ownerId) => {
+                  updateConversationOwnerStage(activeUnifiedConversation, { ownerId });
+                } : undefined}
+                onStageChange={activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback ? (stage) => {
+                  updateConversationOwnerStage(activeUnifiedConversation, { stage });
+                } : undefined}
+                onDelete={() => handleDeleteWhatsAppConversation(activeWhatsAppConversation)}
+                meta={activeWhatsAppConversation.rawChatId && activeWhatsAppConversation.rawChatId !== activeWhatsAppConversation.targetPhone ? (
+                  <span>{activeWhatsAppConversation.rawChatId} -&gt; {activeWhatsAppConversation.targetPhone}</span>
+                ) : undefined}
+              />
             )}
             <WhatsAppChatModal
               key={activeWhatsAppConversation?.id || selectedWhatsAppPhone}
@@ -2157,109 +2307,97 @@ export function Inbox() {
           </div>
         ) : selectedEmail ? (
           <>
-            <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/80 sticky top-0 md:static backdrop-blur-sm z-10">
-              <div className="flex items-center gap-3">
-                <button onClick={() => selectEmail(null)} className="md:hidden p-2 -ml-2 text-slate-400 hover:text-white">
-                  <ArrowLeft className="w-5 h-5" />
-                </button>
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400">
-                    <User className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="font-bold text-white text-sm">
-                      {isInboundCustomerEmail(selectedEmail) ? (selectedEmail.senderName || selectedEmail.sender) : (selectedEmail.type === 'draft' ? `Draft: ${selectedEmail.recipient || '(No Recipient)'}` : selectedEmail.recipient)}
-                    </div>
-                    <div className="text-[10px] text-slate-500 flex items-center gap-2 mt-1">
-                       {isInboundCustomerEmail(selectedEmail) ? `From: ${selectedEmail.sender}` : (selectedEmail.type === 'draft' ? `To: ${selectedEmail.recipient || '(No Recipient)'}` : `To: ${selectedEmail.recipient}`)}
-                       {selectedEmail.clientId ? (
-                         <span onClick={() => selectClient(selectedEmail.clientId!)} className="bg-slate-800 px-2 py-0.5 rounded text-cyan-400 border border-slate-700 cursor-pointer hover:bg-slate-700 transition-colors">
-                           {clients.find(c => c.id === selectedEmail.clientId)?.name || 'Linked'}
-                         </span>
-                       ) : (
-                         <>
-                           <button onClick={handleCreateLead} className="text-cyan-500 flex items-center gap-1 hover:text-cyan-400 bg-slate-800/50 rounded px-1.5 py-0.5">
-                             <UserPlus className="w-3 h-3" /> New Lead
-                           </button>
-                           <button onClick={() => setIsAddingContactToClient(true)} className="text-emerald-400 flex items-center gap-1 hover:text-emerald-300 bg-slate-800/50 rounded px-1.5 py-0.5">
-                             <User className="w-3 h-3" /> Add to Existing Client
-                           </button>
-                         </>
-                        )}
-                    </div>
-                    {isInboundCustomerEmail(selectedEmail) && (selectedEmail.senderIp || selectedEmail.senderCountry) && (
-                      <div className="text-[10px] text-slate-500 flex flex-wrap items-center gap-2 mt-0.5">
-                        {selectedEmail.senderIp && (
-                          <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">
-                            IP: {selectedEmail.senderIp}
-                          </span>
-                        )}
-                        {selectedEmail.senderCountry && (
-                          <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70 text-emerald-300">
-                            {selectedEmail.senderCountry}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    {(selectedEmail.cc || selectedEmail.bcc) && (
-                      <div className="text-[10px] text-slate-500 flex items-center gap-2 mt-0.5">
-                        {selectedEmail.cc && <span>Cc: {selectedEmail.cc}</span>}
-                        {selectedEmail.bcc && <span>Bcc: {selectedEmail.bcc}</span>}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                 <button onClick={() => {
-                   setConfirmDialog({
-                     message: 'Are you sure you want to delete this email? Emails associated with a client will be soft-deleted pending admin review.',
-                     onConfirm: async () => {
-                       const id = selectedEmail.id;
-                       selectEmail(null);
-                       await useStore.getState().deleteEmails([id]);
-                       setConfirmDialog(null);
-                     }
-                   });
-                 }} className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-900/30 rounded transition-colors" title="Delete">
-                   <Trash2 className="w-4 h-4" />
-                 </button>
-                 {selectedEmail.type === 'draft' ? (
-                   <button 
-                     onClick={() => { 
-                       setComposeDefaults({ 
-                         recipient: selectedEmail.recipient, 
-                         subject: selectedEmail.subject, 
-                         initialBody: selectedEmail.body,
-                         draftId: selectedEmail.id,
-                         initialOutboxId: selectedEmail.outboxConfigId
-                       }); 
-                       setIsComposing(true); 
-                     }} 
-                     className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors" 
-                     title="Edit Draft"
-                   >
-                     <PenLine className="w-4 h-4" />
-                   </button>
-                 ) : (
-                   <button onClick={() => { setComposeDefaults({ recipient: selectedEmail.sender, subject: `Re: ${selectedEmail.subject.replace(/^Re:\s*/i, '')}`, originalEmailBody: `On ${new Date(selectedEmail.date).toLocaleString()}, ${selectedEmail.senderName || selectedEmail.sender} wrote:<br>${selectedEmail.body || ''}`, replyToEmailId: selectedEmail.id }); setIsComposing(true); }} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors" title="Reply">
-                     <Reply className="w-4 h-4" />
-                   </button>
-                 )}
-                 {selectedEmail.clientId && (
-                   <button 
-                     onClick={handleAddToRag} 
-                     disabled={addingToRag}
-                     className="p-2 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-900/30 rounded transition-colors flex items-center gap-1"
-                     title="Add to Knowledge Base (RAG)"
-                   >
-                     {addingToRag ? <Loader2 className="w-4 h-4 animate-spin" /> : 
-                      addedToRagId === selectedEmail.id ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : 
-                      <Database className="w-4 h-4" />}
-                   </button>
-                 )}
-              </div>
-            </div>
+            <ConversationDetailHeader
+              language={language}
+              channel="email"
+              title={isInboundCustomerEmail(selectedEmail) ? (selectedEmail.senderName || selectedEmail.sender) : (selectedEmail.type === 'draft' ? `Draft: ${selectedEmail.recipient || '(No Recipient)'}` : selectedEmail.recipient)}
+              subtitle={isInboundCustomerEmail(selectedEmail) ? `From: ${selectedEmail.sender}` : (selectedEmail.type === 'draft' ? `To: ${selectedEmail.recipient || '(No Recipient)'}` : `To: ${selectedEmail.recipient}`)}
+              clientId={selectedEmail.clientId}
+              clientName={selectedEmail.clientId ? clients.find(c => c.id === selectedEmail.clientId)?.name : undefined}
+              tags={activeUnifiedConversation?.tags || selectedEmail.tags || []}
+              ownerId={activeUnifiedConversation?.owner_id}
+              stage={activeUnifiedConversation?.stage}
+              currentUser={currentUser}
+              onBack={() => selectEmail(null)}
+              onClientClick={() => selectedEmail.clientId && selectClient(selectedEmail.clientId)}
+              onOwnerChange={activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback ? (ownerId) => {
+                updateConversationOwnerStage(activeUnifiedConversation, { ownerId });
+              } : undefined}
+              onStageChange={activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback ? (stage) => {
+                updateConversationOwnerStage(activeUnifiedConversation, { stage });
+              } : undefined}
+              onDelete={() => {
+                setConfirmDialog({
+                  message: 'Are you sure you want to delete this email? Emails associated with a client will be soft-deleted pending admin review.',
+                  onConfirm: async () => {
+                    const id = selectedEmail.id;
+                    selectEmail(null);
+                    await useStore.getState().deleteEmails([id]);
+                    setConfirmDialog(null);
+                  }
+                });
+              }}
+              meta={(
+                <>
+                  {!selectedEmail.clientId && (
+                    <>
+                      <button onClick={handleCreateLead} className="text-cyan-500 flex items-center gap-1 hover:text-cyan-400 bg-slate-800/50 rounded px-1.5 py-0.5">
+                        <UserPlus className="w-3 h-3" /> New Lead
+                      </button>
+                      <button onClick={() => setIsAddingContactToClient(true)} className="text-emerald-400 flex items-center gap-1 hover:text-emerald-300 bg-slate-800/50 rounded px-1.5 py-0.5">
+                        <User className="w-3 h-3" /> Add to Existing Client
+                      </button>
+                    </>
+                  )}
+                  {isInboundCustomerEmail(selectedEmail) && selectedEmail.senderIp && (
+                    <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">IP: {selectedEmail.senderIp}</span>
+                  )}
+                  {isInboundCustomerEmail(selectedEmail) && selectedEmail.senderCountry && (
+                    <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70 text-emerald-300">{selectedEmail.senderCountry}</span>
+                  )}
+                  {selectedEmail.cc && <span>Cc: {selectedEmail.cc}</span>}
+                  {selectedEmail.bcc && <span>Bcc: {selectedEmail.bcc}</span>}
+                </>
+              )}
+              actions={(
+                <>
+                  {selectedEmail.type === 'draft' ? (
+                    <button
+                      onClick={() => {
+                        setComposeDefaults({
+                          recipient: selectedEmail.recipient,
+                          subject: selectedEmail.subject,
+                          initialBody: selectedEmail.body,
+                          draftId: selectedEmail.id,
+                          initialOutboxId: selectedEmail.outboxConfigId
+                        });
+                        setIsComposing(true);
+                      }}
+                      className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"
+                      title="Edit Draft"
+                    >
+                      <PenLine className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <button onClick={() => { setComposeDefaults({ recipient: selectedEmail.sender, subject: `Re: ${selectedEmail.subject.replace(/^Re:\s*/i, '')}`, originalEmailBody: `On ${new Date(selectedEmail.date).toLocaleString()}, ${selectedEmail.senderName || selectedEmail.sender} wrote:<br>${selectedEmail.body || ''}`, replyToEmailId: selectedEmail.id }); setIsComposing(true); }} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors" title="Reply">
+                      <Reply className="w-4 h-4" />
+                    </button>
+                  )}
+                  {selectedEmail.clientId && (
+                    <button
+                      onClick={handleAddToRag}
+                      disabled={addingToRag}
+                      className="p-2 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-900/30 rounded transition-colors flex items-center gap-1"
+                      title="Add to Knowledge Base (RAG)"
+                    >
+                      {addingToRag ? <Loader2 className="w-4 h-4 animate-spin" /> :
+                       addedToRagId === selectedEmail.id ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> :
+                       <Database className="w-4 h-4" />}
+                    </button>
+                  )}
+                </>
+              )}
+            />
             
             <div className="p-6 overflow-y-auto scrollbar-thin flex-1">
                {/* Tracking Details */}
