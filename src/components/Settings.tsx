@@ -2491,7 +2491,7 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
                 <div>
                   <h3 className="text-sm font-bold text-slate-200">Agent Execution Policy / Agent 执行策略</h3>
                   <p className="text-xs text-slate-500 mt-1 max-w-3xl">
-                    Control which Global Agent actions can run automatically after planning, and which actions must wait for human review.
+                    Control which Global Orchestrator actions can run automatically after planning, and which actions must wait for human review.
                     默认建议：资料补全、内部备注、线索排序可自动执行；邮件、WhatsApp、报价、阶段变更必须人工审核。
                   </p>
                 </div>

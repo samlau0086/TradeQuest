@@ -7,8 +7,8 @@ import { useTranslation } from '../lib/i18n';
 const AGENTS = [
   {
     id: 'global_agent',
-    name: 'Global Conversion Agent',
-    goal: 'Plan and coordinate CRM-wide lead acquisition, enrichment, follow-up, quotes, and conversion.',
+    name: 'Global Orchestrator',
+    goal: 'Turn CRM goals into policy-controlled tasks across acquisition, enrichment, follow-up, quotes, and conversion.',
     tools: ['global_agent.plan', 'lead.acquire', 'lead.read', 'lead.create', 'lead.update', 'lead.enrich', 'lead.comment', 'lead.log', 'knowledge.search', 'product.read', 'email.read', 'email.draft', 'email.schedule', 'email.send', 'whatsapp.send', 'quote.create', 'client.read', 'client.create', 'client.update', 'client.comment', 'client.log']
   },
   {
@@ -37,12 +37,12 @@ const AGENTS = [
   }
 ];
 
-const DEFAULT_OBJECTIVE = 'Coordinate the CRM agents to acquire qualified leads, enrich the best opportunities, follow up across email and WhatsApp, and move active buyers toward quotes and closed deals.';
+const DEFAULT_OBJECTIVE = 'Turn CRM goals into queued agent tasks, route each task through the execution policy, and move qualified buyers toward follow-up, quotes, and closed deals.';
 
 function fallbackRun(objective: string): Omit<AgentHarnessRun, 'id' | 'createdAt' | 'updatedAt'> {
   return {
     objective,
-    summary: 'Safe default harness run created for review.',
+    summary: 'Safe default execution run created for review.',
     status: 'pending_review',
     steps: [
       {
@@ -59,7 +59,7 @@ function fallbackRun(objective: string): Omit<AgentHarnessRun, 'id' | 'createdAt
         id: `hstep_${Date.now()}_2`,
         agentId: 'global_agent',
         title: 'Create human-reviewed conversion plan',
-        description: 'Hand off to Global Agent to generate a detailed CRM execution plan requiring human approval.',
+        description: 'Hand off to the Global Orchestrator to generate a detailed CRM execution plan requiring human approval.',
         tool: 'global_agent.plan',
         risk: 'medium',
         status: 'pending',
@@ -125,7 +125,7 @@ export function AgentHarness() {
     if (!Array.isArray(parsed.steps)) throw new Error('Harness plan is missing steps');
     return {
       objective,
-      summary: parsed.summary || 'Agent Harness run generated for review.',
+      summary: parsed.summary || 'Execution Engine run generated for review.',
       status: 'pending_review',
       steps: parsed.steps.map((step: any, index: number) => ({
         id: `hstep_${Date.now()}_${index}`,
@@ -143,9 +143,9 @@ export function AgentHarness() {
   const generateRun = async () => {
     setPlanning(true);
     try {
-      const prompt = `You are an AI Agent Harness planner for a foreign trade CRM.
+      const prompt = `You are an AI Execution Engine planner for a foreign trade CRM.
 Your job is to coordinate specialized agents, choose tools, assess risk, and produce a human-reviewable run plan.
-The harness must not execute anything before approval.
+The execution engine must not execute anything before approval.
 Write all internal agent planning content in ${language === 'zh' ? 'Chinese' : 'English'}.
 
 Return JSON only:
@@ -178,13 +178,13 @@ ${objective}`;
         body: JSON.stringify({ prompt, context, llmConfig: plannerConfig })
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'Agent Harness planning failed');
+      if (!response.ok) throw new Error(data.error || 'Execution Engine planning failed');
       const run = parseRun(data.result || '');
       const runId = addAgentHarnessRun(run);
-      notify('Agent Harness run is ready for human review.', 'info');
+      notify(language === 'zh' ? '执行引擎计划已生成，等待人工审核。' : 'Execution Engine run is ready for human review.', 'info');
       void sendExternalNotification({
         event: 'review_required',
-        title: 'Agent Harness run needs review',
+        title: language === 'zh' ? '执行引擎计划需要审核' : 'Execution Engine run needs review',
         body: run.summary,
         metadata: { runId, source: 'agent-harness' }
       });
@@ -192,10 +192,10 @@ ${objective}`;
       console.error(error);
       const run = fallbackRun(objective);
       const runId = addAgentHarnessRun(run);
-      notify('Agent Harness AI planning failed. A safe default run was created for review.', 'warning');
+      notify(language === 'zh' ? '执行引擎 AI 规划失败，已生成安全默认计划供审核。' : 'Execution Engine AI planning failed. A safe default run was created for review.', 'warning');
       void sendExternalNotification({
         event: 'review_required',
-        title: 'Agent Harness fallback run needs review',
+        title: language === 'zh' ? '执行引擎默认计划需要审核' : 'Execution Engine fallback run needs review',
         body: run.summary,
         metadata: { runId, source: 'agent-harness', fallback: true }
       });
@@ -211,24 +211,24 @@ ${objective}`;
     if (step.tool === 'global_agent.plan') {
       addGlobalAgentPlan({
         objective: step.payload?.objective || run.objective,
-        summary: `Harness handoff: ${step.title}`,
+        summary: `Execution handoff: ${step.title}`,
         status: 'pending_review',
         steps: [{
           id: `step_${Date.now()}_harness`,
           title: 'Review harness handoff',
-          description: step.description || 'Review and expand this harness handoff in Global Agent.',
+          description: step.description || 'Review and expand this execution handoff in the Global Orchestrator.',
           actionType: 'review_pipeline',
           status: 'pending',
           payload: { harnessRunId: run.id, harnessStepId: step.id, ...step.payload }
         }]
       });
-      updateAgentHarnessStep(run.id, step.id, { status: 'completed', result: 'Created pending Global Agent plan for human review.' });
+      updateAgentHarnessStep(run.id, step.id, { status: 'completed', result: language === 'zh' ? '已创建待审核的全局编排计划。' : 'Created pending Global Orchestrator plan for human review.' });
       return;
     }
 
     updateAgentHarnessStep(run.id, step.id, {
       status: 'completed',
-      result: `Harness validated ${step.tool} and recorded the handoff.`
+      result: language === 'zh' ? `执行引擎已校验 ${step.tool} 并记录交接。` : `Execution Engine validated ${step.tool} and recorded the handoff.`
     });
   };
 
@@ -245,14 +245,14 @@ ${objective}`;
         await executeStep(run, step);
       }
       updateAgentHarnessRun(run.id, { status: 'completed', completedAt: new Date().toISOString() });
-      notify('Agent Harness run completed.', 'success');
+      notify(language === 'zh' ? '执行引擎运行已完成。' : 'Execution Engine run completed.', 'success');
     } catch (error: any) {
       updateAgentHarnessRun(run.id, { status: 'failed' });
-      notify(error?.message || 'Agent Harness run failed.', 'error');
+      notify(error?.message || (language === 'zh' ? '执行引擎运行失败。' : 'Execution Engine run failed.'), 'error');
       void sendExternalNotification({
         event: 'execution_failed',
-        title: 'Agent Harness run failed',
-        body: error?.message || 'Review the failed Agent Harness step.',
+        title: language === 'zh' ? '执行引擎运行失败' : 'Execution Engine run failed',
+        body: error?.message || (language === 'zh' ? '请检查失败的执行步骤。' : 'Review the failed Execution Engine step.'),
         metadata: { runId: run.id, source: 'agent-harness' }
       });
     } finally {
@@ -267,7 +267,7 @@ ${objective}`;
       rejectedReason: 'Rejected by human reviewer',
       steps: run.steps.map(step => step.status === 'pending' ? { ...step, status: 'skipped' } : step)
     });
-    notify('Agent Harness run rejected. Nothing was executed.', 'info');
+    notify(language === 'zh' ? '执行引擎计划已拒绝，未执行任何动作。' : 'Execution Engine run rejected. Nothing was executed.', 'info');
   };
 
   const statusIcon = (status: string) => {

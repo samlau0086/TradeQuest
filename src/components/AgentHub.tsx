@@ -392,7 +392,7 @@ function AgentModal({
             />
           </label>
           <label className="block">
-            <span className="text-sm text-slate-200">{t('Harness / Guardrails')}</span>
+            <span className="text-sm text-slate-200">{language === 'zh' ? '执行策略 / 护栏' : 'Execution Policy / Guardrails'}</span>
             <select
               value={form.guardrail}
               onChange={e => setForm({ ...form, guardrail: e.target.value as AgentHubGuardrail })}
@@ -727,7 +727,7 @@ function AgentConfigPanel({
           )}
         </div>
         <label className="block">
-          <span className="text-sm text-slate-200">{t('Harness / Guardrails')}</span>
+          <span className="text-sm text-slate-200">{language === 'zh' ? '执行策略 / 护栏' : 'Execution Policy / Guardrails'}</span>
           <select
             value={form.guardrail}
             onChange={e => setForm({ ...form, guardrail: e.target.value as AgentHubGuardrail })}
@@ -737,7 +737,11 @@ function AgentConfigPanel({
             <option value="review">{t('Requires approval before execution')}</option>
             <option value="human_loop">{t('Human-in-the-loop for outbound actions')}</option>
           </select>
-          <p className="mt-2 text-xs text-slate-500">{t('Determines whether this agent can immediately act or must wait for approval.')}</p>
+          <p className="mt-2 text-xs text-slate-500">
+            {language === 'zh'
+              ? '控制该智能体的动作是自动执行、先进入审批，还是对外动作始终保留人工确认。'
+              : 'Controls whether this agent auto-runs, waits for approval, or keeps customer-facing actions human-reviewed.'}
+          </p>
         </label>
         <label className="block">
           <span className="text-sm text-slate-200">{t('Tools')}</span>
@@ -758,7 +762,11 @@ function AgentConfigPanel({
         <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-4 space-y-3">
           <div>
             <div className="text-sm text-slate-200">{language === 'zh' ? 'Event Trigger / 事件触发' : 'Event Trigger'}</div>
-            <p className="mt-1 text-xs text-slate-500">{language === 'zh' ? '当系统事件发生时自动创建该智能体运行。是否直接执行仍由 Harness / Guardrails 控制。' : 'Create an agent run automatically when selected system events happen. Execution is still controlled by Harness / Guardrails.'}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              {language === 'zh'
+                ? '当系统事件发生时自动创建任务。是否直接执行由执行策略与审批中心控制。'
+                : 'Create a task when selected system events happen. Execution is controlled by policy and the approval center.'}
+            </p>
           </div>
           <label className="block">
             <span className="text-xs font-bold uppercase tracking-wide text-slate-400">{language === 'zh' ? '事件作用范围' : 'Event Scope'}</span>
@@ -945,7 +953,7 @@ export function AgentHub() {
   } = useStore();
   const { token } = useAuthStore();
   const t = useTranslation(language);
-  const [tab, setTab] = useState<AgentHubTab>('chat');
+  const [tab, setTab] = useState<AgentHubTab>('opportunities');
   const [modalAgent, setModalAgent] = useState<AgentHubAgent | ReturnType<typeof emptyAgent> | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(agentHubAgents[0]?.id || null);
   const [draftAgent, setDraftAgent] = useState<ReturnType<typeof emptyAgent> | null>(null);
@@ -971,8 +979,8 @@ export function AgentHub() {
   }, [fetchUserSettings, tab]);
 
   const pendingItems = useMemo(() => [
-    ...agentHarnessRuns.filter(run => run.status === 'pending_review').map(run => ({ kind: 'harness' as const, id: run.id, title: run.summary, agent: 'Execution Harness', body: run.objective, createdAt: run.createdAt })),
-    ...globalAgentPlans.filter(plan => plan.status === 'pending_review').map(plan => ({ kind: 'global' as const, id: plan.id, title: plan.summary, agent: 'Global Agent', body: plan.objective, createdAt: plan.createdAt }))
+    ...agentHarnessRuns.filter(run => run.status === 'pending_review').map(run => ({ kind: 'harness' as const, id: run.id, title: run.summary, agent: 'Execution Engine', body: run.objective, createdAt: run.createdAt })),
+    ...globalAgentPlans.filter(plan => plan.status === 'pending_review').map(plan => ({ kind: 'global' as const, id: plan.id, title: plan.summary, agent: 'Global Orchestrator', body: plan.objective, createdAt: plan.createdAt }))
   ], [agentHarnessRuns, globalAgentPlans]);
 
   const normalizeRunStep = (step: any) => ({
@@ -997,7 +1005,7 @@ export function AgentHub() {
         kind: 'harness' as const,
         id: run.id,
         title: run.summary,
-        agent: 'Execution Harness',
+        agent: 'Execution Engine',
         status: run.status,
         steps: run.steps.map(normalizeRunStep),
         createdAt: run.createdAt
@@ -1006,7 +1014,7 @@ export function AgentHub() {
       kind: 'global' as const,
       id: plan.id,
       title: plan.summary,
-      agent: 'Global Agent',
+      agent: 'Global Orchestrator',
       status: plan.status,
       steps: plan.steps.map(normalizeRunStep),
       createdAt: plan.createdAt
@@ -1049,7 +1057,7 @@ export function AgentHub() {
   const globalAgent = savedGlobalAgent || ({
     ...emptyAgent(),
     id: 'global_agent',
-    name: 'Global Agent',
+    name: 'Global Orchestrator',
     instructions: 'Coordinate CRM-wide acquisition, enrichment, follow-up, and conversion plans.',
     status: 'active',
     tools: ['global_agent.plan'],
@@ -1704,21 +1712,48 @@ export function AgentHub() {
     );
   };
 
+  const agentOperatingModel = [
+    {
+      title: language === 'zh' ? '1. 信号扫描' : '1. Signal Scanner',
+      description: language === 'zh' ? '只发现机会，不直接改数据或外发消息。' : 'Finds opportunities without changing data or sending messages.',
+      icon: <Zap className="h-4 w-4 text-cyan-300" />
+    },
+    {
+      title: language === 'zh' ? '2. 任务队列' : '2. Task Queue',
+      description: language === 'zh' ? '所有定时、事件、聊天触发先进入统一队列。' : 'Scheduled, event, and console-triggered work enters one queue.',
+      icon: <ListChecks className="h-4 w-4 text-blue-300" />
+    },
+    {
+      title: language === 'zh' ? '3. 执行策略' : '3. Execution Policy',
+      description: language === 'zh' ? '低风险可自动执行，高风险进入审核。' : 'Low-risk work can run automatically; risky work waits for review.',
+      icon: <ShieldCheck className="h-4 w-4 text-amber-300" />
+    },
+    {
+      title: language === 'zh' ? '4. 执行日志' : '4. Runtime Trace',
+      description: language === 'zh' ? '计划、工具调用、结果和失败原因统一追踪。' : 'Plans, tool calls, outcomes, and failures are tracked in one place.',
+      icon: <Cpu className="h-4 w-4 text-emerald-300" />
+    }
+  ];
+
   return (
     <div className="flex-1 bg-black text-slate-100 overflow-y-auto">
       <div className="p-8 space-y-8">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-normal">{t('Agent Hub')}</h1>
-            <p className="text-slate-400 text-sm mt-1">{t('Monitor workloads and manage the intelligence layer.')}</p>
+            <p className="text-slate-400 text-sm mt-1">
+              {language === 'zh'
+                ? '统一管理信号发现、任务队列、审批策略、执行日志和智能体配置。'
+                : 'One operating layer for signals, task queue, approvals, runtime traces, and agent configuration.'}
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <div className="bg-neutral-900 border border-neutral-700 rounded-md p-1 flex flex-wrap">
-              {tabButton('approvals', language === 'zh' ? '编排与审核' : 'Approvals & Policy', <ShieldCheck className="w-4 h-4" />)}
-              {tabButton('opportunities', language === 'zh' ? '机会任务' : 'Opportunity Inbox', <Zap className="w-4 h-4" />)}
-              {tabButton('runs', 'Agent Run History', <ListChecks className="w-4 h-4" />)}
-              {tabButton('chat', 'Agent Chat', <MessageSquare className="w-4 h-4" />)}
-              {tabButton('fleet', 'Agent Fleet', <Server className="w-4 h-4" />)}
+              {tabButton('opportunities', language === 'zh' ? '任务队列' : 'Task Queue', <Zap className="w-4 h-4" />)}
+              {tabButton('approvals', language === 'zh' ? '审批中心' : 'Approval Center', <ShieldCheck className="w-4 h-4" />)}
+              {tabButton('runs', language === 'zh' ? '执行日志' : 'Execution Logs', <ListChecks className="w-4 h-4" />)}
+              {tabButton('fleet', language === 'zh' ? '智能体配置' : 'Agent Config', <Server className="w-4 h-4" />)}
+              {tabButton('chat', language === 'zh' ? '智能体控制台' : 'Agent Console', <MessageSquare className="w-4 h-4" />)}
             </div>
             <button onClick={() => { setDraftAgent(emptyAgent()); setSelectedAgentId(null); setAgentQueueFilter('custom'); setTab('fleet'); }} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-md text-sm font-bold text-white flex items-center gap-2">
               <Plus className="w-4 h-4" /> {t('Create Agent')}
@@ -1726,17 +1761,29 @@ export function AgentHub() {
           </div>
         </div>
 
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {agentOperatingModel.map(item => (
+            <div key={item.title} className="rounded-lg border border-neutral-800 bg-neutral-950/80 p-4">
+              <div className="flex items-center gap-2 text-sm font-bold text-slate-100">
+                {item.icon}
+                <span>{item.title}</span>
+              </div>
+              <p className="mt-2 text-xs leading-relaxed text-slate-500">{item.description}</p>
+            </div>
+          ))}
+        </div>
+
         {tab === 'chat' && (
         <section className="min-h-[calc(100vh-220px)] overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950">
           <div className="grid min-h-[calc(100vh-220px)] grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)]">
             <div className="border-b border-neutral-800 bg-neutral-900/80 p-4 lg:border-b-0 lg:border-r">
               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400">
-                <MessageSquare className="w-4 h-4" /> {language === 'zh' ? 'Agent Chat' : 'Agent Chat'}
+                <MessageSquare className="w-4 h-4" /> {language === 'zh' ? '智能体控制台' : 'Agent Console'}
               </div>
               <p className="mt-2 text-xs text-slate-500 leading-relaxed">
                 {language === 'zh'
-                  ? '从左侧选择智能体进行对话。输入框中使用 @客户名 引用客户，让智能体基于该客户资料执行或回复。'
-                  : 'Select an agent on the left. Use @client name in the input to reference a customer for client-specific work.'}
+                  ? 'Console 用于询问智能体、引用客户上下文、生成任务或进化建议；正式执行仍会进入任务队列、审批中心和执行日志。'
+                  : 'Console is for asking agents, referencing client context, creating tasks, and proposing evolution. Formal execution still flows through the task queue, approval center, and logs.'}
               </p>
               {activeChatAgent && (
                 <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs text-blue-100">
@@ -1771,8 +1818,12 @@ export function AgentHub() {
             <div className="flex min-h-[540px] min-w-0 flex-col bg-black">
               <div className="flex items-center justify-between gap-3 border-b border-neutral-800 bg-neutral-950 px-5 py-4">
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-bold text-slate-100">{activeChatAgent?.name || 'Global Agent'}</div>
-                  <div className="mt-1 text-xs text-slate-500">{language === 'zh' ? '通过对话执行任务、引用客户、沉淀可审核的进化建议' : 'Chat to run tasks, reference clients, and create reviewable evolution proposals'}</div>
+                  <div className="truncate text-sm font-bold text-slate-100">{activeChatAgent?.name || 'Global Orchestrator'}</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {language === 'zh'
+                      ? '对话可以生成任务；是否自动执行由执行策略和审批中心决定。'
+                      : 'Conversation can create tasks; execution is controlled by policy and approvals.'}
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -1829,8 +1880,12 @@ export function AgentHub() {
                   <div className="flex h-full min-h-80 items-center justify-center text-center">
                     <div className="max-w-sm">
                       <MessageSquare className="mx-auto h-10 w-10 text-slate-700" />
-                      <div className="mt-3 text-sm font-bold text-slate-300">{language === 'zh' ? '开始与智能体对话' : 'Start an agent conversation'}</div>
-                      <p className="mt-2 text-xs leading-relaxed text-slate-600">{language === 'zh' ? '先在左侧选择智能体；输入 @客户名 可引用客户资料。' : 'Choose an agent on the left; type @client name to reference a customer.'}</p>
+                      <div className="mt-3 text-sm font-bold text-slate-300">{language === 'zh' ? '打开 Agent Console' : 'Open the Agent Console'}</div>
+                      <p className="mt-2 text-xs leading-relaxed text-slate-600">
+                        {language === 'zh'
+                          ? '先在左侧选择智能体；输入 @客户名 可引用客户资料。需要执行的内容会转成任务并进入策略判断。'
+                          : 'Choose an agent on the left; type @client name to reference a customer. Execution requests become policy-controlled tasks.'}
+                      </p>
                     </div>
                   </div>
                 )}
@@ -2018,12 +2073,12 @@ export function AgentHub() {
             <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400">
-                  <Zap className="h-4 w-4 text-blue-300" /> {language === 'zh' ? '智能体机会任务收件箱' : 'Agent Opportunity Inbox'}
+                  <Zap className="h-4 w-4 text-blue-300" /> {language === 'zh' ? '统一任务队列' : 'Unified Agent Task Queue'}
                 </div>
                 <p className="mt-2 text-xs leading-relaxed text-slate-500">
                   {language === 'zh'
-                    ? 'Signal Scanner 会定期发现未处理消息、缺少下一步、长期未跟进和高互动邮件，并把任务派给最适合的智能体。'
-                    : 'Signal Scanner finds unhandled messages, missing next steps, stale accounts, and high-engagement emails, then routes tasks to the best agent.'}
+                    ? 'Signal Scanner、事件触发、定时运行和 Console 请求都应先形成任务。任务再由执行策略决定自动执行、进入审批，或交给指定智能体处理。'
+                    : 'Signal Scanner, event triggers, schedules, and Console requests should first become tasks. Policy then decides whether to auto-run, request approval, or route to a specific agent.'}
                 </p>
               </div>
               <button
@@ -2038,8 +2093,8 @@ export function AgentHub() {
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-neutral-800 bg-black px-4 py-3">
               <div className="text-xs text-slate-500">
                 {language === 'zh'
-                  ? `开放任务 ${dispatchableOpportunities.length} 个 · 总队列 ${visibleOpportunities.length} 个`
-                  : `${dispatchableOpportunities.length} dispatchable · ${visibleOpportunities.length} total in queue`}
+                  ? `可派发任务 ${dispatchableOpportunities.length} 个 · 队列总数 ${visibleOpportunities.length} 个 · 待审核 ${pendingItems.length} 个`
+                  : `${dispatchableOpportunities.length} dispatchable · ${visibleOpportunities.length} total · ${pendingItems.length} waiting for approval`}
               </div>
               <button
                 type="button"
@@ -2053,7 +2108,7 @@ export function AgentHub() {
             </div>
             <div className="mb-4 rounded-lg border border-blue-500/20 bg-blue-950/10 p-4">
               <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-blue-200">
-                <ShieldCheck className="h-4 w-4" /> {language === 'zh' ? '策略路由器' : 'Policy Router'}
+                <ShieldCheck className="h-4 w-4" /> {language === 'zh' ? '任务路由策略' : 'Task Routing Policy'}
               </div>
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                 <label className="flex items-center gap-2 rounded-md border border-neutral-800 bg-black px-3 py-2 text-xs text-slate-300">
@@ -2179,8 +2234,13 @@ export function AgentHub() {
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
             <section className="bg-neutral-900/80 border border-neutral-700 rounded-lg p-6">
               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400 mb-6">
-                <ClipboardCheck className="w-4 h-4" /> {t('Human Approvals')}
+                <ClipboardCheck className="w-4 h-4" /> {language === 'zh' ? '审批中心' : 'Approval Center'}
               </div>
+              <p className="mb-5 text-xs leading-relaxed text-slate-500">
+                {language === 'zh'
+                  ? '所有需要人工确认的智能体动作统一在这里处理。不要再到不同智能体页面分别找审核按钮。'
+                  : 'All human-reviewed agent actions are handled here. You no longer need to hunt for approval buttons across agent pages.'}
+              </p>
               <div className="space-y-4">
                 {pendingItems.length === 0 && <div className="text-sm text-slate-500 py-8 text-center">{t('No approvals waiting.')}</div>}
                 {pendingItems.map(item => (
@@ -2211,20 +2271,24 @@ export function AgentHub() {
 
             <section className="bg-neutral-900/80 border border-neutral-700 rounded-lg p-6">
               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">
-                <ShieldCheck className="w-4 h-4" /> {language === 'zh' ? '执行底座与策略' : 'Execution Layer & Policy'}
+                <ShieldCheck className="w-4 h-4" /> {language === 'zh' ? '执行策略与底座' : 'Execution Policy & Engine'}
               </div>
               <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="bg-black border border-neutral-800 rounded-md p-4">
-                  <div className="flex items-center gap-2 text-sm font-bold text-slate-100"><Cpu className="w-4 h-4 text-blue-300" /> {language === 'zh' ? 'Execution Harness' : 'Execution Harness'}</div>
+                  <div className="flex items-center gap-2 text-sm font-bold text-slate-100"><Cpu className="w-4 h-4 text-blue-300" /> {language === 'zh' ? 'Execution Engine' : 'Execution Engine'}</div>
                   <p className="mt-2 text-xs text-slate-500">
                     {language === 'zh'
-                      ? 'Harness 现在作为执行与审核底座：检查工具权限、应用执行策略、创建审核项并记录 trace，不再作为独立业务智能体规划任务。'
-                      : 'Harness now acts as the execution and approval layer: it checks tool permissions, applies policy, creates review items, and records traces instead of acting as a standalone business planner.'}
+                      ? '原 Agent Harness 已收束为执行引擎：检查工具权限、套用执行策略、创建审核项、记录 trace，不再作为独立业务智能体。'
+                      : 'The former Agent Harness is now the execution engine: it checks tool permissions, applies policy, creates review items, and records traces. It is no longer a standalone business agent.'}
                   </p>
                 </div>
                 <button onClick={() => setTab('global')} className="bg-black border border-neutral-800 rounded-md p-4 text-left hover:border-blue-500/50 transition-colors">
-                  <div className="flex items-center gap-2 text-sm font-bold text-slate-100"><Bot className="w-4 h-4 text-blue-300" /> {t('Global Agent')}</div>
-                  <p className="mt-2 text-xs text-slate-500">{t('Coordinate CRM-wide acquisition, enrichment, follow-up, and conversion plans.')}</p>
+                  <div className="flex items-center gap-2 text-sm font-bold text-slate-100"><Bot className="w-4 h-4 text-blue-300" /> {language === 'zh' ? 'Global Orchestrator' : 'Global Orchestrator'}</div>
+                  <p className="mt-2 text-xs text-slate-500">
+                    {language === 'zh'
+                      ? '只负责拆解目标、分派任务和协调优先级；具体执行仍进入任务队列和审批策略。'
+                      : 'Breaks goals into tasks and coordinates priority. Actual execution still flows through task queue and policy.'}
+                  </p>
                 </button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -2353,7 +2417,7 @@ export function AgentHub() {
               <div className="flex items-center justify-between gap-3 mb-6">
                 <div>
                   <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400">
-                    <ListChecks className="w-4 h-4" /> {t('Agent Run History')}
+                    <ListChecks className="w-4 h-4" /> {language === 'zh' ? '智能体执行历史' : 'Agent Execution History'}
                   </div>
                   <p className="text-xs text-slate-500 mt-2">{t('Monitor each agent run plan, expected result, and actual result.')}</p>
                 </div>
