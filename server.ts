@@ -1639,6 +1639,11 @@ async function startServer() {
       const channel = String(req.query.channel || '').trim();
       const status = String(req.query.status || '').trim();
       const search = String(req.query.search || '').trim().toLowerCase();
+      const searchTerms = search.split(/\s+/).map((term) => term.trim()).filter(Boolean);
+      const tagTerms = String(req.query.tags || '')
+        .split(',')
+        .map((term) => term.trim().replace(/^#/, '').toLowerCase())
+        .filter(Boolean);
       const clientId = String(req.query.clientId || '').trim();
       const includeDeleted = String(req.query.includeDeleted || '').toLowerCase() === 'true';
       const limit = Math.min(Math.max(Number(req.query.limit || 100), 1), 300);
@@ -1656,16 +1661,45 @@ async function startServer() {
         values.push(clientId);
         filters.push(`c.client_id = $${values.length}`);
       }
-      if (search) {
-        values.push(`%${search}%`);
+      for (const term of searchTerms) {
+        values.push(`%${term}%`);
         filters.push(`(
           lower(COALESCE(c.title, '')) LIKE $${values.length}
           OR lower(COALESCE(c.subject, '')) LIKE $${values.length}
           OR lower(COALESCE(c.contact_name, '')) LIKE $${values.length}
           OR lower(COALESCE(c.contact_address, '')) LIKE $${values.length}
           OR lower(COALESCE(c.last_message_preview, '')) LIKE $${values.length}
+          OR lower(COALESCE(c.tags::text, '')) LIKE $${values.length}
+          OR lower(COALESCE(c.comments::text, '')) LIKE $${values.length}
+          OR lower(COALESCE(c.metadata::text, '')) LIKE $${values.length}
           OR lower(COALESCE(cl.name, '')) LIKE $${values.length}
           OR lower(COALESCE(cl.company, '')) LIKE $${values.length}
+          OR lower(COALESCE(cl.country, '')) LIKE $${values.length}
+          OR lower(COALESCE(cl.state, '')) LIKE $${values.length}
+          OR lower(COALESCE(cl.city, '')) LIKE $${values.length}
+          OR lower(COALESCE(cl.tags::text, '')) LIKE $${values.length}
+          OR lower(COALESCE(cl.contact_methods::text, '')) LIKE $${values.length}
+          OR lower(COALESCE(cl.contacts::text, '')) LIKE $${values.length}
+          OR EXISTS (
+            SELECT 1
+            FROM communication_messages m
+            WHERE m.conversation_id = c.id
+              AND m.user_id = c.user_id
+              AND (
+                lower(COALESCE(m.body, '')) LIKE $${values.length}
+                OR lower(COALESCE(m.sender, '')) LIKE $${values.length}
+                OR lower(COALESCE(m.recipient, '')) LIKE $${values.length}
+                OR lower(COALESCE(m.payload::text, '')) LIKE $${values.length}
+              )
+          )
+        )`);
+      }
+      for (const tag of tagTerms) {
+        values.push(tag);
+        filters.push(`EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(c.tags) = 'array' THEN c.tags ELSE '[]'::jsonb END) AS tag_item(value)
+          WHERE lower(tag_item.value) = $${values.length}
         )`);
       }
 

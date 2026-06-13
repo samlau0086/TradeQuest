@@ -76,6 +76,7 @@ const WHATSAPP_FOLLOW_UP_MARKER = '__FOLLOW_UP__';
 
 type InboxChannelFilter = 'all' | 'email' | 'whatsapp' | 'live_chat';
 const CONVERSATION_STAGES = ['Leads', 'Contacted', 'Sample Sent', 'Negotiating', 'Closed Won'];
+const normalizeTagSearchTerm = (term: string) => term.trim().replace(/^#/, '').toLowerCase();
 
 const hasOpenWhatsAppFollowUp = (conversation: InboxWhatsAppConversation) => {
   const marker = [...(conversation.comments || [])]
@@ -322,10 +323,21 @@ export function Inbox() {
     writeCachedWhatsAppConversations(conversations);
   };
 
-  const fetchUnifiedConversations = async () => {
+  const fetchUnifiedConversations = async (activeSearch = search, activeTags = searchTags) => {
     setIsUnifiedConversationLoading(true);
     try {
-      const res = await fetch('/api/conversations?limit=300', {
+      const params = new URLSearchParams({ limit: '300' });
+      const textTerms = [
+        activeSearch.trim(),
+        ...activeTags.filter(tag => !tag.trim().startsWith('#')).map(tag => tag.trim())
+      ].filter(Boolean);
+      const tagTerms = activeTags
+        .filter(tag => tag.trim().startsWith('#'))
+        .map(normalizeTagSearchTerm)
+        .filter(Boolean);
+      if (textTerms.length > 0) params.set('search', textTerms.join(' '));
+      if (tagTerms.length > 0) params.set('tags', tagTerms.join(','));
+      const res = await fetch(`/api/conversations?${params.toString()}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       const data = await res.json().catch(() => ({}));
@@ -401,6 +413,13 @@ export function Inbox() {
   }, []);
 
   useEffect(() => {
+    const handle = window.setTimeout(() => {
+      void fetchUnifiedConversations(search, searchTags);
+    }, 300);
+    return () => window.clearTimeout(handle);
+  }, [search, searchTags]);
+
+  useEffect(() => {
     if (!inboxFollowUpFilterRequest) return;
     setFilter('inbox');
     setChannelFilter('all');
@@ -449,7 +468,8 @@ export function Inbox() {
       for (const t of termsToMatch) {
         const lowerT = t.toLowerCase();
         if (t.startsWith('#')) {
-          if (!e.tags || !e.tags.some(tag => tag.toLowerCase() === lowerT)) {
+          const normalizedTag = normalizeTagSearchTerm(t);
+          if (!e.tags || !e.tags.some(tag => normalizeTagSearchTerm(tag) === normalizedTag)) {
             return false;
           }
         } else {
@@ -481,7 +501,7 @@ export function Inbox() {
         return termsToMatch.every(term => {
           const normalized = term.toLowerCase();
           return normalized.startsWith('#')
-            ? (conversation.tags || []).some(tag => tag.toLowerCase() === normalized)
+            ? (conversation.tags || []).some(tag => normalizeTagSearchTerm(tag) === normalizeTagSearchTerm(normalized))
             : haystack.includes(normalized);
         });
       })
@@ -529,7 +549,7 @@ export function Inbox() {
         return termsToMatch.every(term => {
           const normalized = term.toLowerCase();
           return normalized.startsWith('#')
-            ? (conversation.tags || []).some(tag => tag.toLowerCase() === normalized)
+            ? (conversation.tags || []).some(tag => normalizeTagSearchTerm(tag) === normalizeTagSearchTerm(normalized))
             : haystack.includes(normalized);
         });
       })
