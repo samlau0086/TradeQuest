@@ -1,13 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, Check, CheckCircle2, ClipboardCheck, Cpu, ListChecks, MessageSquare, Plus, Power, RefreshCw, Save, Search, Send, Server, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, X, XCircle, Zap } from 'lucide-react';
-import { AgentHubAgent, AgentHubChatMessage as AgentChatMessage, AgentHubEventScope, AgentHubGuardrail, AgentHubScheduleUnit, AgentHubStatus, AgentTask, GLOBAL_AGENT_ACTION_TYPES, useStore } from '../store';
+import { Check, ListChecks, Power, RefreshCw, Save, Search, Server, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, X, Zap } from 'lucide-react';
+import { AgentHubAgent, AgentHubChatMessage as AgentChatMessage, AgentHubEventScope, AgentHubGuardrail, AgentHubScheduleUnit, AgentHubStatus, AgentTask, useStore } from '../store';
 import { cn } from '../lib/utils';
 import { GlobalAgent } from './GlobalAgent';
 import { useTranslation } from '../lib/i18n';
 import { AGENT_TOOL_REGISTRY, getAgentToolDefinition, inferAgentToolsFromPrompt } from '../lib/agentTools';
 import { useAuthStore } from '../authStore';
 import {
-  ACTION_LABELS,
   AGENT_EVENT_TRIGGER_OPTIONS,
   AgentHubTab,
   emptyAgent,
@@ -15,13 +14,16 @@ import {
   formatChatRunResult,
   guardrailLabel,
   linkedOpportunityIdFromTask,
-  opportunityStatusClass,
-  opportunityStatusLabel,
   riskClass,
   scheduleLabel,
   statusClass,
   taskFromOpportunityForView
 } from './agent-hub/shared';
+import { AgentHubHeader } from './agent-hub/AgentHubHeader';
+import { AgentConsolePanel } from './agent-hub/AgentConsolePanel';
+import { AgentTaskQueuePanel } from './agent-hub/AgentTaskQueuePanel';
+import { ApprovalCenterPanel } from './agent-hub/ApprovalCenterPanel';
+import { type AgentTraceRun, ExecutionLogsPanel } from './agent-hub/ExecutionLogsPanel';
 
 function ToolSelector({
   selected,
@@ -905,8 +907,6 @@ export function AgentHub() {
       createdAt: plan.createdAt
     }))
   ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [agentHarnessRuns, globalAgentPlans]);
-  const visibleRunLogs = runLogs.slice(0, logDisplayLimit);
-  const visibleAgentRunRecords = agentRunRecords.slice(0, logDisplayLimit);
   const visibleOpportunities = agentOpportunities
     .filter(opportunity => opportunity.status !== 'ignored')
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -1519,7 +1519,7 @@ export function AgentHub() {
     }
   };
 
-  const deleteRunLog = (run: typeof runLogs[number]) => {
+  const deleteRunLog = (run: AgentTraceRun) => {
     if (run.kind === 'harness') deleteAgentHarnessRun(run.id);
     if (run.kind === 'global') deleteGlobalAgentPlan(run.id);
     setExpandedTraceRunIds(ids => ids.filter(id => id !== run.id));
@@ -1583,329 +1583,41 @@ export function AgentHub() {
     }
   };
 
-  const tabButton = (id: AgentHubTab, label: string, icon: React.ReactNode) => (
-    <button onClick={() => setTab(id)} className={cn('px-4 py-2 rounded text-sm flex items-center gap-2', tab === id ? 'bg-blue-600/30 text-blue-300' : 'text-slate-400 hover:text-white')}>
-      {icon} {t(label)}
-    </button>
-  );
-
-  const localizeInternalRunText = (value: string) => {
-    if (language !== 'zh') return value;
-    return value
-      .replace(/Scheduled run for ([^:]+):/g, '定期运行：$1：')
-      .replace(/Scheduled triggers (?:now )?enqueue an opportunity first\. The policy router decides whether to auto-execute, send to review, or keep it for manual dispatch\./g, '定期触发先进入机会任务队列，由策略路由器决定自动执行、进入审核或保留待派发。')
-      .replace(/Creating an opportunity and applying routing policy\./g, '正在创建机会任务并应用路由策略。')
-      .replace(/Opportunity dispatched and auto-approved by the agent guardrail policy\./g, '机会任务已派发，并根据智能体护栏策略自动通过。')
-      .replace(/Opportunity dispatched and a review-gated execution item was created\./g, '机会任务已派发，并创建待审核执行项。')
-      .replace(/Human approved the planned agent run\. Executing configured tools now\./g, '人工已批准计划运行，正在执行配置的工具。')
-      .replace(/Human approved the planned agent run\./g, '人工已批准计划运行。')
-      .replace(/Human rejected the planned agent run\./g, '人工已拒绝计划运行。')
-      .replace(/Backend scheduled agent run started\./g, '后端定期智能体运行已开始。');
-  };
-  const runTimelineItems = (record: typeof agentRunRecords[number]) => [
-    {
-      label: t('Plan'),
-      value: localizeInternalRunText(record.plan),
-      tone: 'blue',
-      time: new Date(record.createdAt).toLocaleString()
-    },
-    {
-      label: t('Expected Result'),
-      value: localizeInternalRunText(record.expectedResult),
-      tone: 'amber',
-      time: record.relatedRunId ? `${record.relatedRunType}:${record.relatedRunId}` : t(`trigger_${record.trigger}`)
-    },
-    {
-      label: t('Actual Result'),
-      value: record.actualResult ? localizeInternalRunText(record.actualResult) : t('Waiting for execution result.'),
-      tone: record.status === 'failed' || record.status === 'rejected' ? 'red' : record.status === 'completed' || record.status === 'approved' ? 'emerald' : 'blue',
-      time: record.completedAt ? `${t('Completed at')}: ${new Date(record.completedAt).toLocaleString()}` : t(record.status)
-    }
-  ];
-
-  const timelineTone = (tone: string) => {
-    if (tone === 'emerald') return { dot: 'bg-emerald-400 border-emerald-300 shadow-emerald-500/30', label: 'text-emerald-300' };
-    if (tone === 'amber') return { dot: 'bg-amber-400 border-amber-300 shadow-amber-500/30', label: 'text-amber-300' };
-    if (tone === 'red') return { dot: 'bg-red-400 border-red-300 shadow-red-500/30', label: 'text-red-300' };
-    return { dot: 'bg-blue-400 border-blue-300 shadow-blue-500/30', label: 'text-blue-300' };
-  };
-
-  const splitTimelineText = (value: string) => {
-    const cleanLine = (line: string) => line
-      .replace(/^\s*(?:[-*?]|\d+[.)]|[一二三四五六七八九十]+[、.])\s*/, '')
-      .trim();
-    const directLines = value
-      .replace(/\r/g, '\n')
-      .split('\n')
-      .map(cleanLine)
-      .filter(Boolean);
-    if (directLines.length > 1) return directLines.slice(0, 12);
-
-    const text = directLines[0] || value.trim();
-    if (!text) return [];
-    const colonMatch = text.match(/^([^:：]{1,80})[:：]\s*(.+)$/);
-    const candidate = colonMatch && colonMatch[2].length > 40 ? colonMatch[2] : text;
-    const parts = candidate
-      .replace(/\band\s+(?=(read|check|generate|execute|update|report|scan|skip|create|review|send|enrich|process)\b)/gi, ', ')
-      .replace(/并(?=(读取|检查|生成|执行|更新|汇总|扫描|跳过|创建|审核|发送|富集|处理|报告))/g, '，')
-      .split(/;\s*|；\s*|,\s+(?=(?:read|check|generate|execute|update|report|scan|skip|create|review|send|enrich|process|wait)\b)|，(?=(?:读取|检查|生成|执行|更新|汇总|扫描|跳过|创建|审核|发送|富集|处理|报告|等待))/i)
-      .map(cleanLine)
-      .filter(Boolean);
-    return (parts.length > 1 ? parts : [text]).slice(0, 12);
-  };
-
-  const todoTone = (text: string, fallback: string) => {
-    const lower = text.toLowerCase();
-    if (/(failed|error|rejected|失败|错误|拒绝)/.test(lower)) return 'red';
-    if (/(skipped|skip|waiting|pending|待审核|等待|跳过)/.test(lower)) return 'amber';
-    if (/(completed|success|approved|sent|acted|done|完成|成功|通过|已发送|执行)/.test(lower)) return 'emerald';
-    return fallback;
-  };
-  const renderTodoTimeline = (value: string, fallbackTone: string) => {
-    const items = splitTimelineText(value);
-    if (items.length === 0) return <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{value}</p>;
-    return (
-      <div className="relative space-y-3 before:absolute before:left-[7px] before:top-2 before:bottom-2 before:w-px before:bg-neutral-800/80">
-        {items.map((line, itemIndex) => {
-          const tone = timelineTone(todoTone(line, fallbackTone));
-          return (
-            <div key={`${line}-${itemIndex}`} className="relative flex gap-3">
-              <div className={cn('relative z-10 mt-1.5 h-3.5 w-3.5 rounded-full border shadow', tone.dot)} />
-              <div className="min-w-0 flex-1">
-                <div className="text-[10px] text-slate-600 mb-0.5">{language === 'zh' ? '步骤' : 'Step'} {itemIndex + 1}</div>
-                <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{line}</p>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
-
-  const agentOperatingModel = [
-    {
-      title: language === 'zh' ? '1. 信号扫描' : '1. Signal Scanner',
-      description: language === 'zh' ? '发现机会，不直接改数据或发消息。' : 'Finds opportunities without changing data or sending messages.',
-      icon: <Zap className="h-4 w-4 text-cyan-300" />
-    },
-    {
-      title: language === 'zh' ? '2. 任务队列' : '2. Task Queue',
-      description: language === 'zh' ? '定时、事件和聊天触发都会先进入统一任务队列。' : 'Scheduled, event, and console-triggered work enters one queue.',
-      icon: <ListChecks className="h-4 w-4 text-blue-300" />
-    },
-    {
-      title: language === 'zh' ? '3. 执行策略' : '3. Execution Policy',
-      description: language === 'zh' ? '低风险可自动执行，高风险进入审核。' : 'Low-risk work can run automatically; risky work waits for review.',
-      icon: <ShieldCheck className="h-4 w-4 text-amber-300" />
-    },
-    {
-      title: language === 'zh' ? '4. 执行日志' : '4. Runtime Trace',
-      description: language === 'zh' ? '计划、工具调用结果和失败原因统一追踪。' : 'Plans, tool calls, outcomes, and failures are tracked in one place.',
-      icon: <Cpu className="h-4 w-4 text-emerald-300" />
-    }
-  ];
   return (
     <div className="flex-1 bg-black text-slate-100 overflow-y-auto">
       <div className="p-8 space-y-8">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold tracking-normal">{t('Agent Hub')}</h1>
-            <p className="text-slate-400 text-sm mt-1">
-              {language === 'zh'
-                ? '统一管理信号发现、任务队列、审批策略、执行日志和智能体配置。'
-                : 'One operating layer for signals, task queue, approvals, runtime traces, and agent configuration.'}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="bg-neutral-900 border border-neutral-700 rounded-md p-1 flex flex-wrap">
-              {tabButton('opportunities', language === 'zh' ? '任务队列' : 'Task Queue', <Zap className="w-4 h-4" />)}
-              {tabButton('approvals', language === 'zh' ? '审批中心' : 'Approval Center', <ShieldCheck className="w-4 h-4" />)}
-              {tabButton('runs', language === 'zh' ? '执行日志' : 'Execution Logs', <ListChecks className="w-4 h-4" />)}
-              {tabButton('fleet', language === 'zh' ? '智能体配置' : 'Agent Config', <Server className="w-4 h-4" />)}
-              {tabButton('chat', language === 'zh' ? '智能体控制台' : 'Agent Console', <MessageSquare className="w-4 h-4" />)}
-            </div>
-            <button onClick={() => { setDraftAgent(emptyAgent()); setSelectedAgentId(null); setAgentQueueFilter('custom'); setTab('fleet'); }} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-md text-sm font-bold text-white flex items-center gap-2">
-              <Plus className="w-4 h-4" /> {t('Create Agent')}
-            </button>
-          </div>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {agentOperatingModel.map(item => (
-            <div key={item.title} className="rounded-lg border border-neutral-800 bg-neutral-950/80 p-4">
-              <div className="flex items-center gap-2 text-sm font-bold text-slate-100">
-                {item.icon}
-                <span>{item.title}</span>
-              </div>
-              <p className="mt-2 text-xs leading-relaxed text-slate-500">{item.description}</p>
-            </div>
-          ))}
-        </div>
+        <AgentHubHeader
+          language={language}
+          tab={tab}
+          t={t}
+          onTabChange={setTab}
+          onCreateAgent={() => {
+            setDraftAgent(emptyAgent());
+            setSelectedAgentId(null);
+            setAgentQueueFilter('custom');
+            setTab('fleet');
+          }}
+        />
 
         {tab === 'chat' && (
-        <section className="min-h-[calc(100vh-220px)] overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950">
-          <div className="grid min-h-[calc(100vh-220px)] grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)]">
-            <div className="border-b border-neutral-800 bg-neutral-900/80 p-4 lg:border-b-0 lg:border-r">
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400">
-                <MessageSquare className="w-4 h-4" /> {language === 'zh' ? '智能体控制台' : 'Agent Console'}
-              </div>
-              <p className="mt-2 text-xs text-slate-500 leading-relaxed">
-                {language === 'zh'
-                  ? 'Console 用于询问智能体、引用客户上下文、生成任务或进化建议；正式执行仍会进入任务队列、审批中心和执行日志。'
-                  : 'Console is for asking agents, referencing client context, creating tasks, and proposing evolution. Formal execution still flows through the task queue, approval center, and logs.'}
-              </p>
-              {activeChatAgent && (
-                <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs text-blue-100">
-                  <Bot className="w-3.5 h-3.5" />
-                  <span className="max-w-[200px] truncate">{activeChatAgent.name}</span>
-                </div>
-              )}
-              <div className="mt-4 space-y-1">
-                {chatAgents.map(agent => {
-                  const selected = activeChatAgent?.id === agent.id;
-                  return (
-                    <button
-                      key={agent.id}
-                      type="button"
-                      onClick={() => setChatAgentId(agent.id)}
-                      className={cn('w-full rounded-md border px-3 py-2.5 text-left transition-colors', selected ? 'border-blue-500/40 bg-blue-500/10' : 'border-transparent hover:border-neutral-800 hover:bg-black/40')}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-bold text-slate-100">{agent.name}</div>
-                          <div className="mt-1 truncate text-[11px] text-slate-500">{agent.status} · {(agent.tools || []).length} tools</div>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-2">
-                          {chatRunningAgentId === agent.id && <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-300" />}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="flex min-h-[540px] min-w-0 flex-col bg-black">
-              <div className="flex items-center justify-between gap-3 border-b border-neutral-800 bg-neutral-950 px-5 py-4">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-bold text-slate-100">{activeChatAgent?.name || 'Global Orchestrator'}</div>
-                  <div className="mt-1 text-xs text-slate-500">
-                    {language === 'zh'
-                      ? '对话可以生成任务；是否自动执行由执行策略和审批中心决定。'
-                      : 'Conversation can create tasks; execution is controlled by policy and approvals.'}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={clearActiveAgentChat}
-                  disabled={visibleChatMessages.length === 0}
-                  className="inline-flex items-center gap-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs font-bold text-red-200 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  {language === 'zh' ? '清空' : 'Clear'}
-                </button>
-              </div>
-              <div className="min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(circle_at_top,_rgba(30,64,175,0.12),transparent_34%)] p-5">
-                {visibleChatMessages.length > 0 ? (
-                <div className="space-y-3">
-                  {visibleChatMessages.map(message => (
-                    <div key={message.id} className={cn('group relative rounded-md px-3 py-2 pr-9 text-sm', message.role === 'user' ? 'ml-auto max-w-[85%] bg-blue-600/20 text-blue-50' : 'mr-auto max-w-[85%] bg-neutral-900 text-slate-200')}>
-                      <button
-                        type="button"
-                        onClick={() => deleteChatMessage(message.id)}
-                        className="absolute right-2 top-2 rounded p-1 text-slate-600 opacity-0 transition-opacity hover:bg-black/30 hover:text-red-300 group-hover:opacity-100"
-                        title={language === 'zh' ? '删除这条消息' : 'Delete this message'}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                      <div className="mb-1 text-[10px] uppercase tracking-wide text-slate-500">{message.role === 'user' ? (language === 'zh' ? '你' : 'You') : message.agentName}</div>
-                      <div className="flex items-start gap-2 whitespace-pre-wrap leading-relaxed">
-                        {message.content === 'Running task...' || message.content === '正在执行任务...' ? <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-blue-300" /> : null}
-                        <span>{message.content}</span>
-                      </div>
-                      {message.action?.type === 'approval' && pendingItems.some(item => item.kind === message.action?.kind && item.id === message.action?.id) && (
-                        <div className="mt-3 flex flex-wrap justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => void handleChatApproval(message, false)}
-                            className="inline-flex items-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-bold text-red-200 hover:bg-red-500/20"
-                          >
-                            <XCircle className="h-3.5 w-3.5" />
-                            {language === 'zh' ? '拒绝' : 'Reject'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleChatApproval(message, true)}
-                            className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/15 px-3 py-1.5 text-xs font-bold text-emerald-100 hover:bg-emerald-500/25"
-                          >
-                            <CheckCircle2 className="h-3.5 w-3.5" />
-                            {language === 'zh' ? '批准并执行' : 'Approve & Execute'}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                ) : (
-                  <div className="flex h-full min-h-80 items-center justify-center text-center">
-                    <div className="max-w-sm">
-                      <MessageSquare className="mx-auto h-10 w-10 text-slate-700" />
-                      <div className="mt-3 text-sm font-bold text-slate-300">{language === 'zh' ? '打开 Agent Console' : 'Open the Agent Console'}</div>
-                      <p className="mt-2 text-xs leading-relaxed text-slate-600">
-                        {language === 'zh'
-                          ? '先在左侧选择智能体；输入 @客户名称 引用客户资料，需要执行的内容会转成任务并进入策略判断。'
-                          : 'Choose an agent on the left; type @client name to reference a customer. Execution requests become policy-controlled tasks.'}
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div className="border-t border-neutral-800 bg-neutral-950 p-4">
-              {activeChatAgent && (
-                <div className="mb-3 rounded-md border border-neutral-800 bg-black/50 p-3">
-                  <div className="mb-1 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-blue-300">
-                    <Bot className="h-3.5 w-3.5" />
-                    {language === 'zh' ? '使用方法' : 'How to use this agent'}
-                  </div>
-                  <p className="text-xs leading-relaxed text-slate-400">{buildAgentChatUsage(activeChatAgent)}</p>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {(activeChatAgent.tools || []).slice(0, 8).map(tool => (
-                      <span key={tool} className="rounded border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-[10px] text-slate-500">{tool}</span>
-                    ))}
-                    {(activeChatAgent.tools || []).length > 8 && <span className="rounded border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-[10px] text-slate-500">+{(activeChatAgent.tools || []).length - 8}</span>}
-                  </div>
-                </div>
-              )}
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  value={chatInput}
-                  onChange={e => setChatInput(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      void sendAgentChat();
-                    }
-                  }}
-                  list="agent-chat-client-mentions"
-                  placeholder={language === 'zh' ? '例：帮我分析 @客户名称 的下一步跟进策略' : 'Example: Analyze next follow-up strategy for @Client Name'}
-                  className="min-w-0 flex-1 rounded-md border border-neutral-700 bg-black px-4 py-2.5 text-sm text-slate-100 outline-none focus:border-blue-500"
-                />
-                <datalist id="agent-chat-client-mentions">
-                  {clients.map(client => <option key={client.id} value={`@${client.name}`} label={[client.company, client.country].filter(Boolean).join(' · ')} />)}
-                </datalist>
-                <button
-                  type="button"
-                  onClick={() => void sendAgentChat()}
-                  disabled={chatSending || !chatInput.trim()}
-                  className="inline-flex items-center justify-center gap-2 rounded-md border border-blue-500/40 bg-blue-600/20 px-4 py-2.5 text-sm font-bold text-blue-100 hover:bg-blue-600/30 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-900 disabled:text-slate-500"
-                >
-                  {chatSending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                  {language === 'zh' ? '发送' : 'Send'}
-                </button>
-              </div>
-              </div>
-            </div>
-          </div>
-        </section>
+          <AgentConsolePanel
+            language={language}
+            chatAgents={chatAgents}
+            activeChatAgent={activeChatAgent}
+            chatRunningAgentId={chatRunningAgentId}
+            visibleChatMessages={visibleChatMessages}
+            pendingItems={pendingItems}
+            clients={clients}
+            chatInput={chatInput}
+            chatSending={chatSending}
+            setChatAgentId={setChatAgentId}
+            clearActiveAgentChat={clearActiveAgentChat}
+            deleteChatMessage={deleteChatMessage}
+            handleChatApproval={handleChatApproval}
+            buildAgentChatUsage={buildAgentChatUsage}
+            setChatInput={setChatInput}
+            sendAgentChat={sendAgentChat}
+          />
         )}
 
         {tab === 'fleet' && (
@@ -2038,456 +1750,59 @@ export function AgentHub() {
         )}
 
         {tab === 'opportunities' && (
-          <section className="rounded-lg border border-neutral-800 bg-neutral-950 p-6">
-            <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400">
-                  <Zap className="h-4 w-4 text-blue-300" /> {language === 'zh' ? '统一任务队列' : 'Unified Agent Task Queue'}
-                </div>
-                <p className="mt-2 text-xs leading-relaxed text-slate-500">
-                  {language === 'zh'
-                    ? 'Signal Scanner、事件触发、定时运行和 Console 请求都会先形成任务，再由执行策略决定自动执行、进入审批，或交给指定智能体处理。'
-                    : 'Signal Scanner, event triggers, schedules, and Console requests should first become tasks. Policy then decides whether to auto-run, request approval, or route to a specific agent.'}
-                </p>
-              </div>
-              <button
-                onClick={runSchedulerNow}
-                disabled={schedulerRunning}
-                className="inline-flex items-center gap-2 rounded-md border border-blue-500/30 bg-blue-600/20 px-3 py-2 text-xs font-bold text-blue-100 hover:bg-blue-600/30 disabled:opacity-50"
-              >
-                <RefreshCw className={cn('h-4 w-4', schedulerRunning && 'animate-spin')} />
-                {language === 'zh' ? '立即扫描' : 'Scan Now'}
-              </button>
-            </div>
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-neutral-800 bg-black px-4 py-3">
-              <div className="text-xs text-slate-500">
-                {language === 'zh'
-                  ? `可派发任务 ${dispatchableTasks.length} 个 · 队列总数 ${visibleTasks.length} 个 · 待审核 ${pendingItems.length} 个`
-                  : `${dispatchableTasks.length} dispatchable · ${visibleTasks.length} total · ${pendingItems.length} waiting for approval`}
-              </div>
-              <button
-                type="button"
-                onClick={() => void runAllDispatchableOpportunities()}
-                disabled={dispatchableTasks.length === 0 || !!dispatchingOpportunityId}
-                className="inline-flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-600/15 px-3 py-2 text-xs font-bold text-emerald-100 hover:bg-emerald-600/25 disabled:opacity-50"
-              >
-                <Send className="h-3.5 w-3.5" />
-                {language === 'zh' ? '派发全部开放任务' : 'Dispatch All Open'}
-              </button>
-            </div>
-            <div className="mb-4 rounded-lg border border-blue-500/20 bg-blue-950/10 p-4">
-              <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-blue-200">
-                <ShieldCheck className="h-4 w-4" /> {language === 'zh' ? '任务路由策略' : 'Task Routing Policy'}
-              </div>
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-                <label className="flex items-center gap-2 rounded-md border border-neutral-800 bg-black px-3 py-2 text-xs text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={agentOpportunityRoutingPolicy.enabled}
-                    onChange={e => updateAgentOpportunityRoutingPolicy({ enabled: e.target.checked })}
-                  />
-                  {language === 'zh' ? '启用路由' : 'Enable routing'}
-                </label>
-                <label className="flex items-center gap-2 rounded-md border border-neutral-800 bg-black px-3 py-2 text-xs text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={agentOpportunityRoutingPolicy.autoExecuteLowRisk}
-                    onChange={e => updateAgentOpportunityRoutingPolicy({ autoExecuteLowRisk: e.target.checked })}
-                  />
-                  {language === 'zh' ? '低风险自动执行' : 'Auto low risk'}
-                </label>
-                <label className="flex items-center gap-2 rounded-md border border-neutral-800 bg-black px-3 py-2 text-xs text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={agentOpportunityRoutingPolicy.routeMediumRiskToReview}
-                    onChange={e => updateAgentOpportunityRoutingPolicy({ routeMediumRiskToReview: e.target.checked })}
-                  />
-                  {language === 'zh' ? '中风险进审核' : 'Review medium risk'}
-                </label>
-                <label className="flex items-center gap-2 rounded-md border border-neutral-800 bg-black px-3 py-2 text-xs text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={agentOpportunityRoutingPolicy.routeHighRiskToReview}
-                    onChange={e => updateAgentOpportunityRoutingPolicy({ routeHighRiskToReview: e.target.checked })}
-                  />
-                  {language === 'zh' ? '高风险进审核' : 'Review high risk'}
-                </label>
-                <label className="rounded-md border border-neutral-800 bg-black px-3 py-2 text-xs text-slate-300">
-                  <span className="mb-1 block text-slate-500">{language === 'zh' ? '每次最多路由' : 'Max per run'}</span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={agentOpportunityRoutingPolicy.maxAutoDispatchPerRun}
-                    onChange={e => updateAgentOpportunityRoutingPolicy({ maxAutoDispatchPerRun: Number(e.target.value || 0) })}
-                    className="w-full rounded border border-neutral-700 bg-neutral-950 px-2 py-1 text-slate-100"
-                  />
-                </label>
-              </div>
-            </div>
-            {visibleTasks.length === 0 ? (
-              <div className="rounded-lg border border-neutral-800 bg-black px-4 py-10 text-center text-sm text-slate-500">
-                {language === 'zh' ? '暂无开放机会任务。运行扫描器后，新的可执行任务会出现在这里。' : 'No open opportunities yet. Run the scanner and actionable tasks will appear here.'}
-              </div>
-            ) : (
-              <div className="grid gap-3">
-                {visibleTasks.map(task => (
-                  <div key={task.id} className="rounded-lg border border-neutral-800 bg-black p-4">
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-bold text-slate-100">{task.title}</span>
-                          <span className={cn('rounded border px-2 py-0.5 text-[10px] font-bold uppercase', opportunityStatusClass(task.status))}>
-                            {opportunityStatusLabel(task.status, language)}
-                          </span>
-                          <span className={cn('rounded border px-2 py-0.5 text-[10px] font-bold uppercase', riskClass(task.risk))}>{task.risk}</span>
-                          <span className="rounded border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-[10px] text-slate-400">{task.agentName || task.agentId}</span>
-                          {task.entityType && <span className="rounded border border-neutral-800 px-2 py-0.5 text-[10px] text-slate-500">{task.entityType}:{task.entityId}</span>}
-                          {task.runId && <span className="rounded border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] text-blue-300">{task.runType}:{task.runId}</span>}
-                          <span className="rounded border border-neutral-800 px-2 py-0.5 text-[10px] text-slate-500">{task.triggerType}</span>
-                        </div>
-                        <p className="mt-2 text-sm leading-relaxed text-slate-400">{task.description}</p>
-                        <p className="mt-3 text-xs leading-relaxed text-slate-500">{task.objective}</p>
-                        {task.resultSummary && <p className="mt-3 rounded border border-neutral-800 bg-neutral-950 px-3 py-2 text-xs leading-relaxed text-slate-400">{task.resultSummary}</p>}
-                        <div className="mt-2 text-[10px] text-slate-600">{new Date(task.createdAt).toLocaleString()} · {task.source}</div>
-                      </div>
-                      <div className="flex shrink-0 flex-wrap items-center gap-2">
-                        {task.status === 'completed' && (
-                          <button
-                            type="button"
-                            onClick={() => updateAgentOpportunity(taskOpportunityId(task) || '', {
-                              status: 'open',
-                              relatedRunId: undefined,
-                              relatedRunType: undefined,
-                              resultSummary: language === 'zh' ? '已重新打开，可再次派发。' : 'Reopened for dispatch.',
-                              completedAt: undefined
-                            })}
-                            className="rounded-md border border-blue-500/30 px-3 py-2 text-xs font-bold text-blue-300 hover:bg-blue-500/10"
-                          >
-                            {language === 'zh' ? '重新打开' : 'Reopen'}
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => void dispatchTask(task)}
-                          disabled={!taskOpportunityId(task) || !['open', 'failed', 'skipped'].includes(task.status) || dispatchingOpportunityId === task.id}
-                          className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-500 disabled:opacity-50"
-                        >
-                          {dispatchingOpportunityId === task.id ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                          {language === 'zh' ? '交给 Agent 执行' : 'Run with Agent'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => updateTaskAndLinkedOpportunity(task, { status: 'ignored', completedAt: new Date().toISOString() }, { status: 'ignored', completedAt: new Date().toISOString() })}
-                          className="rounded-md border border-neutral-700 px-3 py-2 text-xs font-bold text-slate-400 hover:text-slate-100"
-                        >
-                          {language === 'zh' ? '忽略' : 'Ignore'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => deleteTaskAndLinkedOpportunity(task)}
-                          className="rounded-md p-2 text-slate-600 hover:bg-red-500/10 hover:text-red-300"
-                          title={language === 'zh' ? '删除任务' : 'Delete task'}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
+          <AgentTaskQueuePanel
+            language={language}
+            visibleTasks={visibleTasks}
+            dispatchableTasks={dispatchableTasks}
+            pendingCount={pendingItems.length}
+            schedulerRunning={schedulerRunning}
+            dispatchingOpportunityId={dispatchingOpportunityId}
+            agentOpportunityRoutingPolicy={agentOpportunityRoutingPolicy}
+            onRunScheduler={runSchedulerNow}
+            onDispatchAll={runAllDispatchableOpportunities}
+            onUpdateRoutingPolicy={updateAgentOpportunityRoutingPolicy}
+            onReopenOpportunity={updateAgentOpportunity}
+            onDispatchTask={dispatchTask}
+            onUpdateTaskAndOpportunity={updateTaskAndLinkedOpportunity}
+            onDeleteTaskAndOpportunity={deleteTaskAndLinkedOpportunity}
+          />
         )}
 
         {tab === 'approvals' && (
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-            <section className="bg-neutral-900/80 border border-neutral-700 rounded-lg p-6">
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400 mb-6">
-                <ClipboardCheck className="w-4 h-4" /> {language === 'zh' ? '审批中心' : 'Approval Center'}
-              </div>
-              <p className="mb-5 text-xs leading-relaxed text-slate-500">
-                {language === 'zh'
-                  ? '需要人工确认的智能体动作统一在这里处理，不需要到不同智能体页面分别找审核按钮。'
-                  : 'All human-reviewed agent actions are handled here. You no longer need to hunt for approval buttons across agent pages.'}
-              </p>
-              <div className="space-y-4">
-                {pendingItems.length === 0 && <div className="text-sm text-slate-500 py-8 text-center">{t('No approvals waiting.')}</div>}
-                {pendingItems.map(item => (
-                  <div key={`${item.kind}-${item.id}`} className="bg-slate-950 border border-blue-500/30 rounded-lg p-5">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <div className="flex items-center gap-2 text-xs text-blue-300 mb-3">
-                          <span className="px-2 py-1 rounded bg-blue-600/20 border border-blue-500/40 uppercase font-bold">{t('Requires Approval')}</span>
-                          <Bot className="w-3 h-3" /> {item.agent}
-                        </div>
-                        <h3 className="font-bold text-slate-100">{item.title}</h3>
-                      </div>
-                      <span className="text-[10px] text-slate-500">{new Date(item.createdAt).toLocaleString()}</span>
-                    </div>
-                    <div className="mt-4 bg-black border border-neutral-800 rounded-md p-4 text-sm text-slate-300 whitespace-pre-wrap">{item.body}</div>
-                    <div className="mt-4 flex justify-end gap-3">
-                      <button onClick={() => rejectItem(item)} className="px-4 py-2 text-red-300 hover:bg-red-500/10 rounded-md text-sm font-bold flex items-center gap-2">
-                        <XCircle className="w-4 h-4" /> {t('Reject')}
-                      </button>
-                      <button onClick={() => approveItem(item)} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-md text-white text-sm font-bold flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4" /> {t('Approve')}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="bg-neutral-900/80 border border-neutral-700 rounded-lg p-6">
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">
-                <ShieldCheck className="w-4 h-4" /> {language === 'zh' ? '执行策略与引擎' : 'Execution Policy & Engine'}
-              </div>
-              <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="bg-black border border-neutral-800 rounded-md p-4">
-                  <div className="flex items-center gap-2 text-sm font-bold text-slate-100"><Cpu className="w-4 h-4 text-blue-300" /> {language === 'zh' ? 'Execution Engine' : 'Execution Engine'}</div>
-                  <p className="mt-2 text-xs text-slate-500">
-                    {language === 'zh'
-                      ? 'Agent Harness 已收束为执行引擎：检查工具权限、应用执行策略、创建审核项并记录 trace，不再作为独立业务智能体。'
-                      : 'The former Agent Harness is now the execution engine: it checks tool permissions, applies policy, creates review items, and records traces. It is no longer a standalone business agent.'}
-                  </p>
-                </div>
-                <button onClick={() => setTab('global')} className="bg-black border border-neutral-800 rounded-md p-4 text-left hover:border-blue-500/50 transition-colors">
-                  <div className="flex items-center gap-2 text-sm font-bold text-slate-100"><Bot className="w-4 h-4 text-blue-300" /> {language === 'zh' ? 'Global Orchestrator' : 'Global Orchestrator'}</div>
-                  <p className="mt-2 text-xs text-slate-500">
-                    {language === 'zh'
-                      ? '负责拆解目标、分派任务和协调优先级；具体执行仍进入任务队列和审批策略。'
-                      : 'Breaks goals into tasks and coordinates priority. Actual execution still flows through task queue and policy.'}
-                  </p>
-                </button>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {GLOBAL_AGENT_ACTION_TYPES.map(actionType => {
-                  const rule = agentExecutionPolicy[actionType];
-                  return (
-                    <div key={actionType} className="bg-black border border-neutral-800 rounded-md p-3">
-                      <div className="text-xs font-bold text-slate-200 mb-2">{t(ACTION_LABELS[actionType])}</div>
-                      <div className="flex gap-2">
-                        <select value={rule.mode} onChange={e => updateAgentExecutionPolicy(actionType, { mode: e.target.value as any })} className="min-w-0 flex-1 bg-neutral-950 border border-neutral-700 rounded px-2 py-1.5 text-xs text-slate-200">
-                          <option value="auto">{t('Auto')}</option>
-                          <option value="review">{t('Review')}</option>
-                        </select>
-                        <select value={rule.risk} onChange={e => updateAgentExecutionPolicy(actionType, { risk: e.target.value as any })} className="min-w-0 flex-1 bg-neutral-950 border border-neutral-700 rounded px-2 py-1.5 text-xs text-slate-200">
-                          <option value="low">{t('Low')}</option>
-                          <option value="medium">{t('Medium')}</option>
-                          <option value="high">{t('High')}</option>
-                        </select>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          </div>
+          <ApprovalCenterPanel
+            language={language}
+            pendingItems={pendingItems}
+            agentExecutionPolicy={agentExecutionPolicy}
+            t={t}
+            onApprove={approveItem}
+            onReject={rejectItem}
+            onTabChange={setTab}
+            onUpdatePolicy={updateAgentExecutionPolicy}
+          />
         )}
 
         {tab === 'runs' && (
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-            <section className="bg-neutral-900/80 border border-neutral-700 rounded-lg p-6">
-              <div className="flex items-center justify-between gap-3 mb-6">
-                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400">
-                  <ListChecks className="w-4 h-4" /> {t('Agent Runs & Trace Log')}
-                </div>
-                <div className="flex items-center gap-2">
-                  <select
-                    value={logDisplayLimit}
-                    onChange={e => setLogDisplayLimit(Number(e.target.value))}
-                    className="bg-black border border-neutral-700 rounded px-2 py-1.5 text-xs text-slate-300"
-                    title={t('Log display count')}
-                  >
-                    {[10, 30, 50, 100].map(count => <option key={count} value={count}>{count}</option>)}
-                  </select>
-                  <button onClick={() => setTab('approvals')} className="text-xs text-blue-300 hover:text-blue-200">{language === 'zh' ? '打开审核策略' : 'Open policy'}</button>
-                  <button
-                    onClick={clearTraceLogs}
-                    disabled={runLogs.length === 0}
-                    className="p-1.5 rounded text-slate-500 hover:text-red-300 hover:bg-red-500/10 disabled:opacity-40"
-                    title={t('Clear logs')}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-              <div className="space-y-4 max-h-[calc(100vh-260px)] overflow-y-auto pr-1">
-                {runLogs.length === 0 && <div className="text-sm text-slate-500 py-8 text-center">{t('No agent runs yet.')}</div>}
-                {visibleRunLogs.map(run => {
-                  const isExpanded = expandedTraceRunIds.includes(run.id);
-                  const visibleSteps = isExpanded ? run.steps : run.steps.slice(0, 5);
-                  const hiddenStepCount = run.steps.length - visibleSteps.length;
-                  return (
-                  <div key={run.id} className="bg-black border border-neutral-800 rounded-lg p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="font-bold text-slate-100">{run.title}</div>
-                        <div className="text-xs text-slate-500 mt-2 flex flex-wrap items-center gap-2">
-                          <span className="flex items-center gap-1"><Cpu className="w-3 h-3" /> {run.agent}</span>
-                          <span>{t('Execution time')}: {new Date(run.createdAt).toLocaleString()}</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-slate-400 capitalize">{t(run.status)}</span>
-                        <button
-                          type="button"
-                          onClick={() => deleteRunLog(run)}
-                          title={t('Delete run record')}
-                          className="p-1.5 rounded text-slate-500 hover:text-red-300 hover:bg-red-500/10"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                    <ol className="mt-4 space-y-2 text-xs text-slate-300">
-                      {visibleSteps.map((step, index) => (
-                        <li key={`${run.id}-${step.tool}-${index}`} className="rounded border border-neutral-800 bg-neutral-950/60 px-3 py-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-slate-500">{index + 1}.</span>
-                            <span className="px-2 py-1 rounded bg-blue-500/10 text-blue-300 font-mono">{step.tool}</span>
-                            <span className={cn(
-                              'px-2 py-0.5 rounded text-[10px] uppercase tracking-wide border',
-                              step.status === 'completed' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' :
-                                step.status === 'failed' ? 'bg-red-500/10 text-red-300 border-red-500/20' :
-                                  step.status === 'approved' ? 'bg-blue-500/10 text-blue-300 border-blue-500/20' :
-                                    'bg-amber-500/10 text-amber-300 border-amber-500/20'
-                            )}>
-                              {t(step.status)}
-                            </span>
-                            {step.title && step.title !== step.tool && <span className="text-slate-400">{step.title}</span>}
-                          </div>
-                          {step.result && <div className="mt-2 text-slate-500 leading-relaxed">{step.result}</div>}
-                        </li>
-                      ))}
-                      {run.steps.length > 5 && (
-                        <li>
-                          <button
-                            type="button"
-                            onClick={() => setExpandedTraceRunIds(ids => (
-                              ids.includes(run.id) ? ids.filter(id => id !== run.id) : [...ids, run.id]
-                            ))}
-                            className="mt-1 inline-flex items-center rounded border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs font-bold text-blue-300 hover:bg-blue-500/20"
-                          >
-                            {isExpanded
-                              ? (language === 'zh' ? '收起步骤' : 'Collapse steps')
-                              : (language === 'zh' ? `显示全部步骤（还有 ${hiddenStepCount} 个）` : `Show all steps (${hiddenStepCount} more)`)}
-                          </button>
-                        </li>
-                      )}
-                    </ol>
-                  </div>
-                  );
-                })}
-              </div>
-            </section>
-
-            <section className="bg-neutral-900/80 border border-neutral-700 rounded-lg p-6">
-              <div className="flex items-center justify-between gap-3 mb-6">
-                <div>
-                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400">
-                    <ListChecks className="w-4 h-4" /> {language === 'zh' ? '智能体执行历史' : 'Agent Execution History'}
-                  </div>
-                  <p className="text-xs text-slate-500 mt-2">{t('Monitor each agent run plan, expected result, and actual result.')}</p>
-                </div>
-                <button
-                  onClick={runSchedulerNow}
-                  disabled={schedulerRunning}
-                  className="px-3 py-2 bg-blue-600/20 hover:bg-blue-600/30 disabled:bg-slate-900 border border-blue-500/30 disabled:border-slate-700 rounded-md text-xs font-bold text-blue-200 disabled:text-slate-500 flex items-center gap-2"
-                >
-                  <RefreshCw className={cn('w-4 h-4', schedulerRunning && 'animate-spin')} />
-                  {t('Run Scheduler')}
-                </button>
-                <button
-                  onClick={clearAgentRunRecords}
-                  disabled={agentRunRecords.length === 0}
-                  className="p-2 rounded text-slate-500 hover:text-red-300 hover:bg-red-500/10 disabled:opacity-40"
-                  title={t('Clear logs')}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-              {schedulerSummary && (
-                <div className="mb-4 rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-100 space-y-2">
-                  <div>{schedulerSummary}</div>
-                  {schedulerAgentDetails.length > 0 && (
-                    <div className="space-y-1 text-slate-300">
-                      {schedulerAgentDetails.slice(0, 8).map((item, index) => (
-                        <div key={`${item.userId}-${item.agentId}-${index}`} className="flex flex-col gap-0.5 rounded bg-black/40 px-2 py-1">
-                          <span className="font-bold text-slate-100">{item.agentName}</span>
-                          <span>
-                            {t('Status')}: {item.status} · {t('Interval')}: {item.scheduleIntervalValue} {item.scheduleIntervalUnit} · {t('Reason')}: {item.reason}
-                            {item.secondsRemaining != null ? ` · ${t('Seconds remaining')}: ${item.secondsRemaining}` : ''}
-                          </span>
-                          {item.lastRunAt && <span>{t('Last run')}: {new Date(item.lastRunAt).toLocaleString()}</span>}
-                          {item.nextRunAt && <span>{t('Next run')}: {new Date(item.nextRunAt).toLocaleString()}</span>}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-              <div className="space-y-3 max-h-[calc(100vh-260px)] overflow-y-auto pr-1">
-                {agentRunRecords.length === 0 && (
-                  <div className="text-sm text-slate-500 py-8 text-center">{t('No agent run records yet.')}</div>
-                )}
-                {visibleAgentRunRecords.map(record => (
-                  <div key={record.id} className="bg-black border border-neutral-800 rounded-lg p-4">
-                    <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-bold text-slate-100">{record.agentName}</span>
-                          <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-[10px] text-slate-400 uppercase">{t(`trigger_${record.trigger}`)}</span>
-                          <span className={cn('px-2 py-0.5 rounded border text-[10px] uppercase font-bold', record.status === 'failed' || record.status === 'rejected' ? 'bg-red-500/10 border-red-500/30 text-red-300' : record.status === 'completed' || record.status === 'approved' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-blue-500/10 border-blue-500/30 text-blue-300')}>
-                            {t(record.status)}
-                          </span>
-                        </div>
-                        <div className="text-[10px] text-slate-600 mt-2">
-                          {new Date(record.createdAt).toLocaleString()}
-                          {record.relatedRunId && ` · ${record.relatedRunType}:${record.relatedRunId}`}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {record.completedAt && <div className="text-[10px] text-slate-500">{t('Completed at')}: {new Date(record.completedAt).toLocaleString()}</div>}
-                        <button
-                          type="button"
-                          onClick={() => deleteAgentRunRecord(record.id)}
-                          title={t('Delete run record')}
-                          className="p-1.5 rounded text-slate-500 hover:text-red-300 hover:bg-red-500/10"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                    <div className="mt-5 pl-1">
-                      <div className="relative space-y-5 before:absolute before:left-[10px] before:top-2 before:bottom-2 before:w-px before:bg-neutral-800">
-                        {runTimelineItems(record).map((item, index) => {
-                          const tone = timelineTone(item.tone);
-                          return (
-                            <div key={`${record.id}-${item.label}-${index}`} className="relative flex gap-4">
-                              <div className={cn('relative z-10 mt-1 h-5 w-5 rounded-full border-2 shadow-lg', tone.dot)} />
-                              <div className="min-w-0 flex-1 rounded-md border border-neutral-800 bg-neutral-950 p-3">
-                                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                                  <div className={cn('text-[10px] uppercase font-bold', tone.label)}>{item.label}</div>
-                                  <div className="text-[10px] text-slate-600">{item.time}</div>
-                                </div>
-                                {item.label === t('Plan') ? (
-                                  <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{item.value}</p>
-                                ) : (
-                                  renderTodoTimeline(item.value, item.tone)
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          </div>
+          <ExecutionLogsPanel
+            language={language}
+            t={t}
+            runLogs={runLogs}
+            agentRunRecords={agentRunRecords}
+            logDisplayLimit={logDisplayLimit}
+            expandedTraceRunIds={expandedTraceRunIds}
+            schedulerRunning={schedulerRunning}
+            schedulerSummary={schedulerSummary}
+            schedulerAgentDetails={schedulerAgentDetails}
+            onLogDisplayLimitChange={setLogDisplayLimit}
+            onOpenPolicy={() => setTab('approvals')}
+            onClearTraceLogs={clearTraceLogs}
+            onDeleteTraceRun={deleteRunLog}
+            onToggleTraceRunExpanded={(runId) => setExpandedTraceRunIds(ids => (
+              ids.includes(runId) ? ids.filter(id => id !== runId) : [...ids, runId]
+            ))}
+            onRunScheduler={runSchedulerNow}
+            onClearAgentRunRecords={clearAgentRunRecords}
+            onDeleteAgentRunRecord={deleteAgentRunRecord}
+          />
         )}
 
         {tab === 'global' && (
