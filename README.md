@@ -420,7 +420,8 @@ Recommended near-term roadmap:
 
 - [x] Add the shared Email, WhatsApp, and Live Chat conversation/message backend index and unified read APIs.
 - [x] Migrate the Inbox left conversation list to the shared conversation model. Email, WhatsApp, and Live Chat now share one list, search, channel filter, and chronological ordering; selecting an item opens the existing channel-specific detail view.
-- [ ] Migrate unified conversation writes for owner, stage, follow-up due date, tags, and internal comments across all channels.
+- [x] Add unified conversation write API and migrate Inbox bulk actions for tags, internal notes, important, follow-up, email delete, WhatsApp delete, and Live Chat close/archive.
+- [x] Add owner and stage controls to the unified conversation UI. Inbox supports per-conversation and bulk owner/stage updates, and stage updates sync to linked client status.
 - [ ] Add unified conversation search across all channels.
 - [ ] Expand client/lead workroom widgets for AI Summary, Best Next Step, Quotes, Contacts, RAG evidence, pending tasks, and channel history.
 - [ ] Add customer-level and lead-level AI analysis diffing so unchanged records do not repeatedly consume AI calls.
@@ -1290,7 +1291,8 @@ Agent Execution Policy 使用的 Global Orchestrator action type：
 
 - [x] 增加 Email、WhatsApp、Live Chat 统一 conversation/message 后端索引和统一读取 API。
 - [x] 将 Inbox 左侧会话列表迁移到统一沟通模型。Email、WhatsApp、Live Chat 共用同一列表、搜索、渠道筛选和时间排序；点击后打开原有渠道详情视图。
-- [ ] 继续迁移负责人、阶段、跟进时间、标签和内部备注等跨渠道写入能力。
+- [x] 增加统一 conversation 写入 API，并将 Inbox 批量标签、内部备注、重要标记、待跟进、邮件删除、WhatsApp 删除、Live Chat 关闭/归档迁移到统一入口。
+- [x] 在统一沟通 UI 中加入负责人和阶段控制。Inbox 支持单条和批量更新负责人/阶段，阶段会同步到已关联客户状态。
 - [ ] 增加跨渠道统一搜索。
 - [ ] 强化客户/Lead 作战室 widgets：AI Summary、Best Next Step、Quotes、Contacts、RAG 依据、待处理任务和全渠道历史。
 - [ ] 客户级和 Lead 级 AI 分析增加 diff 机制，记录无变化时不重复消耗 AI。

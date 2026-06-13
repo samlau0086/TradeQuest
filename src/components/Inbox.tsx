@@ -36,6 +36,8 @@ interface UnifiedCommunicationConversation {
   channel: 'email' | 'whatsapp' | 'live_chat';
   source_id: string;
   client_id?: string;
+  owner_id?: string;
+  stage?: string;
   client_name?: string;
   client_company?: string;
   status?: string;
@@ -73,6 +75,7 @@ const WHATSAPP_CONVERSATION_POLL_MS = 20_000;
 const WHATSAPP_FOLLOW_UP_MARKER = '__FOLLOW_UP__';
 
 type InboxChannelFilter = 'all' | 'email' | 'whatsapp' | 'live_chat';
+const CONVERSATION_STAGES = ['Leads', 'Contacted', 'Sample Sent', 'Negotiating', 'Closed Won'];
 
 const hasOpenWhatsAppFollowUp = (conversation: InboxWhatsAppConversation) => {
   const marker = [...(conversation.comments || [])]
@@ -254,8 +257,9 @@ function getInboxFilterForEmail(email: EmailMessage): 'inbox' | 'sent' | 'schedu
 }
 
 export function Inbox() {
-  const { emails, markEmailRead, clients, logs, deals, knowledgeBase, products, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail, notify, language, llmConfigs, activeLLMId, llmMappings, inboxFollowUpFilterRequest, setView } = useStore();
+  const { emails, markEmailRead, clients, logs, deals, knowledgeBase, products, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail, notify, language, llmConfigs, activeLLMId, llmMappings, inboxFollowUpFilterRequest, setView, fetchEmails, fetchLiveChatSessions } = useStore();
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'inbox-layout' });
+  const currentUser = useAuthStore(state => state.profile);
   const [filter, setFilter] = useState<'inbox' | 'sent' | 'scheduled' | 'drafts'>('inbox');
   const [channelFilter, setChannelFilter] = useState<InboxChannelFilter>('all');
   const [emailListMode, setEmailListMode] = useState<'list' | 'conversation'>('list');
@@ -279,9 +283,12 @@ export function Inbox() {
   const syncInFlightRef = useRef(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectedWhatsAppIds, setSelectedWhatsAppIds] = useState<Set<string>>(new Set());
+  const [selectedConversationIds, setSelectedConversationIds] = useState<Set<string>>(new Set());
   const [bulkTagInput, setBulkTagInput] = useState('');
   const [bulkNoteInput, setBulkNoteInput] = useState('');
   const [bulkFollowUpAt, setBulkFollowUpAt] = useState('');
+  const [bulkOwnerId, setBulkOwnerId] = useState('');
+  const [bulkStage, setBulkStage] = useState('');
   const [expandedTrackingEmailIds, setExpandedTrackingEmailIds] = useState<Set<string>>(new Set());
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [todoModalEmail, setTodoModalEmail] = useState<string | null>(null);
@@ -641,13 +648,14 @@ export function Inbox() {
     .filter(conversation => conversation.channel === 'whatsapp')
     .map(conversation => conversation.source_id)
     .filter(id => whatsappConversations.some(conversation => conversation.id === id) || unifiedConversations.some(conversation => conversation.channel === 'whatsapp' && conversation.source_id === id));
-  const selectedCount = selectedIds.size + selectedWhatsAppIds.size;
-  const selectableVisibleCount = visibleEmailIds.length + visibleWhatsAppIds.length;
+  const visibleConversationIds = unifiedConversationList.map(conversation => conversation.id);
+  const selectedUnifiedConversations = unifiedConversationList.filter(conversation => selectedConversationIds.has(conversation.id));
+  const selectedCount = selectedConversationIds.size;
+  const selectableVisibleCount = visibleConversationIds.length;
   const totalVisibleCount = unifiedConversationList.length;
   const allVisibleSelected = selectableVisibleCount > 0
-    && visibleEmailIds.every(id => selectedIds.has(id))
-    && visibleWhatsAppIds.every(id => selectedWhatsAppIds.has(id));
-  const someVisibleSelected = visibleEmailIds.some(id => selectedIds.has(id)) || visibleWhatsAppIds.some(id => selectedWhatsAppIds.has(id));
+    && visibleConversationIds.every(id => selectedConversationIds.has(id));
+  const someVisibleSelected = visibleConversationIds.some(id => selectedConversationIds.has(id));
   const selectedWhatsAppConversations = whatsappConversations.filter(conversation => selectedWhatsAppIds.has(conversation.id));
 
   const toggleSelection = (e: React.MouseEvent, id: string) => {
@@ -666,17 +674,40 @@ export function Inbox() {
     setSelectedWhatsAppIds(next);
   };
 
+  const toggleUnifiedSelection = (e: React.MouseEvent, conversation: UnifiedCommunicationConversation) => {
+    e.stopPropagation();
+    const next = new Set(selectedConversationIds);
+    if (next.has(conversation.id)) next.delete(conversation.id);
+    else next.add(conversation.id);
+    setSelectedConversationIds(next);
+
+    if (conversation.channel === 'email') {
+      const emailSet = new Set(selectedIds);
+      if (next.has(conversation.id)) emailSet.add(conversation.source_id);
+      else emailSet.delete(conversation.source_id);
+      setSelectedIds(emailSet);
+    } else if (conversation.channel === 'whatsapp') {
+      const whatsappSet = new Set(selectedWhatsAppIds);
+      if (next.has(conversation.id)) whatsappSet.add(conversation.source_id);
+      else whatsappSet.delete(conversation.source_id);
+      setSelectedWhatsAppIds(whatsappSet);
+    }
+  };
+
   const toggleSelectAll = () => {
     if (allVisibleSelected) {
+      setSelectedConversationIds(new Set());
       setSelectedIds(new Set());
       setSelectedWhatsAppIds(new Set());
     } else {
+      setSelectedConversationIds(new Set(visibleConversationIds));
       setSelectedIds(new Set(visibleEmailIds));
       setSelectedWhatsAppIds(new Set(visibleWhatsAppIds));
     }
   };
 
   const clearBulkSelection = () => {
+    setSelectedConversationIds(new Set());
     setSelectedIds(new Set());
     setSelectedWhatsAppIds(new Set());
   };
@@ -709,13 +740,53 @@ export function Inbox() {
     return data.comments || [...(conversation.comments || []), data.comment].filter(Boolean);
   };
 
+  const patchUnifiedConversation = async (conversation: UnifiedCommunicationConversation, updates: any) => {
+    const res = await fetch(`/api/conversations/${conversation.id}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify(updates)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Failed to update conversation.');
+    return data.conversation || { ...conversation, ...updates };
+  };
+
+  const applyUnifiedConversationUpdate = (conversation: UnifiedCommunicationConversation, updates: Partial<UnifiedCommunicationConversation>) => {
+    setUnifiedConversations(prev => {
+      const exists = prev.some(item => item.id === conversation.id);
+      const next = exists
+        ? prev.map(item => item.id === conversation.id ? { ...item, ...updates } : item)
+        : [{ ...conversation, ...updates }, ...prev];
+      return next;
+    });
+  };
+
+  const updateConversationOwnerStage = async (conversation: UnifiedCommunicationConversation, updates: { ownerId?: string | null; stage?: string | null }) => {
+    const patched = await patchUnifiedConversation(conversation, updates);
+    applyUnifiedConversationUpdate(conversation, {
+      owner_id: patched.owner_id,
+      stage: patched.stage
+    });
+    notify(language === 'zh' ? '会话状态已更新。' : 'Conversation status updated.', 'success');
+  };
+
+  const refreshUnifiedConversationData = async () => {
+    await fetchUnifiedConversations();
+    void fetchEmails();
+    void fetchLiveChatSessions();
+  };
+
   const handleDeleteSelected = () => {
     if (selectedCount === 0) return;
     setConfirmDialog({
-      message: `Are you sure you want to delete ${selectedIds.size} email(s) and ${selectedWhatsAppIds.size} WhatsApp conversation(s)? Emails associated with a client will be soft-deleted pending admin review.`,
+      message: `Are you sure you want to delete/archive ${selectedCount} selected conversation(s)? Emails associated with a client will be soft-deleted pending admin review; Live Chat sessions will be closed.`,
       onConfirm: async () => {
-        const emailIds = Array.from(selectedIds);
-        const whatsappIds = Array.from(selectedWhatsAppIds);
+        const emailIds = selectedUnifiedConversations.filter(item => item.channel === 'email').map(item => item.source_id);
+        const whatsappIds = selectedUnifiedConversations.filter(item => item.channel === 'whatsapp').map(item => item.source_id);
+        const liveChatItems = selectedUnifiedConversations.filter(item => item.channel === 'live_chat');
         if (emailIds.length > 0) await useStore.getState().deleteEmails(emailIds);
         for (const id of whatsappIds) {
           const res = await fetch(`/api/whatsapp-hub/conversations/${encodeURIComponent(id)}`, {
@@ -725,12 +796,16 @@ export function Inbox() {
           const data = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(data.error || 'Failed to delete WhatsApp conversation.');
         }
+        for (const conversation of liveChatItems) {
+          await patchUnifiedConversation(conversation, { status: 'closed' });
+        }
         updateWhatsAppConversationState(whatsappConversations.filter(conversation => !selectedWhatsAppIds.has(conversation.id)));
         clearBulkSelection();
         if (selectedEmailId && selectedIds.has(selectedEmailId)) selectEmail(null);
         if (activeWhatsAppConversation && selectedWhatsAppIds.has(activeWhatsAppConversation.id)) setSelectedWhatsAppPhone(null);
+        await refreshUnifiedConversationData();
         setConfirmDialog(null);
-        notify('Selected conversations deleted.', 'success');
+        notify('Selected conversations updated.', 'success');
       }
     });
   };
@@ -739,49 +814,43 @@ export function Inbox() {
     const tag = bulkTagInput.trim().replace(/^#/, '');
     if (!tag || selectedCount === 0) return;
     const normalizedTag = `#${tag}`;
-    selectedIds.forEach(id => {
-      const email = emails.find(item => item.id === id);
-      if (!email) return;
-      const tags = Array.from(new Set([...(email.tags || []), normalizedTag]));
-      editEmail(id, { tags });
-    });
-    const updatedWhatsApp = [...whatsappConversations];
-    for (const conversation of selectedWhatsAppConversations) {
-      const nextTags = Array.from(new Set([...(conversation.tags || []), tag]));
-      await patchWhatsAppConversation(conversation, { tags: nextTags });
-      const index = updatedWhatsApp.findIndex(item => item.id === conversation.id);
-      if (index >= 0) updatedWhatsApp[index] = { ...updatedWhatsApp[index], tags: nextTags };
+    for (const conversation of selectedUnifiedConversations) {
+      const tagToApply = conversation.channel === 'email' ? normalizedTag : tag;
+      const tags = Array.from(new Set([...(conversation.tags || []), tagToApply]));
+      await patchUnifiedConversation(conversation, { tags });
+      if (conversation.channel === 'email') editEmail(conversation.source_id, { tags });
     }
-    updateWhatsAppConversationState(updatedWhatsApp);
+    await refreshUnifiedConversationData();
     setBulkTagInput('');
     notify('Tag added to selected items.', 'success');
   };
 
   const handleBulkMarkImportant = async () => {
     if (selectedCount === 0) return;
-    selectedIds.forEach(id => editEmail(id, { isImportant: true }));
-    const updatedWhatsApp = [...whatsappConversations];
-    for (const conversation of selectedWhatsAppConversations) {
-      const nextTags = Array.from(new Set([...(conversation.tags || []), 'important']));
-      await patchWhatsAppConversation(conversation, { tags: nextTags });
-      const index = updatedWhatsApp.findIndex(item => item.id === conversation.id);
-      if (index >= 0) updatedWhatsApp[index] = { ...updatedWhatsApp[index], tags: nextTags };
+    for (const conversation of selectedUnifiedConversations) {
+      await patchUnifiedConversation(conversation, { isImportant: true });
+      if (conversation.channel === 'email') editEmail(conversation.source_id, { isImportant: true });
     }
-    updateWhatsAppConversationState(updatedWhatsApp);
+    await refreshUnifiedConversationData();
     notify('Selected items marked important.', 'success');
   };
 
   const handleBulkAddComment = async () => {
     const content = bulkNoteInput.trim();
     if (!content || selectedCount === 0) return;
-    selectedIds.forEach(id => addEmailComment(id, content));
-    const updatedWhatsApp = [...whatsappConversations];
-    for (const conversation of selectedWhatsAppConversations) {
-      const comments = await addWhatsAppConversationComment(conversation, content);
-      const index = updatedWhatsApp.findIndex(item => item.id === conversation.id);
-      if (index >= 0) updatedWhatsApp[index] = { ...updatedWhatsApp[index], comments };
+    for (const conversation of selectedUnifiedConversations) {
+      const comment = {
+        id: `uc_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        author: 'User',
+        content,
+        createdAt: new Date().toISOString(),
+        replies: []
+      };
+      const comments = [...(conversation.comments || []), comment];
+      await patchUnifiedConversation(conversation, { comments });
+      if (conversation.channel === 'email') addEmailComment(conversation.source_id, content);
     }
-    updateWhatsAppConversationState(updatedWhatsApp);
+    await refreshUnifiedConversationData();
     setBulkNoteInput('');
     notify('Internal comment added to selected items.', 'success');
   };
@@ -789,26 +858,37 @@ export function Inbox() {
   const handleBulkSetFollowUp = async () => {
     if (!bulkFollowUpAt || selectedCount === 0) return;
     const dueAt = new Date(bulkFollowUpAt).toISOString();
-    selectedIds.forEach(id => {
-      const email = emails.find(item => item.id === id);
-      editEmail(id, {
-        todoAt: dueAt,
-        todoNote: bulkNoteInput.trim() || `Follow up: ${email?.subject || email?.sender || id}`
-      });
-    });
-    const updatedWhatsApp = [...whatsappConversations];
-    for (const conversation of selectedWhatsAppConversations) {
-      const comments = await addWhatsAppConversationComment(conversation, `${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
-        status: 'open',
-        dueAt,
-        note: bulkNoteInput.trim() || `Follow up WhatsApp conversation with ${conversation.clientName || conversation.targetPhone}.`
-      })}`);
-      const index = updatedWhatsApp.findIndex(item => item.id === conversation.id);
-      if (index >= 0) updatedWhatsApp[index] = { ...updatedWhatsApp[index], comments };
+    for (const conversation of selectedUnifiedConversations) {
+      const note = bulkNoteInput.trim() || `Follow up: ${conversation.title || conversation.subject || conversation.contact_address || conversation.source_id}`;
+      await patchUnifiedConversation(conversation, { todoAt: dueAt, todoNote: note });
+      if (conversation.channel === 'email') editEmail(conversation.source_id, { todoAt: dueAt, todoNote: note });
     }
-    updateWhatsAppConversationState(updatedWhatsApp);
+    await refreshUnifiedConversationData();
     setBulkFollowUpAt('');
     notify('Follow-up reminder set for selected items.', 'success');
+  };
+
+  const handleBulkAssignOwner = async () => {
+    if (selectedCount === 0) return;
+    const ownerId = bulkOwnerId || null;
+    for (const conversation of selectedUnifiedConversations) {
+      await patchUnifiedConversation(conversation, { ownerId });
+      applyUnifiedConversationUpdate(conversation, { owner_id: ownerId || undefined });
+    }
+    setBulkOwnerId('');
+    await refreshUnifiedConversationData();
+    notify(language === 'zh' ? '负责人已批量更新。' : 'Owner updated for selected conversations.', 'success');
+  };
+
+  const handleBulkSetStage = async () => {
+    if (selectedCount === 0 || !bulkStage) return;
+    for (const conversation of selectedUnifiedConversations) {
+      await patchUnifiedConversation(conversation, { stage: bulkStage });
+      applyUnifiedConversationUpdate(conversation, { stage: bulkStage });
+    }
+    setBulkStage('');
+    await refreshUnifiedConversationData();
+    notify(language === 'zh' ? '阶段已批量更新。' : 'Stage updated for selected conversations.', 'success');
   };
 
   const handleSync = async (options: { silent?: boolean } = {}) => {
@@ -1388,6 +1468,30 @@ export function Inbox() {
                       </button>
                     </div>
                     <div className="flex flex-wrap gap-2">
+                      <select
+                        value={bulkOwnerId}
+                        onChange={event => setBulkOwnerId(event.target.value)}
+                        className="min-w-[140px] flex-1 rounded border border-slate-800 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-blue-500"
+                      >
+                        <option value="">{language === 'zh' ? '负责人：未分配' : 'Owner: Unassigned'}</option>
+                        {currentUser && (
+                          <option value={currentUser.id}>{language === 'zh' ? '负责人：我' : 'Owner: Me'}</option>
+                        )}
+                      </select>
+                      <button onClick={handleBulkAssignOwner} className="inline-flex items-center gap-1 rounded border border-blue-500/40 bg-blue-500/10 px-2 py-1.5 font-bold text-blue-200 hover:bg-blue-500/20">
+                        <User className="h-3.5 w-3.5" /> {language === 'zh' ? '分配' : 'Assign'}
+                      </button>
+                      <select
+                        value={bulkStage}
+                        onChange={event => setBulkStage(event.target.value)}
+                        className="min-w-[140px] flex-1 rounded border border-slate-800 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-purple-500"
+                      >
+                        <option value="">{language === 'zh' ? '选择阶段' : 'Select stage'}</option>
+                        {CONVERSATION_STAGES.map(stage => <option key={stage} value={stage}>{stage}</option>)}
+                      </select>
+                      <button onClick={handleBulkSetStage} disabled={!bulkStage} className="inline-flex items-center gap-1 rounded border border-purple-500/40 bg-purple-500/10 px-2 py-1.5 font-bold text-purple-200 hover:bg-purple-500/20 disabled:border-slate-700 disabled:text-slate-500">
+                        <Activity className="h-3.5 w-3.5" /> {language === 'zh' ? '阶段' : 'Stage'}
+                      </button>
                       <input
                         type="datetime-local"
                         value={bulkFollowUpAt}
@@ -1455,7 +1559,18 @@ export function Inbox() {
                   isEmail && !conversation.read && filter === 'inbox' && "bg-slate-800/40"
                 )}
               >
-                {(isEmail || isWhatsApp) && (
+                <div
+                  className={cn("pt-0.5 transition-opacity", selectedConversationIds.has(conversation.id) ? "opacity-100" : "opacity-0 group-hover:opacity-100")}
+                  onClick={(e) => toggleUnifiedSelection(e, conversation)}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedConversationIds.has(conversation.id)}
+                    onChange={() => {}}
+                    className={cn("rounded border-slate-700 bg-slate-800 focus:ring-cyan-500", isWhatsApp ? "text-green-500" : isLiveChat ? "text-violet-500" : "text-cyan-500")}
+                  />
+                </div>
+                {false && (isEmail || isWhatsApp) && (
                   <div
                     className={cn("pt-0.5 transition-opacity", (isEmail ? selectedIds.has(conversation.source_id) : selectedWhatsAppIds.has(conversation.source_id)) ? "opacity-100" : "opacity-0 group-hover:opacity-100")}
                     onClick={(e) => isEmail ? toggleSelection(e, conversation.source_id) : toggleWhatsAppSelection(e, conversation.source_id)}
@@ -1528,6 +1643,28 @@ export function Inbox() {
                       ))}
                     </div>
                   )}
+                  <div className="mt-3 grid grid-cols-2 gap-2" onClick={event => event.stopPropagation()}>
+                    <select
+                      value={conversation.owner_id || ''}
+                      onChange={event => updateConversationOwnerStage(conversation, { ownerId: event.target.value || null })}
+                      className="min-w-0 rounded border border-slate-800 bg-slate-950 px-2 py-1 text-[10px] font-bold text-slate-400 outline-none hover:border-slate-700 focus:border-blue-500"
+                      title={language === 'zh' ? '负责人' : 'Owner'}
+                    >
+                      <option value="">{language === 'zh' ? '未分配' : 'Unassigned'}</option>
+                      {currentUser && (
+                        <option value={currentUser.id}>{language === 'zh' ? '我负责' : 'Owner: Me'}</option>
+                      )}
+                    </select>
+                    <select
+                      value={conversation.stage || ''}
+                      onChange={event => updateConversationOwnerStage(conversation, { stage: event.target.value || null })}
+                      className="min-w-0 rounded border border-slate-800 bg-slate-950 px-2 py-1 text-[10px] font-bold text-slate-400 outline-none hover:border-slate-700 focus:border-purple-500"
+                      title={language === 'zh' ? '阶段' : 'Stage'}
+                    >
+                      <option value="">{language === 'zh' ? '未设阶段' : 'No stage'}</option>
+                      {CONVERSATION_STAGES.map(stage => <option key={stage} value={stage}>{stage}</option>)}
+                    </select>
+                  </div>
                 </div>
               </div>
             );

@@ -1708,6 +1708,196 @@ async function startServer() {
     }
   });
 
+  app.patch('/api/conversations/:id', authenticateToken, async (req: any, res) => {
+    try {
+      const currentRes = await pool.query(
+        `SELECT * FROM communication_conversations WHERE id = $1 AND user_id = $2 LIMIT 1`,
+        [req.params.id, req.user.uid]
+      );
+      const current = currentRes.rows[0];
+      if (!current) return res.status(404).json({ error: 'Conversation not found' });
+
+      const allowed: Record<string, string> = {
+        clientId: 'client_id',
+        leadId: 'lead_id',
+        ownerId: 'owner_id',
+        stage: 'stage',
+        status: 'status',
+        read: 'read',
+        isImportant: 'is_important',
+        todoAt: 'todo_at',
+        todoNote: 'todo_note',
+        tags: 'tags',
+        comments: 'comments',
+        metadata: 'metadata'
+      };
+      const values: any[] = [req.params.id, req.user.uid];
+      const clauses: string[] = [];
+      let idx = 3;
+      for (const [key, column] of Object.entries(allowed)) {
+        if (!(key in req.body)) continue;
+        const value = ['tags', 'comments', 'metadata'].includes(key)
+          ? JSON.stringify(req.body[key] || (key === 'metadata' ? {} : []))
+          : req.body[key];
+        clauses.push(`${column} = $${idx}${['tags', 'comments', 'metadata'].includes(key) ? '::jsonb' : ''}`);
+        values.push(value);
+        idx += 1;
+      }
+      if (clauses.length === 0) return res.status(400).json({ error: 'No updates provided' });
+      clauses.push('updated_at = CURRENT_TIMESTAMP');
+      const updatedRes = await pool.query(
+        `UPDATE communication_conversations
+         SET ${clauses.join(', ')}
+         WHERE id = $1 AND user_id = $2
+         RETURNING *`,
+        values
+      );
+      const updated = updatedRes.rows[0];
+
+      if (updated.channel === 'email') {
+        const emailUpdates: string[] = [];
+        const emailValues: any[] = [];
+        let emailIdx = 1;
+        if ('clientId' in req.body) {
+          emailUpdates.push(`client_id = $${emailIdx++}`);
+          emailValues.push(req.body.clientId || null);
+        }
+        if ('read' in req.body) {
+          emailUpdates.push(`read = $${emailIdx++}`);
+          emailValues.push(!!req.body.read);
+        }
+        if ('isImportant' in req.body) {
+          emailUpdates.push(`is_important = $${emailIdx++}`);
+          emailValues.push(!!req.body.isImportant);
+        }
+        if ('todoAt' in req.body) {
+          emailUpdates.push(`todo_at = $${emailIdx++}`);
+          emailValues.push(req.body.todoAt || null);
+        }
+        if ('todoNote' in req.body) {
+          emailUpdates.push(`todo_note = $${emailIdx++}`);
+          emailValues.push(req.body.todoNote || null);
+        }
+        if ('tags' in req.body) {
+          emailUpdates.push(`tags = $${emailIdx++}::jsonb`);
+          emailValues.push(JSON.stringify(req.body.tags || []));
+        }
+        if ('comments' in req.body) {
+          emailUpdates.push(`comments = $${emailIdx++}::jsonb`);
+          emailValues.push(JSON.stringify(req.body.comments || []));
+        }
+        if (emailUpdates.length > 0) {
+          emailValues.push(updated.source_id, req.user.uid);
+          await pool.query(
+            `UPDATE emails SET ${emailUpdates.join(', ')} WHERE id = $${emailIdx++} AND user_id = $${emailIdx}`,
+            emailValues
+          );
+        }
+      } else if (updated.channel === 'whatsapp') {
+        const tags = Array.isArray(updated.tags) ? updated.tags : [];
+        const comments = Array.isArray(updated.comments) ? updated.comments : [];
+        const nextTags = 'isImportant' in req.body && req.body.isImportant
+          ? Array.from(new Set([...tags, 'important']))
+          : tags;
+        const nextComments = [...comments];
+        if ('todoAt' in req.body) {
+          nextComments.push({
+            id: `waf_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+            author: req.user.email || 'User',
+            content: `${'__FOLLOW_UP__'}${JSON.stringify({
+              status: req.body.todoAt ? 'open' : 'cleared',
+              dueAt: req.body.todoAt || null,
+              note: req.body.todoNote || updated.todo_note || ''
+            })}`,
+            createdAt: new Date().toISOString(),
+            replies: []
+          });
+        }
+        if ('comments' in req.body) {
+          nextComments.splice(0, nextComments.length, ...(req.body.comments || []));
+        }
+        await pool.query(
+          `UPDATE whatsapp_conversations
+           SET client_id = COALESCE($1, client_id),
+               tags = $2::jsonb,
+               comments = $3::jsonb,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $4 AND user_id = $5`,
+          [updated.client_id || null, JSON.stringify(nextTags), JSON.stringify(nextComments), updated.source_id, req.user.uid]
+        );
+      } else if (updated.channel === 'live_chat') {
+        const liveChatUpdates: string[] = [];
+        const liveChatValues: any[] = [];
+        let liveIdx = 1;
+        if ('clientId' in req.body) {
+          liveChatUpdates.push(`client_id = $${liveIdx++}`);
+          liveChatValues.push(req.body.clientId || null);
+        }
+        if ('status' in req.body) {
+          liveChatUpdates.push(`status = $${liveIdx++}`);
+          liveChatValues.push(req.body.status || 'open');
+        }
+        if ('ownerId' in req.body) {
+          liveChatUpdates.push(`assigned_agent_id = $${liveIdx++}`);
+          liveChatValues.push(req.body.ownerId || null);
+        }
+        if ('tags' in req.body) {
+          liveChatUpdates.push(`tags = $${liveIdx++}::jsonb`);
+          liveChatValues.push(JSON.stringify(req.body.tags || []));
+        }
+        if (liveChatUpdates.length > 0) {
+          liveChatValues.push(updated.source_id, req.user.uid);
+          await pool.query(
+            `UPDATE live_chat_sessions SET ${liveChatUpdates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = $${liveIdx++} AND user_id = $${liveIdx}`,
+            liveChatValues
+          );
+        }
+        if ('comments' in req.body && Array.isArray(req.body.comments)) {
+          const previous = Array.isArray(current.comments) ? current.comments : [];
+          const incoming = req.body.comments;
+          const newComments = incoming.filter((comment: any) => !previous.some((item: any) => item?.id === comment?.id));
+          for (const comment of newComments) {
+            const text = String(comment?.content || '').trim();
+            if (!text) continue;
+            await pool.query(
+              `INSERT INTO live_chat_messages (id, session_id, user_id, role, sender_name, body, metadata)
+               VALUES ($1, $2, $3, 'system', $4, $5, $6)`,
+              [
+                `lcm_note_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+                updated.source_id,
+                req.user.uid,
+                req.user.email || 'User',
+                text,
+                JSON.stringify({ source: 'unified_conversation_comment', commentId: comment.id })
+              ]
+            );
+          }
+        }
+      }
+
+      if ('stage' in req.body && updated.client_id && req.body.stage) {
+        await pool.query(
+          `UPDATE clients
+           SET status = $1, updated_at = CURRENT_TIMESTAMP
+           WHERE id = $2 AND user_id = $3`,
+          [req.body.stage, updated.client_id, req.user.uid]
+        );
+      }
+
+      const refreshedRes = await pool.query(
+        `SELECT c.*, cl.name AS client_name, cl.company AS client_company
+         FROM communication_conversations c
+         LEFT JOIN clients cl ON cl.id = c.client_id
+         WHERE c.id = $1 AND c.user_id = $2`,
+        [req.params.id, req.user.uid]
+      );
+      res.json({ conversation: refreshedRes.rows[0] || updated });
+    } catch (e: any) {
+      console.error('Failed to update unified conversation', e);
+      res.status(500).json({ error: e.message || 'Failed to update conversation' });
+    }
+  });
+
   app.use((req, res, next) => {
     if (req.path.startsWith('/api/live-chat/public/') || req.path.startsWith('/api/public/customer-forms/')) {
       res.header('Access-Control-Allow-Origin', '*');
