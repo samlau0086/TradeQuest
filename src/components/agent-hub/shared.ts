@@ -24,6 +24,16 @@ export const ACTION_LABELS: Record<GlobalAgentActionType, string> = {
 };
 
 export type AgentHubTab = 'fleet' | 'approvals' | 'opportunities' | 'runs' | 'chat' | 'global';
+export type AgentQueueFilter = 'system' | 'custom';
+
+export interface AgentHubPendingItem {
+  kind: 'harness' | 'global';
+  id: string;
+  title: string;
+  agent: string;
+  body: string;
+  createdAt: string;
+}
 
 export const emptyAgent = (): Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'> => ({
   name: '',
