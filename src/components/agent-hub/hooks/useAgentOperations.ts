@@ -32,9 +32,7 @@ export function useAgentOperations({
     agentOpportunities,
     agentTasks,
     updateAgentOpportunity,
-    deleteAgentOpportunity,
     updateAgentTask,
-    deleteAgentTask,
     updateAgentHarnessRun,
     deleteAgentHarnessRun,
     updateGlobalAgentPlan,
@@ -128,16 +126,59 @@ export function useAgentOperations({
 
   const taskOpportunityId = (task: AgentTask) => linkedOpportunityIdFromTask(task);
 
+  const persistQueueState = async () => {
+    const authToken = token || localStorage.getItem('token');
+    if (!authToken) return;
+    const state = useStore.getState();
+    const response = await fetch('/api/user/settings', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authToken}`
+      },
+      body: JSON.stringify({
+        agentOpportunities: state.agentOpportunities,
+        agentTasks: state.agentTasks
+      })
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || 'Failed to save task queue');
+    }
+  };
+
   const updateTaskAndLinkedOpportunity = (task: AgentTask, taskUpdates: Partial<AgentTask>, opportunityUpdates?: any) => {
     updateAgentTask(task.id, taskUpdates);
     const opportunityId = taskOpportunityId(task);
     if (opportunityId) updateAgentOpportunity(opportunityId, opportunityUpdates || taskUpdates as any);
+    const nextTaskStatus = taskUpdates.status || opportunityUpdates?.status;
+    if (nextTaskStatus === 'ignored') {
+      void persistQueueState()
+        .catch((error) => notify(error instanceof Error ? error.message : (language === 'zh' ? '保存任务队列失败。' : 'Failed to save task queue.'), 'error'));
+    }
   };
 
   const deleteTaskAndLinkedOpportunity = (task: AgentTask) => {
-    deleteAgentTask(task.id);
     const opportunityId = taskOpportunityId(task);
-    if (opportunityId) deleteAgentOpportunity(opportunityId);
+    const completedAt = new Date().toISOString();
+    const resultSummary = language === 'zh'
+      ? '已从任务队列移除，并记录为忽略以避免重复生成。'
+      : 'Removed from the task queue and marked ignored to prevent regeneration.';
+    updateAgentTask(task.id, {
+      status: 'ignored',
+      completedAt,
+      resultSummary
+    });
+    if (opportunityId) {
+      updateAgentOpportunity(opportunityId, {
+        status: 'ignored',
+        completedAt,
+        resultSummary
+      });
+    }
+    void persistQueueState()
+      .then(() => notify(language === 'zh' ? '任务已移除，刷新后不会重新出现。' : 'Task removed and will not reappear after refresh.', 'success'))
+      .catch((error) => notify(error instanceof Error ? error.message : (language === 'zh' ? '保存任务队列失败。' : 'Failed to save task queue.'), 'error'));
   };
 
   const updateTasksForRun = (runId: string, runType: 'harness' | 'global', updates: Partial<AgentTask>) => {

@@ -201,7 +201,7 @@ export function AgentTaskQueuePanel({
                       type="button"
                       onClick={() => onDeleteTaskAndOpportunity(task)}
                       className="rounded-md p-2 text-slate-600 hover:bg-red-500/10 hover:text-red-300"
-                      title={isZh ? '删除任务' : 'Delete task'}
+                      title={isZh ? '从队列移除' : 'Remove from queue'}
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
