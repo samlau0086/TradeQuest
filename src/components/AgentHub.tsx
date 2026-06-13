@@ -14,10 +14,7 @@ import { AgentFleetPanel } from './agent-hub/AgentFleetPanel';
 import { AgentTaskQueuePanel } from './agent-hub/AgentTaskQueuePanel';
 import { ApprovalCenterPanel } from './agent-hub/ApprovalCenterPanel';
 import { ExecutionLogsPanel } from './agent-hub/ExecutionLogsPanel';
-import { useAgentChat } from './agent-hub/useAgentChat';
-import { useAgentConfigActions } from './agent-hub/useAgentConfigActions';
-import { useAgentHubData } from './agent-hub/useAgentHubData';
-import { useAgentOperations } from './agent-hub/useAgentOperations';
+import { useAgentChat, useAgentConfigActions, useAgentHubData, useAgentOperations } from './agent-hub/hooks';
 
 export function AgentHub() {
   const {

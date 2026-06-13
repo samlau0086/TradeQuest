@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { AgentHubAgent, AgentHubChatMessage as AgentChatMessage, useStore } from '../../store';
-import { useAuthStore } from '../../authStore';
-import { AgentHubPendingItem, formatChatRunResult } from './shared';
+import { AgentHubAgent, AgentHubChatMessage as AgentChatMessage, useStore } from '../../../store';
+import { useAuthStore } from '../../../authStore';
+import { AgentHubPendingItem, formatChatRunResult } from '../shared';
 
 interface UseAgentChatOptions {
   language: string;

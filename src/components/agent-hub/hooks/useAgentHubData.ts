@@ -1,14 +1,14 @@
 import { useMemo } from 'react';
-import { AgentHubAgent, AgentTask, useStore } from '../../store';
-import { AgentConfigValue } from './AgentConfigPanel';
-import { AgentTraceRun } from './ExecutionLogsPanel';
+import { AgentHubAgent, AgentTask, useStore } from '../../../store';
+import { AgentConfigValue } from '../AgentConfigPanel';
+import { AgentTraceRun } from '../ExecutionLogsPanel';
 import {
   AgentHubPendingItem,
   AgentQueueFilter,
   emptyAgent,
   linkedOpportunityIdFromTask,
   taskFromOpportunityForView
-} from './shared';
+} from '../shared';
 
 interface UseAgentHubDataOptions {
   language: string;

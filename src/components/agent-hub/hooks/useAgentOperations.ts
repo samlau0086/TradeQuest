@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { AgentHubAgent, AgentOpportunity, AgentTask, useStore } from '../../store';
-import { AgentHubPendingItem, AgentHubTab, linkedOpportunityIdFromTask } from './shared';
+import { AgentHubAgent, AgentOpportunity, AgentTask, useStore } from '../../../store';
+import { AgentHubPendingItem, AgentHubTab, linkedOpportunityIdFromTask } from '../shared';
 
 interface AgentTraceRunLike {
   kind: 'harness' | 'global';

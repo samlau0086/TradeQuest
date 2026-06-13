@@ -1,5 +1,5 @@
-import { AgentHubAgent, AgentHubStatus, useStore } from '../../store';
-import { AgentConfigValue } from './AgentConfigPanel';
+import { AgentHubAgent, AgentHubStatus, useStore } from '../../../store';
+import { AgentConfigValue } from '../AgentConfigPanel';
 
 interface UseAgentConfigActionsOptions {
   language: string;
