@@ -152,7 +152,8 @@ export function useAgentOperations({
     const opportunityId = taskOpportunityId(task);
     if (opportunityId) updateAgentOpportunity(opportunityId, opportunityUpdates || taskUpdates as any);
     const nextTaskStatus = taskUpdates.status || opportunityUpdates?.status;
-    if (nextTaskStatus === 'ignored') {
+    const shouldPersistQueue = ['ignored', 'open', 'completed'].includes(nextTaskStatus) || !!taskUpdates.agentId || !!taskUpdates.agentName;
+    if (shouldPersistQueue) {
       void persistQueueState()
         .catch((error) => notify(error instanceof Error ? error.message : (language === 'zh' ? '保存任务队列失败。' : 'Failed to save task queue.'), 'error'));
     }

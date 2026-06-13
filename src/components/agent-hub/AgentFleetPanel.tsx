@@ -1,6 +1,6 @@
 import React from 'react';
 import { Power, RefreshCw, Server, ShieldCheck, SlidersHorizontal, Zap } from 'lucide-react';
-import { AgentHubAgent } from '../../store';
+import { AgentHubAgent, AgentHubRunRecord } from '../../store';
 import { cn } from '../../lib/utils';
 import { eventTriggerLabel, guardrailLabel, scheduleLabel, statusClass } from './shared';
 import { AgentConfigPanel, AgentConfigValue } from './AgentConfigPanel';
@@ -17,6 +17,7 @@ interface AgentFleetPanelProps {
   systemAgents: AgentHubAgent[];
   customAgents: AgentHubAgent[];
   visibleQueueAgents: AgentHubAgent[];
+  agentRunRecords: AgentHubRunRecord[];
   activeQueueMeta: { title: string; description: string };
   agentQueueFilter: AgentQueueFilter;
   selectedAgentId: string | null;
@@ -41,6 +42,7 @@ export function AgentFleetPanel({
   systemAgents,
   customAgents,
   visibleQueueAgents,
+  agentRunRecords,
   activeQueueMeta,
   agentQueueFilter,
   selectedAgentId,
@@ -54,6 +56,45 @@ export function AgentFleetPanel({
   onResetAgent,
   onDeleteAgent
 }: AgentFleetPanelProps) {
+  const nextScheduledRunLabel = (agent: AgentHubAgent) => {
+    if (!agent.scheduleEnabled || agent.status === 'paused') return language === 'zh' ? '未计划' : 'Not scheduled';
+    const lastRun = agent.lastRunAt ? new Date(agent.lastRunAt) : new Date(agent.updatedAt || agent.createdAt);
+    const unit = agent.scheduleIntervalUnit || 'minute';
+    const value = agent.scheduleIntervalValue || agent.scheduleIntervalMinutes || 1;
+    const next = new Date(lastRun);
+    if (unit === 'second') next.setSeconds(next.getSeconds() + value);
+    if (unit === 'minute') next.setMinutes(next.getMinutes() + value);
+    if (unit === 'hour') next.setHours(next.getHours() + value);
+    if (unit === 'day') next.setDate(next.getDate() + value);
+    if (unit === 'month_day') {
+      next.setMonth(next.getMonth() + 1);
+      next.setDate(agent.scheduleDayOfMonth || 1);
+    }
+    return next.toLocaleString();
+  };
+  const agentHealth = (agent: AgentHubAgent) => {
+    const records = agentRunRecords
+      .filter(record => record.agentId === agent.id)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const completed = records.filter(record => record.status === 'completed').length;
+    const failed = records.filter(record => record.status === 'failed').length;
+    const terminal = records.filter(record => ['completed', 'failed', 'rejected'].includes(record.status));
+    const successRate = terminal.length ? Math.round((completed / terminal.length) * 100) : 0;
+    let consecutiveFailures = 0;
+    for (const record of records) {
+      if (record.status === 'failed') consecutiveFailures += 1;
+      else if (['completed', 'rejected'].includes(record.status)) break;
+    }
+    const skippedCount = records.filter(record => /skip|skipped|跳过|已跳过/.test(record.actualResult || '')).length;
+    return {
+      lastRunAt: records[0]?.createdAt || agent.lastRunAt,
+      successRate,
+      consecutiveFailures,
+      skippedCount,
+      failed
+    };
+  };
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -116,6 +157,9 @@ export function AgentFleetPanel({
             )}
 
             {visibleQueueAgents.map(agent => (
+              (() => {
+                const health = agentHealth(agent);
+                return (
               <div
                 key={agent.id}
                 onClick={() => onSelectAgent(agent.id)}
@@ -148,6 +192,23 @@ export function AgentFleetPanel({
                   <span>{scheduleLabel(agent, t)}</span>
                   {agent.lastRunAt && <span>{t('Last run')}: {new Date(agent.lastRunAt).toLocaleString()}</span>}
                 </div>
+                <div className="mt-4 grid grid-cols-2 gap-2 text-[10px] text-slate-400 lg:grid-cols-5">
+                  <span className="rounded border border-neutral-800 bg-black px-2 py-1">
+                    {language === 'zh' ? '最后运行' : 'Last'}: {health.lastRunAt ? new Date(health.lastRunAt).toLocaleString() : '-'}
+                  </span>
+                  <span className="rounded border border-neutral-800 bg-black px-2 py-1">
+                    {language === 'zh' ? '成功率' : 'Success'}: {health.successRate}%
+                  </span>
+                  <span className={cn('rounded border px-2 py-1', health.consecutiveFailures > 0 ? 'border-red-500/30 bg-red-500/10 text-red-200' : 'border-neutral-800 bg-black')}>
+                    {language === 'zh' ? '连续失败' : 'Failures'}: {health.consecutiveFailures}
+                  </span>
+                  <span className="rounded border border-neutral-800 bg-black px-2 py-1">
+                    {language === 'zh' ? '跳过' : 'Skipped'}: {health.skippedCount}
+                  </span>
+                  <span className="rounded border border-neutral-800 bg-black px-2 py-1">
+                    {language === 'zh' ? '下次' : 'Next'}: {nextScheduledRunLabel(agent)}
+                  </span>
+                </div>
                 {(agent.eventTriggers || []).length > 0 && (
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     {(agent.eventTriggers || []).slice(0, 4).map(trigger => (
@@ -173,6 +234,8 @@ export function AgentFleetPanel({
                   </button>
                 </div>
               </div>
+                );
+              })()
             ))}
           </div>
         </section>

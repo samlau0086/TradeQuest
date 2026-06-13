@@ -21,7 +21,8 @@ const normalizeRunStep = (step: any) => ({
   title: step.title || step.tool || step.actionType || 'agent.run',
   tool: step.tool || step.actionType || step.title || 'agent.run',
   status: step.status || 'pending',
-  result: step.result || step.error || ''
+  result: step.result || step.error || '',
+  risk: step.risk || step.payload?.risk || ''
 });
 
 const isLegacySignalScannerPendingTrace = (run: any) => (
@@ -94,19 +95,17 @@ export function useAgentHubData({
 
   const visibleOpportunities = useMemo(() => (
     agentOpportunities
-      .filter(opportunity => opportunity.status !== 'ignored')
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   ), [agentOpportunities]);
 
   const visibleTasks = useMemo(() => {
     const byId = new Map<string, AgentTask>();
-    agentTasks.filter(task => task.status !== 'ignored').forEach(task => byId.set(task.id, task));
+    agentTasks.forEach(task => byId.set(task.id, task));
     visibleOpportunities.map(taskFromOpportunityForView).forEach(task => {
       const existing = byId.get(task.id);
       byId.set(task.id, existing ? { ...existing, ...task, retryCount: existing.retryCount || 0 } : task);
     });
     return Array.from(byId.values())
-      .filter(task => task.status !== 'ignored')
       .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
   }, [agentTasks, visibleOpportunities]);
 

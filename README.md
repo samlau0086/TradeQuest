@@ -193,6 +193,7 @@ Opportunity dedupe uses `dedupeKey`.
 - Active opportunities with the same `dedupeKey` are not duplicated.
 - Failed opportunities are reused instead of recreated.
 - Completed or ignored opportunities are suppressed for 30 days, so the same customer/email thread does not keep creating repeated opportunity tasks.
+- Removing a task from the queue marks the linked opportunity as `ignored` instead of hard-deleting it. This preserves the dedupe tombstone so the task does not come back after refresh or the next scan.
 
 ### Layer 3: Execution Engine
 
@@ -364,12 +365,43 @@ Additional roadmap items:
 
 Recommended near-term roadmap:
 
-- Stabilize the Agent OS: keep Task Queue, Approval Center, Execution Policy, Execution Engine, and Execution Logs as the only formal execution path for scheduled, event-triggered, manual, and console-triggered work.
-- Improve task quality: add clearer task states, owner assignment, SLA/due time, retry policy, duplicate suppression visibility, and bulk task operations.
-- Harden channel automation: improve WhatsApp/email/live-chat background workers, quota protection, reconnect recovery, message deduplication, and customer identity matching.
-- Deepen CRM intelligence: make customer-level and lead-level summaries, best next steps, product fit, quote readiness, and RAG evidence more visible in customer/lead detail pages.
-- Expand governance: add clearer audit trails for destructive actions, approval comments, rollback metadata, and permission templates per role.
-- Polish operator experience: reduce page load cost, improve inbox search/filtering, keep dashboards actionable, and make gamification rewards tied to real CRM outcomes.
+### Phase 1: Agent Hub Clarity and Operability
+
+- [x] Keep Task Queue, Approval Center, Execution Policy, Execution Engine, and Execution Logs as the formal execution path for scheduled, event-triggered, manual, and console-triggered work.
+- [x] Reposition Agent Chat as a helper entry instead of the primary Agent Hub workflow.
+- [x] Make task removal persistent by marking linked opportunities as ignored instead of hard-deleting them.
+- [x] Add Task Queue filters for open, approval-required, running, completed, failed, and ignored tasks.
+- [x] Add a task detail drawer showing trigger reason, linked client/lead/message, recommended agent, risk rationale, dedupe key, and execution blockers.
+- [x] Add bulk task operations for ignore, reopen, dispatch, mark complete, and assign responsible agent.
+
+### Phase 2: Agent Reliability and Diagnostics
+
+- [x] Add Agent health cards: last run time, success rate, consecutive failures, skipped count, and next scheduled run.
+- [x] Add execution log filters by agent, status, trigger, risk, and time range.
+- [x] Add failure and skip aggregation, such as missing channel config, idempotency skip, no linked entity, or approval required.
+- [x] Add Agent dry run / simulation mode to preview affected records and planned tool calls before execution.
+
+### Phase 3: Data and Background Worker Hardening
+
+- [ ] Move critical Agent task, approval, and execution records from user settings JSON toward dedicated database tables.
+- [ ] Add a system health page for email sync, WhatsApp sync, Live Chat agent, scheduler, notification delivery, RAG indexing, and LLM provider status.
+- [ ] Add startup checks for required directories, environment variables, database migrations, and background workers.
+- [ ] Add deployment health checks after GitHub Actions deployment.
+
+### Phase 4: Unified Communication and CRM Workspace
+
+- [ ] Normalize Email, WhatsApp, and Live Chat into a shared conversation model with owner, stage, follow-up due date, tags, and internal comments.
+- [ ] Add unified conversation search across all channels.
+- [ ] Expand client/lead workroom widgets for AI Summary, Best Next Step, Quotes, Contacts, RAG evidence, pending tasks, and channel history.
+- [ ] Add customer-level and lead-level AI analysis diffing so unchanged records do not repeatedly consume AI calls.
+
+### Phase 5: Governance, RAG, and Operator Experience
+
+- [ ] Add role-based permissions for agent tools, external messaging, destructive actions, and API tokens.
+- [ ] Add approval comments, approver identity, rollback metadata, and audit trails for sensitive actions.
+- [ ] Add RAG indexing status, source path, update time, failed-index retry, and citation visibility in AI outputs.
+- [ ] Add notification history, quiet hours, templates, and escalation rules for daily summaries and repeated agent failures.
+- [ ] Tie gamification rewards to real CRM outcomes and configurable point/EXP rules.
 
 ## Lead Acquisition and Enrichment Channels
 
@@ -993,6 +1025,7 @@ Signal Scanner Agent 会定期扫描 CRM 信号，例如：
 - 活跃机会任务不会重复创建。
 - 失败机会任务会复用，不再新建副本。
 - 已完成或已忽略的机会任务 30 天内不会重新创建，避免同一个客户/邮件线程每小时重复派发。
+- 从任务队列移除任务时，会把关联机会任务标记为 `ignored`，而不是硬删除。这样可以保留去重墓碑，刷新页面或下次扫描后不会重新出现。
 
 ### 第三层：执行引擎
 
@@ -1164,12 +1197,43 @@ Agent Execution Policy 使用的 Global Orchestrator action type：
 
 建议的近期 Roadmap：
 
-- 稳定 Agent OS：把任务队列、审批中心、执行策略、执行引擎和执行日志作为定时、事件、手动和控制台触发工作的唯一正式执行路径。
-- 提升任务质量：补充更清晰的任务状态、负责人、SLA/预期时间、重试策略、去重原因展示和批量任务操作。
-- 加强渠道自动化：优化 WhatsApp、邮件和 Live Chat 后台 worker、配额保护、断线恢复、消息去重和客户身份匹配。
-- 深化 CRM 智能：让客户级和 Lead 级摘要、最佳下一步、产品匹配度、报价成熟度和 RAG 依据在客户/Lead 详情中更可见。
-- 完善治理能力：为删除等破坏性动作补充更清晰的审计、审批评论、回滚元数据和角色权限模板。
-- 打磨运营体验：降低页面加载成本，增强收件箱搜索/筛选，让仪表盘更可行动，并把游戏化奖励绑定到真实 CRM 结果。
+### 阶段 1：Agent Hub 清晰度与可运营性
+
+- [x] 把任务队列、审批中心、执行策略、执行引擎和执行日志作为定时、事件、手动和控制台触发工作的正式执行路径。
+- [x] 将 Agent Chat 定位为辅助入口，而不是 Agent Hub 的主工作流。
+- [x] 从任务队列移除任务时标记为 ignored，避免刷新或下次扫描后重新出现。
+- [x] 为任务队列增加筛选：开放、待审批、运行中、已完成、失败、已忽略。
+- [x] 增加任务详情抽屉，展示触发原因、关联客户/Lead/消息、推荐 Agent、风险原因、dedupeKey 和无法执行原因。
+- [x] 增加批量任务操作：忽略、重新打开、派发、标记完成、分配负责 Agent。
+
+### 阶段 2：Agent 可靠性与诊断
+
+- [x] 增加 Agent 健康卡片：最近运行时间、成功率、连续失败次数、跳过数量、下次运行时间。
+- [x] 执行日志支持按 Agent、状态、触发来源、风险和时间范围筛选。
+- [x] 聚合失败和跳过原因，例如渠道未配置、幂等跳过、未关联主体、需要审批等。
+- [x] 增加 Agent dry run / 模拟运行，执行前预览会影响哪些记录、计划调用哪些工具。
+
+### 阶段 3：数据与后台任务加固
+
+- [ ] 将关键 Agent 任务、审批、执行记录从 user settings JSON 逐步迁移到独立数据库表。
+- [ ] 增加系统健康检查页面，覆盖邮件同步、WhatsApp 同步、Live Chat Agent、Scheduler、通知投递、RAG 索引和 LLM Provider。
+- [ ] 启动时检查必要目录、环境变量、数据库迁移和后台 worker。
+- [ ] GitHub Actions 部署后增加自动 health check。
+
+### 阶段 4：统一沟通与 CRM 作战室
+
+- [ ] 将 Email、WhatsApp、Live Chat 归一为统一 conversation 模型，支持负责人、阶段、跟进时间、标签和内部备注。
+- [ ] 增加跨渠道统一搜索。
+- [ ] 强化客户/Lead 作战室 widgets：AI Summary、Best Next Step、Quotes、Contacts、RAG 依据、待处理任务和全渠道历史。
+- [ ] 客户级和 Lead 级 AI 分析增加 diff 机制，记录无变化时不重复消耗 AI。
+
+### 阶段 5：治理、RAG 与运营体验
+
+- [ ] 增加基于角色的权限，覆盖 Agent 工具、外发消息、破坏性操作和 API Token。
+- [ ] 敏感动作增加审批评论、审批人、回滚元数据和审计日志。
+- [ ] RAG 增加索引状态、来源路径、更新时间、失败重试和 AI 输出引用来源展示。
+- [ ] 通知系统增加通知历史、免打扰时段、模板和连续失败升级规则。
+- [ ] 将游戏化积分和 EXP 与真实 CRM 结果绑定，并支持可配置规则。
 
 ## 获客与数据富集渠道
 

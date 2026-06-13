@@ -6,6 +6,7 @@ import { useAuthStore } from '../authStore';
 import {
   AgentQueueFilter,
   AgentHubTab,
+  AgentTaskQueueFilter,
   emptyAgent
 } from './agent-hub/shared';
 import { AgentHubHeader } from './agent-hub/AgentHubHeader';
@@ -37,6 +38,7 @@ export function AgentHub() {
   const [draftAgent, setDraftAgent] = useState<ReturnType<typeof emptyAgent> | null>(null);
   const [logDisplayLimit, setLogDisplayLimit] = useState(30);
   const [agentQueueFilter, setAgentQueueFilter] = useState<AgentQueueFilter>('system');
+  const [taskStatusFilter, setTaskStatusFilter] = useState<AgentTaskQueueFilter>('active');
 
   useEffect(() => {
     if (tab === 'fleet') return;
@@ -138,6 +140,7 @@ export function AgentHub() {
     approveItem,
     rejectItem
   });
+  const activeTaskCount = visibleTasks.filter(task => !['completed', 'ignored'].includes(task.status)).length;
 
   return (
     <div className="flex-1 bg-black text-slate-100 overflow-y-auto">
@@ -146,7 +149,7 @@ export function AgentHub() {
           language={language}
           tab={tab}
           t={t}
-          taskCount={visibleTasks.length}
+          taskCount={activeTaskCount}
           pendingCount={pendingItems.length}
           runCount={runLogs.length}
           activeAgentCount={activeAgents}
@@ -191,6 +194,7 @@ export function AgentHub() {
             systemAgents={systemAgents}
             customAgents={customAgents}
             visibleQueueAgents={visibleQueueAgents}
+            agentRunRecords={agentRunRecords}
             activeQueueMeta={activeQueueMeta}
             agentQueueFilter={agentQueueFilter}
             selectedAgentId={selectedAgentId}
@@ -217,10 +221,13 @@ export function AgentHub() {
             language={language}
             visibleTasks={visibleTasks}
             dispatchableTasks={dispatchableTasks}
+            allAgents={agentHubAgents}
+            taskStatusFilter={taskStatusFilter}
             pendingCount={pendingItems.length}
             schedulerRunning={schedulerRunning}
             dispatchingOpportunityId={dispatchingOpportunityId}
             agentOpportunityRoutingPolicy={agentOpportunityRoutingPolicy}
+            onTaskStatusFilterChange={setTaskStatusFilter}
             onRunScheduler={runSchedulerNow}
             onDispatchAll={runAllDispatchableOpportunities}
             onUpdateRoutingPolicy={updateAgentOpportunityRoutingPolicy}

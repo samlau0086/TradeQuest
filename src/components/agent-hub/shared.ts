@@ -25,6 +25,7 @@ export const ACTION_LABELS: Record<GlobalAgentActionType, string> = {
 
 export type AgentHubTab = 'fleet' | 'approvals' | 'opportunities' | 'runs' | 'chat' | 'global';
 export type AgentQueueFilter = 'system' | 'custom';
+export type AgentTaskQueueFilter = 'active' | 'open' | 'approval_required' | 'running' | 'completed' | 'failed' | 'ignored' | 'all';
 
 export interface AgentHubPendingItem {
   kind: 'harness' | 'global';

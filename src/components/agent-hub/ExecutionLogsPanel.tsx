@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { Cpu, ListChecks, RefreshCw, Trash2 } from 'lucide-react';
 import { AgentHubRunRecord } from '../../store';
 import { cn } from '../../lib/utils';
@@ -8,6 +8,7 @@ export interface AgentTraceRunStep {
   tool: string;
   status: string;
   result?: string;
+  risk?: string;
 }
 
 export interface AgentTraceRun {
@@ -51,6 +52,30 @@ interface ExecutionLogsPanelProps {
   onRunScheduler: () => void | Promise<void>;
   onClearAgentRunRecords: () => void | Promise<void>;
   onDeleteAgentRunRecord: (recordId: string) => void;
+}
+
+type LogTimeFilter = 'all' | 'today' | '7d' | '30d';
+
+const riskFilters = ['all', 'low', 'medium', 'high'] as const;
+type LogRiskFilter = typeof riskFilters[number];
+
+function classifyRunIssue(text: string, language: string) {
+  const lower = text.toLowerCase();
+  const labels = {
+    missingConfig: language === 'zh' ? '渠道或配置缺失' : 'Missing channel/config',
+    idempotency: language === 'zh' ? '幂等窗口跳过' : 'Idempotency skip',
+    noEntity: language === 'zh' ? '未关联主体' : 'No linked entity',
+    approval: language === 'zh' ? '等待审批' : 'Approval required',
+    failed: language === 'zh' ? '执行失败' : 'Execution failed',
+    skipped: language === 'zh' ? '其他跳过' : 'Other skip'
+  };
+  if (/(not configured|missing|api key|credential|channel|server|未配置|缺失|凭证|密钥)/.test(lower)) return labels.missingConfig;
+  if (/(idempot|duplicate|dedupe|skip window|幂等|去重|重复|窗口跳过)/.test(lower)) return labels.idempotency;
+  if (/(no linked|not linked|entity|subject|client\/lead|客户\/线索|未关联|主体)/.test(lower)) return labels.noEntity;
+  if (/(approval|review|required|pending_review|human|审批|审核|人工)/.test(lower)) return labels.approval;
+  if (/(failed|error|exception|失败|错误|报错)/.test(lower)) return labels.failed;
+  if (/(skip|skipped|跳过|忽略)/.test(lower)) return labels.skipped;
+  return '';
 }
 
 function timelineTone(tone: string) {
@@ -170,10 +195,177 @@ export function ExecutionLogsPanel({
   onDeleteAgentRunRecord
 }: ExecutionLogsPanelProps) {
   const isZh = language === 'zh';
-  const visibleRunLogs = runLogs.slice(0, logDisplayLimit);
-  const visibleAgentRunRecords = agentRunRecords.slice(0, logDisplayLimit);
+  const [agentFilter, setAgentFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [triggerFilter, setTriggerFilter] = useState('all');
+  const [riskFilter, setRiskFilter] = useState<LogRiskFilter>('all');
+  const [timeFilter, setTimeFilter] = useState<LogTimeFilter>('all');
+  const withinTimeFilter = (createdAt: string) => {
+    if (timeFilter === 'all') return true;
+    const created = new Date(createdAt).getTime();
+    const now = Date.now();
+    if (timeFilter === 'today') return new Date(createdAt).toDateString() === new Date().toDateString();
+    if (timeFilter === '7d') return now - created <= 7 * 24 * 60 * 60 * 1000;
+    if (timeFilter === '30d') return now - created <= 30 * 24 * 60 * 60 * 1000;
+    return true;
+  };
+  const textRisk = (value: string) => {
+    const lower = value.toLowerCase();
+    if (/\bhigh\b|高风险|高風險/.test(lower)) return 'high';
+    if (/\bmedium\b|中风险|中風險/.test(lower)) return 'medium';
+    if (/\blow\b|低风险|低風險/.test(lower)) return 'low';
+    return '';
+  };
+  const runRisk = (run: AgentTraceRun) => {
+    const stepRisk = run.steps.map(step => step.risk).find(Boolean);
+    return stepRisk || textRisk(`${run.title} ${run.steps.map(step => `${step.title} ${step.result || ''}`).join(' ')}`);
+  };
+  const recordRisk = (record: AgentHubRunRecord) => textRisk(`${record.plan} ${record.expectedResult} ${record.actualResult || ''}`);
+  const agentOptions = useMemo(() => Array.from(new Set([
+    ...runLogs.map(run => run.agent),
+    ...agentRunRecords.map(record => record.agentName)
+  ].filter(Boolean))).sort(), [agentRunRecords, runLogs]);
+  const statusOptions = useMemo(() => Array.from(new Set([
+    ...runLogs.map(run => run.status),
+    ...agentRunRecords.map(record => record.status)
+  ].filter(Boolean))).sort(), [agentRunRecords, runLogs]);
+  const triggerOptions = useMemo(() => Array.from(new Set([
+    ...runLogs.map(run => run.kind),
+    ...agentRunRecords.map(record => record.trigger)
+  ].filter(Boolean))).sort(), [agentRunRecords, runLogs]);
+  const filteredRunLogs = useMemo(() => runLogs.filter(run => (
+    (agentFilter === 'all' || run.agent === agentFilter) &&
+    (statusFilter === 'all' || run.status === statusFilter) &&
+    (triggerFilter === 'all' || run.kind === triggerFilter) &&
+    (riskFilter === 'all' || runRisk(run) === riskFilter) &&
+    withinTimeFilter(run.createdAt)
+  )), [agentFilter, riskFilter, runLogs, statusFilter, timeFilter, triggerFilter]);
+  const filteredAgentRunRecords = useMemo(() => agentRunRecords.filter(record => (
+    (agentFilter === 'all' || record.agentName === agentFilter) &&
+    (statusFilter === 'all' || record.status === statusFilter) &&
+    (triggerFilter === 'all' || record.trigger === triggerFilter) &&
+    (riskFilter === 'all' || recordRisk(record) === riskFilter) &&
+    withinTimeFilter(record.createdAt)
+  )), [agentFilter, agentRunRecords, riskFilter, statusFilter, timeFilter, triggerFilter]);
+  const issueAggregates = useMemo(() => {
+    const buckets = new Map<string, { count: number; sample: string }>();
+    const addIssue = (category: string, sample: string) => {
+      if (!category) return;
+      const existing = buckets.get(category);
+      buckets.set(category, {
+        count: (existing?.count || 0) + 1,
+        sample: existing?.sample || sample.slice(0, 180)
+      });
+    };
+    filteredRunLogs.forEach(run => {
+      run.steps.forEach(step => {
+        const issueText = `${step.status} ${step.title} ${step.tool} ${step.result || ''}`;
+        if (/(failed|skipped|pending|approval|required|error|skip|跳过|失败|审批|审核|未配置|未关联|幂等|去重)/i.test(issueText)) {
+          addIssue(classifyRunIssue(issueText, language), `${run.title}: ${step.result || step.title || step.tool}`);
+        }
+      });
+    });
+    filteredAgentRunRecords.forEach(record => {
+      const issueText = `${record.status} ${record.plan} ${record.expectedResult} ${record.actualResult || ''}`;
+      if (/(failed|skipped|pending|approval|required|error|skip|跳过|失败|审批|审核|未配置|未关联|幂等|去重)/i.test(issueText)) {
+        addIssue(classifyRunIssue(issueText, language), `${record.agentName}: ${record.actualResult || record.expectedResult || record.plan}`);
+      }
+    });
+    return Array.from(buckets.entries())
+      .map(([label, item]) => ({ label, ...item }))
+      .sort((a, b) => b.count - a.count);
+  }, [filteredAgentRunRecords, filteredRunLogs, language]);
+  const visibleRunLogs = filteredRunLogs.slice(0, logDisplayLimit);
+  const visibleAgentRunRecords = filteredAgentRunRecords.slice(0, logDisplayLimit);
 
   return (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-neutral-800 bg-neutral-950 p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-xs font-bold uppercase tracking-widest text-slate-400">
+            {isZh ? '日志筛选' : 'Log Filters'}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setAgentFilter('all');
+              setStatusFilter('all');
+              setTriggerFilter('all');
+              setRiskFilter('all');
+              setTimeFilter('all');
+            }}
+            className="text-xs text-slate-500 hover:text-slate-200"
+          >
+            {isZh ? '重置筛选' : 'Reset filters'}
+          </button>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <label className="text-xs text-slate-500">
+            <span className="mb-1 block">{isZh ? 'Agent' : 'Agent'}</span>
+            <select value={agentFilter} onChange={event => setAgentFilter(event.target.value)} className="w-full rounded border border-neutral-700 bg-black px-3 py-2 text-slate-200">
+              <option value="all">{isZh ? '全部 Agent' : 'All agents'}</option>
+              {agentOptions.map(agent => <option key={agent} value={agent}>{agent}</option>)}
+            </select>
+          </label>
+          <label className="text-xs text-slate-500">
+            <span className="mb-1 block">{isZh ? '状态' : 'Status'}</span>
+            <select value={statusFilter} onChange={event => setStatusFilter(event.target.value)} className="w-full rounded border border-neutral-700 bg-black px-3 py-2 text-slate-200">
+              <option value="all">{isZh ? '全部状态' : 'All statuses'}</option>
+              {statusOptions.map(status => <option key={status} value={status}>{t(status)}</option>)}
+            </select>
+          </label>
+          <label className="text-xs text-slate-500">
+            <span className="mb-1 block">{isZh ? '触发来源' : 'Trigger'}</span>
+            <select value={triggerFilter} onChange={event => setTriggerFilter(event.target.value)} className="w-full rounded border border-neutral-700 bg-black px-3 py-2 text-slate-200">
+              <option value="all">{isZh ? '全部来源' : 'All triggers'}</option>
+              {triggerOptions.map(trigger => <option key={trigger} value={trigger}>{t(`trigger_${trigger}`)}</option>)}
+            </select>
+          </label>
+          <label className="text-xs text-slate-500">
+            <span className="mb-1 block">{isZh ? '风险' : 'Risk'}</span>
+            <select value={riskFilter} onChange={event => setRiskFilter(event.target.value as LogRiskFilter)} className="w-full rounded border border-neutral-700 bg-black px-3 py-2 text-slate-200">
+              {riskFilters.map(risk => <option key={risk} value={risk}>{risk === 'all' ? (isZh ? '全部风险' : 'All risks') : risk}</option>)}
+            </select>
+          </label>
+          <label className="text-xs text-slate-500">
+            <span className="mb-1 block">{isZh ? '时间范围' : 'Time range'}</span>
+            <select value={timeFilter} onChange={event => setTimeFilter(event.target.value as LogTimeFilter)} className="w-full rounded border border-neutral-700 bg-black px-3 py-2 text-slate-200">
+              <option value="all">{isZh ? '全部时间' : 'All time'}</option>
+              <option value="today">{isZh ? '今天' : 'Today'}</option>
+              <option value="7d">{isZh ? '最近 7 天' : 'Last 7 days'}</option>
+              <option value="30d">{isZh ? '最近 30 天' : 'Last 30 days'}</option>
+            </select>
+          </label>
+        </div>
+        <div className="mt-3 text-xs text-slate-500">
+          {isZh
+            ? `Trace ${filteredRunLogs.length}/${runLogs.length} · 执行记录 ${filteredAgentRunRecords.length}/${agentRunRecords.length}`
+            : `Trace ${filteredRunLogs.length}/${runLogs.length} · execution records ${filteredAgentRunRecords.length}/${agentRunRecords.length}`}
+        </div>
+        <div className="mt-4 rounded-lg border border-neutral-800 bg-black p-3">
+          <div className="mb-2 text-xs font-bold uppercase tracking-widest text-slate-400">
+            {isZh ? '失败 / 跳过原因聚合' : 'Failure / Skip Aggregation'}
+          </div>
+          {issueAggregates.length === 0 ? (
+            <div className="text-xs text-slate-500">
+              {isZh ? '当前筛选下没有明显失败或跳过原因。' : 'No obvious failure or skip reasons in the current filter.'}
+            </div>
+          ) : (
+            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {issueAggregates.map(item => (
+                <div key={item.label} className="rounded border border-neutral-800 bg-neutral-950 px-3 py-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-bold text-slate-200">{item.label}</span>
+                    <span className="rounded bg-blue-500/10 px-2 py-0.5 text-[10px] font-bold text-blue-200">{item.count}</span>
+                  </div>
+                  <p className="mt-2 line-clamp-2 text-[10px] leading-relaxed text-slate-500">{item.sample}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
       <section className="bg-neutral-900/80 border border-neutral-700 rounded-lg p-6">
         <div className="flex items-center justify-between gap-3 mb-6">
@@ -201,7 +393,7 @@ export function ExecutionLogsPanel({
           </div>
         </div>
         <div className="space-y-4 max-h-[calc(100vh-260px)] overflow-y-auto pr-1">
-          {runLogs.length === 0 && <div className="text-sm text-slate-500 py-8 text-center">{t('No agent runs yet.')}</div>}
+          {filteredRunLogs.length === 0 && <div className="text-sm text-slate-500 py-8 text-center">{t('No agent runs yet.')}</div>}
           {visibleRunLogs.map(run => {
             const isExpanded = expandedTraceRunIds.includes(run.id);
             const visibleSteps = isExpanded ? run.steps : run.steps.slice(0, 5);
@@ -314,7 +506,7 @@ export function ExecutionLogsPanel({
           </div>
         )}
         <div className="space-y-3 max-h-[calc(100vh-260px)] overflow-y-auto pr-1">
-          {agentRunRecords.length === 0 && (
+          {filteredAgentRunRecords.length === 0 && (
             <div className="text-sm text-slate-500 py-8 text-center">{t('No agent run records yet.')}</div>
           )}
           {visibleAgentRunRecords.map(record => (
@@ -372,6 +564,7 @@ export function ExecutionLogsPanel({
           ))}
         </div>
       </section>
+    </div>
     </div>
   );
 }
