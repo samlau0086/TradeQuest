@@ -466,6 +466,11 @@ export type AgentHubRunStatus = 'planned' | 'pending_review' | 'approved' | 'run
 export type AgentHubRunTrigger = 'scheduled' | 'manual' | 'approval' | 'system' | 'event';
 export type AgentOpportunityStatus = 'open' | 'queued' | 'pending_review' | 'running' | 'completed' | 'failed' | 'ignored';
 export type AgentOpportunityRisk = 'low' | 'medium' | 'high';
+export type AgentTaskStatus = 'open' | 'queued' | 'approval_required' | 'running' | 'completed' | 'failed' | 'skipped' | 'ignored';
+export type AgentTaskRisk = 'low' | 'medium' | 'high';
+export type AgentTaskTriggerType = 'signal' | 'event' | 'schedule' | 'manual' | 'console' | 'system';
+export type AgentTaskEntityType = 'client' | 'lead' | 'email' | 'whatsapp' | 'live_chat' | 'system';
+export type AgentTaskApprovalStatus = 'not_required' | 'required' | 'pending' | 'approved' | 'rejected';
 
 export interface AgentOpportunity {
   id: string;
@@ -488,6 +493,108 @@ export interface AgentOpportunity {
   updatedAt: string;
   dispatchedAt?: string;
   completedAt?: string;
+  metadata?: any;
+}
+
+export interface AgentTask {
+  id: string;
+  title: string;
+  description?: string;
+  objective: string;
+  source: string;
+  triggerType: AgentTaskTriggerType;
+  entityType?: AgentTaskEntityType;
+  entityId?: string;
+  agentId: string;
+  agentName?: string;
+  status: AgentTaskStatus;
+  risk: AgentTaskRisk;
+  dedupeKey?: string;
+  dueAt?: string | null;
+  approvalStatus?: AgentTaskApprovalStatus;
+  runId?: string | null;
+  runType?: 'harness' | 'global' | null;
+  retryCount: number;
+  createdBy?: string;
+  sourceRefType?: 'opportunity' | 'chat' | 'schedule' | 'event' | 'manual';
+  sourceRefId?: string;
+  resultSummary?: string;
+  metadata?: any;
+  createdAt: string;
+  updatedAt: string;
+  queuedAt?: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+function agentTaskStatusFromOpportunity(status: AgentOpportunityStatus | string): AgentTaskStatus {
+  if (status === 'pending_review') return 'approval_required';
+  if (status === 'ignored') return 'ignored';
+  if (status === 'completed') return 'completed';
+  if (status === 'failed') return 'failed';
+  if (status === 'running') return 'running';
+  if (status === 'queued') return 'queued';
+  return 'open';
+}
+
+function agentTaskTriggerFromOpportunity(source?: string): AgentTaskTriggerType {
+  if (source === 'agent_schedule') return 'schedule';
+  if (source === 'agent_event' || source === 'event_trigger') return 'event';
+  if (source === 'agent_console') return 'console';
+  if (source === 'manual') return 'manual';
+  if (source === 'signal_scanner') return 'signal';
+  return 'system';
+}
+
+function agentTaskApprovalFromOpportunity(opportunity: AgentOpportunity): AgentTaskApprovalStatus {
+  if (opportunity.status === 'pending_review') return 'pending';
+  if (opportunity.status === 'ignored') return 'rejected';
+  if (opportunity.relatedRunId) return 'approved';
+  return opportunity.risk === 'high' || opportunity.risk === 'medium' ? 'required' : 'not_required';
+}
+
+function agentTaskFromOpportunity(opportunity: AgentOpportunity): AgentTask {
+  return {
+    id: `task_${opportunity.id}`,
+    title: opportunity.title,
+    description: opportunity.description,
+    objective: opportunity.objective,
+    source: opportunity.source || 'opportunity',
+    triggerType: agentTaskTriggerFromOpportunity(opportunity.source),
+    entityType: opportunity.targetType,
+    entityId: opportunity.targetId,
+    agentId: opportunity.recommendedAgentId,
+    agentName: opportunity.recommendedAgentName,
+    status: agentTaskStatusFromOpportunity(opportunity.status),
+    risk: opportunity.risk,
+    dedupeKey: opportunity.dedupeKey,
+    approvalStatus: agentTaskApprovalFromOpportunity(opportunity),
+    runId: opportunity.relatedRunId || null,
+    runType: opportunity.relatedRunType || null,
+    retryCount: 0,
+    sourceRefType: 'opportunity',
+    sourceRefId: opportunity.id,
+    resultSummary: opportunity.resultSummary,
+    metadata: opportunity.metadata,
+    createdAt: opportunity.createdAt,
+    updatedAt: opportunity.updatedAt,
+    queuedAt: opportunity.status === 'queued' ? opportunity.updatedAt : undefined,
+    startedAt: opportunity.status === 'running' ? opportunity.updatedAt : undefined,
+    completedAt: opportunity.completedAt
+  };
+}
+
+function mergeAgentTasksFromOpportunities(tasks: AgentTask[], opportunities: AgentOpportunity[]) {
+  const byId = new Map<string, AgentTask>();
+  tasks.filter(task => task?.id).forEach(task => byId.set(task.id, task));
+  opportunities.filter(opportunity => opportunity?.id).forEach(opportunity => {
+    const bridgeTask = agentTaskFromOpportunity(opportunity);
+    const existing = byId.get(bridgeTask.id);
+    byId.set(bridgeTask.id, existing ? { ...existing, ...bridgeTask, retryCount: existing.retryCount || 0 } : bridgeTask);
+  });
+  return Array.from(byId.values())
+    .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime())
+    .slice(0, 500);
 }
 
 export interface AgentOpportunityRoutingPolicy {
@@ -765,11 +872,15 @@ export interface StoreState {
   updateAgentRunRecord: (id: string, updates: Partial<AgentHubRunRecord>) => void;
   deleteAgentRunRecord: (id: string) => void;
   agentOpportunities: AgentOpportunity[];
+  agentTasks: AgentTask[];
   agentOpportunityRoutingPolicy: AgentOpportunityRoutingPolicy;
   updateAgentOpportunityRoutingPolicy: (updates: Partial<AgentOpportunityRoutingPolicy>) => void;
   addAgentOpportunity: (opportunity: Omit<AgentOpportunity, 'id' | 'createdAt' | 'updatedAt'>) => string;
   updateAgentOpportunity: (id: string, updates: Partial<AgentOpportunity>) => void;
   deleteAgentOpportunity: (id: string) => void;
+  addAgentTask: (task: Omit<AgentTask, 'id' | 'createdAt' | 'updatedAt' | 'retryCount'> & Partial<Pick<AgentTask, 'retryCount'>>) => string;
+  updateAgentTask: (id: string, updates: Partial<AgentTask>) => void;
+  deleteAgentTask: (id: string) => void;
   agentChatMessages: AgentHubChatMessage[];
   setAgentChatMessages: (messages: AgentHubChatMessage[] | ((messages: AgentHubChatMessage[]) => AgentHubChatMessage[])) => void;
   agentIdempotencyRecords: AgentIdempotencyRecord[];
@@ -1717,6 +1828,7 @@ export const useStore = create<StoreState>((set, get) => ({
     agentRunRecords: state.agentRunRecords.filter(record => record.id !== id)
   })),
   agentOpportunities: [],
+  agentTasks: [],
   agentOpportunityRoutingPolicy: INITIAL_AGENT_OPPORTUNITY_ROUTING_POLICY,
   updateAgentOpportunityRoutingPolicy: (updates) => set((state) => ({
     agentOpportunityRoutingPolicy: {
@@ -1727,18 +1839,45 @@ export const useStore = create<StoreState>((set, get) => ({
   addAgentOpportunity: (opportunity) => {
     const id = `opp_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
     const now = new Date().toISOString();
+    const nextOpportunity: AgentOpportunity = { ...opportunity, id, createdAt: now, updatedAt: now };
     set((state) => ({
-      agentOpportunities: [{ ...opportunity, id, createdAt: now, updatedAt: now }, ...state.agentOpportunities].slice(0, 300)
+      agentOpportunities: [nextOpportunity, ...state.agentOpportunities].slice(0, 300),
+      agentTasks: mergeAgentTasksFromOpportunities(state.agentTasks, [nextOpportunity])
     }));
     return id;
   },
-  updateAgentOpportunity: (id, updates) => set((state) => ({
-    agentOpportunities: state.agentOpportunities.map(opportunity => (
-      opportunity.id === id ? { ...opportunity, ...updates, updatedAt: new Date().toISOString() } : opportunity
+  updateAgentOpportunity: (id, updates) => set((state) => {
+    const updatedAt = new Date().toISOString();
+    let updatedOpportunity: AgentOpportunity | null = null;
+    const agentOpportunities = state.agentOpportunities.map(opportunity => {
+      if (opportunity.id !== id) return opportunity;
+      updatedOpportunity = { ...opportunity, ...updates, updatedAt };
+      return updatedOpportunity;
+    });
+    return {
+      agentOpportunities,
+      agentTasks: updatedOpportunity ? mergeAgentTasksFromOpportunities(state.agentTasks, [updatedOpportunity]) : state.agentTasks
+    };
+  }),
+  deleteAgentOpportunity: (id) => set((state) => ({
+    agentOpportunities: state.agentOpportunities.filter(opportunity => opportunity.id !== id),
+    agentTasks: state.agentTasks.filter(task => !(task.sourceRefType === 'opportunity' && task.sourceRefId === id) && task.id !== `task_${id}`)
+  })),
+  addAgentTask: (task) => {
+    const id = `task_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const now = new Date().toISOString();
+    set((state) => ({
+      agentTasks: [{ ...task, id, retryCount: task.retryCount || 0, createdAt: now, updatedAt: now }, ...state.agentTasks].slice(0, 500)
+    }));
+    return id;
+  },
+  updateAgentTask: (id, updates) => set((state) => ({
+    agentTasks: state.agentTasks.map(task => (
+      task.id === id ? { ...task, ...updates, updatedAt: new Date().toISOString() } : task
     ))
   })),
-  deleteAgentOpportunity: (id) => set((state) => ({
-    agentOpportunities: state.agentOpportunities.filter(opportunity => opportunity.id !== id)
+  deleteAgentTask: (id) => set((state) => ({
+    agentTasks: state.agentTasks.filter(task => task.id !== id)
   })),
   agentChatMessages: [],
   setAgentChatMessages: (messages) => set((state) => ({
@@ -3158,6 +3297,7 @@ export const useStore = create<StoreState>((set, get) => ({
       leadCampaigns,
       agentRunRecords,
       agentOpportunities,
+      agentTasks,
       userLevel,
       expLogs,
       emails,
@@ -3223,7 +3363,11 @@ export const useStore = create<StoreState>((set, get) => ({
     if (products.length > 0 && knowledgeBase.length > 0) unlock('rag_ready');
     if (deals.reduce((sum, deal) => sum + (Number(deal.value) || 0), 0) >= 100000) unlock('rich_pipeline');
     if (agentRunRecords.filter(record => record.status === 'completed').length >= 10) unlock('agent_operator');
-    if (agentOpportunities.filter(opportunity => opportunity.relatedRunId || ['completed', 'running', 'pending_review'].includes(opportunity.status)).length >= 10) unlock('opportunity_router');
+    const routedTaskCount = Math.max(
+      agentOpportunities.filter(opportunity => opportunity.relatedRunId || ['completed', 'running', 'pending_review'].includes(opportunity.status)).length,
+      agentTasks.filter(task => task.runId || ['completed', 'running', 'approval_required', 'queued'].includes(task.status)).length
+    );
+    if (routedTaskCount >= 10) unlock('opportunity_router');
     const qualityProfileCount = clients.filter(client => getClientQualityScore(client) >= 80).length;
     if (qualityProfileCount >= 5) unlock('quality_keeper');
     const comboLogs = expLogs.filter(log => log.reason.includes('[game:combo:'));
@@ -3420,6 +3564,10 @@ export const useStore = create<StoreState>((set, get) => ({
             : state.agentHubAgents,
           agentRunRecords: settings.agentRunRecords ?? state.agentRunRecords,
           agentOpportunities: settings.agentOpportunities ?? state.agentOpportunities,
+          agentTasks: mergeAgentTasksFromOpportunities(
+            settings.agentTasks ?? state.agentTasks,
+            settings.agentOpportunities ?? state.agentOpportunities
+          ),
           agentOpportunityRoutingPolicy: settings.agentOpportunityRoutingPolicy
             ? { ...INITIAL_AGENT_OPPORTUNITY_ROUTING_POLICY, ...settings.agentOpportunityRoutingPolicy }
             : state.agentOpportunityRoutingPolicy,
@@ -3514,7 +3662,8 @@ useStore.subscribe((state, prevState) => {
     state.products !== prevState.products ||
     state.knowledgeBase !== prevState.knowledgeBase ||
     state.agentRunRecords !== prevState.agentRunRecords ||
-    state.agentOpportunities !== prevState.agentOpportunities
+    state.agentOpportunities !== prevState.agentOpportunities ||
+    state.agentTasks !== prevState.agentTasks
   ) {
     state.checkAchievements();
   }
@@ -3539,6 +3688,7 @@ useStore.subscribe((state, prevState) => {
     state.deletedAgentHubAgentIds !== prevState.deletedAgentHubAgentIds ||
     state.agentRunRecords !== prevState.agentRunRecords ||
     state.agentOpportunities !== prevState.agentOpportunities ||
+    state.agentTasks !== prevState.agentTasks ||
     state.agentOpportunityRoutingPolicy !== prevState.agentOpportunityRoutingPolicy ||
     state.agentChatMessages !== prevState.agentChatMessages ||
     state.agentIdempotencyRecords !== prevState.agentIdempotencyRecords ||
@@ -3583,6 +3733,7 @@ useStore.subscribe((state, prevState) => {
             deletedAgentHubAgentIds: state.deletedAgentHubAgentIds,
             agentRunRecords: state.agentRunRecords,
             agentOpportunities: state.agentOpportunities,
+            agentTasks: state.agentTasks,
             agentOpportunityRoutingPolicy: state.agentOpportunityRoutingPolicy,
             agentChatMessages: state.agentChatMessages,
             agentIdempotencyRecords: state.agentIdempotencyRecords,

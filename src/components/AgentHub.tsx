@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, Check, CheckCircle2, ClipboardCheck, Cpu, ListChecks, MessageSquare, Plus, Power, RefreshCw, Save, Search, Send, Server, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, X, XCircle, Zap } from 'lucide-react';
-import { AgentHubAgent, AgentHubChatMessage as AgentChatMessage, AgentHubEventScope, AgentHubEventTrigger, AgentHubGuardrail, AgentHubScheduleUnit, AgentHubStatus, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType, useStore } from '../store';
+import { AgentHubAgent, AgentHubChatMessage as AgentChatMessage, AgentHubEventScope, AgentHubEventTrigger, AgentHubGuardrail, AgentHubScheduleUnit, AgentHubStatus, AgentTask, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType, useStore } from '../store';
 import { cn } from '../lib/utils';
 import { GlobalAgent } from './GlobalAgent';
 import { useTranslation } from '../lib/i18n';
@@ -113,6 +113,8 @@ function riskClass(risk: string) {
 }
 
 function opportunityStatusLabel(status: string, language: string) {
+  if (status === 'approval_required') return language === 'zh' ? '\u5f85\u5ba1\u6838' : 'Approval required';
+  if (status === 'skipped') return language === 'zh' ? '\u5df2\u8df3\u8fc7' : 'Skipped';
   const zh: Record<string, string> = {
     open: '待派发',
     queued: '已入队',
@@ -137,9 +139,55 @@ function opportunityStatusLabel(status: string, language: string) {
 function opportunityStatusClass(status: string) {
   if (status === 'completed') return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300';
   if (status === 'failed') return 'border-red-500/40 bg-red-500/10 text-red-300';
-  if (status === 'pending_review') return 'border-blue-500/40 bg-blue-500/10 text-blue-300';
+  if (status === 'pending_review' || status === 'approval_required') return 'border-blue-500/40 bg-blue-500/10 text-blue-300';
   if (status === 'running' || status === 'queued') return 'border-amber-500/40 bg-amber-500/10 text-amber-300';
   return 'border-neutral-700 bg-neutral-900 text-slate-300';
+}
+
+function taskFromOpportunityForView(opportunity: any): AgentTask {
+  const status = opportunity.status === 'pending_review'
+    ? 'approval_required'
+    : opportunity.status === 'ignored'
+      ? 'ignored'
+      : (opportunity.status || 'open');
+  const triggerType = opportunity.source === 'agent_schedule'
+    ? 'schedule'
+    : opportunity.source === 'agent_event'
+      ? 'event'
+      : opportunity.source === 'signal_scanner'
+        ? 'signal'
+        : 'system';
+  return {
+    id: `task_${opportunity.id}`,
+    title: opportunity.title,
+    description: opportunity.description,
+    objective: opportunity.objective,
+    source: opportunity.source || 'opportunity',
+    triggerType,
+    entityType: opportunity.targetType,
+    entityId: opportunity.targetId,
+    agentId: opportunity.recommendedAgentId,
+    agentName: opportunity.recommendedAgentName,
+    status,
+    risk: opportunity.risk || 'medium',
+    dedupeKey: opportunity.dedupeKey,
+    approvalStatus: status === 'approval_required' ? 'pending' : (opportunity.relatedRunId ? 'approved' : 'not_required'),
+    runId: opportunity.relatedRunId || null,
+    runType: opportunity.relatedRunType || null,
+    retryCount: 0,
+    sourceRefType: 'opportunity',
+    sourceRefId: opportunity.id,
+    resultSummary: opportunity.resultSummary,
+    metadata: opportunity.metadata,
+    createdAt: opportunity.createdAt,
+    updatedAt: opportunity.updatedAt,
+    completedAt: opportunity.completedAt
+  } as AgentTask;
+}
+
+function linkedOpportunityIdFromTask(task: AgentTask) {
+  if (task.sourceRefType === 'opportunity' && task.sourceRefId) return task.sourceRefId;
+  return task.id.startsWith('task_opp_') ? task.id.slice(5) : null;
 }
 
 function ToolSelector({
@@ -933,10 +981,13 @@ export function AgentHub() {
     globalAgentPlans,
     agentRunRecords,
     agentOpportunities,
+    agentTasks,
     agentOpportunityRoutingPolicy,
     updateAgentOpportunityRoutingPolicy,
     updateAgentOpportunity,
     deleteAgentOpportunity,
+    updateAgentTask,
+    deleteAgentTask,
     agentChatMessages,
     setAgentChatMessages,
     clients,
@@ -1025,7 +1076,18 @@ export function AgentHub() {
   const visibleOpportunities = agentOpportunities
     .filter(opportunity => opportunity.status !== 'ignored')
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  const dispatchableOpportunities = visibleOpportunities.filter(opportunity => ['open', 'failed'].includes(opportunity.status));
+  const visibleTasks = useMemo(() => {
+    const byId = new Map<string, AgentTask>();
+    agentTasks.filter(task => task.status !== 'ignored').forEach(task => byId.set(task.id, task));
+    visibleOpportunities.map(taskFromOpportunityForView).forEach(task => {
+      const existing = byId.get(task.id);
+      byId.set(task.id, existing ? { ...existing, ...task, retryCount: existing.retryCount || 0 } : task);
+    });
+    return Array.from(byId.values())
+      .filter(task => task.status !== 'ignored')
+      .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
+  }, [agentTasks, visibleOpportunities]);
+  const dispatchableTasks = visibleTasks.filter(task => !!linkedOpportunityIdFromTask(task) && ['open', 'failed', 'skipped'].includes(task.status));
 
   const computedAgents = agentHubAgents.map(agent => ({
     ...agent,
@@ -1447,16 +1509,80 @@ export function AgentHub() {
     }
   };
 
+  const taskOpportunityId = (task: AgentTask) => linkedOpportunityIdFromTask(task);
+
+  const updateTaskAndLinkedOpportunity = (task: AgentTask, taskUpdates: Partial<AgentTask>, opportunityUpdates?: any) => {
+    updateAgentTask(task.id, taskUpdates);
+    const opportunityId = taskOpportunityId(task);
+    if (opportunityId) updateAgentOpportunity(opportunityId, opportunityUpdates || taskUpdates as any);
+  };
+
+  const deleteTaskAndLinkedOpportunity = (task: AgentTask) => {
+    deleteAgentTask(task.id);
+    const opportunityId = taskOpportunityId(task);
+    if (opportunityId) deleteAgentOpportunity(opportunityId);
+  };
+
+  const updateTasksForRun = (runId: string, runType: 'harness' | 'global', updates: Partial<AgentTask>) => {
+    agentTasks
+      .filter(task => task.runId === runId && task.runType === runType)
+      .forEach(task => updateAgentTask(task.id, updates));
+  };
+
+  const dispatchTask = async (task: AgentTask) => {
+    setDispatchingOpportunityId(task.id);
+    const queuedAt = new Date().toISOString();
+    updateTaskAndLinkedOpportunity(task, { status: 'queued', queuedAt }, { status: 'queued' });
+    try {
+      const response = await fetch(`/api/agent-hub/tasks/${encodeURIComponent(task.id)}/dispatch`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Failed to dispatch task');
+      await fetchUserSettings();
+      const reviewStatus = data.result?.reviewStatus;
+      notify(
+        reviewStatus === 'pending_review'
+          ? (language === 'zh' ? '\u4efb\u52a1\u5df2\u6d3e\u53d1\uff0c\u7b49\u5f85\u4eba\u5de5\u5ba1\u6838\u3002' : 'Task dispatched and waiting for approval.')
+          : (language === 'zh' ? '\u4efb\u52a1\u5df2\u6d3e\u53d1\u5e76\u6267\u884c\u3002' : 'Task dispatched and executed.'),
+        'success'
+      );
+    } catch (error) {
+      console.error(error);
+      updateTaskAndLinkedOpportunity(task, {
+        status: 'failed',
+        resultSummary: error instanceof Error ? error.message : 'Failed to dispatch task.',
+        completedAt: new Date().toISOString()
+      }, {
+        status: 'failed',
+        resultSummary: error instanceof Error ? error.message : 'Failed to dispatch task.',
+        completedAt: new Date().toISOString()
+      });
+      notify(error instanceof Error ? error.message : (language === 'zh' ? '\u4efb\u52a1\u6d3e\u53d1\u5931\u8d25\u3002' : 'Failed to dispatch task.'), 'error');
+    } finally {
+      setDispatchingOpportunityId(null);
+    }
+  };
+
   const runAllDispatchableOpportunities = async () => {
-    for (const opportunity of dispatchableOpportunities.slice(0, 20)) {
+    for (const task of dispatchableTasks.slice(0, 20)) {
       // eslint-disable-next-line no-await-in-loop
-      await dispatchOpportunity(opportunity);
+      await dispatchTask(task);
     }
   };
 
   const approveItem = async (item: typeof pendingItems[number]) => {
-    if (item.kind === 'harness') updateAgentHarnessRun(item.id, { status: 'running', approvedAt: new Date().toISOString() });
-    if (item.kind === 'global') updateGlobalAgentPlan(item.id, { status: 'approved', approvedAt: new Date().toISOString() });
+    const approvedAt = new Date().toISOString();
+    if (item.kind === 'harness') updateAgentHarnessRun(item.id, { status: 'running', approvedAt });
+    if (item.kind === 'global') updateGlobalAgentPlan(item.id, { status: 'approved', approvedAt });
+    updateTasksForRun(item.id, item.kind, {
+      status: item.kind === 'harness' ? 'running' : 'queued',
+      approvalStatus: 'approved',
+      queuedAt: approvedAt,
+      startedAt: item.kind === 'harness' ? approvedAt : undefined,
+      resultSummary: language === 'zh' ? '人工已批准，正在进入执行流程。' : 'Approved by a human and entering execution.'
+    });
     const linkedRecord = agentRunRecords.find(record => record.relatedRunId === item.id && record.relatedRunType === item.kind);
     if (linkedRecord) {
       updateAgentRunRecord(linkedRecord.id, {
@@ -1483,6 +1609,11 @@ export function AgentHub() {
     } catch (error) {
       console.error(error);
       updateAgentHarnessRun(item.id, { status: 'failed' });
+      updateTasksForRun(item.id, item.kind, {
+        status: 'failed',
+        resultSummary: error instanceof Error ? error.message : (language === 'zh' ? '智能体运行失败。' : 'Agent Hub run failed.'),
+        completedAt: new Date().toISOString()
+      });
       if (linkedRecord) {
         updateAgentRunRecord(linkedRecord.id, {
           status: 'failed',
@@ -1495,8 +1626,15 @@ export function AgentHub() {
   };
 
   const rejectItem = (item: typeof pendingItems[number]) => {
-    if (item.kind === 'harness') updateAgentHarnessRun(item.id, { status: 'rejected', rejectedAt: new Date().toISOString(), rejectedReason: 'Rejected from Agent Hub' });
-    if (item.kind === 'global') updateGlobalAgentPlan(item.id, { status: 'rejected', rejectedAt: new Date().toISOString(), rejectedReason: 'Rejected from Agent Hub' });
+    const rejectedAt = new Date().toISOString();
+    if (item.kind === 'harness') updateAgentHarnessRun(item.id, { status: 'rejected', rejectedAt, rejectedReason: 'Rejected from Agent Hub' });
+    if (item.kind === 'global') updateGlobalAgentPlan(item.id, { status: 'rejected', rejectedAt, rejectedReason: 'Rejected from Agent Hub' });
+    updateTasksForRun(item.id, item.kind, {
+      status: 'skipped',
+      approvalStatus: 'rejected',
+      resultSummary: language === 'zh' ? '人工已拒绝该执行任务。' : 'Human rejected this execution task.',
+      completedAt: rejectedAt
+    });
     const linkedOpportunity = agentOpportunities.find(opportunity => opportunity.relatedRunId === item.id && opportunity.relatedRunType === item.kind);
     if (linkedOpportunity) {
       updateAgentOpportunity(linkedOpportunity.id, {
@@ -2093,13 +2231,13 @@ export function AgentHub() {
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-neutral-800 bg-black px-4 py-3">
               <div className="text-xs text-slate-500">
                 {language === 'zh'
-                  ? `可派发任务 ${dispatchableOpportunities.length} 个 · 队列总数 ${visibleOpportunities.length} 个 · 待审核 ${pendingItems.length} 个`
-                  : `${dispatchableOpportunities.length} dispatchable · ${visibleOpportunities.length} total · ${pendingItems.length} waiting for approval`}
+                  ? `\u53ef\u6d3e\u53d1\u4efb\u52a1 ${dispatchableTasks.length} \u4e2a \u00b7 \u961f\u5217\u603b\u6570 ${visibleTasks.length} \u4e2a \u00b7 \u5f85\u5ba1\u6838 ${pendingItems.length} \u4e2a`
+                  : `${dispatchableTasks.length} dispatchable · ${visibleTasks.length} total · ${pendingItems.length} waiting for approval`}
               </div>
               <button
                 type="button"
                 onClick={() => void runAllDispatchableOpportunities()}
-                disabled={dispatchableOpportunities.length === 0 || !!dispatchingOpportunityId}
+                disabled={dispatchableTasks.length === 0 || !!dispatchingOpportunityId}
                 className="inline-flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-600/15 px-3 py-2 text-xs font-bold text-emerald-100 hover:bg-emerald-600/25 disabled:opacity-50"
               >
                 <Send className="h-3.5 w-3.5" />
@@ -2156,36 +2294,37 @@ export function AgentHub() {
                 </label>
               </div>
             </div>
-            {visibleOpportunities.length === 0 ? (
+            {visibleTasks.length === 0 ? (
               <div className="rounded-lg border border-neutral-800 bg-black px-4 py-10 text-center text-sm text-slate-500">
                 {language === 'zh' ? '暂无开放机会任务。运行扫描器后，新的可执行任务会出现在这里。' : 'No open opportunities yet. Run the scanner and actionable tasks will appear here.'}
               </div>
             ) : (
               <div className="grid gap-3">
-                {visibleOpportunities.map(opportunity => (
-                  <div key={opportunity.id} className="rounded-lg border border-neutral-800 bg-black p-4">
+                {visibleTasks.map(task => (
+                  <div key={task.id} className="rounded-lg border border-neutral-800 bg-black p-4">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-bold text-slate-100">{opportunity.title}</span>
-                          <span className={cn('rounded border px-2 py-0.5 text-[10px] font-bold uppercase', opportunityStatusClass(opportunity.status))}>
-                            {opportunityStatusLabel(opportunity.status, language)}
+                          <span className="font-bold text-slate-100">{task.title}</span>
+                          <span className={cn('rounded border px-2 py-0.5 text-[10px] font-bold uppercase', opportunityStatusClass(task.status))}>
+                            {opportunityStatusLabel(task.status, language)}
                           </span>
-                          <span className={cn('rounded border px-2 py-0.5 text-[10px] font-bold uppercase', riskClass(opportunity.risk))}>{opportunity.risk}</span>
-                          <span className="rounded border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-[10px] text-slate-400">{opportunity.recommendedAgentName}</span>
-                          {opportunity.targetType && <span className="rounded border border-neutral-800 px-2 py-0.5 text-[10px] text-slate-500">{opportunity.targetType}:{opportunity.targetId}</span>}
-                          {opportunity.relatedRunId && <span className="rounded border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] text-blue-300">{opportunity.relatedRunType}:{opportunity.relatedRunId}</span>}
+                          <span className={cn('rounded border px-2 py-0.5 text-[10px] font-bold uppercase', riskClass(task.risk))}>{task.risk}</span>
+                          <span className="rounded border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-[10px] text-slate-400">{task.agentName || task.agentId}</span>
+                          {task.entityType && <span className="rounded border border-neutral-800 px-2 py-0.5 text-[10px] text-slate-500">{task.entityType}:{task.entityId}</span>}
+                          {task.runId && <span className="rounded border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] text-blue-300">{task.runType}:{task.runId}</span>}
+                          <span className="rounded border border-neutral-800 px-2 py-0.5 text-[10px] text-slate-500">{task.triggerType}</span>
                         </div>
-                        <p className="mt-2 text-sm leading-relaxed text-slate-400">{opportunity.description}</p>
-                        <p className="mt-3 text-xs leading-relaxed text-slate-500">{opportunity.objective}</p>
-                        {opportunity.resultSummary && <p className="mt-3 rounded border border-neutral-800 bg-neutral-950 px-3 py-2 text-xs leading-relaxed text-slate-400">{opportunity.resultSummary}</p>}
-                        <div className="mt-2 text-[10px] text-slate-600">{new Date(opportunity.createdAt).toLocaleString()} · {opportunity.source}</div>
+                        <p className="mt-2 text-sm leading-relaxed text-slate-400">{task.description}</p>
+                        <p className="mt-3 text-xs leading-relaxed text-slate-500">{task.objective}</p>
+                        {task.resultSummary && <p className="mt-3 rounded border border-neutral-800 bg-neutral-950 px-3 py-2 text-xs leading-relaxed text-slate-400">{task.resultSummary}</p>}
+                        <div className="mt-2 text-[10px] text-slate-600">{new Date(task.createdAt).toLocaleString()} · {task.source}</div>
                       </div>
                       <div className="flex shrink-0 flex-wrap items-center gap-2">
-                        {opportunity.status === 'completed' && (
+                        {task.status === 'completed' && (
                           <button
                             type="button"
-                            onClick={() => updateAgentOpportunity(opportunity.id, {
+                            onClick={() => updateAgentOpportunity(taskOpportunityId(task) || '', {
                               status: 'open',
                               relatedRunId: undefined,
                               relatedRunType: undefined,
@@ -2199,23 +2338,23 @@ export function AgentHub() {
                         )}
                         <button
                           type="button"
-                          onClick={() => void dispatchOpportunity(opportunity)}
-                          disabled={!['open', 'failed'].includes(opportunity.status) || dispatchingOpportunityId === opportunity.id}
+                          onClick={() => void dispatchTask(task)}
+                          disabled={!taskOpportunityId(task) || !['open', 'failed', 'skipped'].includes(task.status) || dispatchingOpportunityId === task.id}
                           className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-500 disabled:opacity-50"
                         >
-                          {dispatchingOpportunityId === opportunity.id ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                          {dispatchingOpportunityId === task.id ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                           {language === 'zh' ? '交给 Agent 执行' : 'Run with Agent'}
                         </button>
                         <button
                           type="button"
-                          onClick={() => updateAgentOpportunity(opportunity.id, { status: 'ignored', completedAt: new Date().toISOString() })}
+                          onClick={() => updateTaskAndLinkedOpportunity(task, { status: 'ignored', completedAt: new Date().toISOString() }, { status: 'ignored', completedAt: new Date().toISOString() })}
                           className="rounded-md border border-neutral-700 px-3 py-2 text-xs font-bold text-slate-400 hover:text-slate-100"
                         >
                           {language === 'zh' ? '忽略' : 'Ignore'}
                         </button>
                         <button
                           type="button"
-                          onClick={() => deleteAgentOpportunity(opportunity.id)}
+                          onClick={() => deleteTaskAndLinkedOpportunity(task)}
                           className="rounded-md p-2 text-slate-600 hover:bg-red-500/10 hover:text-red-300"
                           title={language === 'zh' ? '删除任务' : 'Delete task'}
                         >

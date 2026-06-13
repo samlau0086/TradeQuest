@@ -177,6 +177,10 @@ It creates deduplicated opportunity tasks and recommends the responsible agent.
 
 Opportunity tasks are collected in Agent Hub -> Task Queue.
 
+The queue is backed by a unified `Agent Task` record. Scheduled runs, Signal Scanner findings, event triggers, manual actions, and Agent Console requests should be normalized into this task shape before execution.
+
+Core task fields include `source`, `triggerType`, `entityType`, `entityId`, `agentId`, `status`, `risk`, `dedupeKey`, `approvalStatus`, `runId`, `retryCount`, and timestamps. Legacy opportunity tasks are bridged into deterministic task IDs such as `task_<opportunityId>` so old data and new task execution stay in sync.
+
 Routing policy decides whether each opportunity should:
 
 - Stay open for manual dispatch.
@@ -972,6 +976,10 @@ Signal Scanner Agent 会定期扫描 CRM 信号，例如：
 ### 第二层：任务队列与路由策略
 
 机会任务集中在 Agent Hub -> 任务队列中。
+
+任务队列现在由统一的 `Agent Task` 记录承载。定时运行、Signal Scanner 发现、事件触发、手动操作和智能体控制台请求，都应该先规范化为同一种任务结构，再进入执行流程。
+
+核心字段包括 `source`、`triggerType`、`entityType`、`entityId`、`agentId`、`status`、`risk`、`dedupeKey`、`approvalStatus`、`runId`、`retryCount` 和时间戳。旧机会任务会桥接成确定性任务 ID，例如 `task_<opportunityId>`，保证旧数据和新的任务执行模型保持同步。
 
 路由策略决定每个机会任务：
 

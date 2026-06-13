@@ -1506,6 +1506,61 @@ No markdown wrappers, just valid JSON.`;
     'agent_tool_selection_agent'
   ]);
 
+  const agentTaskStatusFromOpportunity = (status: string = 'open') => {
+    if (status === 'pending_review') return 'approval_required';
+    if (status === 'ignored') return 'ignored';
+    if (status === 'completed') return 'completed';
+    if (status === 'failed') return 'failed';
+    if (status === 'running') return 'running';
+    if (status === 'queued') return 'queued';
+    return 'open';
+  };
+
+  const agentTaskTriggerFromOpportunity = (source: string = '') => {
+    if (source === 'agent_schedule') return 'schedule';
+    if (source === 'agent_event' || source === 'event_trigger') return 'event';
+    if (source === 'agent_console') return 'console';
+    if (source === 'manual') return 'manual';
+    if (source === 'signal_scanner') return 'signal';
+    return 'system';
+  };
+
+  const agentTaskApprovalFromOpportunity = (opportunity: any) => {
+    if (opportunity?.status === 'pending_review') return 'pending';
+    if (opportunity?.status === 'ignored') return 'rejected';
+    if (opportunity?.relatedRunId) return 'approved';
+    return ['medium', 'high'].includes(opportunity?.risk) ? 'required' : 'not_required';
+  };
+
+  const agentTaskFromOpportunity = (opportunity: any) => ({
+    id: `task_${opportunity.id}`,
+    title: opportunity.title,
+    description: opportunity.description,
+    objective: opportunity.objective,
+    source: opportunity.source || 'opportunity',
+    triggerType: agentTaskTriggerFromOpportunity(opportunity.source),
+    entityType: opportunity.targetType,
+    entityId: opportunity.targetId,
+    agentId: opportunity.recommendedAgentId,
+    agentName: opportunity.recommendedAgentName,
+    status: agentTaskStatusFromOpportunity(opportunity.status),
+    risk: opportunity.risk || 'medium',
+    dedupeKey: opportunity.dedupeKey,
+    approvalStatus: agentTaskApprovalFromOpportunity(opportunity),
+    runId: opportunity.relatedRunId || null,
+    runType: opportunity.relatedRunType || null,
+    retryCount: 0,
+    sourceRefType: 'opportunity',
+    sourceRefId: opportunity.id,
+    resultSummary: opportunity.resultSummary,
+    metadata: opportunity.metadata,
+    createdAt: opportunity.createdAt,
+    updatedAt: opportunity.updatedAt,
+    queuedAt: opportunity.status === 'queued' ? opportunity.updatedAt : undefined,
+    startedAt: opportunity.status === 'running' ? opportunity.updatedAt : undefined,
+    completedAt: opportunity.completedAt
+  });
+
   const mergeUserSettings = (existing: any = {}, incoming: any = {}) => {
     const merged = { ...existing, ...incoming };
     const deletedAgentHubAgentIds = Array.from(new Set([
@@ -1532,6 +1587,23 @@ No markdown wrappers, just valid JSON.`;
     merged.agentOpportunities = Array.isArray(incoming.agentOpportunities)
       ? incoming.agentOpportunities.filter((opportunity: any) => opportunity?.id).slice(0, 300)
       : (existing.agentOpportunities || []);
+    const incomingAgentTasks = Array.isArray(incoming.agentTasks) ? incoming.agentTasks.filter((task: any) => task?.id) : [];
+    const existingAgentTasks = Array.isArray(existing.agentTasks) ? existing.agentTasks.filter((task: any) => task?.id) : [];
+    const taskById = new Map<string, any>();
+    [...existingAgentTasks, ...incomingAgentTasks].forEach((task: any) => {
+      const current = taskById.get(task.id);
+      const currentTime = new Date(current?.updatedAt || current?.createdAt || 0).getTime();
+      const taskTime = new Date(task?.updatedAt || task?.createdAt || 0).getTime();
+      if (!current || taskTime >= currentTime) taskById.set(task.id, task);
+    });
+    merged.agentOpportunities.forEach((opportunity: any) => {
+      const task = agentTaskFromOpportunity(opportunity);
+      const existingTask = taskById.get(task.id);
+      taskById.set(task.id, existingTask ? { ...existingTask, ...task, retryCount: existingTask.retryCount || 0 } : task);
+    });
+    merged.agentTasks = Array.from(taskById.values())
+      .sort((a: any, b: any) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime())
+      .slice(0, 500);
     merged.agentOpportunityRoutingPolicy = {
       enabled: true,
       autoExecuteLowRisk: true,
@@ -4252,6 +4324,65 @@ No markdown wrappers, just valid JSON.`;
     return lastTouchedAt > 0 && Date.now() - lastTouchedAt < AGENT_OPPORTUNITY_CLOSED_DEDUPE_MS;
   };
 
+  const syncAgentTaskFromOpportunity = (settings: any, opportunity: any) => {
+    if (!opportunity?.id) return null;
+    const task = agentTaskFromOpportunity(opportunity);
+    const existing = Array.isArray(settings.agentTasks) ? settings.agentTasks : [];
+    const current = existing.find((item: any) => item.id === task.id);
+    const nextTask = current ? { ...current, ...task, retryCount: current.retryCount || 0 } : task;
+    settings.agentTasks = [nextTask, ...existing.filter((item: any) => item.id !== task.id)].slice(0, 500);
+    return nextTask;
+  };
+
+  const agentTaskRiskFromAgent = (agent: any) => {
+    if (agent?.guardrail === 'auto') return 'low';
+    if (agent?.guardrail === 'human_loop') return 'high';
+    return 'medium';
+  };
+
+  const addAgentTaskToSettings = (settings: any, task: any) => {
+    const now = new Date().toISOString();
+    const existing = Array.isArray(settings.agentTasks) ? settings.agentTasks : [];
+    const current = task.id ? existing.find((item: any) => item.id === task.id) : null;
+    const id = task.id || `task_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const nextTask = {
+      status: 'open',
+      risk: 'medium',
+      approvalStatus: 'not_required',
+      ...current,
+      ...task,
+      id,
+      retryCount: task.retryCount ?? current?.retryCount ?? 0,
+      createdAt: task.createdAt || current?.createdAt || now,
+      updatedAt: now
+    };
+    settings.agentTasks = [nextTask, ...existing.filter((item: any) => item.id !== id)].slice(0, 500);
+    return nextTask;
+  };
+
+  const updateAgentTaskInSettings = (settings: any, taskId: string, updates: any) => {
+    const now = new Date().toISOString();
+    let updatedTask: any = null;
+    settings.agentTasks = (Array.isArray(settings.agentTasks) ? settings.agentTasks : []).map((task: any) => {
+      if (task.id !== taskId) return task;
+      updatedTask = { ...task, ...updates, updatedAt: now };
+      return updatedTask;
+    });
+    return updatedTask;
+  };
+
+  const syncAgentTasksByRun = (settings: any, runId: string, runType: string, updates: any) => {
+    const now = new Date().toISOString();
+    const updatedTasks: any[] = [];
+    settings.agentTasks = (Array.isArray(settings.agentTasks) ? settings.agentTasks : []).map((task: any) => {
+      if (task.runId !== runId || (runType && task.runType !== runType)) return task;
+      const nextTask = { ...task, ...updates, updatedAt: now };
+      updatedTasks.push(nextTask);
+      return nextTask;
+    });
+    return updatedTasks;
+  };
+
   const addAgentOpportunityToSettings = (settings: any, opportunity: any) => {
     const now = new Date().toISOString();
     const existing = Array.isArray(settings.agentOpportunities) ? settings.agentOpportunities : [];
@@ -4269,6 +4400,7 @@ No markdown wrappers, just valid JSON.`;
       updatedAt: now
     };
     settings.agentOpportunities = [nextOpportunity, ...existing].slice(0, 300);
+    syncAgentTaskFromOpportunity(settings, nextOpportunity);
     rememberAgentOpportunityDedupe(settings, nextOpportunity, { status: nextOpportunity.status, updatedAt: now });
     return nextOpportunity;
   };
@@ -4460,6 +4592,7 @@ No markdown wrappers, just valid JSON.`;
       if (opportunity.id !== opportunityId) return opportunity;
       const nextOpportunity = { ...opportunity, ...updates, updatedAt: nowIso };
       rememberAgentOpportunityDedupe(settings, nextOpportunity, { ...updates, updatedAt: nowIso });
+      syncAgentTaskFromOpportunity(settings, nextOpportunity);
       return nextOpportunity;
     });
   };
@@ -6841,18 +6974,71 @@ Return JSON only:
         relatedRunType,
         completedAt: nowIso
       });
+      const eventEntityType = payload?.leadId || payload?.dealId
+        ? 'lead'
+        : payload?.emailId
+          ? 'email'
+          : payload?.whatsappId || payload?.conversationId
+            ? 'whatsapp'
+            : payload?.liveChatSessionId || payload?.sessionId
+              ? 'live_chat'
+              : payload?.clientId || payload?.customerId
+                ? 'client'
+                : 'system';
+      const eventEntityId = payload?.leadId || payload?.dealId || payload?.emailId || payload?.whatsappId || payload?.conversationId || payload?.liveChatSessionId || payload?.sessionId || payload?.clientId || payload?.customerId || null;
+      const eventTask = addAgentTaskToSettings(settings, {
+        id: `task_${relatedRunId}`,
+        title: isZh ? `事件触发：${agent.name}` : `Event-triggered run: ${agent.name}`,
+        description: isZh ? `处理事件：${event}` : `Handle event: ${event}`,
+        objective,
+        source: 'agent_event',
+        triggerType: 'event',
+        entityType: eventEntityType,
+        entityId: eventEntityId ? String(eventEntityId) : undefined,
+        agentId: agent.id,
+        agentName: agent.name,
+        status: reviewStatus === 'pending_review'
+          ? 'approval_required'
+          : (relatedRunType === 'harness' ? 'running' : 'queued'),
+        risk: agentTaskRiskFromAgent(agent),
+        approvalStatus: reviewStatus === 'pending_review' ? 'pending' : 'approved',
+        runId: relatedRunId,
+        runType: relatedRunType,
+        sourceRefType: 'event',
+        sourceRefId: event,
+        resultSummary: actualResult,
+        queuedAt: nowIso,
+        startedAt: reviewStatus === 'approved' && relatedRunType === 'harness' ? nowIso : undefined,
+        metadata: {
+          event,
+          eventPayload: payload,
+          eventScope,
+          tools: agent.tools || [],
+          runRecordId: eventRecord.id
+        }
+      });
       created += 1;
 
       if (reviewStatus === 'approved' && relatedRunType === 'harness') {
         try {
           const result = await executeAgentHubHarnessRun(userId, settings, relatedRunId);
           executed += result.acted || 0;
+          updateAgentTaskInSettings(settings, eventTask.id, {
+            status: result?.failed > 0 && !result?.acted ? 'failed' : 'completed',
+            resultSummary: summarizeAgentExecutionResult(result, isZh),
+            completedAt: new Date().toISOString()
+          });
         } catch (error: any) {
           updateAgentHubRunRecordInSettings(settings, eventRecord.id, {
             status: 'failed',
             actualResult: isZh
               ? `1. 事件触发运行失败。\n2. 错误：${error?.message || '未知错误'}`
               : `1. Event-triggered run failed.\n2. Error: ${error?.message || 'Unknown error'}`,
+            completedAt: new Date().toISOString()
+          });
+          updateAgentTaskInSettings(settings, eventTask.id, {
+            status: 'failed',
+            resultSummary: error?.message || 'Event-triggered run failed.',
             completedAt: new Date().toISOString()
           });
         }
@@ -6954,16 +7140,55 @@ Return JSON only:
         completedAt: nowIso
       });
 
+      const manualTask = addAgentTaskToSettings(settings, {
+        id: `task_${relatedRunId}`,
+        title: isZh ? `手动执行：${agent.name}` : `Manual run: ${agent.name}`,
+        description: agent.instructions || '',
+        objective,
+        source: 'agent_manual',
+        triggerType: 'manual',
+        entityType: 'system',
+        agentId: agent.id,
+        agentName: agent.name,
+        status: reviewStatus === 'pending_review'
+          ? 'approval_required'
+          : (relatedRunType === 'harness' ? 'running' : 'queued'),
+        risk: agentTaskRiskFromAgent(agent),
+        approvalStatus: reviewStatus === 'pending_review' ? 'pending' : 'approved',
+        runId: relatedRunId,
+        runType: relatedRunType,
+        sourceRefType: 'manual',
+        sourceRefId: relatedRunId,
+        resultSummary: actualResult,
+        queuedAt: nowIso,
+        startedAt: reviewStatus === 'approved' && relatedRunType === 'harness' ? nowIso : undefined,
+        metadata: {
+          tools: agent.tools || [],
+          runRecordId: record.id,
+          requestedObjective
+        }
+      });
+
       let executionResult = null;
       if (reviewStatus === 'approved' && relatedRunType === 'harness') {
         try {
           executionResult = await executeAgentHubHarnessRun(req.user.uid, settings, relatedRunId);
+          updateAgentTaskInSettings(settings, manualTask.id, {
+            status: executionResult?.failed > 0 && !executionResult?.acted ? 'failed' : 'completed',
+            resultSummary: summarizeAgentExecutionResult(executionResult, isZh),
+            completedAt: new Date().toISOString()
+          });
         } catch (error: any) {
           updateAgentHubRunRecordInSettings(settings, record.id, {
             status: 'failed',
             actualResult: isZh
               ? `1. 手动执行失败。\n2. 错误：${error?.message || '未知错误'}`
               : `1. Manual run failed.\n2. Error: ${error?.message || 'Unknown error'}`,
+            completedAt: new Date().toISOString()
+          });
+          updateAgentTaskInSettings(settings, manualTask.id, {
+            status: 'failed',
+            resultSummary: error?.message || 'Manual run failed.',
             completedAt: new Date().toISOString()
           });
         }
@@ -7004,7 +7229,45 @@ Return JSON only:
       if (client) await client.query('ROLLBACK').catch(() => undefined);
       console.error('Failed to dispatch Agent Hub opportunity', e);
       const message = e.message || 'Failed to dispatch opportunity';
-      const isConflict = message.includes('already') || message.includes('正在') || message.includes('已派发') || message.includes('处理中');
+      const isConflict = /already|dispatch|processing|progress/i.test(message);
+      res.status(isConflict ? 409 : 500).json({ error: message });
+    } finally {
+      if (client) client.release();
+    }
+  });
+
+  app.post('/api/agent-hub/tasks/:taskId/dispatch', authenticateToken, async (req: any, res) => {
+    let client: any = null;
+    try {
+      const { taskId } = req.params;
+      client = await pool.connect();
+      await client.query('BEGIN');
+      const userRes = await client.query('SELECT settings FROM users WHERE id = $1 FOR UPDATE', [req.user.uid]);
+      if (userRes.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'User not found' });
+      }
+      const settings = typeof userRes.rows[0].settings === 'string' ? JSON.parse(userRes.rows[0].settings || '{}') : (userRes.rows[0].settings || {});
+      const task = (Array.isArray(settings.agentTasks) ? settings.agentTasks : []).find((item: any) => item.id === taskId);
+      const opportunityId = task?.sourceRefType === 'opportunity'
+        ? task.sourceRefId
+        : (taskId.startsWith('task_opp_') ? taskId.slice(5) : null);
+      if (!opportunityId) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Task is not linked to an executable opportunity yet.' });
+      }
+      const result = await dispatchAgentOpportunityForUser(req.user.uid, settings, opportunityId, 'manual');
+      const updated = await client.query(
+        'UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING settings',
+        [JSON.stringify(settings), req.user.uid]
+      );
+      await client.query('COMMIT');
+      res.json({ success: true, result, settings: updated.rows[0]?.settings || settings });
+    } catch (e: any) {
+      if (client) await client.query('ROLLBACK').catch(() => undefined);
+      console.error('Failed to dispatch Agent Hub task', e);
+      const message = e.message || 'Failed to dispatch task';
+      const isConflict = /already|dispatch|processing|progress/i.test(message);
       res.status(isConflict ? 409 : 500).json({ error: message });
     } finally {
       if (client) client.release();
@@ -7018,45 +7281,97 @@ Return JSON only:
       return res.status(409).json({ error: 'This agent run is already executing.' });
     }
     activeHarnessExecutions.add(executionLockKey);
+    let settings: any = null;
     try {
       const userRes = await pool.query('SELECT settings FROM users WHERE id = $1', [req.user.uid]);
       if (userRes.rows.length === 0) return res.status(404).json({ error: 'User not found' });
-      const settings = typeof userRes.rows[0].settings === 'string' ? JSON.parse(userRes.rows[0].settings || '{}') : (userRes.rows[0].settings || {});
+      settings = typeof userRes.rows[0].settings === 'string' ? JSON.parse(userRes.rows[0].settings || '{}') : (userRes.rows[0].settings || {});
       const existingRun = (settings.agentHarnessRuns || []).find((run: any) => run.id === runId);
       if (!existingRun) return res.status(404).json({ error: 'Agent run not found' });
       if (['running', 'completed'].includes(existingRun.status)) {
         return res.status(409).json({ error: settings.language === 'zh' ? '该智能体运行已在执行或已完成。' : 'This agent run is already running or completed.' });
       }
+      const startedAt = new Date().toISOString();
       settings.agentHarnessRuns = (settings.agentHarnessRuns || []).map((run: any) => run.id === runId ? {
         ...run,
         status: 'running',
-        approvedAt: run.approvedAt || new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        approvedAt: run.approvedAt || startedAt,
+        updatedAt: startedAt,
         steps: (run.steps || []).map((step: any) => ({ ...step, status: 'running', error: undefined }))
       } : run);
       settings.agentRunRecords = (settings.agentRunRecords || []).map((record: any) => record.relatedRunId === runId && record.relatedRunType === 'harness' ? {
         ...record,
         status: 'running',
         actualResult: settings.language === 'zh' ? '人工已批准该智能体运行，正在执行配置的工具。' : 'Human approved the planned agent run. Executing configured tools now.',
-        updatedAt: new Date().toISOString()
+        updatedAt: startedAt
       } : record);
+      syncAgentTasksByRun(settings, runId, 'harness', {
+        status: 'running',
+        approvalStatus: 'approved',
+        startedAt,
+        resultSummary: settings.language === 'zh' ? '人工已批准，执行引擎正在运行。' : 'Approved by a human; the execution engine is running.'
+      });
 
       const result = await executeAgentHubHarnessRun(req.user.uid, settings, runId);
       const executedRun = (settings.agentHarnessRuns || []).find((run: any) => run.id === runId);
       const opportunityId = executedRun?.steps?.[0]?.payload?.opportunityId;
+      const finishedAt = new Date().toISOString();
+      const resultSummary = summarizeAgentExecutionResult(result, settings.language === 'zh');
+      const completedStatus = result?.failed > 0 && !result?.acted ? 'failed' : 'completed';
       if (opportunityId) {
         updateAgentOpportunityInSettings(settings, opportunityId, {
-          status: result?.failed > 0 && !result?.acted ? 'failed' : 'completed',
-          resultSummary: summarizeAgentExecutionResult(result, settings.language === 'zh'),
-          completedAt: new Date().toISOString()
+          status: completedStatus,
+          resultSummary,
+          completedAt: finishedAt
         });
       }
+      syncAgentTasksByRun(settings, runId, 'harness', {
+        status: completedStatus,
+        approvalStatus: 'approved',
+        resultSummary,
+        completedAt: finishedAt
+      });
       await pool.query('UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [JSON.stringify(settings), req.user.uid]);
       const pointsAdded = Math.max(0, await getGlobalSettingNumber('point_event_agent_run', 5));
       await adjustUserPoints(req.user.uid, pointsAdded, 'Completed agent run', 'agent_run', runId, { runId });
       res.json({ success: true, result });
     } catch (e: any) {
       console.error('Failed to execute Agent Hub harness run', e);
+      if (settings) {
+        const failedAt = new Date().toISOString();
+        const failureMessage = e.message || 'Failed to execute Agent Hub run';
+        settings.agentHarnessRuns = (settings.agentHarnessRuns || []).map((run: any) => run.id === runId ? {
+          ...run,
+          status: 'failed',
+          completedAt: failedAt,
+          updatedAt: failedAt,
+          steps: (run.steps || []).map((step: any) => ({ ...step, status: step.status === 'completed' ? 'completed' : 'failed', error: failureMessage }))
+        } : run);
+        settings.agentRunRecords = (settings.agentRunRecords || []).map((record: any) => record.relatedRunId === runId && record.relatedRunType === 'harness' ? {
+          ...record,
+          status: 'failed',
+          actualResult: failureMessage,
+          completedAt: failedAt,
+          updatedAt: failedAt
+        } : record);
+        syncAgentTasksByRun(settings, runId, 'harness', {
+          status: 'failed',
+          resultSummary: failureMessage,
+          completedAt: failedAt
+        });
+        const failedRun = (settings.agentHarnessRuns || []).find((run: any) => run.id === runId);
+        const opportunityId = failedRun?.steps?.[0]?.payload?.opportunityId;
+        if (opportunityId) {
+          updateAgentOpportunityInSettings(settings, opportunityId, {
+            status: 'failed',
+            resultSummary: failureMessage,
+            completedAt: failedAt
+          });
+        }
+        await pool.query('UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [JSON.stringify(settings), req.user.uid]).catch(err => {
+          console.warn('Failed to persist Agent Hub harness failure state', err);
+        });
+      }
       await triggerAgentHubEvent(req.user.uid, 'execution_failed', {
         source: 'agent-hub-harness',
         runId: req.params?.runId,
