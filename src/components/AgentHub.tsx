@@ -1,194 +1,27 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, Check, CheckCircle2, ClipboardCheck, Cpu, ListChecks, MessageSquare, Plus, Power, RefreshCw, Save, Search, Send, Server, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, X, XCircle, Zap } from 'lucide-react';
-import { AgentHubAgent, AgentHubChatMessage as AgentChatMessage, AgentHubEventScope, AgentHubEventTrigger, AgentHubGuardrail, AgentHubScheduleUnit, AgentHubStatus, AgentTask, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType, useStore } from '../store';
+import { AgentHubAgent, AgentHubChatMessage as AgentChatMessage, AgentHubEventScope, AgentHubGuardrail, AgentHubScheduleUnit, AgentHubStatus, AgentTask, GLOBAL_AGENT_ACTION_TYPES, useStore } from '../store';
 import { cn } from '../lib/utils';
 import { GlobalAgent } from './GlobalAgent';
 import { useTranslation } from '../lib/i18n';
 import { AGENT_TOOL_REGISTRY, getAgentToolDefinition, inferAgentToolsFromPrompt } from '../lib/agentTools';
 import { useAuthStore } from '../authStore';
-
-const ACTION_LABELS: Record<GlobalAgentActionType, string> = {
-  create_lead_campaign: 'Create Lead Campaign',
-  run_lead_campaign: 'Run Lead Campaign',
-  create_followup_workflow: 'Create Follow-up Workflow',
-  process_customer_reply: 'Process Customer Reply',
-  send_email: 'Send Email',
-  send_whatsapp: 'Send WhatsApp',
-  update_client_stage: 'Update Client Stage',
-  add_client_comment: 'Add Client Comment',
-  enrich_client_data: 'Enrich Client Data',
-  create_deal: 'Create Deal',
-  create_quote: 'Create Quote',
-  prioritize_leads: 'Prioritize Leads',
-  review_pipeline: 'Review Pipeline'
-};
-
-type AgentHubTab = 'fleet' | 'approvals' | 'opportunities' | 'runs' | 'chat' | 'global';
-const emptyAgent = (): Omit<AgentHubAgent, 'id' | 'createdAt' | 'updatedAt' | 'tasksCompleted'> => ({
-  name: '',
-  instructions: '',
-  guardrail: 'review',
-  status: 'idle',
-  tools: [],
-  scheduleEnabled: false,
-  scheduleIntervalMinutes: 1440,
-  scheduleIntervalValue: 1,
-  scheduleIntervalUnit: 'day',
-  scheduleDayOfMonth: 1,
-  scheduleMaxRuns: null,
-  scheduleRunCount: 0,
-  eventTriggers: [],
-  eventTriggerScope: 'subject',
-  contextSuggestionMode: 'manual',
-  soul: '',
-  evolutionLog: [],
-  builtIn: false
-});
-
-function formatChatRunResult(result: any, language: string) {
-  const execution = result?.executionResult || result?.result || result;
-  if (!execution) return language === 'zh' ? '已创建执行任务。' : 'Run created.';
-  const details = Array.isArray(execution.details) ? execution.details.filter(Boolean).slice(0, 3).join(' ') : '';
-  const counts = [
-    typeof execution.scanned === 'number' ? `${language === 'zh' ? '扫描' : 'scanned'} ${execution.scanned}` : '',
-    typeof execution.acted === 'number' ? `${language === 'zh' ? '处理' : 'acted'} ${execution.acted}` : '',
-    typeof execution.skipped === 'number' ? `${language === 'zh' ? '跳过' : 'skipped'} ${execution.skipped}` : '',
-    typeof execution.failed === 'number' ? `${language === 'zh' ? '失败' : 'failed'} ${execution.failed}` : ''
-  ].filter(Boolean).join(', ');
-  if (counts || details) return [counts, details].filter(Boolean).join('. ');
-  if (typeof execution === 'string') return execution;
-  return JSON.stringify(execution);
-}
-
-const AGENT_EVENT_TRIGGER_OPTIONS: { id: AgentHubEventTrigger; label: string; description: string }[] = [
-  { id: 'email_received', label: 'Email received', description: 'Run when new inbound email is synced.' },
-  { id: 'whatsapp_received', label: 'WhatsApp received', description: 'Run when a WhatsApp inbound message is saved.' },
-  { id: 'live_chat_received', label: 'Live chat received', description: 'Run when a website live chat visitor sends a message.' },
-  { id: 'review_required', label: 'Review required', description: 'Run when a human approval item is created.' },
-  { id: 'execution_failed', label: 'Execution failed', description: 'Run when an agent or workflow execution fails.' },
-  { id: 'client_created', label: 'Client created', description: 'Run when a new client record is created.' },
-  { id: 'lead_created', label: 'Lead created', description: 'Run when a new lead/deal is created.' },
-  { id: 'client_updated', label: 'Client updated', description: 'Run when a client profile or stage changes.' },
-];
-
-function eventTriggerLabel(trigger: AgentHubEventTrigger, language?: string) {
-  const zh: Record<AgentHubEventTrigger, string> = {
-    email_received: '收到邮件',
-    whatsapp_received: '收到 WhatsApp',
-    live_chat_received: '收到 Live Chat',
-    review_required: '需要审核',
-    execution_failed: '执行失败',
-    client_created: '创建客户',
-    lead_created: '创建线索',
-    client_updated: '客户更新',
-  };
-  return language === 'zh' ? zh[trigger] : (AGENT_EVENT_TRIGGER_OPTIONS.find(item => item.id === trigger)?.label || trigger);
-}
-
-function statusClass(status: AgentHubStatus) {
-  if (status === 'active') return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300';
-  if (status === 'paused') return 'border-slate-500/40 bg-slate-500/10 text-slate-300';
-  return 'border-amber-500/40 bg-amber-500/10 text-amber-300';
-}
-
-function guardrailLabel(guardrail: AgentHubGuardrail) {
-  if (guardrail === 'auto') return 'Auto';
-  if (guardrail === 'human_loop') return 'Human-in-the-loop';
-  return 'Review required';
-}
-
-function scheduleLabel(agent: AgentHubAgent, t: (key: string) => string) {
-  if (!agent.scheduleEnabled) return t('Schedule off');
-  const unit = agent.scheduleIntervalUnit || 'minute';
-  const value = agent.scheduleIntervalValue || agent.scheduleIntervalMinutes || 1;
-  const runs = agent.scheduleMaxRuns ? ` · ${t('Runs')} ${agent.scheduleRunCount || 0}/${agent.scheduleMaxRuns}` : '';
-  if (unit === 'month_day') return `${t('Monthly on day')} ${agent.scheduleDayOfMonth || 1}${runs}`;
-  return `${t('Every')} ${value} ${t(unit)}${value === 1 ? '' : t('s')}${runs}`;
-}
-
-function riskClass(risk: string) {
-  if (risk === 'high') return 'border-red-500/40 bg-red-500/10 text-red-300';
-  if (risk === 'medium') return 'border-amber-500/40 bg-amber-500/10 text-amber-300';
-  return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300';
-}
-
-function opportunityStatusLabel(status: string, language: string) {
-  if (status === 'approval_required') return language === 'zh' ? '\u5f85\u5ba1\u6838' : 'Approval required';
-  if (status === 'skipped') return language === 'zh' ? '\u5df2\u8df3\u8fc7' : 'Skipped';
-  const zh: Record<string, string> = {
-    open: '待派发',
-    queued: '已入队',
-    pending_review: '待审核',
-    running: '执行中',
-    completed: '已完成',
-    failed: '失败',
-    ignored: '已忽略'
-  };
-  const en: Record<string, string> = {
-    open: 'Open',
-    queued: 'Queued',
-    pending_review: 'Pending review',
-    running: 'Running',
-    completed: 'Completed',
-    failed: 'Failed',
-    ignored: 'Ignored'
-  };
-  return language === 'zh' ? (zh[status] || status) : (en[status] || status);
-}
-
-function opportunityStatusClass(status: string) {
-  if (status === 'completed') return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300';
-  if (status === 'failed') return 'border-red-500/40 bg-red-500/10 text-red-300';
-  if (status === 'pending_review' || status === 'approval_required') return 'border-blue-500/40 bg-blue-500/10 text-blue-300';
-  if (status === 'running' || status === 'queued') return 'border-amber-500/40 bg-amber-500/10 text-amber-300';
-  return 'border-neutral-700 bg-neutral-900 text-slate-300';
-}
-
-function taskFromOpportunityForView(opportunity: any): AgentTask {
-  const status = opportunity.status === 'pending_review'
-    ? 'approval_required'
-    : opportunity.status === 'ignored'
-      ? 'ignored'
-      : (opportunity.status || 'open');
-  const triggerType = opportunity.source === 'agent_schedule'
-    ? 'schedule'
-    : opportunity.source === 'agent_event'
-      ? 'event'
-      : opportunity.source === 'signal_scanner'
-        ? 'signal'
-        : 'system';
-  return {
-    id: `task_${opportunity.id}`,
-    title: opportunity.title,
-    description: opportunity.description,
-    objective: opportunity.objective,
-    source: opportunity.source || 'opportunity',
-    triggerType,
-    entityType: opportunity.targetType,
-    entityId: opportunity.targetId,
-    agentId: opportunity.recommendedAgentId,
-    agentName: opportunity.recommendedAgentName,
-    status,
-    risk: opportunity.risk || 'medium',
-    dedupeKey: opportunity.dedupeKey,
-    approvalStatus: status === 'approval_required' ? 'pending' : (opportunity.relatedRunId ? 'approved' : 'not_required'),
-    runId: opportunity.relatedRunId || null,
-    runType: opportunity.relatedRunType || null,
-    retryCount: 0,
-    sourceRefType: 'opportunity',
-    sourceRefId: opportunity.id,
-    resultSummary: opportunity.resultSummary,
-    metadata: opportunity.metadata,
-    createdAt: opportunity.createdAt,
-    updatedAt: opportunity.updatedAt,
-    completedAt: opportunity.completedAt
-  } as AgentTask;
-}
-
-function linkedOpportunityIdFromTask(task: AgentTask) {
-  if (task.sourceRefType === 'opportunity' && task.sourceRefId) return task.sourceRefId;
-  return task.id.startsWith('task_opp_') ? task.id.slice(5) : null;
-}
+import {
+  ACTION_LABELS,
+  AGENT_EVENT_TRIGGER_OPTIONS,
+  AgentHubTab,
+  emptyAgent,
+  eventTriggerLabel,
+  formatChatRunResult,
+  guardrailLabel,
+  linkedOpportunityIdFromTask,
+  opportunityStatusClass,
+  opportunityStatusLabel,
+  riskClass,
+  scheduleLabel,
+  statusClass,
+  taskFromOpportunityForView
+} from './agent-hub/shared';
 
 function ToolSelector({
   selected,
@@ -787,7 +620,7 @@ function AgentConfigPanel({
           </select>
           <p className="mt-2 text-xs text-slate-500">
             {language === 'zh'
-              ? '控制该智能体的动作是自动执行、先进入审批，还是对外动作始终保留人工确认。'
+              ? '控制该智能体是自动执行、先进入审批，还是对客户可见动作始终保留人工确认。'
               : 'Controls whether this agent auto-runs, waits for approval, or keeps customer-facing actions human-reviewed.'}
           </p>
         </label>
@@ -828,7 +661,7 @@ function AgentConfigPanel({
             </select>
             <p className="mt-2 text-xs text-slate-500">
               {language === 'zh'
-                ? '事件主体模式只处理触发事件关联的客户/线索/消息；全局模式会按该智能体的配置扫描所有可处理对象。'
+                ? '事件主体模式只处理触发事件关联的客户、线索或消息；全局模式会按该智能体配置扫描所有可处理对象。'
                 : 'Subject mode only handles the client, lead, or message related to the event. Global mode scans all eligible records according to this agent configuration.'}
             </p>
           </label>
@@ -854,12 +687,13 @@ function AgentConfigPanel({
                   <span className="min-w-0">
                     <span className="block text-xs font-bold text-slate-200">{eventTriggerLabel(option.id, language)}</span>
                     <span className="mt-1 block text-[11px] leading-relaxed text-slate-500">{language === 'zh' ? {
-                      email_received: '同步到新的入站邮件时触发。',
+                      email_received: '收到新的入站邮件时触发。',
                       whatsapp_received: '保存新的 WhatsApp 入站消息时触发。',
+                      live_chat_received: '收到网站 Live Chat 消息时触发。',
                       review_required: '创建人工审核事项时触发。',
                       execution_failed: '智能体或工作流执行失败时触发。',
                       client_created: '创建新客户记录时触发。',
-                      lead_created: '创建新线索/Deal 时触发。',
+                      lead_created: '创建新线索或 Deal 时触发。',
                       client_updated: '客户资料或阶段更新时触发。',
                     }[option.id] : option.description}</span>
                   </span>
@@ -1100,13 +934,13 @@ export function AgentHub() {
     ? {
         title: language === 'zh' ? '系统级智能体' : 'System Agents',
         description: language === 'zh'
-          ? '内置 AI 能力与核心业务智能体，不可删除，可配置权限、策略与运行周期。'
+          ? '内置 AI 能力与核心业务智能体。不可删除，但可以配置权限、策略与运行周期。'
           : 'Built-in AI operations and core business agents. They cannot be deleted, but permissions, policy, and schedules can be configured.'
       }
     : {
         title: language === 'zh' ? '自定义智能体' : 'Custom Agents',
         description: language === 'zh'
-          ? '你为具体业务流程创建的智能体，可自由新增、配置和删除。'
+          ? '你为具体业务流程创建的智能体，可新增、配置和删除。'
           : 'Agents created for your own workflows. They can be added, configured, and deleted.'
       };
   const activeAgents = computedAgents.filter(agent => agent.status === 'active').length;
@@ -1183,21 +1017,21 @@ export function AgentHub() {
       canPlan && (language === 'zh' ? '拆解跨模块计划并生成可审核执行项' : 'break work into cross-module plans and reviewable execution items')
     ].filter(Boolean);
     const mentionHint = language === 'zh'
-      ? '在聊天框输入 @客户名 可引用客户资料；不引用客户时，我会按当前 Agent 的职责判断是否执行全局任务。'
+      ? '在聊天输入 @客户名称 可引用客户资料；不引用客户时，我会按当前 Agent 的职责判断是否执行全局任务。'
       : 'Type @client name to reference a customer; without a customer mention, I will decide whether the request should run globally based on this agent role.';
     const executionHint = agent.guardrail === 'auto'
-      ? (language === 'zh' ? '该 Agent 当前允许自动执行低风险授权工具；需要审批的动作会在聊天窗口显示确认按钮。' : 'This agent can auto-run authorized low-risk tools; approval-required actions will show confirmation buttons in chat.')
+      ? (language === 'zh' ? '该 Agent 当前允许自动执行低风险授权工具；需要审批的动作会在聊天窗口显示按钮。' : 'This agent can auto-run authorized low-risk tools; approval-required actions will show confirmation buttons in chat.')
       : (language === 'zh' ? '该 Agent 当前以人工审核为主；会先生成计划或待审批动作，再由你确认。' : 'This agent is review-first; it will prepare plans or approval items before execution.');
     const examples = [
-      canAcquire && (language === 'zh' ? '例如：帮我基于产品和知识库获取 10 条太阳能运维客户线索' : 'Example: find 10 solar operations leads based on our products and knowledge base'),
-      canAnalyze && (language === 'zh' ? '例如：分析 @客户名 的成交概率和最佳下一步' : 'Example: analyze @Client Name conversion probability and best next step'),
-      canEmail && (language === 'zh' ? '例如：为 @客户名 起草一封首次跟进邮件' : 'Example: draft a first follow-up email for @Client Name'),
-      canWhatsApp && (language === 'zh' ? '例如：给 @客户名 生成一条 WhatsApp 破冰消息' : 'Example: create a WhatsApp ice-breaking message for @Client Name')
+      canAcquire && (language === 'zh' ? '例：帮我基于产品和知识库获取 10 条太阳能运维客户线索' : 'Example: find 10 solar operations leads based on our products and knowledge base'),
+      canAnalyze && (language === 'zh' ? '例：分析 @客户名称 的成交率和最佳下一步' : 'Example: analyze @Client Name conversion probability and best next step'),
+      canEmail && (language === 'zh' ? '例：为 @客户名称 起草一封首次跟进邮件' : 'Example: draft a first follow-up email for @Client Name'),
+      canWhatsApp && (language === 'zh' ? '例：给 @客户名称 生成 WhatsApp 破冰消息' : 'Example: create a WhatsApp ice-breaking message for @Client Name')
     ].filter(Boolean).slice(0, 2);
     return [
       modes.length
-        ? (language === 'zh' ? `你可以让我${modes.join('、')}。` : `Use this agent to ${modes.join(', ')}.`)
-        : (language === 'zh' ? '你可以把业务目标直接告诉这个 Agent，它会根据已授权工具判断可执行范围。' : 'Tell this agent the business goal; it will decide what it can do from its authorized tools.'),
+        ? (language === 'zh' ? `你可以${modes.join('、')}。` : `Use this agent to ${modes.join(', ')}.`)
+        : (language === 'zh' ? '你可以把业务目标直接告诉这个 Agent，它会根据授权工具判断可执行范围。' : 'Tell this agent the business goal; it will decide what it can do from its authorized tools.'),
       mentionHint,
       executionHint,
       ...examples
@@ -1362,7 +1196,7 @@ export function AgentHub() {
           }, ...(current.evolutionLog || [])].slice(0, 50)
         });
         void persistAgentHubState();
-        notify(language === 'zh' ? '已生成进化建议，可在该 Agent 的 Soul 区块审核。' : 'Evolution proposal created. Review it in this agent Soul section.', 'info');
+        notify(language === 'zh' ? '已生成进化建议，请到该 Agent 的 Soul 区块审核。' : 'Evolution proposal created. Review it in this agent Soul section.', 'info');
       }
     } catch (error) {
       console.error(error);
@@ -1423,7 +1257,7 @@ export function AgentHub() {
   const resetSystemAgent = (agent: AgentHubAgent) => {
     const restored = resetAgentHubAgentToDefault(agent.id);
     if (!restored) {
-      notify(language === 'zh' ? '未找到该系统智能体的默认配置。' : 'No default configuration found for this system agent.', 'error');
+      notify(language === 'zh' ? '未找到系统智能体的默认配置。' : 'No default configuration found for this system agent.', 'error');
       return null;
     }
     setSelectedAgentId(restored.id);
@@ -1544,8 +1378,8 @@ export function AgentHub() {
       const reviewStatus = data.result?.reviewStatus;
       notify(
         reviewStatus === 'pending_review'
-          ? (language === 'zh' ? '\u4efb\u52a1\u5df2\u6d3e\u53d1\uff0c\u7b49\u5f85\u4eba\u5de5\u5ba1\u6838\u3002' : 'Task dispatched and waiting for approval.')
-          : (language === 'zh' ? '\u4efb\u52a1\u5df2\u6d3e\u53d1\u5e76\u6267\u884c\u3002' : 'Task dispatched and executed.'),
+          ? (language === 'zh' ? '任务已派发，等待人工审核。' : 'Task dispatched and waiting for approval.')
+          : (language === 'zh' ? '任务已派发并执行。' : 'Task dispatched and executed.'),
         'success'
       );
     } catch (error) {
@@ -1559,7 +1393,7 @@ export function AgentHub() {
         resultSummary: error instanceof Error ? error.message : 'Failed to dispatch task.',
         completedAt: new Date().toISOString()
       });
-      notify(error instanceof Error ? error.message : (language === 'zh' ? '\u4efb\u52a1\u6d3e\u53d1\u5931\u8d25\u3002' : 'Failed to dispatch task.'), 'error');
+      notify(error instanceof Error ? error.message : (language === 'zh' ? '任务派发失败。' : 'Failed to dispatch task.'), 'error');
     } finally {
       setDispatchingOpportunityId(null);
     }
@@ -1632,14 +1466,14 @@ export function AgentHub() {
     updateTasksForRun(item.id, item.kind, {
       status: 'skipped',
       approvalStatus: 'rejected',
-      resultSummary: language === 'zh' ? '人工已拒绝该执行任务。' : 'Human rejected this execution task.',
+      resultSummary: language === 'zh' ? '人工已拒绝执行任务。' : 'Human rejected this execution task.',
       completedAt: rejectedAt
     });
     const linkedOpportunity = agentOpportunities.find(opportunity => opportunity.relatedRunId === item.id && opportunity.relatedRunType === item.kind);
     if (linkedOpportunity) {
       updateAgentOpportunity(linkedOpportunity.id, {
         status: 'failed',
-        resultSummary: language === 'zh' ? '人工已拒绝该机会任务派发。' : 'Human rejected this opportunity dispatch.',
+        resultSummary: language === 'zh' ? '人工已拒绝机会任务派发。' : 'Human rejected this opportunity dispatch.',
         completedAt: new Date().toISOString()
       });
     }
@@ -1647,7 +1481,7 @@ export function AgentHub() {
     if (linkedRecord) {
       updateAgentRunRecord(linkedRecord.id, {
         status: 'rejected',
-        actualResult: language === 'zh' ? '人工已拒绝该计划运行。' : 'Human rejected the planned agent run.',
+        actualResult: language === 'zh' ? '人工已拒绝计划运行。' : 'Human rejected the planned agent run.',
         completedAt: new Date().toISOString()
       });
     }
@@ -1680,7 +1514,7 @@ export function AgentHub() {
       setAgentChatMessages(messages => messages.map(entry => entry.id === message.id ? {
         ...entry,
         action: undefined,
-        content: language === 'zh' ? '已拒绝该执行任务。' : 'Execution rejected.'
+        content: language === 'zh' ? '已拒绝执行任务。' : 'Execution rejected.'
       } : entry));
     }
   };
@@ -1765,10 +1599,9 @@ export function AgentHub() {
       .replace(/Opportunity dispatched and a review-gated execution item was created\./g, '机会任务已派发，并创建待审核执行项。')
       .replace(/Human approved the planned agent run\. Executing configured tools now\./g, '人工已批准计划运行，正在执行配置的工具。')
       .replace(/Human approved the planned agent run\./g, '人工已批准计划运行。')
-      .replace(/Human rejected the planned agent run\./g, '人工已拒绝该计划运行。')
+      .replace(/Human rejected the planned agent run\./g, '人工已拒绝计划运行。')
       .replace(/Backend scheduled agent run started\./g, '后端定期智能体运行已开始。');
   };
-
   const runTimelineItems = (record: typeof agentRunRecords[number]) => [
     {
       label: t('Plan'),
@@ -1799,7 +1632,7 @@ export function AgentHub() {
 
   const splitTimelineText = (value: string) => {
     const cleanLine = (line: string) => line
-      .replace(/^\s*(?:[-*•]|\d+[.)]|[一二三四五六七八九十]+[、.])\s*/, '')
+      .replace(/^\s*(?:[-*?]|\d+[.)]|[一二三四五六七八九十]+[、.])\s*/, '')
       .trim();
     const directLines = value
       .replace(/\r/g, '\n')
@@ -1828,7 +1661,6 @@ export function AgentHub() {
     if (/(completed|success|approved|sent|acted|done|完成|成功|通过|已发送|执行)/.test(lower)) return 'emerald';
     return fallback;
   };
-
   const renderTodoTimeline = (value: string, fallbackTone: string) => {
     const items = splitTimelineText(value);
     if (items.length === 0) return <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{value}</p>;
@@ -1853,12 +1685,12 @@ export function AgentHub() {
   const agentOperatingModel = [
     {
       title: language === 'zh' ? '1. 信号扫描' : '1. Signal Scanner',
-      description: language === 'zh' ? '只发现机会，不直接改数据或外发消息。' : 'Finds opportunities without changing data or sending messages.',
+      description: language === 'zh' ? '发现机会，不直接改数据或发消息。' : 'Finds opportunities without changing data or sending messages.',
       icon: <Zap className="h-4 w-4 text-cyan-300" />
     },
     {
       title: language === 'zh' ? '2. 任务队列' : '2. Task Queue',
-      description: language === 'zh' ? '所有定时、事件、聊天触发先进入统一队列。' : 'Scheduled, event, and console-triggered work enters one queue.',
+      description: language === 'zh' ? '定时、事件和聊天触发都会先进入统一任务队列。' : 'Scheduled, event, and console-triggered work enters one queue.',
       icon: <ListChecks className="h-4 w-4 text-blue-300" />
     },
     {
@@ -1868,11 +1700,10 @@ export function AgentHub() {
     },
     {
       title: language === 'zh' ? '4. 执行日志' : '4. Runtime Trace',
-      description: language === 'zh' ? '计划、工具调用、结果和失败原因统一追踪。' : 'Plans, tool calls, outcomes, and failures are tracked in one place.',
+      description: language === 'zh' ? '计划、工具调用结果和失败原因统一追踪。' : 'Plans, tool calls, outcomes, and failures are tracked in one place.',
       icon: <Cpu className="h-4 w-4 text-emerald-300" />
     }
   ];
-
   return (
     <div className="flex-1 bg-black text-slate-100 overflow-y-auto">
       <div className="p-8 space-y-8">
@@ -2021,7 +1852,7 @@ export function AgentHub() {
                       <div className="mt-3 text-sm font-bold text-slate-300">{language === 'zh' ? '打开 Agent Console' : 'Open the Agent Console'}</div>
                       <p className="mt-2 text-xs leading-relaxed text-slate-600">
                         {language === 'zh'
-                          ? '先在左侧选择智能体；输入 @客户名 可引用客户资料。需要执行的内容会转成任务并进入策略判断。'
+                          ? '先在左侧选择智能体；输入 @客户名称 引用客户资料，需要执行的内容会转成任务并进入策略判断。'
                           : 'Choose an agent on the left; type @client name to reference a customer. Execution requests become policy-controlled tasks.'}
                       </p>
                     </div>
@@ -2055,7 +1886,7 @@ export function AgentHub() {
                     }
                   }}
                   list="agent-chat-client-mentions"
-                  placeholder={language === 'zh' ? '例如：帮我分析 @客户名 的下一步跟进策略' : 'Example: Analyze next follow-up strategy for @Client Name'}
+                  placeholder={language === 'zh' ? '例：帮我分析 @客户名称 的下一步跟进策略' : 'Example: Analyze next follow-up strategy for @Client Name'}
                   className="min-w-0 flex-1 rounded-md border border-neutral-700 bg-black px-4 py-2.5 text-sm text-slate-100 outline-none focus:border-blue-500"
                 />
                 <datalist id="agent-chat-client-mentions">
@@ -2131,7 +1962,7 @@ export function AgentHub() {
                 {visibleQueueAgents.length === 0 && (
                   <div className="rounded-lg border border-dashed border-neutral-800 bg-black/40 px-4 py-10 text-center text-sm text-slate-500">
                     {agentQueueFilter === 'custom'
-                      ? (language === 'zh' ? '还没有自定义智能体。点击右上角 Create Agent 开始创建。' : 'No custom agents yet. Use Create Agent to add one.')
+                      ? (language === 'zh' ? '还没有自定义智能体，点击右上 Create Agent 开始创建。' : 'No custom agents yet. Use Create Agent to add one.')
                       : (language === 'zh' ? '暂无系统级智能体。' : 'No system agents available.')}
                   </div>
                 )}
@@ -2215,7 +2046,7 @@ export function AgentHub() {
                 </div>
                 <p className="mt-2 text-xs leading-relaxed text-slate-500">
                   {language === 'zh'
-                    ? 'Signal Scanner、事件触发、定时运行和 Console 请求都应先形成任务。任务再由执行策略决定自动执行、进入审批，或交给指定智能体处理。'
+                    ? 'Signal Scanner、事件触发、定时运行和 Console 请求都会先形成任务，再由执行策略决定自动执行、进入审批，或交给指定智能体处理。'
                     : 'Signal Scanner, event triggers, schedules, and Console requests should first become tasks. Policy then decides whether to auto-run, request approval, or route to a specific agent.'}
                 </p>
               </div>
@@ -2231,7 +2062,7 @@ export function AgentHub() {
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-neutral-800 bg-black px-4 py-3">
               <div className="text-xs text-slate-500">
                 {language === 'zh'
-                  ? `\u53ef\u6d3e\u53d1\u4efb\u52a1 ${dispatchableTasks.length} \u4e2a \u00b7 \u961f\u5217\u603b\u6570 ${visibleTasks.length} \u4e2a \u00b7 \u5f85\u5ba1\u6838 ${pendingItems.length} \u4e2a`
+                  ? `可派发任务 ${dispatchableTasks.length} 个 · 队列总数 ${visibleTasks.length} 个 · 待审核 ${pendingItems.length} 个`
                   : `${dispatchableTasks.length} dispatchable · ${visibleTasks.length} total · ${pendingItems.length} waiting for approval`}
               </div>
               <button
@@ -2255,7 +2086,7 @@ export function AgentHub() {
                     checked={agentOpportunityRoutingPolicy.enabled}
                     onChange={e => updateAgentOpportunityRoutingPolicy({ enabled: e.target.checked })}
                   />
-                  {language === 'zh' ? '启用自动路由' : 'Enable routing'}
+                  {language === 'zh' ? '启用路由' : 'Enable routing'}
                 </label>
                 <label className="flex items-center gap-2 rounded-md border border-neutral-800 bg-black px-3 py-2 text-xs text-slate-300">
                   <input
@@ -2377,7 +2208,7 @@ export function AgentHub() {
               </div>
               <p className="mb-5 text-xs leading-relaxed text-slate-500">
                 {language === 'zh'
-                  ? '所有需要人工确认的智能体动作统一在这里处理。不要再到不同智能体页面分别找审核按钮。'
+                  ? '需要人工确认的智能体动作统一在这里处理，不需要到不同智能体页面分别找审核按钮。'
                   : 'All human-reviewed agent actions are handled here. You no longer need to hunt for approval buttons across agent pages.'}
               </p>
               <div className="space-y-4">
@@ -2410,14 +2241,14 @@ export function AgentHub() {
 
             <section className="bg-neutral-900/80 border border-neutral-700 rounded-lg p-6">
               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">
-                <ShieldCheck className="w-4 h-4" /> {language === 'zh' ? '执行策略与底座' : 'Execution Policy & Engine'}
+                <ShieldCheck className="w-4 h-4" /> {language === 'zh' ? '执行策略与引擎' : 'Execution Policy & Engine'}
               </div>
               <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="bg-black border border-neutral-800 rounded-md p-4">
                   <div className="flex items-center gap-2 text-sm font-bold text-slate-100"><Cpu className="w-4 h-4 text-blue-300" /> {language === 'zh' ? 'Execution Engine' : 'Execution Engine'}</div>
                   <p className="mt-2 text-xs text-slate-500">
                     {language === 'zh'
-                      ? '原 Agent Harness 已收束为执行引擎：检查工具权限、套用执行策略、创建审核项、记录 trace，不再作为独立业务智能体。'
+                      ? 'Agent Harness 已收束为执行引擎：检查工具权限、应用执行策略、创建审核项并记录 trace，不再作为独立业务智能体。'
                       : 'The former Agent Harness is now the execution engine: it checks tool permissions, applies policy, creates review items, and records traces. It is no longer a standalone business agent.'}
                   </p>
                 </div>
@@ -2425,7 +2256,7 @@ export function AgentHub() {
                   <div className="flex items-center gap-2 text-sm font-bold text-slate-100"><Bot className="w-4 h-4 text-blue-300" /> {language === 'zh' ? 'Global Orchestrator' : 'Global Orchestrator'}</div>
                   <p className="mt-2 text-xs text-slate-500">
                     {language === 'zh'
-                      ? '只负责拆解目标、分派任务和协调优先级；具体执行仍进入任务队列和审批策略。'
+                      ? '负责拆解目标、分派任务和协调优先级；具体执行仍进入任务队列和审批策略。'
                       : 'Breaks goals into tasks and coordinates priority. Actual execution still flows through task queue and policy.'}
                   </p>
                 </button>
