@@ -114,6 +114,10 @@ const roleHasPermission = (role: string | null | undefined, permission: string) 
   return permissions.includes('*') || permissions.includes(permission);
 };
 
+const roleHasAnyPermission = (role: string | null | undefined, permissions: string[]) => (
+  permissions.some(permission => roleHasPermission(role, permission))
+);
+
 const safeParseJsonField = (value: any, fallback: any = {}) => {
   if (value === null || value === undefined) return fallback;
   if (typeof value === 'string') {
@@ -9481,11 +9485,74 @@ Return JSON only:
   };
 
   const isAgentToolAllowedForRole = (role: string, tool: string) => {
-    if (role === 'superadmin') return true;
+    const normalizedRole = normalizeRole(role);
+    const toolPermissionMap: Record<string, string[]> = {
+      'agent.run': ['agent.execute'],
+      'global_agent.plan': ['agent.execute'],
+      'lead.acquire': ['lead.create'],
+      'lead.read': ['lead.read'],
+      'lead.create': ['lead.create'],
+      'lead.update': ['lead.update'],
+      'lead.enrich': ['lead.update'],
+      'lead.tag': ['lead.update'],
+      'lead.comment': ['lead.update'],
+      'lead.log': ['lead.update'],
+      'lead.stage': ['lead.update'],
+      'lead.analyze': ['lead.read'],
+      'lead.score': ['lead.update'],
+      'lead.delete': ['lead.delete'],
+      'public_pool.import': ['lead.create'],
+      'client.read': ['client.read'],
+      'client.create': ['client.create'],
+      'client.update': ['client.update'],
+      'client.enrich': ['client.update'],
+      'client.tag': ['client.update'],
+      'client.comment': ['client.update'],
+      'client.log': ['client.update'],
+      'client.stage': ['client.stage.update'],
+      'client.summarize': ['client.read'],
+      'client.dedupe': ['client.read'],
+      'client.delete': ['client.delete'],
+      'email.read': ['email.read'],
+      'email.draft': ['email.send'],
+      'email.reply': ['email.send'],
+      'email.schedule': ['email.send'],
+      'email.send': ['email.send'],
+      'email.tag': ['email.read'],
+      'email.comment': ['email.read'],
+      'email.delete': ['email.delete'],
+      'whatsapp.read': ['whatsapp.read'],
+      'whatsapp.send': ['whatsapp.send'],
+      'live_chat.read': ['live_chat.read', 'live_chat.manage'],
+      'live_chat.reply': ['live_chat.manage'],
+      'live_chat.escalate': ['live_chat.manage'],
+      'conversation.tag': ['email.read', 'whatsapp.read', 'live_chat.manage'],
+      'conversation.comment': ['email.read', 'whatsapp.read', 'live_chat.manage'],
+      'quote.read': ['quote.read'],
+      'quote.create': ['quote.create'],
+      'quote.update': ['quote.update'],
+      'quote.delete': ['quote.delete'],
+      'product.read': ['product.read', 'product.manage'],
+      'product.create': ['product.manage'],
+      'product.update': ['product.manage'],
+      'product.delete': ['product.manage'],
+      'knowledge.read': ['knowledge.read', 'knowledge.manage'],
+      'knowledge.search': ['knowledge.read', 'knowledge.manage'],
+      'knowledge.create': ['knowledge.manage'],
+      'knowledge.update': ['knowledge.manage'],
+      'knowledge.delete': ['knowledge.manage'],
+      'next_step.recommend': ['client.read', 'lead.read'],
+      'data.normalize': ['lead.create', 'lead.update']
+    };
+    if (tool.startsWith('admin.') || tool.startsWith('settings.') || tool.includes('api_token')) {
+      return roleHasPermission(normalizedRole, 'api_token.manage');
+    }
+    const permissions = toolPermissionMap[tool];
+    if (permissions) return roleHasAnyPermission(normalizedRole, permissions);
     if (tool.endsWith('.delete')) return false;
-    if (['email.send', 'whatsapp.send', 'live_chat.reply', 'quote.create'].includes(tool)) return false;
-    if (tool.startsWith('admin.') || tool.startsWith('settings.') || tool.includes('api_token')) return false;
-    return true;
+    if (tool.endsWith('.read')) return true;
+    if (tool.endsWith('.send') || tool.endsWith('.reply')) return false;
+    return roleHasPermission(normalizedRole, 'agent.execute');
   };
 
   const assertAgentToolsAllowedForRole = (role: string, tools: string[]) => {

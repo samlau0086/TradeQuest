@@ -1362,6 +1362,7 @@ Agent Execution Policy 使用的 Global Orchestrator action type：
 
 - [ ] 增加基于角色的权限，覆盖 Agent 工具、外发消息、破坏性操作和 API Token。
 - [x] API Token 管理接入 `api_token.manage` 角色权限，仅 superadmin/admin 可查看、生成和吊销网站/API Token。
+- [x] Agent 工具执行接入角色权限矩阵。Email/WhatsApp 外发、Live Chat 回复、报价、客户、Lead、产品、知识库和删除类工具都会按当前用户角色校验。
 - [ ] 敏感动作增加审批评论、审批人、回滚元数据和审计日志。
 - [x] Agent Hub 审批中心支持批准/拒绝时填写审批原因，并写入任务、运行记录和后端执行状态。
 - [x] RAG 增加来源元数据、来源路径、更新时间、文件夹增量同步、删除同步、客户/全局检索权重和 AI 输出引用来源展示。
