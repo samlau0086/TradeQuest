@@ -4506,7 +4506,7 @@ ${JSON.stringify(productsRes.rows.map((product: any) => ({
     return nextTags;
   };
 
-  const createOrUpdateAgentProduct = async (userId: string, input: any, allowCreate = true) => {
+  const createOrUpdateAgentProduct = async (userId: string, input: any, allowCreate = true, allowUpdate = true) => {
     const lookup = input.id || input.sku || input.name;
     const existing = lookup
       ? await pool.query(
@@ -4516,6 +4516,7 @@ ${JSON.stringify(productsRes.rows.map((product: any) => ({
       : { rows: [] };
     const id = existing.rows[0]?.id || input.id || `p${Date.now()}${Math.floor(Math.random() * 1000)}`;
     if (existing.rows[0]) {
+      if (!allowUpdate) return { id, mode: 'existing' };
       await pool.query(
         `UPDATE products
          SET sku = COALESCE($1, sku),
@@ -4560,7 +4561,7 @@ ${JSON.stringify(productsRes.rows.map((product: any) => ({
     return { id, mode: 'created' };
   };
 
-  const createOrUpdateAgentKnowledge = async (userId: string, input: any, llmConfig: any, allowCreate = true) => {
+  const createOrUpdateAgentKnowledge = async (userId: string, input: any, llmConfig: any, allowCreate = true, allowUpdate = true) => {
     const title = String(input.title || 'Agent Knowledge').trim().slice(0, 255);
     const content = String(input.content || input.summary || '').trim();
     if (!content) throw new Error('Knowledge content is required');
@@ -4573,6 +4574,7 @@ ${JSON.stringify(productsRes.rows.map((product: any) => ({
       : { rows: [] };
     const embedding = await generateEmbedding(content, llmConfig);
     if (existing.rows[0]) {
+      if (!allowUpdate) return { id: existing.rows[0].id, mode: 'existing' };
       if (embedding) {
         await pool.query(
           `UPDATE knowledge_base SET title = $1, content = $2, client_id = COALESCE($3, client_id), embedding = $4, updated_at = CURRENT_TIMESTAMP WHERE id = $5 AND user_id = $6`,
@@ -4777,9 +4779,11 @@ Return JSON only:
   };
 
   const annotateAgentEmail = async (userId: string, emailIds: string[], tags: any, comment: any, agentName: string) => {
-    if (emailIds.length === 0) return { tagged: 0, commented: 0 };
+    if (emailIds.length === 0) return { tagged: 0, commented: 0, taggedIds: [] as string[], commentedIds: [] as string[] };
     let tagged = 0;
     let commented = 0;
+    const taggedIds: string[] = [];
+    const commentedIds: string[] = [];
     for (const emailId of emailIds) {
       const current = await pool.query(`SELECT tags, comments FROM emails WHERE id = $1 AND user_id = $2 LIMIT 1`, [emailId, userId]);
       if (current.rows.length === 0) continue;
@@ -4791,6 +4795,7 @@ Return JSON only:
         updates.push(`tags = $${idx++}`);
         values.push(JSON.stringify(nextTags));
         tagged += 1;
+        taggedIds.push(emailId);
       }
       const content = String(comment || '').trim();
       if (content) {
@@ -4801,13 +4806,94 @@ Return JSON only:
         updates.push(`comments = $${idx++}`);
         values.push(JSON.stringify(nextComments));
         commented += 1;
+        commentedIds.push(emailId);
       }
       if (updates.length > 0) {
         values.push(emailId, userId);
         await pool.query(`UPDATE emails SET ${updates.join(', ')} WHERE id = $${idx++} AND user_id = $${idx}`, values);
       }
     }
-    return { tagged, commented };
+    return { tagged, commented, taggedIds, commentedIds };
+  };
+
+  const deleteAgentEmails = async (userId: string, emailIds: string[]) => {
+    const uniqueIds = Array.from(new Set(emailIds.map(id => String(id || '').trim()).filter(Boolean)));
+    if (uniqueIds.length === 0) return { deleted: 0, ids: [] as string[] };
+    const existing = await pool.query(
+      `SELECT id FROM emails WHERE user_id = $1 AND id = ANY($2::text[]) AND COALESCE(pending_delete, false) = false`,
+      [userId, uniqueIds]
+    );
+    const ids = existing.rows.map((row: any) => row.id);
+    if (ids.length === 0) return { deleted: 0, ids };
+    await pool.query(
+      `UPDATE emails
+       SET pending_delete = TRUE,
+           type = CASE WHEN type IN ('sent', 'scheduled', 'draft') THEN type ELSE 'deleted' END
+       WHERE user_id = $1 AND id = ANY($2::text[])`,
+      [userId, ids]
+    );
+    await pool.query(
+      `INSERT INTO deleted_emails (id, user_id)
+       SELECT UNNEST($1::text[]), $2
+       ON CONFLICT DO NOTHING`,
+      [ids, userId]
+    );
+    await pool.query(
+      `UPDATE communication_conversations
+       SET deleted_at = CURRENT_TIMESTAMP, status = 'deleted', updated_at = CURRENT_TIMESTAMP
+       WHERE user_id = $1 AND channel = 'email' AND source_id = ANY($2::text[])`,
+      [userId, ids]
+    );
+    return { deleted: ids.length, ids };
+  };
+
+  const deleteAgentProducts = async (userId: string, productIds: string[]) => {
+    const ids = Array.from(new Set(productIds.map(id => String(id || '').trim()).filter(Boolean)));
+    if (ids.length === 0) return { deleted: 0, ids: [] as string[] };
+    const result = await pool.query(
+      `DELETE FROM products WHERE user_id = $1 AND id = ANY($2::text[]) RETURNING id`,
+      [userId, ids]
+    );
+    return { deleted: result.rowCount || 0, ids: result.rows.map((row: any) => row.id) };
+  };
+
+  const deleteAgentKnowledge = async (userId: string, knowledgeIds: string[]) => {
+    const ids = Array.from(new Set(knowledgeIds.map(id => String(id || '').trim()).filter(Boolean)));
+    if (ids.length === 0) return { deleted: 0, ids: [] as string[] };
+    const result = await pool.query(
+      `DELETE FROM knowledge_base WHERE user_id = $1 AND id = ANY($2::text[]) RETURNING id`,
+      [userId, ids]
+    );
+    return { deleted: result.rowCount || 0, ids: result.rows.map((row: any) => row.id) };
+  };
+
+  const deleteAgentClient = async (userId: string, clientId: string) => {
+    const id = String(clientId || '').trim();
+    if (!id) return { deleted: false, id: '' };
+    const result = await pool.query(
+      `UPDATE clients
+       SET user_id = NULL, deleted_by = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2 AND user_id = $1
+       RETURNING id`,
+      [userId, id]
+    );
+    if (result.rowCount && result.rowCount > 0) {
+      await pool.query(`DELETE FROM deals WHERE client_id = $1`, [id]);
+    }
+    return { deleted: (result.rowCount || 0) > 0, id };
+  };
+
+  const deleteAgentLeads = async (userId: string, leadIds: string[]) => {
+    const ids = Array.from(new Set(leadIds.map(id => String(id || '').trim()).filter(Boolean)));
+    if (ids.length === 0) return { deleted: 0, ids: [] as string[] };
+    const result = await pool.query(
+      `UPDATE deals
+       SET pending_delete = TRUE, updated_at = CURRENT_TIMESTAMP
+       WHERE user_id = $1 AND id = ANY($2::text[]) AND COALESCE(pending_delete, false) = false
+       RETURNING id`,
+      [userId, ids]
+    );
+    return { deleted: result.rowCount || 0, ids: result.rows.map((row: any) => row.id) };
   };
 
   const scheduleWhatsAppMessage = async (userId: string, payload: any) => {
@@ -8254,7 +8340,7 @@ Return JSON only:
       title: tool,
       description: agent.instructions || '',
       tool,
-      risk: ['email.send', 'whatsapp.send', 'quote.create', 'product.delete'].includes(tool)
+      risk: ['email.send', 'whatsapp.send', 'quote.create', 'email.delete', 'product.delete', 'knowledge.delete', 'client.delete', 'lead.delete'].includes(tool)
         ? 'high'
         : ['lead.acquire', 'lead.create', 'lead.update', 'client.update', 'product.update', 'email.schedule'].includes(tool)
           ? 'medium'
@@ -8358,21 +8444,26 @@ Return JSON only:
     const canEnrichLead = tools.includes('lead.enrich');
     const canTagConversation = tools.includes('conversation.tag');
     const canCommentConversation = tools.includes('conversation.comment');
+    const canDeleteEmail = tools.includes('email.delete');
     const canTagEmail = tools.includes('email.tag');
     const canCommentEmail = tools.includes('email.comment');
     const canCreateProduct = tools.includes('product.create');
     const canUpdateProduct = tools.includes('product.update');
+    const canDeleteProduct = tools.includes('product.delete');
     const canCreateKnowledge = tools.includes('knowledge.create');
     const canUpdateKnowledge = tools.includes('knowledge.update');
+    const canDeleteKnowledge = tools.includes('knowledge.delete');
     const canCreateClient = tools.includes('client.create');
+    const canDeleteClient = tools.includes('client.delete');
     const canTagClient = tools.includes('client.tag');
     const canCreateLead = tools.includes('lead.create');
+    const canDeleteLead = tools.includes('lead.delete');
     const canTagLead = tools.includes('lead.tag');
     const canAnalyze = tools.some((tool: string) => ['lead.analyze', 'lead.score', 'client.summarize', 'next_step.recommend', 'product.read', 'knowledge.search', 'knowledge.read'].includes(tool));
-    if (!canSendEmail && !canScheduleEmail && !canSendWhatsApp && !canLog && !canUpdateClient && !canCreateQuote && !canEnrichLead && !canTagConversation && !canCommentConversation && !canTagEmail && !canCommentEmail && !canCreateProduct && !canUpdateProduct && !canCreateKnowledge && !canUpdateKnowledge && !canCreateClient && !canTagClient && !canCreateLead && !canTagLead && canAnalyze) {
+    if (!canSendEmail && !canScheduleEmail && !canSendWhatsApp && !canLog && !canUpdateClient && !canCreateQuote && !canEnrichLead && !canTagConversation && !canCommentConversation && !canDeleteEmail && !canTagEmail && !canCommentEmail && !canCreateProduct && !canUpdateProduct && !canDeleteProduct && !canCreateKnowledge && !canUpdateKnowledge && !canDeleteKnowledge && !canCreateClient && !canDeleteClient && !canTagClient && !canCreateLead && !canDeleteLead && !canTagLead && canAnalyze) {
       return executeInsightAgentRun(userId, settings, run, agent);
     }
-    if (!canSendEmail && !canScheduleEmail && !canSendWhatsApp && !canLog && !canUpdateClient && !canCreateQuote && !canEnrichLead && !canTagConversation && !canCommentConversation && !canTagEmail && !canCommentEmail && !canCreateProduct && !canUpdateProduct && !canCreateKnowledge && !canUpdateKnowledge && !canCreateClient && !canTagClient && !canCreateLead && !canTagLead) {
+    if (!canSendEmail && !canScheduleEmail && !canSendWhatsApp && !canLog && !canUpdateClient && !canCreateQuote && !canEnrichLead && !canTagConversation && !canCommentConversation && !canDeleteEmail && !canTagEmail && !canCommentEmail && !canCreateProduct && !canUpdateProduct && !canDeleteProduct && !canCreateKnowledge && !canUpdateKnowledge && !canDeleteKnowledge && !canCreateClient && !canDeleteClient && !canTagClient && !canCreateLead && !canDeleteLead && !canTagLead) {
       throw new Error('Agent has no executable tools configured');
     }
 
@@ -8435,6 +8526,25 @@ Return JSON only:
            LIMIT 30`,
           [userId]
         );
+    const canRunStandaloneTools = canCreateProduct || canUpdateProduct || canDeleteProduct
+      || canCreateKnowledge || canUpdateKnowledge || canDeleteKnowledge
+      || canCreateClient || canDeleteClient
+      || canCreateLead || canDeleteLead;
+    const clientsToProcess = clientsRes.rows.length > 0
+      ? clientsRes.rows
+      : canRunStandaloneTools
+        ? [{
+          id: null,
+          name: 'Standalone Agent Context',
+          company: '',
+          country: '',
+          status: 'Leads',
+          preferred_language: null,
+          preferred_time_range: null,
+          contacts: [],
+          contact_methods: []
+        }]
+        : [];
 
     let scanned = 0;
     let acted = 0;
@@ -8443,13 +8553,25 @@ Return JSON only:
     const details: string[] = [];
     const executedTools = new Set<string>();
     const landingEvidence: string[] = [];
-    if (subjectOnly && subjectClientIds.size === 0) {
+    const toolEvidence: Record<string, string[]> = {};
+    const markTool = (tool: string, evidence?: string | string[]) => {
+      executedTools.add(tool);
+      const evidenceItems = Array.isArray(evidence) ? evidence : evidence ? [evidence] : [];
+      if (evidenceItems.length > 0) {
+        toolEvidence[tool] = [
+          ...(toolEvidence[tool] || []),
+          ...evidenceItems.map(item => String(item)).filter(Boolean)
+        ];
+        landingEvidence.push(...evidenceItems.map(item => String(item)).filter(Boolean));
+      }
+    };
+    if (subjectOnly && subjectClientIds.size === 0 && clientsToProcess.length === 0) {
       details.push(isZh
         ? '事件主体模式：未找到事件关联的客户/线索主体，已跳过全局扫描。'
         : 'Event subject mode: no related client/lead subject was found, so global scanning was skipped.');
     }
 
-    for (const client of clientsRes.rows) {
+    for (const client of clientsToProcess) {
       if (acted >= batchLimit) break;
       scanned += 1;
       try {
@@ -8558,9 +8680,9 @@ ${buildLanguagePolicy({ systemLanguage: settings.language, customerLanguage: out
 - If email.schedule is allowed and delayed sending is better than immediate sending, set scheduledAt to an ISO timestamp.
 - If quote.create is allowed and a quote draft is useful, provide quote.items using product-backed line items when possible.
 - If conversation.tag or conversation.comment is allowed, provide WhatsApp conversation tags/comments only when they add useful operational context.
-- If product.create/update or knowledge.create/update is allowed, provide concise records to create or update.
-- If client.create/lead.create or client.tag/lead.tag is allowed, provide validated records or tags only when useful.
-- If email.tag/email.comment is allowed, provide tags/comments for the related email thread.
+- If product.create/update/delete or knowledge.create/update/delete is allowed, provide concise records or explicit ids to operate on.
+- If client.create/delete/tag or lead.create/delete/tag is allowed, provide validated records, explicit ids, or tags only when useful.
+- If email.delete/tag/comment is allowed, provide explicit email IDs, tags, or comments for the related email thread.
 - If sensitive promotion/complaint/legal-risk content would be needed, set requiresApproval true and do not produce send-ready content.
 - Keep email concise and professional. Keep WhatsApp natural and shorter.
 
@@ -8580,11 +8702,16 @@ Return JSON only:
     "comments": []
   },
   "products": [{ "id": "optional", "sku": "optional", "name": "product name", "description": "description", "salesPoints": "sales points", "bulkPrices": [] }],
+  "productIdsToDelete": ["optional product id"],
   "knowledgeItems": [{ "id": "optional", "clientId": "optional", "title": "title", "content": "content" }],
+  "knowledgeIdsToDelete": ["optional knowledge id"],
   "clients": [{ "name": "client name", "company": "company", "country": "country", "tags": [], "email": "optional", "phone": "optional", "whatsapp": "optional" }],
+  "clientIdsToDelete": ["optional client id"],
   "leads": [{ "clientId": "optional", "name": "lead name", "value": 0, "status": "Leads", "tags": [], "email": "optional", "phone": "optional" }],
+  "leadIdsToDelete": ["optional lead id"],
   "clientTags": ["optional client tags"],
   "leadTags": ["optional lead tags"],
+  "emailIdsToDelete": ["optional email id"],
   "emailTags": ["optional email tags"],
   "emailComment": "optional internal email comment",
   "conversationTags": ["optional WhatsApp conversation tags"],
@@ -8596,7 +8723,7 @@ Return JSON only:
 }`;
 
         const parsed = stripAgentJson(await callAI(prompt, llmConfig, true));
-        const hasNonChannelAction = canEnrichLead || canCreateQuote || canTagConversation || canCommentConversation || canTagEmail || canCommentEmail || canCreateProduct || canUpdateProduct || canCreateKnowledge || canUpdateKnowledge || canCreateClient || canTagClient || canCreateLead || canTagLead || canLog || canUpdateClient;
+        const hasNonChannelAction = canEnrichLead || canCreateQuote || canTagConversation || canCommentConversation || canDeleteEmail || canTagEmail || canCommentEmail || canCreateProduct || canUpdateProduct || canDeleteProduct || canCreateKnowledge || canUpdateKnowledge || canDeleteKnowledge || canCreateClient || canDeleteClient || canTagClient || canCreateLead || canDeleteLead || canTagLead || canLog || canUpdateClient;
         if (parsed.requiresApproval || (parsed.channel === 'none' && !hasNonChannelAction)) {
           if (canLog) {
             await pool.query(
@@ -8617,7 +8744,7 @@ Return JSON only:
         let updatedClient = false;
         if (canEnrichLead) {
           const enrichment = await enrichClientFromConfiguredProvider(userId, settings, client);
-          executedTools.add('lead.enrich');
+          markTool('lead.enrich', `client:${client.id}`);
           concreteActions.push(`enriched:${enrichment.provider}`);
         }
         if ((canSendEmail || canScheduleEmail) && ['email', 'both'].includes(parsed.channel) && parsed.emailBody && emailAddress) {
@@ -8633,7 +8760,7 @@ Return JSON only:
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, 'scheduled', $11)`,
               [emailId, userId, client.id, sender, senderName, emailAddress, emailSubject, parsed.emailBody, nowIso, scheduleDate.toISOString(), outbox.id || null]
             );
-            executedTools.add('email.schedule');
+            markTool('email.schedule', `email:${emailId}`);
             concreteActions.push(`scheduled-email:${emailAddress}`);
           } else {
             await sendEmailViaOutboxConfig(outbox, {
@@ -8648,7 +8775,7 @@ Return JSON only:
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, 'sent', $10)`,
               [emailId, userId, client.id, sender, senderName, emailAddress, emailSubject, parsed.emailBody, nowIso, outbox.id || null]
             );
-            executedTools.add('email.send');
+            markTool('email.send', `email:${emailId}`);
             sent.push(`email:${emailAddress}`);
           }
         }
@@ -8660,7 +8787,7 @@ Return JSON only:
             body: parsed.whatsappBody,
             metadata: { source: 'agent-hub-executor', agentId: agent.id, clientId: client.id }
           });
-          executedTools.add('whatsapp.send');
+          markTool('whatsapp.send', `client:${client.id}`);
           sent.push(`whatsapp:${to}`);
         }
 
@@ -8707,7 +8834,7 @@ Return JSON only:
                 JSON.stringify(Array.isArray(quoteInput.comments) ? quoteInput.comments : [])
               ]
             );
-            executedTools.add('quote.create');
+            markTool('quote.create', `quote:${quoteId}`);
             concreteActions.push(`quote:${quoteNumber}`);
           }
         }
@@ -8715,22 +8842,48 @@ Return JSON only:
         if (canCreateClient && Array.isArray(parsed.clients)) {
           for (const clientInput of parsed.clients.slice(0, 3)) {
             const createdClientId = await createAgentClientRecord(userId, clientInput);
-            executedTools.add('client.create');
+            markTool('client.create', `client:${createdClientId}`);
             concreteActions.push(`client:${createdClientId}`);
           }
         }
 
-        if (canTagClient && toStringList(parsed.clientTags).length > 0) {
+        if (canDeleteClient) {
+          const clientIdsToDelete = [
+            ...toStringList(parsed.clientIdsToDelete),
+            ...(parsed.deleteCurrentClient && client.id ? [client.id] : [])
+          ];
+          for (const targetClientId of Array.from(new Set(clientIdsToDelete)).slice(0, 3)) {
+            const result = await deleteAgentClient(userId, targetClientId);
+            if (result.deleted) {
+              markTool('client.delete', `client:${result.id}`);
+              concreteActions.push(`client-deleted:${result.id}`);
+            }
+          }
+        }
+
+        if (canTagClient && client.id && toStringList(parsed.clientTags).length > 0) {
           const nextTags = await tagAgentClientRecord(userId, client.id, parsed.clientTags);
-          executedTools.add('client.tag');
+          markTool('client.tag', `client:${client.id}`);
           concreteActions.push(`client-tags:${nextTags.join(',')}`);
         }
 
         if (canCreateLead && Array.isArray(parsed.leads)) {
           for (const leadInput of parsed.leads.slice(0, 5)) {
             const createdLeadId = await createAgentLeadRecord(userId, leadInput.clientId || client.id, leadInput);
-            executedTools.add('lead.create');
+            markTool('lead.create', `lead:${createdLeadId}`);
             concreteActions.push(`lead:${createdLeadId}`);
+          }
+        }
+
+        if (canDeleteLead) {
+          const leadIdsToDelete = [
+            ...toStringList(parsed.leadIdsToDelete),
+            ...(parsed.deleteCurrentLead && (leadId || payloadLeadId) ? [String(leadId || payloadLeadId)] : [])
+          ];
+          const result = await deleteAgentLeads(userId, leadIdsToDelete);
+          if (result.deleted > 0) {
+            markTool('lead.delete', result.ids.map((id: string) => `lead:${id}`));
+            concreteActions.push(`leads-deleted:${result.deleted}`);
           }
         }
 
@@ -8749,24 +8902,56 @@ Return JSON only:
           }
           for (const targetLeadId of Array.from(new Set(candidateLeadIds)).slice(0, 5)) {
             const nextTags = await tagAgentLeadRecord(userId, targetLeadId, parsed.leadTags);
-            executedTools.add('lead.tag');
+            markTool('lead.tag', `lead:${targetLeadId}`);
             concreteActions.push(`lead-tags:${targetLeadId}:${nextTags.join(',')}`);
           }
         }
 
         if ((canCreateProduct || canUpdateProduct) && Array.isArray(parsed.products)) {
           for (const productInput of parsed.products.slice(0, 5)) {
-            const result = await createOrUpdateAgentProduct(userId, productInput, canCreateProduct);
-            executedTools.add(result.mode === 'created' ? 'product.create' : 'product.update');
+            const result = await createOrUpdateAgentProduct(userId, productInput, canCreateProduct, canUpdateProduct);
+            if (result.mode === 'created' || result.mode === 'updated') {
+              markTool(result.mode === 'created' ? 'product.create' : 'product.update', `product:${result.id}`);
+            }
             concreteActions.push(`product-${result.mode}:${result.id}`);
+          }
+        }
+
+        if (canDeleteProduct) {
+          const result = await deleteAgentProducts(userId, toStringList(parsed.productIdsToDelete));
+          if (result.deleted > 0) {
+            markTool('product.delete', result.ids.map((id: string) => `product:${id}`));
+            concreteActions.push(`products-deleted:${result.deleted}`);
           }
         }
 
         if ((canCreateKnowledge || canUpdateKnowledge) && Array.isArray(parsed.knowledgeItems)) {
           for (const knowledgeInput of parsed.knowledgeItems.slice(0, 5)) {
-            const result = await createOrUpdateAgentKnowledge(userId, knowledgeInput, llmConfig, canCreateKnowledge);
-            executedTools.add(result.mode === 'created' ? 'knowledge.create' : 'knowledge.update');
+            const result = await createOrUpdateAgentKnowledge(userId, knowledgeInput, llmConfig, canCreateKnowledge, canUpdateKnowledge);
+            if (result.mode === 'created' || result.mode === 'updated') {
+              markTool(result.mode === 'created' ? 'knowledge.create' : 'knowledge.update', `knowledge:${result.id}`);
+            }
             concreteActions.push(`knowledge-${result.mode}:${result.id}`);
+          }
+        }
+
+        if (canDeleteKnowledge) {
+          const result = await deleteAgentKnowledge(userId, toStringList(parsed.knowledgeIdsToDelete));
+          if (result.deleted > 0) {
+            markTool('knowledge.delete', result.ids.map((id: string) => `knowledge:${id}`));
+            concreteActions.push(`knowledge-deleted:${result.deleted}`);
+          }
+        }
+
+        if (canDeleteEmail) {
+          const emailDeleteIds = [
+            ...toStringList(parsed.emailIdsToDelete),
+            ...(parsed.deleteCurrentEmail ? emailIds.map((id: any) => String(id)) : [])
+          ];
+          const result = await deleteAgentEmails(userId, emailDeleteIds);
+          if (result.deleted > 0) {
+            markTool('email.delete', result.ids.map((id: string) => `email:${id}`));
+            concreteActions.push(`emails-deleted:${result.deleted}`);
           }
         }
 
@@ -8782,8 +8967,8 @@ Return JSON only:
             canCommentEmail ? parsed.emailComment : '',
             agent.name
           );
-          if (annotation.tagged > 0) executedTools.add('email.tag');
-          if (annotation.commented > 0) executedTools.add('email.comment');
+          if (annotation.tagged > 0) markTool('email.tag', annotation.taggedIds.map((id: string) => `email:${id}`));
+          if (annotation.commented > 0) markTool('email.comment', annotation.commentedIds.map((id: string) => `email:${id}`));
           if (annotation.tagged > 0 || annotation.commented > 0) concreteActions.push(`email-annotations:${annotation.tagged}/${annotation.commented}`);
         }
 
@@ -8834,7 +9019,7 @@ Return JSON only:
           concreteActions.push('internal-note');
         }
 
-        if (canUpdateClient && parsed.clientUpdate?.status) {
+        if (canUpdateClient && client.id && parsed.clientUpdate?.status) {
           const allowedStatuses = ['Leads', 'Contacted', 'Sample Sent', 'Negotiating', 'Closed Won'];
           const statusUpdate = allowedStatuses.includes(parsed.clientUpdate.status) ? parsed.clientUpdate.status : null;
           if (statusUpdate && statusUpdate !== client.status) {
@@ -8869,7 +9054,7 @@ Return JSON only:
           if (tools.includes('lead.comment')) executedTools.add('lead.comment');
         }
 
-        if (canUpdateClient && !updatedClient) {
+        if (canUpdateClient && client.id && !updatedClient) {
           const allowedStatuses = ['Leads', 'Contacted', 'Sample Sent', 'Negotiating', 'Closed Won'];
           const statusUpdate = allowedStatuses.includes(parsed.clientUpdate?.status) ? parsed.clientUpdate.status : (client.status === 'Leads' ? 'Contacted' : client.status);
           await pool.query(
@@ -8898,8 +9083,8 @@ Return JSON only:
     run.completedAt = new Date().toISOString();
     const actionLikeTools = new Set([
       'email.send', 'email.schedule', 'email.reply', 'whatsapp.send', 'quote.create', 'quote.update',
-      'email.tag', 'email.comment', 'product.create', 'product.update', 'knowledge.create', 'knowledge.update',
-      'client.create', 'client.tag', 'lead.create', 'lead.tag',
+      'email.delete', 'email.tag', 'email.comment', 'product.create', 'product.update', 'product.delete', 'knowledge.create', 'knowledge.update', 'knowledge.delete',
+      'client.create', 'client.delete', 'client.tag', 'lead.create', 'lead.delete', 'lead.tag',
       'conversation.tag', 'conversation.comment', 'client.update', 'client.comment', 'client.log', 'client.stage',
       'lead.update', 'lead.comment', 'lead.log', 'lead.stage', 'lead.enrich'
     ]);
@@ -8927,7 +9112,7 @@ Return JSON only:
               ? 'skipped'
               : 'completed',
         resultText: executedTools.has(step.tool) || !actionLikeTools.has(step.tool) ? resultText : (isZh ? '该工具本次没有执行具体动作。' : 'This tool did not execute a concrete action in this run.'),
-        evidence: landingEvidence,
+        evidence: toolEvidence[step.tool] || landingEvidence,
         isZh
       }),
       error: run.status === 'failed' ? resultText : undefined

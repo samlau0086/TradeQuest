@@ -396,17 +396,15 @@ Global Orchestrator action types used by Agent Execution Policy:
 
 ## Agent Tool Executor Roadmap
 
-Execution Engine now has concrete backend executors for non-delete write tools such as `email.tag`, `email.comment`, `product.create`, `product.update`, `knowledge.create`, `knowledge.update`, `client.create`, `client.tag`, `lead.create`, and `lead.tag`.
+Execution Engine now has concrete backend executors for:
 
-The main remaining executor gaps are destructive delete/archive tools:
+- Email tools: `email.delete`, `email.tag`, and `email.comment`.
+- Product tools: `product.create`, `product.update`, and `product.delete`.
+- Knowledge tools: `knowledge.create`, `knowledge.update`, and `knowledge.delete`.
+- Client tools: `client.create`, `client.delete`, and `client.tag`.
+- Lead tools: `lead.create`, `lead.delete`, and `lead.tag`.
 
-- `email.delete`.
-- `product.delete`.
-- `knowledge.delete`.
-- `client.delete`.
-- `lead.delete`.
-
-These delete actions should be connected gradually with explicit risk checks, approval policy support, audit logs, and recovery or rollback rules.
+Each trace step includes `resultMeta` so operators can see whether the tool landed a write/delete action, stayed read-only, or skipped without changing data. Delete/archive tools remain high-risk actions and should be governed by Agent Execution Policy and approval rules.
 
 Additional roadmap items:
 
@@ -1294,17 +1292,15 @@ Agent Execution Policy 使用的 Global Orchestrator action type：
 
 ## Agent 工具执行器路线图
 
-执行引擎目前已经为非删除类写入工具补充了具体后端执行器，包括 `email.tag`、`email.comment`、`product.create`、`product.update`、`knowledge.create`、`knowledge.update`、`client.create`、`client.tag`、`lead.create` 和 `lead.tag`。
+执行引擎目前已经补齐以下后端工具执行器：
 
-当前主要待补完整执行器为破坏性删除/归档类工具：
+- 邮件工具：`email.delete`、`email.tag`、`email.comment`。
+- 产品工具：`product.create`、`product.update`、`product.delete`。
+- 知识库工具：`knowledge.create`、`knowledge.update`、`knowledge.delete`。
+- 客户工具：`client.create`、`client.delete`、`client.tag`。
+- Lead 工具：`lead.create`、`lead.delete`、`lead.tag`。
 
-- `email.delete`。
-- `product.delete`。
-- `knowledge.delete`。
-- `client.delete`。
-- `lead.delete`。
-
-这些删除动作后续应按风险和审批策略逐步接入，并配套审核策略、审计日志以及恢复或回滚规则。
+每个执行步骤都会写入 `resultMeta`，用于说明该工具是否真实落地、是否只读、是否跳过，以及影响了哪些记录。删除/归档类工具仍属于高风险动作，应继续由 Agent Execution Policy 和审批规则治理。
 
 其他路线图事项：
 
