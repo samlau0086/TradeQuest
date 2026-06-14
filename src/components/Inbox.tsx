@@ -34,7 +34,7 @@ interface InboxWhatsAppConversation {
 
 interface UnifiedCommunicationConversation {
   id: string;
-  channel: 'email' | 'whatsapp' | 'live_chat';
+  channel: 'email' | 'whatsapp' | 'live_chat' | 'telegram';
   source_id: string;
   client_id?: string;
   owner_id?: string;
@@ -75,7 +75,7 @@ const LIVE_CHAT_SELECTED_SESSION_KEY = 'tradequest.liveChat.selectedSessionId';
 const WHATSAPP_CONVERSATION_POLL_MS = 20_000;
 const WHATSAPP_FOLLOW_UP_MARKER = '__FOLLOW_UP__';
 
-type InboxChannelFilter = 'all' | 'email' | 'whatsapp' | 'live_chat';
+type InboxChannelFilter = 'all' | 'email' | 'whatsapp' | 'live_chat' | 'telegram';
 const CONVERSATION_STAGES = ['Leads', 'Contacted', 'Sample Sent', 'Negotiating', 'Closed Won'];
 const normalizeTagSearchTerm = (term: string) => term.trim().replace(/^#/, '').toLowerCase();
 
@@ -99,7 +99,7 @@ function ConversationDetailHeader({
   meta
 }: {
   language: string;
-  channel: 'email' | 'whatsapp' | 'live_chat';
+  channel: 'email' | 'whatsapp' | 'live_chat' | 'telegram';
   title: string;
   subtitle?: string;
   clientId?: string;
@@ -116,16 +116,20 @@ function ConversationDetailHeader({
   actions?: React.ReactNode;
   meta?: React.ReactNode;
 }) {
-  const Icon = channel === 'whatsapp' ? MessageCircle : channel === 'live_chat' ? MessageSquare : Mail;
+  const Icon = channel === 'whatsapp' ? MessageCircle : channel === 'live_chat' ? MessageSquare : channel === 'telegram' ? Send : Mail;
   const accent = channel === 'whatsapp'
     ? 'text-green-400 bg-green-950/50 border-green-900/60'
     : channel === 'live_chat'
       ? 'text-violet-300 bg-violet-950/50 border-violet-900/60'
+      : channel === 'telegram'
+        ? 'text-sky-300 bg-sky-950/50 border-sky-900/60'
       : 'text-cyan-400 bg-cyan-950/50 border-cyan-900/60';
   const label = channel === 'whatsapp'
     ? 'WhatsApp'
     : channel === 'live_chat'
       ? 'Live Chat'
+      : channel === 'telegram'
+        ? 'Telegram'
       : 'Email';
 
   return (
@@ -550,6 +554,9 @@ export function Inbox() {
   const [whatsappConversations, setWhatsappConversations] = useState<InboxWhatsAppConversation[]>(() => readCachedWhatsAppConversations());
   const [selectedWhatsAppPhone, setSelectedWhatsAppPhone] = useState<string | null>(null);
   const [selectedWhatsAppClientId, setSelectedWhatsAppClientId] = useState<string | null>(null);
+  const [selectedTelegramConversation, setSelectedTelegramConversation] = useState<UnifiedCommunicationConversation | null>(null);
+  const [telegramMessages, setTelegramMessages] = useState<any[]>([]);
+  const [isTelegramMessagesLoading, setIsTelegramMessagesLoading] = useState(false);
   const [isStartingWhatsApp, setIsStartingWhatsApp] = useState(false);
   const [newWhatsAppPhone, setNewWhatsAppPhone] = useState('');
   const [showWhatsAppContactPicker, setShowWhatsAppContactPicker] = useState(false);
@@ -690,7 +697,7 @@ export function Inbox() {
     };
   }, [search]);
 
-  const filteredEmails = channelFilter === 'whatsapp' || channelFilter === 'live_chat' ? [] : emails.filter(e => {
+  const filteredEmails = channelFilter === 'whatsapp' || channelFilter === 'live_chat' || channelFilter === 'telegram' ? [] : emails.filter(e => {
     // Support both new ('inbox'/'sent') and legacy ('inbound'/'outbound') types
     const typeMatch = (filter === 'inbox' && (e.type === 'inbox' || e.type === 'inbound')) ||
                       (filter === 'sent' && (e.type === 'sent' || e.type === 'outbound')) ||
@@ -725,7 +732,7 @@ export function Inbox() {
     return true;
   });
 
-  const filteredWhatsAppConversations = filter === 'inbox' && channelFilter !== 'email' && channelFilter !== 'live_chat'
+  const filteredWhatsAppConversations = filter === 'inbox' && channelFilter !== 'email' && channelFilter !== 'live_chat' && channelFilter !== 'telegram'
     ? whatsappConversations.filter(conversation => {
         if (followUpOnly && !hasOpenWhatsAppFollowUp(conversation)) return false;
         const termsToMatch = [...searchTags];
@@ -1396,26 +1403,64 @@ export function Inbox() {
   const handleSelectWhatsApp = (conversation: InboxWhatsAppConversation) => {
     setIsComposing(false);
     setIsStartingWhatsApp(false);
+    setSelectedTelegramConversation(null);
+    setTelegramMessages([]);
     selectEmail(null);
     setSelectedWhatsAppPhone(conversation.targetPhone);
     setSelectedWhatsAppClientId(conversation.clientId || null);
   };
 
+  const loadTelegramMessages = async (conversation: UnifiedCommunicationConversation) => {
+    setIsTelegramMessagesLoading(true);
+    try {
+      const res = await fetch(`/api/conversations/${encodeURIComponent(conversation.id)}/messages`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load Telegram messages');
+      setTelegramMessages(Array.isArray(data.messages) ? data.messages : []);
+      if (!conversation.read) {
+        await patchUnifiedConversation(conversation, { read: true });
+        await refreshUnifiedConversationData();
+      }
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Failed to load Telegram messages.', 'error');
+    } finally {
+      setIsTelegramMessagesLoading(false);
+    }
+  };
+
   const handleSelectUnifiedConversation = (conversation: UnifiedCommunicationConversation) => {
     if (conversation.channel === 'email') {
+      setSelectedTelegramConversation(null);
+      setTelegramMessages([]);
       handleSelect(conversation.source_id);
       return;
     }
     if (conversation.channel === 'whatsapp') {
+      setSelectedTelegramConversation(null);
+      setTelegramMessages([]);
       const mapped = mapUnifiedWhatsAppConversation(conversation);
       setWhatsappConversations(prev => prev.some(item => item.id === mapped.id) ? prev : [mapped, ...prev]);
       handleSelectWhatsApp(mapped);
+      return;
+    }
+    if (conversation.channel === 'telegram') {
+      setIsComposing(false);
+      setIsStartingWhatsApp(false);
+      selectEmail(null);
+      setSelectedWhatsAppPhone(null);
+      setSelectedWhatsAppClientId(null);
+      setSelectedTelegramConversation(conversation);
+      void loadTelegramMessages(conversation);
       return;
     }
     sessionStorage.setItem(LIVE_CHAT_SELECTED_SESSION_KEY, conversation.source_id);
     selectEmail(null);
     setSelectedWhatsAppPhone(null);
     setSelectedWhatsAppClientId(null);
+    setSelectedTelegramConversation(null);
+    setTelegramMessages([]);
     setIsComposing(false);
     setIsStartingWhatsApp(false);
     setView('live-chat');
@@ -1638,12 +1683,13 @@ export function Inbox() {
               </button>
             </div>
           </div>
-          <div className="grid grid-cols-4 gap-1 rounded-lg border border-slate-800 bg-slate-950 p-1">
+          <div className="grid grid-cols-5 gap-1 rounded-lg border border-slate-800 bg-slate-950 p-1">
             {([
               { value: 'all', label: 'All', icon: null },
               { value: 'email', label: 'Email', icon: Mail },
               { value: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
-              { value: 'live_chat', label: 'Live Chat', icon: MessageSquare }
+              { value: 'live_chat', label: 'Live Chat', icon: MessageSquare },
+              { value: 'telegram', label: 'Telegram', icon: Send }
             ] as const).map(option => {
               const Icon = option.icon;
               return (
@@ -1652,7 +1698,7 @@ export function Inbox() {
                   type="button"
                   onClick={() => {
                     setChannelFilter(option.value);
-                    if (option.value === 'whatsapp' || option.value === 'live_chat') {
+                    if (option.value === 'whatsapp' || option.value === 'live_chat' || option.value === 'telegram') {
                       setFilter('inbox');
                       setEmailListMode('list');
                       selectEmail(null);
@@ -1660,6 +1706,10 @@ export function Inbox() {
                     if (option.value !== 'whatsapp' && selectedWhatsAppPhone) {
                       setSelectedWhatsAppPhone(null);
                       setSelectedWhatsAppClientId(null);
+                    }
+                    if (option.value !== 'telegram') {
+                      setSelectedTelegramConversation(null);
+                      setTelegramMessages([]);
                     }
                   }}
                   className={cn(
@@ -1669,7 +1719,7 @@ export function Inbox() {
                       : "text-slate-500 hover:bg-slate-900 hover:text-slate-300"
                   )}
                 >
-                  {Icon && <Icon className={cn("h-3.5 w-3.5", option.value === 'whatsapp' ? 'text-green-400' : option.value === 'live_chat' ? 'text-violet-400' : 'text-cyan-400')} />}
+                  {Icon && <Icon className={cn("h-3.5 w-3.5", option.value === 'whatsapp' ? 'text-green-400' : option.value === 'live_chat' ? 'text-violet-400' : option.value === 'telegram' ? 'text-sky-400' : 'text-cyan-400')} />}
                   <span>{option.label}</span>
                 </button>
               );
@@ -1881,21 +1931,26 @@ export function Inbox() {
             const isEmail = conversation.channel === 'email';
             const isWhatsApp = conversation.channel === 'whatsapp';
             const isLiveChat = conversation.channel === 'live_chat';
+            const isTelegram = conversation.channel === 'telegram';
             const isSelected = isEmail
               ? selectedEmailId === conversation.source_id
               : isWhatsApp
                 ? selectedWhatsAppPhone === (conversation.metadata?.targetPhone || conversation.contact_address || conversation.source_id)
-                : false;
+                : isTelegram
+                  ? selectedTelegramConversation?.id === conversation.id
+                  : false;
             const email = isEmail ? emails.find(item => item.id === conversation.source_id) : null;
             const whatsappConversation = isWhatsApp ? mapUnifiedWhatsAppConversation(conversation) : null;
             const client = conversation.client_id ? clients.find(c => c.id === conversation.client_id) : null;
-            const Icon = isWhatsApp ? MessageCircle : isLiveChat ? MessageSquare : (conversation.read ? MailOpen : Mail);
-            const iconColor = isWhatsApp ? 'text-green-400' : isLiveChat ? 'text-violet-300' : conversation.read ? 'text-slate-500' : 'text-cyan-400';
-            const iconBg = isWhatsApp ? 'bg-green-950/50 border-green-900/60' : isLiveChat ? 'bg-violet-950/50 border-violet-900/60' : 'bg-cyan-950/50 border-cyan-900/60';
+            const Icon = isWhatsApp ? MessageCircle : isLiveChat ? MessageSquare : isTelegram ? Send : (conversation.read ? MailOpen : Mail);
+            const iconColor = isWhatsApp ? 'text-green-400' : isLiveChat ? 'text-violet-300' : isTelegram ? 'text-sky-300' : conversation.read ? 'text-slate-500' : 'text-cyan-400';
+            const iconBg = isWhatsApp ? 'bg-green-950/50 border-green-900/60' : isLiveChat ? 'bg-violet-950/50 border-violet-900/60' : isTelegram ? 'bg-sky-950/50 border-sky-900/60' : 'bg-cyan-950/50 border-cyan-900/60';
             const channelLabel = isWhatsApp
               ? `WhatsApp ${conversation.direction === 'outbound' ? 'sent' : 'inbox'}`
               : isLiveChat
                 ? `Live Chat ${conversation.status || 'open'}`
+                : isTelegram
+                  ? `Telegram ${conversation.status || 'open'}`
                 : email?.type === 'draft'
                   ? 'Draft'
                   : email?.type === 'scheduled'
@@ -1905,7 +1960,7 @@ export function Inbox() {
                       : 'Email inbox';
             const title = isEmail
               ? (filter === 'inbox' ? (email?.senderName || conversation.contact_name || conversation.contact_address || 'Email') : (conversation.contact_address || conversation.contact_name || 'Email'))
-              : client?.name || conversation.client_name || conversation.title || conversation.contact_name || conversation.contact_address || (isWhatsApp ? 'WhatsApp' : 'Live Chat');
+              : client?.name || conversation.client_name || conversation.title || conversation.contact_name || conversation.contact_address || (isWhatsApp ? 'WhatsApp' : isTelegram ? 'Telegram' : 'Live Chat');
             const subtitle = isEmail ? (conversation.subject || conversation.title || '(No Subject)') : (conversation.contact_address || conversation.client_company || '');
             return (
               <div
@@ -1913,7 +1968,7 @@ export function Inbox() {
                 onClick={() => handleSelectUnifiedConversation(conversation)}
                 className={cn(
                   "cursor-pointer border-b border-slate-800/50 p-4 transition-colors flex gap-3 group relative",
-                  isSelected ? (isWhatsApp ? "bg-green-950/20" : "bg-cyan-950/20") : "hover:bg-slate-800/30",
+                  isSelected ? (isWhatsApp ? "bg-green-950/20" : isTelegram ? "bg-sky-950/20" : "bg-cyan-950/20") : "hover:bg-slate-800/30",
                   isEmail && !conversation.read && filter === 'inbox' && "bg-slate-800/40"
                 )}
               >
@@ -1925,7 +1980,7 @@ export function Inbox() {
                     type="checkbox"
                     checked={selectedConversationIds.has(conversation.id)}
                     onChange={() => {}}
-                    className={cn("rounded border-slate-700 bg-slate-800 focus:ring-cyan-500", isWhatsApp ? "text-green-500" : isLiveChat ? "text-violet-500" : "text-cyan-500")}
+                    className={cn("rounded border-slate-700 bg-slate-800 focus:ring-cyan-500", isWhatsApp ? "text-green-500" : isLiveChat ? "text-violet-500" : isTelegram ? "text-sky-500" : "text-cyan-500")}
                   />
                 </div>
                 {false && (isEmail || isWhatsApp) && (
@@ -1975,7 +2030,7 @@ export function Inbox() {
                   </div>
                   <div className={cn(
                     "text-[10px] font-bold uppercase mb-1",
-                    isWhatsApp ? 'text-green-400' : isLiveChat ? 'text-violet-300' : 'text-cyan-400'
+                    isWhatsApp ? 'text-green-400' : isLiveChat ? 'text-violet-300' : isTelegram ? 'text-sky-300' : 'text-cyan-400'
                   )}>
                     {channelLabel}
                   </div>
@@ -1994,7 +2049,7 @@ export function Inbox() {
                       {conversation.tags.slice(0, 4).map(t => (
                         <span key={t} className={cn(
                           "text-[9px] bg-slate-800 px-1.5 py-0.5 rounded-full whitespace-nowrap",
-                          isWhatsApp ? 'text-green-300' : isLiveChat ? 'text-violet-200' : 'text-slate-400'
+                          isWhatsApp ? 'text-green-300' : isLiveChat ? 'text-violet-200' : isTelegram ? 'text-sky-200' : 'text-slate-400'
                         )}>
                           {t}
                         </span>
@@ -2463,6 +2518,106 @@ export function Inbox() {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        ) : selectedTelegramConversation ? (
+          <div className="flex-1 flex flex-col min-h-0">
+            <ConversationDetailHeader
+              language={language}
+              channel="telegram"
+              title={selectedTelegramConversation.client_name || selectedTelegramConversation.title || selectedTelegramConversation.contact_name || selectedTelegramConversation.contact_address || 'Telegram'}
+              subtitle={selectedTelegramConversation.contact_address || selectedTelegramConversation.metadata?.telegramChatId || ''}
+              clientId={selectedTelegramConversation.client_id}
+              clientName={selectedTelegramConversation.client_name}
+              tags={selectedTelegramConversation.tags || []}
+              ownerId={selectedTelegramConversation.owner_id}
+              stage={selectedTelegramConversation.stage}
+              currentUser={currentUser}
+              onBack={() => { setSelectedTelegramConversation(null); setTelegramMessages([]); }}
+              onClientClick={() => selectedTelegramConversation.client_id && selectClient(selectedTelegramConversation.client_id)}
+              onOwnerChange={(ownerId) => {
+                updateConversationOwnerStage(selectedTelegramConversation, { ownerId });
+                setSelectedTelegramConversation(prev => prev ? { ...prev, owner_id: ownerId || undefined } : prev);
+              }}
+              onStageChange={(stage) => {
+                updateConversationOwnerStage(selectedTelegramConversation, { stage });
+                setSelectedTelegramConversation(prev => prev ? { ...prev, stage: stage || undefined } : prev);
+              }}
+              onDelete={() => {
+                setConfirmDialog({
+                  message: 'Are you sure you want to delete this Telegram conversation from CRM?',
+                  onConfirm: async () => {
+                    await deleteUnifiedConversation(selectedTelegramConversation);
+                    setSelectedTelegramConversation(null);
+                    setTelegramMessages([]);
+                    await refreshUnifiedConversationData();
+                    setConfirmDialog(null);
+                  }
+                });
+              }}
+              meta={(
+                <>
+                  {selectedTelegramConversation.metadata?.telegramChatId && (
+                    <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">chat: {selectedTelegramConversation.metadata.telegramChatId}</span>
+                  )}
+                  {selectedTelegramConversation.metadata?.telegramUserId && (
+                    <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">user: {selectedTelegramConversation.metadata.telegramUserId}</span>
+                  )}
+                </>
+              )}
+            />
+            <ConversationFollowUpStrip
+              language={language}
+              dueAt={selectedTelegramConversation.todo_at || null}
+              note={selectedTelegramConversation.todo_note || null}
+              onSet={async (dueAt, note) => {
+                const patched = await patchUnifiedConversation(selectedTelegramConversation, { todoAt: dueAt, todoNote: note });
+                setSelectedTelegramConversation(patched);
+                await refreshUnifiedConversationData();
+              }}
+              onClear={async () => {
+                const patched = await patchUnifiedConversation(selectedTelegramConversation, { todoAt: null, todoNote: null });
+                setSelectedTelegramConversation(patched);
+                await refreshUnifiedConversationData();
+              }}
+              onComplete={async () => {
+                const patched = await patchUnifiedConversation(selectedTelegramConversation, { todoAt: null, todoNote: null, status: 'completed' });
+                setSelectedTelegramConversation(patched);
+                await refreshUnifiedConversationData();
+              }}
+            />
+            <div className="flex-1 overflow-y-auto bg-slate-950/50 p-6 space-y-4">
+              {isTelegramMessagesLoading ? (
+                <div className="flex items-center justify-center py-16 text-sm text-slate-500">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading Telegram messages...
+                </div>
+              ) : telegramMessages.length === 0 ? (
+                <div className="py-16 text-center text-sm text-slate-500 italic">No Telegram messages saved yet.</div>
+              ) : telegramMessages.map(message => {
+                const outbound = message.direction === 'outbound';
+                return (
+                  <div key={message.id} className={cn("flex", outbound ? "justify-end" : "justify-start")}>
+                    <div className={cn(
+                      "max-w-[78%] rounded-2xl border px-4 py-3 text-sm shadow-sm",
+                      outbound
+                        ? "border-sky-500/30 bg-sky-600/20 text-sky-50"
+                        : "border-slate-800 bg-slate-900 text-slate-100"
+                    )}>
+                      <div className="mb-1 flex items-center gap-2 text-[10px] uppercase tracking-wide text-slate-500">
+                        <span>{message.sender || message.senderName || (outbound ? 'Operator' : 'Telegram')}</span>
+                        <span>{message.message_type || message.messageType || 'message'}</span>
+                      </div>
+                      <div className="whitespace-pre-wrap leading-relaxed">{message.body || '[media]'}</div>
+                      <div className="mt-2 text-[10px] text-slate-500">
+                        {message.source_created_at || message.sourceCreatedAt ? new Date(message.source_created_at || message.sourceCreatedAt).toLocaleString() : ''}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="border-t border-slate-800 bg-slate-900/80 px-4 py-3 text-xs text-slate-500">
+              Telegram outbound sending and AI auto-reply will be enabled after Bot API send configuration is connected.
             </div>
           </div>
         ) : selectedWhatsAppPhone ? (

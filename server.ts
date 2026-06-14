@@ -768,7 +768,7 @@ const normalizeCommunicationBody = (value: any, limit = 8000) => (
 
 const upsertCommunicationConversation = async (input: {
   userId: string;
-  channel: 'email' | 'whatsapp' | 'live_chat';
+  channel: 'email' | 'whatsapp' | 'live_chat' | 'telegram';
   sourceId: string;
   clientId?: string | null;
   leadId?: string | null;
@@ -859,7 +859,7 @@ const upsertCommunicationConversation = async (input: {
 
 const upsertCommunicationMessage = async (input: {
   userId: string;
-  channel: 'email' | 'whatsapp' | 'live_chat';
+  channel: 'email' | 'whatsapp' | 'live_chat' | 'telegram';
   sourceId: string;
   sourceMessageId: string;
   conversation?: any;
@@ -1070,6 +1070,83 @@ const backfillUnifiedCommunicationTables = async (userId?: string) => {
        COALESCE(m.source_created_at, m.created_at),
        COALESCE(m.source_created_at, m.created_at)
      FROM whatsapp_messages m
+     ${userFilter}
+     ON CONFLICT (user_id, channel, source_message_id)
+     DO UPDATE SET
+       conversation_id = EXCLUDED.conversation_id,
+       body = EXCLUDED.body,
+       message_type = EXCLUDED.message_type,
+       payload = COALESCE(communication_messages.payload, '{}'::jsonb) || EXCLUDED.payload,
+       source_created_at = EXCLUDED.source_created_at`,
+    params
+  );
+
+  await pool.query(
+    `INSERT INTO communication_conversations
+       (id, user_id, channel, source_id, client_id, status, direction, title, contact_name, contact_address, last_message_preview,
+        last_message_at, tags, metadata, deleted_at, created_at, updated_at)
+     SELECT
+       'comm_' || md5(t.user_id || ':telegram:' || t.id),
+       t.user_id,
+       'telegram',
+       t.id,
+       t.client_id,
+       COALESCE(t.status, 'open'),
+       last_msg.direction,
+       COALESCE(NULLIF(t.display_name, ''), NULLIF(t.username, ''), t.telegram_chat_id),
+       COALESCE(NULLIF(t.display_name, ''), NULLIF(t.username, '')),
+       COALESCE(NULLIF(t.username, ''), t.telegram_chat_id),
+       LEFT(COALESCE(last_msg.body, ''), 500),
+       COALESCE(t.last_message_at, t.updated_at),
+       COALESCE(t.tags, '[]'::jsonb),
+       COALESCE(t.metadata, '{}'::jsonb) || jsonb_build_object('telegramChatId', t.telegram_chat_id, 'telegramUserId', t.telegram_user_id, 'username', t.username, 'priority', t.priority, 'humanTakeover', t.human_takeover, 'assignedAgentId', t.assigned_agent_id),
+       t.deleted_at,
+       t.created_at,
+       CURRENT_TIMESTAMP
+     FROM telegram_conversations t
+     LEFT JOIN LATERAL (
+       SELECT body, direction
+       FROM telegram_messages m
+       WHERE m.conversation_id = t.id
+       ORDER BY COALESCE(m.source_created_at, m.created_at) DESC
+       LIMIT 1
+     ) last_msg ON true
+     ${userFilter ? 'WHERE t.user_id = $1' : ''}
+     ON CONFLICT (user_id, channel, source_id)
+     DO UPDATE SET
+       client_id = COALESCE(EXCLUDED.client_id, communication_conversations.client_id),
+       status = EXCLUDED.status,
+       direction = COALESCE(EXCLUDED.direction, communication_conversations.direction),
+       title = EXCLUDED.title,
+       contact_name = EXCLUDED.contact_name,
+       contact_address = EXCLUDED.contact_address,
+       last_message_preview = EXCLUDED.last_message_preview,
+       last_message_at = EXCLUDED.last_message_at,
+       tags = EXCLUDED.tags,
+       metadata = COALESCE(communication_conversations.metadata, '{}'::jsonb) || EXCLUDED.metadata,
+       deleted_at = EXCLUDED.deleted_at,
+       updated_at = CURRENT_TIMESTAMP`,
+    params
+  );
+
+  await pool.query(
+    `INSERT INTO communication_messages
+       (id, conversation_id, user_id, channel, source_id, source_message_id, direction, sender, body, message_type, payload, source_created_at, created_at)
+     SELECT
+       'comm_msg_' || md5(m.user_id || ':telegram:' || m.conversation_id || ':' || m.telegram_message_id),
+       'comm_' || md5(m.user_id || ':telegram:' || m.conversation_id),
+       m.user_id,
+       'telegram',
+       m.conversation_id,
+       'telegram:' || md5(m.conversation_id || ':' || m.telegram_message_id),
+       m.direction,
+       m.sender_name,
+       COALESCE(m.body, ''),
+       m.message_type,
+       COALESCE(m.payload, '{}'::jsonb),
+       COALESCE(m.source_created_at, m.created_at),
+       COALESCE(m.source_created_at, m.created_at)
+     FROM telegram_messages m
      ${userFilter}
      ON CONFLICT (user_id, channel, source_message_id)
      DO UPDATE SET
@@ -1797,6 +1874,48 @@ async function initDB() {
       CREATE INDEX IF NOT EXISTS idx_live_chat_messages_session_created
       ON live_chat_messages (session_id, created_at ASC);
 
+      CREATE TABLE IF NOT EXISTS telegram_conversations (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        client_id VARCHAR(128) REFERENCES clients(id) ON DELETE SET NULL,
+        telegram_chat_id VARCHAR(128) NOT NULL,
+        telegram_user_id VARCHAR(128),
+        username VARCHAR(255),
+        display_name VARCHAR(255),
+        status VARCHAR(32) DEFAULT 'open',
+        priority VARCHAR(32) DEFAULT 'normal',
+        human_takeover BOOLEAN DEFAULT FALSE,
+        assigned_agent_id VARCHAR(128),
+        tags JSONB DEFAULT '[]'::jsonb,
+        metadata JSONB DEFAULT '{}'::jsonb,
+        last_message_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        deleted_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, telegram_chat_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_telegram_conversations_user_updated
+      ON telegram_conversations (user_id, updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS telegram_messages (
+        id VARCHAR(128) PRIMARY KEY,
+        conversation_id VARCHAR(128) REFERENCES telegram_conversations(id) ON DELETE CASCADE,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        telegram_message_id VARCHAR(128) NOT NULL,
+        direction VARCHAR(32) NOT NULL,
+        sender_name VARCHAR(255),
+        body TEXT,
+        message_type VARCHAR(64) DEFAULT 'text',
+        payload JSONB DEFAULT '{}'::jsonb,
+        source_created_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, conversation_id, telegram_message_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_telegram_messages_conversation_created
+      ON telegram_messages (conversation_id, source_created_at ASC, created_at ASC);
+
       CREATE TABLE IF NOT EXISTS communication_conversations (
         id VARCHAR(128) PRIMARY KEY,
         user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
@@ -2085,7 +2204,7 @@ async function startServer() {
       const limit = Math.min(Math.max(Number(req.query.limit || 100), 1), 300);
       if (!includeDeleted) filters.push('c.deleted_at IS NULL');
 
-      if (channel && ['email', 'whatsapp', 'live_chat'].includes(channel)) {
+      if (channel && ['email', 'whatsapp', 'live_chat', 'telegram'].includes(channel)) {
         values.push(channel);
         filters.push(`c.channel = $${values.length}`);
       }
@@ -2343,6 +2462,35 @@ async function startServer() {
             );
           }
         }
+      } else if (updated.channel === 'telegram') {
+        const telegramUpdates: string[] = [];
+        const telegramValues: any[] = [];
+        let telegramIdx = 1;
+        if ('clientId' in req.body) {
+          telegramUpdates.push(`client_id = $${telegramIdx++}`);
+          telegramValues.push(req.body.clientId || null);
+        }
+        if ('status' in req.body) {
+          telegramUpdates.push(`status = $${telegramIdx++}`);
+          telegramValues.push(req.body.status || 'open');
+        }
+        if ('ownerId' in req.body) {
+          telegramUpdates.push(`assigned_agent_id = $${telegramIdx++}`);
+          telegramValues.push(req.body.ownerId || null);
+        }
+        if ('tags' in req.body || ('isImportant' in req.body && req.body.isImportant)) {
+          const baseTags = 'tags' in req.body ? (req.body.tags || []) : (Array.isArray(updated.tags) ? updated.tags : []);
+          const nextTags = req.body.isImportant ? Array.from(new Set([...baseTags, 'important'])) : baseTags;
+          telegramUpdates.push(`tags = $${telegramIdx++}::jsonb`);
+          telegramValues.push(JSON.stringify(nextTags));
+        }
+        if (telegramUpdates.length > 0) {
+          telegramValues.push(updated.source_id, req.user.uid);
+          await pool.query(
+            `UPDATE telegram_conversations SET ${telegramUpdates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = $${telegramIdx++} AND user_id = $${telegramIdx}`,
+            telegramValues
+          );
+        }
       }
 
       if ('stage' in req.body && updated.client_id && req.body.stage) {
@@ -2411,6 +2559,13 @@ async function startServer() {
         );
       } else if (current.channel === 'live_chat') {
         await requestLiveChatSessionDelete(req.user.uid, current.source_id);
+      } else if (current.channel === 'telegram') {
+        await pool.query(
+          `UPDATE telegram_conversations
+           SET deleted_at = $1, status = 'deleted', updated_at = CURRENT_TIMESTAMP
+           WHERE id = $2 AND user_id = $3`,
+          [deletedAt, current.source_id, req.user.uid]
+        );
       }
 
       const roleRes = await pool.query('SELECT role FROM users WHERE id = $1 LIMIT 1', [req.user.uid]);
@@ -8203,7 +8358,7 @@ No markdown wrappers, just valid JSON.`;
        FROM clients
        WHERE user_id = $1
          AND (
-           ($2 <> '' AND (
+           (($2 <> '' OR $3 <> '') AND (
              EXISTS (
                SELECT 1
                FROM jsonb_array_elements(COALESCE(contact_methods, '[]'::jsonb)) elem
@@ -8266,6 +8421,301 @@ No markdown wrappers, just valid JSON.`;
       [userId, visitorToken, normalizedEmail, normalizedPhone, normalizedPhone ? `%${normalizedPhone.slice(-8)}` : '']
     );
     return result.rows[0] || null;
+  };
+
+  const readPublicApiToken = (req: any) => (
+    String(req.body?.apiToken || req.query?.apiToken || req.headers['x-api-token'] || '')
+      || String(req.headers.authorization || '').replace(/^Bearer\s+/i, '')
+  ).trim();
+
+  const findClientIdForTelegramIdentity = async (userId: string, input: {
+    telegramUserId?: string;
+    username?: string;
+    phone?: string;
+  }) => {
+    const telegramUserId = String(input.telegramUserId || '').trim();
+    const username = String(input.username || '').trim().replace(/^@/, '').toLowerCase();
+    const normalizedPhone = normalizePhoneDigits(input.phone);
+    if (!telegramUserId && !username && !normalizedPhone) return null;
+    const result = await pool.query(
+      `SELECT id
+       FROM clients
+       WHERE user_id = $1
+         AND (
+           ($2 <> '' AND (
+             EXISTS (
+               SELECT 1
+               FROM jsonb_array_elements(COALESCE(contact_methods, '[]'::jsonb)) elem
+               WHERE lower(elem->>'type') IN ('telegram', 'telegram_id')
+                 AND lower(trim(COALESCE(elem->>'value', ''))) IN ($2, $3)
+             )
+             OR EXISTS (
+               SELECT 1
+               FROM jsonb_array_elements(COALESCE(contacts, '[]'::jsonb)) contact,
+                    jsonb_array_elements(COALESCE(contact->'contactMethods', contact->'contact_methods', '[]'::jsonb)) elem
+               WHERE lower(elem->>'type') IN ('telegram', 'telegram_id')
+                 AND lower(trim(COALESCE(elem->>'value', ''))) IN ($2, $3)
+             )
+           ))
+           OR ($4 <> '' AND (
+             EXISTS (
+               SELECT 1
+               FROM jsonb_array_elements(COALESCE(contact_methods, '[]'::jsonb)) elem
+               WHERE lower(elem->>'type') IN ('phone', 'whatsapp')
+                 AND regexp_replace(COALESCE(elem->>'value', ''), '[^0-9]', '', 'g') LIKE $5
+             )
+             OR EXISTS (
+               SELECT 1
+               FROM jsonb_array_elements(COALESCE(contacts, '[]'::jsonb)) contact,
+                    jsonb_array_elements(COALESCE(contact->'contactMethods', contact->'contact_methods', '[]'::jsonb)) elem
+               WHERE lower(elem->>'type') IN ('phone', 'whatsapp')
+                 AND regexp_replace(COALESCE(elem->>'value', ''), '[^0-9]', '', 'g') LIKE $5
+             )
+           ))
+         )
+       ORDER BY updated_at DESC NULLS LAST
+       LIMIT 1`,
+      [userId, username, telegramUserId.toLowerCase(), normalizedPhone, normalizedPhone ? `%${normalizedPhone.slice(-8)}` : '']
+    );
+    return result.rows[0]?.id || null;
+  };
+
+  const telegramConversationToDto = (row: any) => ({
+    id: row.id,
+    userId: row.user_id,
+    clientId: row.client_id,
+    telegramChatId: row.telegram_chat_id,
+    telegramUserId: row.telegram_user_id,
+    username: row.username,
+    displayName: row.display_name,
+    status: row.status,
+    priority: row.priority,
+    humanTakeover: !!row.human_takeover,
+    assignedAgentId: row.assigned_agent_id,
+    tags: parseJsonArray(row.tags),
+    metadata: row.metadata || {},
+    lastMessageAt: row.last_message_at,
+    deletedAt: row.deleted_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    clientName: row.client_name,
+    clientCompany: row.client_company,
+    lastMessage: row.last_message || null
+  });
+
+  const telegramMessageToDto = (row: any) => ({
+    id: row.id,
+    conversationId: row.conversation_id,
+    telegramMessageId: row.telegram_message_id,
+    direction: row.direction,
+    senderName: row.sender_name,
+    body: row.body,
+    messageType: row.message_type,
+    payload: row.payload || {},
+    sourceCreatedAt: row.source_created_at,
+    createdAt: row.created_at
+  });
+
+  const extractTelegramWebhookMessage = (update: any) => {
+    const callbackQuery = update?.callback_query || null;
+    const message = update?.message || update?.edited_message || update?.channel_post || update?.edited_channel_post || callbackQuery?.message || null;
+    const from = update?.message?.from || update?.edited_message?.from || callbackQuery?.from || message?.from || {};
+    const chat = message?.chat || {};
+    const contact = message?.contact || {};
+    const messageId = String(message?.message_id || callbackQuery?.id || update?.update_id || `${Date.now()}`).trim();
+    const chatId = String(chat?.id || '').trim();
+    const firstName = String(from?.first_name || chat?.first_name || '').trim();
+    const lastName = String(from?.last_name || chat?.last_name || '').trim();
+    const username = String(from?.username || chat?.username || '').trim().replace(/^@/, '');
+    const displayName = [firstName, lastName].filter(Boolean).join(' ') || chat?.title || username || chatId;
+    const body = String(
+      message?.text
+      || message?.caption
+      || callbackQuery?.data
+      || contact?.phone_number
+      || ''
+    ).trim();
+    const messageType = message?.text
+      ? 'text'
+      : message?.photo
+        ? 'photo'
+        : message?.document
+          ? 'document'
+          : message?.video
+            ? 'video'
+            : message?.voice
+              ? 'voice'
+              : message?.contact
+                ? 'contact'
+                : callbackQuery
+                  ? 'callback'
+                  : 'message';
+    return {
+      chatId,
+      messageId,
+      telegramUserId: String(from?.id || contact?.user_id || '').trim(),
+      username,
+      displayName,
+      phone: contact?.phone_number || '',
+      body: body || `[${messageType}]`,
+      messageType,
+      sourceCreatedAt: message?.date ? new Date(Number(message.date) * 1000).toISOString() : new Date().toISOString(),
+      payload: update || {}
+    };
+  };
+
+  const ensureTelegramConversation = async (userId: string, input: {
+    chatId: string;
+    telegramUserId?: string;
+    username?: string;
+    displayName?: string;
+    phone?: string;
+    metadata?: any;
+  }) => {
+    const chatId = String(input.chatId || '').trim();
+    if (!chatId) throw new Error('Telegram chat id is required');
+    const conversationId = `tg_conv_${userId}_${nodeCrypto.createHash('md5').update(chatId).digest('hex')}`.slice(0, 128);
+    const clientId = await findClientIdForTelegramIdentity(userId, {
+      telegramUserId: input.telegramUserId,
+      username: input.username,
+      phone: input.phone
+    });
+    const result = await pool.query(
+      `INSERT INTO telegram_conversations
+         (id, user_id, client_id, telegram_chat_id, telegram_user_id, username, display_name, assigned_agent_id, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'telegram_customer_service_agent', $8)
+       ON CONFLICT (user_id, telegram_chat_id)
+       DO UPDATE SET
+         client_id = COALESCE(telegram_conversations.client_id, EXCLUDED.client_id),
+         telegram_user_id = COALESCE(EXCLUDED.telegram_user_id, telegram_conversations.telegram_user_id),
+         username = COALESCE(EXCLUDED.username, telegram_conversations.username),
+         display_name = COALESCE(EXCLUDED.display_name, telegram_conversations.display_name),
+         metadata = COALESCE(telegram_conversations.metadata, '{}'::jsonb) || COALESCE(EXCLUDED.metadata, '{}'::jsonb),
+         updated_at = CURRENT_TIMESTAMP
+       RETURNING *`,
+      [
+        conversationId,
+        userId,
+        clientId,
+        chatId,
+        input.telegramUserId || null,
+        input.username || null,
+        input.displayName || null,
+        JSON.stringify(input.metadata || {})
+      ]
+    );
+    return result.rows[0];
+  };
+
+  const addTelegramMessage = async (input: {
+    userId: string;
+    conversation: any;
+    telegramMessageId: string;
+    direction: 'inbound' | 'outbound';
+    senderName?: string;
+    body?: string;
+    messageType?: string;
+    payload?: any;
+    sourceCreatedAt?: string;
+  }) => {
+    const sourceMessageId = `telegram:${nodeCrypto.createHash('md5').update(`${input.conversation.id}:${input.telegramMessageId}`).digest('hex')}`;
+    const id = `tgm_${nodeCrypto.createHash('md5').update(`${input.userId}:${sourceMessageId}`).digest('hex')}`;
+    const result = await pool.query(
+      `INSERT INTO telegram_messages
+         (id, conversation_id, user_id, telegram_message_id, direction, sender_name, body, message_type, payload, source_created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
+       ON CONFLICT (user_id, conversation_id, telegram_message_id)
+       DO UPDATE SET
+         body = COALESCE(EXCLUDED.body, telegram_messages.body),
+         message_type = COALESCE(EXCLUDED.message_type, telegram_messages.message_type),
+         payload = COALESCE(telegram_messages.payload, '{}'::jsonb) || COALESCE(EXCLUDED.payload, '{}'::jsonb),
+         source_created_at = COALESCE(EXCLUDED.source_created_at, telegram_messages.source_created_at)
+       RETURNING *, (xmax = 0) AS inserted`,
+      [
+        id,
+        input.conversation.id,
+        input.userId,
+        input.telegramMessageId,
+        input.direction,
+        input.senderName || null,
+        String(input.body || '').slice(0, 8000),
+        input.messageType || 'text',
+        JSON.stringify(input.payload || {}),
+        input.sourceCreatedAt || new Date().toISOString()
+      ]
+    );
+    const row = result.rows[0];
+    await pool.query(
+      `UPDATE telegram_conversations
+       SET last_message_at = COALESCE($1, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2 AND user_id = $3`,
+      [row.source_created_at, input.conversation.id, input.userId]
+    );
+    await upsertCommunicationMessage({
+      userId: input.userId,
+      channel: 'telegram',
+      sourceId: input.conversation.id,
+      sourceMessageId,
+      direction: input.direction,
+      sender: input.senderName || null,
+      body: input.body || '',
+      messageType: input.messageType || 'text',
+      payload: input.payload || {},
+      sourceCreatedAt: row.source_created_at,
+      conversationData: {
+        userId: input.userId,
+        channel: 'telegram',
+        sourceId: input.conversation.id,
+        clientId: input.conversation.client_id || null,
+        status: input.conversation.status || 'open',
+        direction: input.direction,
+        title: input.conversation.display_name || input.conversation.username || input.conversation.telegram_chat_id,
+        contactName: input.conversation.display_name || null,
+        contactAddress: input.conversation.username || input.conversation.telegram_chat_id,
+        lastMessagePreview: input.body || '',
+        lastMessageAt: row.source_created_at,
+        tags: parseJsonArray(input.conversation.tags),
+        metadata: {
+          telegramChatId: input.conversation.telegram_chat_id,
+          telegramUserId: input.conversation.telegram_user_id,
+          username: input.conversation.username,
+          priority: input.conversation.priority,
+          humanTakeover: input.conversation.human_takeover,
+          assignedAgentId: input.conversation.assigned_agent_id
+        }
+      }
+    });
+    return row;
+  };
+
+  const notifyTelegramReceived = (userId: string, conversation: any, message: any) => {
+    const visitor = String(conversation?.display_name || conversation?.username || conversation?.telegram_chat_id || 'Telegram user');
+    const preview = String(message?.body || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+    void sendExternalNotification(userId, {
+      event: 'telegram_received',
+      title: `Telegram message from ${visitor}`,
+      body: preview || 'A Telegram user sent a message.',
+      url: '/inbox?channel=telegram',
+      metadata: {
+        telegramConversationId: conversation?.id,
+        telegramMessageId: message?.id,
+        telegramChatId: conversation?.telegram_chat_id,
+        username: conversation?.username || '',
+        clientId: conversation?.client_id || null
+      }
+    }).catch(err => console.warn('Telegram external notification failed', err));
+    void sendExternalNotification(userId, {
+      event: 'customer_reply',
+      title: `Customer reply from ${visitor}`,
+      body: preview || 'A Telegram user sent a message.',
+      url: '/inbox?channel=telegram',
+      metadata: {
+        channel: 'telegram',
+        telegramConversationId: conversation?.id,
+        telegramMessageId: message?.id,
+        clientId: conversation?.client_id || null
+      }
+    }).catch(err => console.warn('Telegram customer reply notification failed', err));
   };
 
   const liveChatSessionToDto = (row: any, lastMessage?: any) => ({
@@ -9114,6 +9564,173 @@ Return JSON only:
       });
     });
   }
+
+  app.post('/api/telegram-bot/webhook', async (req: any, res) => {
+    try {
+      const tokenRecord = await resolveApiToken(readPublicApiToken(req), 'telegram.webhook');
+      if (!tokenRecord) return res.status(401).json({ error: 'Invalid or unauthorized API token' });
+      const ownerId = tokenRecord.user_id;
+      const update = req.body?.update || req.body?.telegramUpdate || req.body;
+      const parsed = extractTelegramWebhookMessage(update);
+      if (!parsed.chatId) return res.status(400).json({ error: 'Telegram chat id is required' });
+      const conversation = await ensureTelegramConversation(ownerId, {
+        chatId: parsed.chatId,
+        telegramUserId: parsed.telegramUserId,
+        username: parsed.username,
+        displayName: parsed.displayName,
+        phone: parsed.phone,
+        metadata: {
+          apiTokenId: tokenRecord.id,
+          apiTokenTemplate: tokenRecord.template || '',
+          source: 'telegram_webhook'
+        }
+      });
+      const message = await addTelegramMessage({
+        userId: ownerId,
+        conversation,
+        telegramMessageId: parsed.messageId,
+        direction: 'inbound',
+        senderName: parsed.displayName || parsed.username || 'Telegram user',
+        body: parsed.body,
+        messageType: parsed.messageType,
+        payload: parsed.payload,
+        sourceCreatedAt: parsed.sourceCreatedAt
+      });
+      if (message.inserted) {
+        notifyTelegramReceived(ownerId, conversation, message);
+        await triggerAgentHubEvent(ownerId, 'telegram_received', {
+          telegramConversationId: conversation.id,
+          telegramId: message.id,
+          telegramChatId: conversation.telegram_chat_id,
+          clientId: conversation.client_id || null,
+          username: conversation.username || ''
+        }).catch(err => console.warn('Agent Hub telegram_received trigger failed', err));
+      }
+      res.json({
+        ok: true,
+        duplicate: !message.inserted,
+        conversation: telegramConversationToDto(conversation),
+        message: telegramMessageToDto(message)
+      });
+    } catch (e: any) {
+      console.error('Failed to ingest Telegram webhook', e);
+      res.status(500).json({ error: e.message || 'Failed to ingest Telegram webhook' });
+    }
+  });
+
+  app.get('/api/telegram/conversations', authenticateToken, requirePermission('telegram.read'), async (req: any, res) => {
+    try {
+      const includeDeleted = String(req.query.includeDeleted || '').toLowerCase() === 'true';
+      const limit = Math.min(300, Math.max(1, Number(req.query.limit || 100) || 100));
+      const result = await pool.query(
+        `SELECT t.*, cl.name AS client_name, cl.company AS client_company,
+          (
+            SELECT jsonb_build_object('id', m.id, 'direction', m.direction, 'body', m.body, 'messageType', m.message_type, 'createdAt', COALESCE(m.source_created_at, m.created_at))
+            FROM telegram_messages m
+            WHERE m.conversation_id = t.id
+            ORDER BY COALESCE(m.source_created_at, m.created_at) DESC
+            LIMIT 1
+          ) AS last_message
+         FROM telegram_conversations t
+         LEFT JOIN clients cl ON cl.id = t.client_id
+         WHERE t.user_id = $1
+           AND ($2::boolean OR t.deleted_at IS NULL)
+         ORDER BY COALESCE(t.last_message_at, t.updated_at, t.created_at) DESC
+         LIMIT $3`,
+        [req.user.uid, includeDeleted, limit]
+      );
+      res.json({ conversations: result.rows.map(telegramConversationToDto) });
+    } catch (e: any) {
+      console.error('Failed to fetch Telegram conversations', e);
+      res.status(500).json({ error: e.message || 'Failed to fetch Telegram conversations' });
+    }
+  });
+
+  app.get('/api/telegram/conversations/:id/messages', authenticateToken, requirePermission('telegram.read'), async (req: any, res) => {
+    try {
+      const conversationRes = await pool.query(
+        `SELECT id FROM telegram_conversations WHERE id = $1 AND user_id = $2 LIMIT 1`,
+        [req.params.id, req.user.uid]
+      );
+      if (conversationRes.rows.length === 0) return res.status(404).json({ error: 'Telegram conversation not found' });
+      const limit = Math.min(500, Math.max(1, Number(req.query.limit || 200) || 200));
+      const result = await pool.query(
+        `SELECT *
+         FROM (
+           SELECT *
+           FROM telegram_messages
+           WHERE conversation_id = $1 AND user_id = $2
+           ORDER BY COALESCE(source_created_at, created_at) DESC
+           LIMIT $3
+         ) recent_messages
+         ORDER BY COALESCE(source_created_at, created_at) ASC`,
+        [req.params.id, req.user.uid, limit]
+      );
+      res.json({ messages: result.rows.map(telegramMessageToDto) });
+    } catch (e: any) {
+      console.error('Failed to fetch Telegram messages', e);
+      res.status(500).json({ error: e.message || 'Failed to fetch Telegram messages' });
+    }
+  });
+
+  app.patch('/api/telegram/conversations/:id', authenticateToken, requirePermission('telegram.manage'), async (req: any, res) => {
+    try {
+      const allowed: Record<string, string> = {
+        clientId: 'client_id',
+        status: 'status',
+        priority: 'priority',
+        humanTakeover: 'human_takeover',
+        assignedAgentId: 'assigned_agent_id',
+        tags: 'tags',
+        displayName: 'display_name',
+        username: 'username'
+      };
+      const values: any[] = [req.params.id, req.user.uid];
+      const clauses: string[] = [];
+      let idx = 3;
+      for (const [key, column] of Object.entries(allowed)) {
+        if (!(key in req.body)) continue;
+        clauses.push(`${column} = $${idx}${key === 'tags' ? '::jsonb' : ''}`);
+        values.push(key === 'tags' ? JSON.stringify(req.body[key] || []) : req.body[key]);
+        idx += 1;
+      }
+      if (clauses.length === 0) return res.status(400).json({ error: 'No updates provided' });
+      clauses.push('updated_at = CURRENT_TIMESTAMP');
+      const result = await pool.query(
+        `UPDATE telegram_conversations
+         SET ${clauses.join(', ')}
+         WHERE id = $1 AND user_id = $2
+         RETURNING *`,
+        values
+      );
+      const row = result.rows[0];
+      if (!row) return res.status(404).json({ error: 'Telegram conversation not found' });
+      await upsertCommunicationConversation({
+        userId: req.user.uid,
+        channel: 'telegram',
+        sourceId: row.id,
+        clientId: row.client_id || null,
+        status: row.status || 'open',
+        title: row.display_name || row.username || row.telegram_chat_id,
+        contactName: row.display_name || null,
+        contactAddress: row.username || row.telegram_chat_id,
+        lastMessageAt: row.last_message_at,
+        tags: parseJsonArray(row.tags),
+        metadata: {
+          telegramChatId: row.telegram_chat_id,
+          telegramUserId: row.telegram_user_id,
+          username: row.username,
+          priority: row.priority,
+          humanTakeover: row.human_takeover,
+          assignedAgentId: row.assigned_agent_id
+        }
+      });
+      res.json({ conversation: telegramConversationToDto(row) });
+    } catch (e: any) {
+      console.error('Failed to update Telegram conversation', e);
+      res.status(500).json({ error: e.message || 'Failed to update Telegram conversation' });
+    }
+  });
 
   app.post('/api/live-chat/public/sessions', async (req: any, res) => {
     try {
