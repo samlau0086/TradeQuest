@@ -1513,6 +1513,8 @@ async function initDB() {
         UNIQUE(id, visitor_token)
       );
 
+      ALTER TABLE live_chat_sessions ADD COLUMN IF NOT EXISTS pending_delete BOOLEAN DEFAULT FALSE;
+
       CREATE INDEX IF NOT EXISTS idx_live_chat_sessions_user_updated
       ON live_chat_sessions (user_id, updated_at DESC);
 
@@ -2068,8 +2070,8 @@ async function startServer() {
       const deletedAt = new Date().toISOString();
       const updatedRes = await pool.query(
         `UPDATE communication_conversations
-         SET deleted_at = $1,
-             status = CASE WHEN channel = 'live_chat' THEN 'closed' ELSE 'deleted' END,
+         SET deleted_at = CASE WHEN channel = 'live_chat' THEN deleted_at ELSE $1 END,
+             status = CASE WHEN channel = 'live_chat' THEN 'pending_delete' ELSE 'deleted' END,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $2 AND user_id = $3
          RETURNING *`,
@@ -2097,12 +2099,7 @@ async function startServer() {
           [deletedAt, current.source_id, req.user.uid]
         );
       } else if (current.channel === 'live_chat') {
-        await pool.query(
-          `UPDATE live_chat_sessions
-           SET status = 'closed', updated_at = CURRENT_TIMESTAMP
-           WHERE id = $1 AND user_id = $2`,
-          [current.source_id, req.user.uid]
-        );
+        await requestLiveChatSessionDelete(req.user.uid, current.source_id);
       }
 
       res.json({ success: true, conversation: updated });
@@ -3071,50 +3068,73 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
+  const safeJsonValue = (value: any, fallback: any = {}) => {
+    if (value === null || value === undefined || value === '') return fallback;
+    if (typeof value !== 'string') return value;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return fallback;
+    }
+  };
+
+  const safeHealthQuery = async (label: string, sql: string, params: any[] = [], fallbackRows: any[] = []) => {
+    try {
+      return await pool.query(sql, params);
+    } catch (error: any) {
+      console.warn(`System health query failed: ${label}`, error?.message || error);
+      return { rows: fallbackRows } as any;
+    }
+  };
+
   app.get('/api/system/health', authenticateToken, async (req: any, res) => {
     try {
       const settingsRes = await pool.query('SELECT settings FROM users WHERE id = $1', [req.user.uid]);
       if (settingsRes.rows.length === 0) {
         return res.status(404).json({ error: 'User not found' });
       }
-      const rawSettings = typeof settingsRes.rows[0].settings === 'string'
-        ? JSON.parse(settingsRes.rows[0].settings || '{}')
-        : (settingsRes.rows[0].settings || {});
+      const rawSettings = safeJsonValue(settingsRes.rows[0].settings, {});
       const settings = await hydrateAgentStateFromTables(req.user.uid, rawSettings);
-      const repairDiagnostics = await getAgentRepairDiagnosticsForUser(req.user.uid, settings);
+      const repairDiagnostics = await getAgentRepairDiagnosticsForUser(req.user.uid, settings).catch((error: any) => ({
+        status: 'warning',
+        error: error?.message || 'Failed to load repair diagnostics',
+        repairableCount: 0,
+        invalidTasks: [],
+        invalidOpportunities: []
+      }));
       const [
         globalSettingsRes,
         knowledgeRes,
         liveChatRes,
         agentCountsRes
       ] = await Promise.all([
-        pool.query("SELECT key, value FROM global_settings WHERE key IN ('agent_polling_interval_seconds', 'agent_polling_interval_hours')"),
-        pool.query(`
+        safeHealthQuery('global_settings', "SELECT key, value FROM global_settings WHERE key IN ('agent_polling_interval_seconds', 'agent_polling_interval_hours')"),
+        safeHealthQuery('knowledge_base', `
           SELECT COUNT(*)::int AS total,
                  COUNT(*) FILTER (WHERE embedding IS NOT NULL)::int AS embedded,
                  MAX(updated_at) AS last_updated_at
           FROM knowledge_base
           WHERE user_id = $1
-        `, [req.user.uid]),
-        pool.query(`
+        `, [req.user.uid], [{ total: 0, embedded: 0, last_updated_at: null }]),
+        safeHealthQuery('live_chat_sessions', `
           SELECT COUNT(*)::int AS total,
                  COUNT(*) FILTER (WHERE status = 'open')::int AS open,
                  MAX(updated_at) AS last_updated_at
           FROM live_chat_sessions
           WHERE user_id = $1
-        `, [req.user.uid]),
-        pool.query(`
+        `, [req.user.uid], [{ total: 0, open: 0, last_updated_at: null }]),
+        safeHealthQuery('agent_counts', `
           SELECT
             (SELECT COUNT(*)::int FROM agent_tasks WHERE user_id = $1) AS tasks,
             (SELECT COUNT(*)::int FROM agent_opportunities WHERE user_id = $1) AS opportunities,
             (SELECT COUNT(*)::int FROM agent_run_records WHERE user_id = $1) AS run_records,
             (SELECT COUNT(*)::int FROM agent_harness_runs WHERE user_id = $1) AS harness_runs,
             (SELECT COUNT(*)::int FROM global_agent_plans WHERE user_id = $1) AS global_plans
-        `, [req.user.uid])
+        `, [req.user.uid], [{ tasks: 0, opportunities: 0, run_records: 0, harness_runs: 0, global_plans: 0 }])
       ]);
       const globalSettings = globalSettingsRes.rows.reduce((acc: Record<string, any>, row: any) => ({
         ...acc,
-        [row.key]: typeof row.value === 'string' ? JSON.parse(row.value) : row.value
+        [row.key]: safeJsonValue(row.value, row.value)
       }), {});
       const inboxConfigs = Array.isArray(settings.inboxConfigs) ? settings.inboxConfigs : [];
       const outboxConfigs = Array.isArray(settings.outboxConfigs) ? settings.outboxConfigs : [];
@@ -7262,6 +7282,7 @@ No markdown wrappers, just valid JSON.`;
     status: row.status || 'open',
     priority: row.priority || 'normal',
     humanTakeover: !!row.human_takeover,
+    pendingDelete: !!row.pending_delete,
     assignedAgentId: row.assigned_agent_id || 'live_chat_agent',
     tags: parseJsonArray(row.tags),
     metadata: row.metadata || {},
@@ -7285,6 +7306,72 @@ No markdown wrappers, just valid JSON.`;
     metadata: row.metadata || {},
     createdAt: row.created_at
   });
+
+  const requestLiveChatSessionDelete = async (userId: string, sessionId: string) => {
+    const sessionRes = await pool.query(
+      `SELECT * FROM live_chat_sessions WHERE id = $1 AND user_id = $2 LIMIT 1`,
+      [sessionId, userId]
+    );
+    const session = sessionRes.rows[0];
+    if (!session) {
+      const error: any = new Error('Live Chat session not found');
+      error.status = 404;
+      throw error;
+    }
+    if (session.pending_delete) {
+      return { alreadyPending: true, session };
+    }
+    const conversationRes = await pool.query(
+      `SELECT * FROM communication_conversations WHERE user_id = $1 AND channel = 'live_chat' AND source_id = $2 LIMIT 1`,
+      [userId, sessionId]
+    );
+    const conversation = conversationRes.rows[0] || null;
+    const originalData = {
+      id: session.id,
+      clientId: session.client_id || null,
+      visitorName: session.visitor_name || '',
+      visitorEmail: session.visitor_email || '',
+      visitorPhone: session.visitor_phone || '',
+      pageUrl: session.page_url || '',
+      status: session.status || 'open',
+      tags: parseJsonArray(session.tags),
+      metadata: session.metadata || {},
+      conversationId: conversation?.id || null,
+      lastMessageAt: session.last_message_at,
+      createdAt: session.created_at
+    };
+    await pool.query(
+      `INSERT INTO client_edit_requests (client_id, user_id, original_data, requested_data)
+       VALUES ($1, $2, $3, $4)`,
+      [
+        session.client_id || null,
+        userId,
+        JSON.stringify(originalData),
+        JSON.stringify({
+          action: 'delete_live_chat_session',
+          live_chat_session_id: session.id,
+          conversation_id: conversation?.id || null,
+          visitor: session.visitor_name || session.visitor_email || session.visitor_phone || 'Website Visitor',
+          original_status: session.status || 'open'
+        })
+      ]
+    );
+    await pool.query(
+      `UPDATE live_chat_sessions
+       SET pending_delete = TRUE,
+           status = CASE WHEN status = 'closed' THEN status ELSE 'pending' END,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1 AND user_id = $2`,
+      [sessionId, userId]
+    );
+    await pool.query(
+      `UPDATE communication_conversations
+       SET status = 'pending_delete', updated_at = CURRENT_TIMESTAMP
+       WHERE user_id = $1 AND channel = 'live_chat' AND source_id = $2`,
+      [userId, sessionId]
+    );
+    return { alreadyPending: false, session };
+  };
 
   const fetchLiveChatSessionDto = async (userId: string, sessionId: string) => {
     const result = await pool.query(
@@ -8175,6 +8262,24 @@ Return JSON only:
     } catch (e: any) {
       console.error('Failed to update live chat session', e);
       res.status(500).json({ error: e.message || 'Failed to update session' });
+    }
+  });
+
+  app.delete('/api/live-chat/sessions/:id', authenticateToken, async (req: any, res) => {
+    try {
+      const result = await requestLiveChatSessionDelete(req.user.uid, req.params.id);
+      await emitLiveChatSession(req.user.uid, req.params.id);
+      res.json({
+        success: true,
+        pendingReview: true,
+        alreadyPending: result.alreadyPending,
+        message: result.alreadyPending
+          ? 'Live Chat deletion is already waiting for approval.'
+          : 'Live Chat deletion request created for approval.'
+      });
+    } catch (e: any) {
+      console.error('Failed to request live chat deletion', e);
+      res.status(e.status || 500).json({ error: e.message || 'Failed to request live chat deletion' });
     }
   });
 
@@ -12309,6 +12414,22 @@ No markdown wrappers, just valid JSON.`;
          return;
        }
 
+       if (updates.action === 'delete_live_chat_session') {
+         const sessionId = String(updates.live_chat_session_id || '');
+         if (!sessionId) return res.status(400).json({ error: 'Live Chat session id is required' });
+         await pool.query(
+           `DELETE FROM communication_conversations
+            WHERE user_id = $1 AND channel = 'live_chat' AND source_id = $2`,
+           [editReq.user_id, sessionId]
+         );
+         await pool.query(
+           `DELETE FROM live_chat_sessions WHERE id = $1 AND user_id = $2`,
+           [sessionId, editReq.user_id]
+         );
+         res.json({ success: true });
+         return;
+       }
+
        if (updates.action === 'delete_client_comment') {
          const commentId = String(updates.comment_id || '');
          const clientData = typeof editReq.original_data === 'string' ? JSON.parse(editReq.original_data) : editReq.original_data;
@@ -12373,7 +12494,7 @@ No markdown wrappers, just valid JSON.`;
   app.post('/api/admin/client-edit-requests/:requestId/reject', authenticateToken, requireSuperadmin, async (req: any, res) => {
      try {
        const { requestId } = req.params;
-       const reqRes = await pool.query(`SELECT client_id, requested_data FROM client_edit_requests WHERE id = $1`, [requestId]);
+       const reqRes = await pool.query(`SELECT client_id, user_id, requested_data FROM client_edit_requests WHERE id = $1`, [requestId]);
        if (reqRes.rows.length === 0) return res.status(404).json({ error: 'Request not found' });
        
        await pool.query(`UPDATE client_edit_requests SET status = 'rejected', updated_at = CURRENT_TIMESTAMP WHERE id = $1`, [requestId]);
@@ -12385,6 +12506,23 @@ No markdown wrappers, just valid JSON.`;
          await pool.query(`UPDATE emails SET pending_delete = FALSE WHERE id = $1`, [updates.email_id]);
        } else if (updates.action === 'delete_deal') {
          await pool.query(`UPDATE deals SET pending_delete = FALSE WHERE id = $1`, [updates.deal_id]);
+       } else if (updates.action === 'delete_live_chat_session') {
+         const sessionId = String(updates.live_chat_session_id || '');
+         const originalStatus = String(updates.original_status || 'open');
+         await pool.query(
+           `UPDATE live_chat_sessions
+            SET pending_delete = FALSE,
+                status = CASE WHEN status = 'pending' THEN $3 ELSE status END,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1 AND user_id = $2`,
+           [sessionId, editReq.user_id, originalStatus]
+         );
+         await pool.query(
+           `UPDATE communication_conversations
+            SET status = $3, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = $1 AND channel = 'live_chat' AND source_id = $2`,
+           [editReq.user_id, sessionId, originalStatus]
+         );
        } else if (updates.action === 'delete_client_comment') {
          const commentId = String(updates.comment_id || '');
          const currentRes = await pool.query(`SELECT comments FROM clients WHERE id = $1`, [editReq.client_id]);

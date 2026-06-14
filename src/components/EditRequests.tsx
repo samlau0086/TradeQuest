@@ -210,9 +210,15 @@ export function EditRequests() {
                               ? `Lead Comment: ${next.lead_name || next.deal_id}`
                               : next.action === 'delete_client_comment'
                                 ? `Client Comment: ${req.current_client_name || 'Unknown Client'}`
-                                : req.current_client_name || 'Unknown Client'}
+                                : next.action === 'delete_live_chat_session'
+                                  ? `Live Chat: ${next.visitor || prev.visitorName || prev.visitorEmail || prev.id}`
+                                  : req.current_client_name || 'Unknown Client'}
                           <span className="text-sm font-normal text-slate-500">
-                            {next.action === 'delete_deal' || next.action === 'delete_deal_comment' ? `Deal ID: ${next.deal_id}` : `ID: ${req.client_id}`}
+                            {next.action === 'delete_deal' || next.action === 'delete_deal_comment'
+                              ? `Deal ID: ${next.deal_id}`
+                              : next.action === 'delete_live_chat_session'
+                                ? `Session ID: ${next.live_chat_session_id}`
+                                : `ID: ${req.client_id}`}
                           </span>
                         </h3>
                         <p className="text-xs text-slate-400 mt-1">{t('requestedBy') || 'Requested by'} <span className="font-medium text-slate-300">{req.requester_name}</span> at {new Date(req.created_at).toLocaleString()}</p>
@@ -248,6 +254,13 @@ export function EditRequests() {
                           comment_id: next.comment_id,
                           client_id: req.client_id,
                           deal_id: next.deal_id
+                        }, null, 2) : next.action === 'delete_live_chat_session' ? JSON.stringify({
+                          session_id: prev.id,
+                          visitor: prev.visitorName || prev.visitorEmail || prev.visitorPhone || next.visitor,
+                          page_url: prev.pageUrl,
+                          status: prev.status,
+                          client_id: prev.clientId,
+                          last_message_at: prev.lastMessageAt
                         }, null, 2) : JSON.stringify({ 
                            name: prev.name, 
                            company: prev.company, 
@@ -270,6 +283,11 @@ export function EditRequests() {
                         }, null, 2) : next.action === 'delete_client_comment' || next.action === 'delete_deal_comment' ? JSON.stringify({
                           action: 'DELETE COMMENT AFTER APPROVAL',
                           comment_id: next.comment_id
+                        }, null, 2) : next.action === 'delete_live_chat_session' ? JSON.stringify({
+                          action: 'DELETE LIVE CHAT SESSION AFTER APPROVAL',
+                          session_id: next.live_chat_session_id,
+                          conversation_id: next.conversation_id,
+                          related_records: ['live_chat_sessions', 'live_chat_messages', 'communication_conversations', 'communication_messages']
                         }, null, 2) : JSON.stringify({ 
                            name: next.name, 
                            company: next.company, 

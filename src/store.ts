@@ -688,6 +688,7 @@ export interface LiveChatSession {
   status: LiveChatSessionStatus;
   priority?: 'low' | 'normal' | 'high';
   humanTakeover: boolean;
+  pendingDelete?: boolean;
   assignedAgentId?: string;
   tags: string[];
   metadata?: any;
@@ -2022,7 +2023,7 @@ export const useStore = create<StoreState>((set, get) => ({
       });
       if (!res.ok) throw new Error('Failed to fetch live chat sessions');
       const sessions = await res.json();
-      set((state) => ({ liveChatSessions: mergeLiveChatSessionList(state.liveChatSessions, Array.isArray(sessions) ? sessions : []) }));
+      set({ liveChatSessions: Array.isArray(sessions) ? sessions : [] });
     } catch (error) {
       console.error(error);
     }

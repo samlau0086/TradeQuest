@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, CheckCircle2, Circle, Clock, Edit2, Globe, Hand, Link2, Loader2, MapPin, MessageSquare, Monitor, PauseCircle, Plus, RefreshCw, Save, Search, Send, Tag, Unlink, UserPlus, UserRound, X } from 'lucide-react';
+import { Bot, CheckCircle2, Circle, Clock, Edit2, Globe, Hand, Link2, Loader2, MapPin, MessageSquare, Monitor, PauseCircle, Plus, RefreshCw, Save, Search, Send, Tag, Trash2, Unlink, UserPlus, UserRound, X } from 'lucide-react';
 import { ContactMethod, useStore } from '../store';
 import { cn } from '../lib/utils';
 import { useTranslation } from '../lib/i18n';
@@ -55,6 +55,7 @@ export function LiveChat() {
   const [reply, setReply] = useState('');
   const [busy, setBusy] = useState(false);
   const [agentBusy, setAgentBusy] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [tagDraft, setTagDraft] = useState('');
   const [identityEditing, setIdentityEditing] = useState(false);
   const [identitySaving, setIdentitySaving] = useState(false);
@@ -292,6 +293,37 @@ export function LiveChat() {
     setShowLeadForm(true);
   };
 
+  const handleRequestDelete = async () => {
+    if (!selectedSession || selectedSession.pendingDelete) return;
+    const confirmed = window.confirm(
+      language === 'zh'
+        ? '确定要删除此 Live Chat 对话吗？此操作会先进入人工审核，审核通过后会删除会话、消息和统一沟通记录。'
+        : 'Delete this Live Chat conversation? This will require approval. After approval, the session, messages, and unified conversation records will be removed.'
+    );
+    if (!confirmed) return;
+    setDeleteBusy(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/live-chat/sessions/${selectedSession.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Failed to request Live Chat deletion');
+      notify(
+        language === 'zh'
+          ? 'Live Chat 删除请求已提交，等待审核通过后会关联删除相关记录。'
+          : 'Live Chat deletion request submitted. Related records will be removed after approval.',
+        'info'
+      );
+      await fetchLiveChatSessions();
+    } catch (error: any) {
+      notify(error?.message || (language === 'zh' ? '提交删除审核失败。' : 'Failed to submit deletion request.'), 'error');
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
   return (
     <div className="flex-1 min-h-0 bg-slate-950 text-slate-100 border-t border-slate-800 flex">
       <aside className="w-[360px] min-w-[300px] border-r border-slate-800 bg-slate-900/80 flex flex-col">
@@ -377,9 +409,9 @@ export function LiveChat() {
                 </div>
                 <span className={cn(
                   'shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold',
-                  session.status === 'closed' ? 'border-slate-700 text-slate-400' : session.priority === 'high' ? 'border-amber-500/40 text-amber-300 bg-amber-500/10' : 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10'
+                  session.pendingDelete ? 'border-red-500/40 text-red-300 bg-red-500/10' : session.status === 'closed' ? 'border-slate-700 text-slate-400' : session.priority === 'high' ? 'border-amber-500/40 text-amber-300 bg-amber-500/10' : 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10'
                 )}>
-                  {statusLabel(session.status, language)}
+                  {session.pendingDelete ? (language === 'zh' ? '待删审' : 'Delete review') : statusLabel(session.status, language)}
                 </span>
               </div>
               <div className="mt-3 text-sm text-slate-300 line-clamp-2">{session.lastMessage?.body || (language === 'zh' ? '会话已创建' : 'Session created')}</div>
@@ -455,6 +487,12 @@ export function LiveChat() {
                     )}
                   </div>
                   <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {selectedSession.pendingDelete && (
+                      <span className="inline-flex items-center gap-1 rounded border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs font-bold text-red-200">
+                        <Trash2 className="w-3 h-3" />
+                        {language === 'zh' ? '删除审核中' : 'Delete pending approval'}
+                      </span>
+                    )}
                     {linkedClient ? (
                       <>
                         <button onClick={() => selectClient(linkedClient.id)} className="inline-flex items-center gap-1 rounded border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-xs font-bold text-cyan-200 hover:bg-cyan-500/20">
@@ -526,13 +564,25 @@ export function LiveChat() {
                   )}
                   <button
                     onClick={() => updateLiveChatSession(selectedSession.id, { status: selectedSession.status === 'closed' ? 'open' : 'closed' })}
+                    disabled={selectedSession.pendingDelete}
                     title={selectedSession.status === 'closed'
                       ? (language === 'zh' ? '重新打开会话：恢复到进行中状态，便于继续跟进。' : 'Reopen this session: mark it active again for follow-up.')
                       : (language === 'zh' ? '关闭会话：标记为已处理/归档，不会删除消息或客户关联。' : 'Close this session: mark it handled/archived without deleting messages or client links.')}
-                    className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-bold text-slate-300 hover:text-white"
+                    className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-bold text-slate-300 hover:text-white disabled:opacity-50"
                   >
                     <CheckCircle2 className="w-4 h-4" />
                     {selectedSession.status === 'closed' ? (language === 'zh' ? '重新打开' : 'Reopen') : (language === 'zh' ? '关闭' : 'Close')}
+                  </button>
+                  <button
+                    onClick={handleRequestDelete}
+                    disabled={deleteBusy || selectedSession.pendingDelete}
+                    title={language === 'zh' ? '提交删除审核，审核通过后删除此 Live Chat 及关联消息。' : 'Submit a deletion request. After approval, this Live Chat and related messages will be deleted.'}
+                    className="inline-flex items-center gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm font-bold text-red-200 hover:bg-red-500/20 disabled:opacity-50"
+                  >
+                    {deleteBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    {selectedSession.pendingDelete
+                      ? (language === 'zh' ? '待审核删除' : 'Pending delete')
+                      : (language === 'zh' ? '删除' : 'Delete')}
                   </button>
                 </div>
               </div>
