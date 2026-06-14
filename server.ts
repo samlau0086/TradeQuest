@@ -2849,14 +2849,21 @@ No markdown wrappers, just valid JSON.`;
     const nextSettings = { ...settings };
     await Promise.all(agentStateSettingKeys.map(async key => {
       const config = agentStateTableConfigs[key];
+      const clearedAt = key === 'agentRunRecords'
+        ? nextSettings.agentRunRecordsClearedAt
+        : (key === 'agentHarnessRuns' || key === 'globalAgentPlans' ? nextSettings.agentTraceLogsClearedAt : null);
+      const clearedAtTime = clearedAt ? new Date(clearedAt).getTime() : 0;
       const result = await pool.query(
         `SELECT id, data, created_at, updated_at, completed_at FROM ${config.table} WHERE user_id = $1 ORDER BY updated_at DESC, created_at DESC LIMIT $2`,
         [userId, config.limit]
       );
       if (result.rows.length > 0) {
+        const tableItems = result.rows
+          .filter(row => !clearedAtTime || new Date(row.updated_at || row.created_at || 0).getTime() > clearedAtTime)
+          .map(rowDataToSettingItem);
         nextSettings[key] = mergeSettingsArrayById(
           Array.isArray(nextSettings[key]) ? nextSettings[key] : [],
-          result.rows.map(rowDataToSettingItem)
+          tableItems
         ).slice(0, config.limit);
       }
     }));
@@ -3027,7 +3034,17 @@ No markdown wrappers, just valid JSON.`;
       ...((incoming.deletedAgentHubAgentIds || []) as string[])
     ])).filter(id => !SYSTEM_AGENT_IDS.has(id));
     const deletedAgentHubAgentIdSet = new Set(deletedAgentHubAgentIds);
-    merged.agentRunRecords = mergeSettingsArrayById(existing.agentRunRecords || [], incoming.agentRunRecords || []).slice(0, 200);
+    const incomingClearedAgentRunRecordsAt = incoming.agentRunRecordsClearedAt || existing.agentRunRecordsClearedAt || null;
+    merged.agentRunRecordsClearedAt = incomingClearedAgentRunRecordsAt;
+    merged.agentRunRecords = incoming.agentRunRecordsClearedAt
+      ? (incoming.agentRunRecords || []).slice(0, 200)
+      : mergeSettingsArrayById(existing.agentRunRecords || [], incoming.agentRunRecords || []).slice(0, 200);
+    if (merged.agentRunRecordsClearedAt) {
+      const clearedAt = new Date(merged.agentRunRecordsClearedAt).getTime();
+      merged.agentRunRecords = (merged.agentRunRecords || []).filter((record: any) => (
+        new Date(record?.createdAt || record?.updatedAt || 0).getTime() > clearedAt
+      ));
+    }
     const mergedOpportunityDedupeLog = {
       ...(existing.agentOpportunityDedupeLog || {}),
       ...(incoming.agentOpportunityDedupeLog || {})
@@ -3078,8 +3095,23 @@ No markdown wrappers, just valid JSON.`;
         .sort((a: any, b: any) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime())
         .slice(-300)
       : (existing.agentChatMessages || []);
-    merged.agentHarnessRuns = mergeSettingsArrayById(existing.agentHarnessRuns || [], incoming.agentHarnessRuns || []);
-    merged.globalAgentPlans = mergeSettingsArrayById(existing.globalAgentPlans || [], incoming.globalAgentPlans || []);
+    const incomingClearedTraceLogsAt = incoming.agentTraceLogsClearedAt || existing.agentTraceLogsClearedAt || null;
+    merged.agentTraceLogsClearedAt = incomingClearedTraceLogsAt;
+    merged.agentHarnessRuns = incoming.agentTraceLogsClearedAt
+      ? (incoming.agentHarnessRuns || [])
+      : mergeSettingsArrayById(existing.agentHarnessRuns || [], incoming.agentHarnessRuns || []);
+    merged.globalAgentPlans = incoming.agentTraceLogsClearedAt
+      ? (incoming.globalAgentPlans || [])
+      : mergeSettingsArrayById(existing.globalAgentPlans || [], incoming.globalAgentPlans || []);
+    if (merged.agentTraceLogsClearedAt) {
+      const clearedAt = new Date(merged.agentTraceLogsClearedAt).getTime();
+      merged.agentHarnessRuns = (merged.agentHarnessRuns || []).filter((run: any) => (
+        new Date(run?.createdAt || run?.updatedAt || 0).getTime() > clearedAt
+      ));
+      merged.globalAgentPlans = (merged.globalAgentPlans || []).filter((plan: any) => (
+        new Date(plan?.createdAt || plan?.updatedAt || 0).getTime() > clearedAt
+      ));
+    }
     merged.deletedAgentHubAgentIds = deletedAgentHubAgentIds;
     merged.agentHubAgents = mergeAgentHubAgents(
       (existing.agentHubAgents || []).filter((agent: any) => agent?.builtIn || SYSTEM_AGENT_IDS.has(agent.id) || !deletedAgentHubAgentIdSet.has(agent.id)),
@@ -7490,9 +7522,14 @@ No markdown wrappers, just valid JSON.`;
       if (target === 'trace' || target === 'all') {
         settings.agentHarnessRuns = [];
         settings.globalAgentPlans = [];
+        settings.agentTraceLogsClearedAt = new Date().toISOString();
+        await pool.query('DELETE FROM agent_harness_runs WHERE user_id = $1', [req.user.uid]);
+        await pool.query('DELETE FROM global_agent_plans WHERE user_id = $1', [req.user.uid]);
       }
       if (target === 'records' || target === 'all') {
         settings.agentRunRecords = [];
+        settings.agentRunRecordsClearedAt = new Date().toISOString();
+        await pool.query('DELETE FROM agent_run_records WHERE user_id = $1', [req.user.uid]);
       }
 
       const updated = await pool.query(
