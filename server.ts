@@ -7292,6 +7292,81 @@ No markdown wrappers, just valid JSON.`;
   };
 
   const normalizeEmailAddress = (value: any) => String(value || '').trim().toLowerCase();
+  const normalizePhoneDigits = (value: any) => String(value || '').replace(/[^0-9]/g, '');
+
+  const findClientIdForLiveChatIdentity = async (userId: string, emailAddress?: string, phoneNumber?: string) => {
+    const normalizedEmail = normalizeEmailAddress(emailAddress);
+    const normalizedPhone = normalizePhoneDigits(phoneNumber);
+    if (!normalizedEmail && !normalizedPhone) return null;
+    const result = await pool.query(
+      `SELECT id
+       FROM clients
+       WHERE user_id = $1
+         AND (
+           ($2 <> '' AND (
+             EXISTS (
+               SELECT 1
+               FROM jsonb_array_elements(COALESCE(contact_methods, '[]'::jsonb)) elem
+               WHERE lower(elem->>'type') = 'email'
+                 AND lower(trim(elem->>'value')) = $2
+             )
+             OR EXISTS (
+               SELECT 1
+               FROM jsonb_array_elements(COALESCE(contacts, '[]'::jsonb)) contact,
+                    jsonb_array_elements(COALESCE(contact->'contactMethods', contact->'contact_methods', '[]'::jsonb)) elem
+               WHERE lower(elem->>'type') = 'email'
+                 AND lower(trim(elem->>'value')) = $2
+             )
+           ))
+           OR ($3 <> '' AND (
+             EXISTS (
+               SELECT 1
+               FROM jsonb_array_elements(COALESCE(contact_methods, '[]'::jsonb)) elem
+               WHERE lower(elem->>'type') IN ('phone', 'whatsapp')
+                 AND regexp_replace(COALESCE(elem->>'value', ''), '[^0-9]', '', 'g') LIKE $4
+             )
+             OR EXISTS (
+               SELECT 1
+               FROM jsonb_array_elements(COALESCE(contacts, '[]'::jsonb)) contact,
+                    jsonb_array_elements(COALESCE(contact->'contactMethods', contact->'contact_methods', '[]'::jsonb)) elem
+               WHERE lower(elem->>'type') IN ('phone', 'whatsapp')
+                 AND regexp_replace(COALESCE(elem->>'value', ''), '[^0-9]', '', 'g') LIKE $4
+             )
+           ))
+         )
+       ORDER BY updated_at DESC NULLS LAST
+       LIMIT 1`,
+      [userId, normalizedEmail, normalizedPhone, normalizedPhone ? `%${normalizedPhone.slice(-8)}` : '']
+    );
+    return result.rows[0]?.id || null;
+  };
+
+  const findReusableLiveChatSession = async (userId: string, input: {
+    visitorToken?: string;
+    visitorEmail?: string;
+    visitorPhone?: string;
+  }) => {
+    const visitorToken = String(input.visitorToken || '').trim();
+    const normalizedEmail = normalizeEmailAddress(input.visitorEmail);
+    const normalizedPhone = normalizePhoneDigits(input.visitorPhone);
+    if (!visitorToken && !normalizedEmail && !normalizedPhone) return null;
+    const result = await pool.query(
+      `SELECT *
+       FROM live_chat_sessions
+       WHERE user_id = $1
+         AND pending_delete = FALSE
+         AND status <> 'closed'
+         AND (
+           ($2 <> '' AND visitor_token = $2)
+           OR ($3 <> '' AND lower(trim(COALESCE(visitor_email, ''))) = $3)
+           OR ($4 <> '' AND regexp_replace(COALESCE(visitor_phone, ''), '[^0-9]', '', 'g') LIKE $5)
+         )
+       ORDER BY updated_at DESC NULLS LAST
+       LIMIT 1`,
+      [userId, visitorToken, normalizedEmail, normalizedPhone, normalizedPhone ? `%${normalizedPhone.slice(-8)}` : '']
+    );
+    return result.rows[0] || null;
+  };
 
   const liveChatSessionToDto = (row: any, lastMessage?: any) => ({
     id: row.id,
@@ -7635,8 +7710,8 @@ No markdown wrappers, just valid JSON.`;
       : -1;
     const newMessagesSinceSummary = lastSummarizedIndex >= 0 ? visibleMessages.length - lastSummarizedIndex - 1 : visibleMessages.length;
 
-    if (visibleMessages.length < 24 && !previousSummary) return previousSummary;
-    if (previousSummary && newMessagesSinceSummary < 12 && visibleMessages.length < 70) return previousSummary;
+    if (visibleMessages.length < 30 && !previousSummary) return previousSummary;
+    if (previousSummary && newMessagesSinceSummary < 15 && visibleMessages.length < 90) return previousSummary;
 
     const summaryPrompt = `Summarize this live chat conversation for future customer service memory.
 
@@ -7706,6 +7781,41 @@ Return JSON only:
       }
     }
 
+    return summary;
+  };
+
+  const refreshLiveChatMemoryForSession = async (userId: string, sessionId: string) => {
+    const sessionRes = await pool.query(
+      `SELECT * FROM live_chat_sessions WHERE id = $1 AND user_id = $2 LIMIT 1`,
+      [sessionId, userId]
+    );
+    const session = sessionRes.rows[0];
+    if (!session || session.pending_delete) return '';
+    const messagesRes = await pool.query(
+      `SELECT *
+       FROM (
+         SELECT * FROM live_chat_messages
+         WHERE session_id = $1 AND user_id = $2
+         ORDER BY created_at DESC
+         LIMIT 120
+       ) recent_messages
+       ORDER BY created_at ASC`,
+      [sessionId, userId]
+    );
+    const messages = messagesRes.rows;
+    if (messages.filter((message: any) => message.role !== 'system').length < 30) return '';
+    const { settings } = await getUserSettings(userId);
+    const selectedLlmId = settings.llmMappings?.live_chat_agent || settings.llmMappings?.context_suggestion || settings.activeLLMId;
+    const llmConfig = selectedLlmId ? (settings.llmConfigs || []).find((config: any) => config.id === selectedLlmId) : null;
+    const matchedClient = session.client_id
+      ? (await pool.query(
+          `SELECT id, name, company, country, preferred_language FROM clients WHERE id = $1 AND user_id = $2 LIMIT 1`,
+          [session.client_id, userId]
+        )).rows[0] || null
+      : null;
+    const systemLanguage = settings.language === 'zh' ? 'Chinese' : 'English';
+    const summary = await maybeSummarizeLiveChatSession(userId, session, messages, llmConfig, matchedClient, systemLanguage);
+    if (summary) await emitLiveChatSession(userId, sessionId);
     return summary;
   };
 
@@ -8021,6 +8131,7 @@ Return JSON only:
             visitorEmail: session.visitor_email,
             clientId: session.client_id
           }).catch(err => console.warn('Agent Hub live_chat_received trigger failed', err));
+          await refreshLiveChatMemoryForSession(userId, sessionId).catch(err => console.warn('Live Chat memory refresh failed', err));
           const agentMessage = await runLiveChatAgentWorker(userId, sessionId);
           if (agentMessage) await emitLiveChatMessage(userId, agentMessage);
           ack?.({
@@ -8060,6 +8171,7 @@ Return JSON only:
             [sessionId, userId]
           );
           await emitLiveChatMessage(userId, message);
+          await refreshLiveChatMemoryForSession(userId, sessionId).catch(err => console.warn('Live Chat memory refresh failed', err));
           ack?.({ ok: true, message: liveChatMessageToDto(message) });
         } catch (error: any) {
           ack?.({ ok: false, error: error?.message || 'Failed to send message' });
@@ -8086,15 +8198,53 @@ Return JSON only:
 
   app.post('/api/live-chat/public/sessions', async (req: any, res) => {
     try {
-      const { apiToken, visitorName, visitorEmail, visitorPhone, pageUrl, metadata } = req.body || {};
+      const { apiToken, visitorName, visitorEmail, visitorPhone, pageUrl, metadata, visitorToken: requestedVisitorToken } = req.body || {};
       const tokenRecord = await resolveApiToken(apiToken, 'live_chat.public');
       if (!tokenRecord) return res.status(401).json({ error: 'Invalid or unauthorized API token' });
       const ownerId = tokenRecord.user_id;
-      const sessionId = `lc_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
-      const visitorToken = crypto.randomUUID();
-      const clientId = visitorEmail ? await findClientIdForEmailAddress(ownerId, visitorEmail) : null;
       const requestMetadata = metadata && typeof metadata === 'object' ? metadata : {};
       const visitorInfo = buildLiveChatVisitorInfo(req, requestMetadata);
+      const reusableSession = await findReusableLiveChatSession(ownerId, {
+        visitorToken: requestedVisitorToken,
+        visitorEmail,
+        visitorPhone
+      });
+      if (reusableSession) {
+        const mergedMetadata = {
+          ...getLiveChatMetadata(reusableSession),
+          ...requestMetadata,
+          visitorInfo: {
+            ...(getLiveChatMetadata(reusableSession).visitorInfo || {}),
+            ...visitorInfo
+          },
+          apiTokenId: tokenRecord.id,
+          apiTokenTemplate: tokenRecord.template || '',
+          identityMergedAt: new Date().toISOString()
+        };
+        const clientId = reusableSession.client_id || await findClientIdForLiveChatIdentity(ownerId, visitorEmail, visitorPhone);
+        const result = await pool.query(
+          `UPDATE live_chat_sessions
+           SET client_id = COALESCE($1, client_id),
+               visitor_name = COALESCE(NULLIF($2, ''), visitor_name),
+               visitor_email = COALESCE(NULLIF($3, ''), visitor_email),
+               visitor_phone = COALESCE(NULLIF($4, ''), visitor_phone),
+               page_url = COALESCE(NULLIF($5, ''), page_url),
+               metadata = $6,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $7 AND user_id = $8
+           RETURNING *`,
+          [clientId, visitorName || '', visitorEmail || '', visitorPhone || '', pageUrl || '', JSON.stringify(mergedMetadata), reusableSession.id, ownerId]
+        );
+        await emitLiveChatSession(ownerId, reusableSession.id);
+        return res.json({
+          session: liveChatSessionToDto(result.rows[0]),
+          token: reusableSession.visitor_token,
+          reused: true
+        });
+      }
+      const sessionId = `lc_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+      const visitorToken = crypto.randomUUID();
+      const clientId = await findClientIdForLiveChatIdentity(ownerId, visitorEmail, visitorPhone);
       const result = await pool.query(
         `INSERT INTO live_chat_sessions
          (id, user_id, client_id, visitor_token, visitor_name, visitor_email, visitor_phone, page_url, assigned_agent_id, metadata)
@@ -8160,10 +8310,11 @@ Return JSON only:
       await emitLiveChatMessage(session.user_id, visitorMessage);
       notifyLiveChatReceived(session.user_id, session, visitorMessage);
       await triggerAgentHubEvent(session.user_id, 'live_chat_received', {
-        liveChatSessionId: session.id,
-        visitorEmail: session.visitor_email,
-        clientId: session.client_id
-      }).catch(err => console.warn('Agent Hub live_chat_received trigger failed', err));
+          liveChatSessionId: session.id,
+          visitorEmail: session.visitor_email,
+          clientId: session.client_id
+        }).catch(err => console.warn('Agent Hub live_chat_received trigger failed', err));
+      await refreshLiveChatMemoryForSession(session.user_id, session.id).catch(err => console.warn('Live Chat memory refresh failed', err));
       const agentMessage = await runLiveChatAgentWorker(session.user_id, session.id);
       if (agentMessage) await emitLiveChatMessage(session.user_id, agentMessage);
       res.json({
@@ -8242,6 +8393,7 @@ Return JSON only:
         [req.params.id, req.user.uid]
       );
       await emitLiveChatMessage(req.user.uid, message);
+      await refreshLiveChatMemoryForSession(req.user.uid, req.params.id).catch(err => console.warn('Live Chat memory refresh failed', err));
       res.json(liveChatMessageToDto(message));
     } catch (e: any) {
       console.error('Failed to send operator live chat message', e);
@@ -8281,8 +8433,50 @@ Return JSON only:
         values
       );
       if (result.rows.length === 0) return res.status(404).json({ error: 'Session not found' });
+      let updatedRow = result.rows[0];
+      if (!updatedRow.client_id && !('clientId' in req.body) && ('visitorEmail' in req.body || 'visitorPhone' in req.body)) {
+        const matchedClientId = await findClientIdForLiveChatIdentity(req.user.uid, updatedRow.visitor_email, updatedRow.visitor_phone);
+        if (matchedClientId) {
+          const relinked = await pool.query(
+            `UPDATE live_chat_sessions
+             SET client_id = $1, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $2 AND user_id = $3
+             RETURNING *`,
+            [matchedClientId, req.params.id, req.user.uid]
+          );
+          updatedRow = relinked.rows[0] || updatedRow;
+        }
+      }
+      await pool.query(
+        `UPDATE communication_conversations
+         SET client_id = $1,
+             title = $2,
+             contact_name = $3,
+             contact_address = $4,
+             status = $5,
+             tags = $6,
+             metadata = COALESCE(metadata, '{}'::jsonb) || $7::jsonb,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE user_id = $8 AND channel = 'live_chat' AND source_id = $9`,
+        [
+          updatedRow.client_id || null,
+          updatedRow.visitor_name || updatedRow.visitor_email || updatedRow.visitor_phone || 'Live Chat',
+          updatedRow.visitor_name || null,
+          updatedRow.visitor_email || updatedRow.visitor_phone || null,
+          updatedRow.pending_delete ? 'pending_delete' : (updatedRow.status || 'open'),
+          JSON.stringify(parseJsonArray(updatedRow.tags)),
+          JSON.stringify({
+            priority: updatedRow.priority,
+            humanTakeover: updatedRow.human_takeover,
+            pageUrl: updatedRow.page_url,
+            assignedAgentId: updatedRow.assigned_agent_id
+          }),
+          req.user.uid,
+          req.params.id
+        ]
+      ).catch((error: any) => console.warn('Failed to sync live chat session update to unified conversation', error?.message || error));
       await emitLiveChatSession(req.user.uid, req.params.id);
-      res.json(liveChatSessionToDto(result.rows[0]));
+      res.json(liveChatSessionToDto(updatedRow));
     } catch (e: any) {
       console.error('Failed to update live chat session', e);
       res.status(500).json({ error: e.message || 'Failed to update session' });

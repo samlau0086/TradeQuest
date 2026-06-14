@@ -8,6 +8,7 @@ let liveChatSocket: any = null;
 let liveChatSocketToken = '';
 let liveChatSocketConnecting = false;
 let liveChatSocketLastAttemptAt = 0;
+let liveChatJoinedSessionId = '';
 
 async function loadSocketIoClient() {
   const importer = new Function('specifier', 'return import(specifier)');
@@ -1964,12 +1965,24 @@ export const useStore = create<StoreState>((set, get) => ({
       liveChatSocket = io('/', {
         path: '/socket.io',
         transports: ['websocket', 'polling'],
-        autoConnect: true
+        autoConnect: true,
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 15000,
+        timeout: 20000
       });
       liveChatSocket.on('connect', () => {
         liveChatSocket.emit('live_chat:operator_auth', { token }, (response: any) => {
           if (response?.ok) {
             set({ liveChatSocketStatus: 'connected' });
+            get().fetchLiveChatSessions();
+            if (liveChatJoinedSessionId) {
+              liveChatSocket.emit('live_chat:join_session', { sessionId: liveChatJoinedSessionId }, (joinResponse: any) => {
+                if (!joinResponse?.ok) console.warn('Failed to rejoin live chat session room', joinResponse?.error);
+              });
+              get().fetchLiveChatMessages(liveChatJoinedSessionId);
+            }
           } else {
             console.warn('Live Chat socket auth failed', response?.error);
             set({ liveChatSocketStatus: 'disconnected' });
@@ -1985,6 +1998,12 @@ export const useStore = create<StoreState>((set, get) => ({
         console.warn('Live Chat socket unavailable; REST fallback remains active.', error?.message || error);
         liveChatSocketConnecting = false;
         set({ liveChatSocketStatus: 'disconnected' });
+      });
+      liveChatSocket.io?.on?.('reconnect_attempt', () => {
+        set({ liveChatSocketStatus: 'connecting' });
+      });
+      liveChatSocket.io?.on?.('reconnect', () => {
+        set({ liveChatSocketStatus: 'connecting' });
       });
       liveChatSocket.on('live_chat:session_updated', (session: LiveChatSession) => {
         set((state) => ({
@@ -2012,9 +2031,11 @@ export const useStore = create<StoreState>((set, get) => ({
     liveChatSocketToken = '';
     liveChatSocketConnecting = false;
     liveChatSocketLastAttemptAt = 0;
+    liveChatJoinedSessionId = '';
     set({ liveChatSocketStatus: 'disconnected' });
   },
   joinLiveChatSocketSession: (sessionId) => {
+    liveChatJoinedSessionId = sessionId || '';
     if (!sessionId || !liveChatSocket?.connected) return;
     liveChatSocket.emit('live_chat:join_session', { sessionId }, (response: any) => {
       if (!response?.ok) console.warn('Failed to join live chat session room', response?.error);

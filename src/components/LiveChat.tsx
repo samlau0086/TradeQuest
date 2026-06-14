@@ -149,6 +149,49 @@ export function LiveChat() {
     : selectedSession?.visitorPhone
       ? { type: 'phone', value: selectedSession.visitorPhone }
       : null;
+  const liveChatControlState = useMemo(() => {
+    if (!selectedSession) {
+      return {
+        title: '',
+        description: '',
+        tone: 'slate' as const
+      };
+    }
+    if (selectedSession.pendingDelete) {
+      return {
+        title: language === 'zh' ? '等待删除审核' : 'Deletion pending approval',
+        description: language === 'zh'
+          ? '此对话已进入删除审核，审核通过后会删除会话、消息和统一沟通记录。'
+          : 'This conversation is queued for review. Once approved, the session, messages, and unified conversation records will be removed.',
+        tone: 'red' as const
+      };
+    }
+    if (selectedSession.status === 'closed') {
+      return {
+        title: language === 'zh' ? '已归档' : 'Archived',
+        description: language === 'zh'
+          ? '此对话已关闭归档，不会自动回复；重新打开后可继续由人工或 Agent 处理。'
+          : 'This conversation is closed and archived. Auto replies are paused until it is reopened.',
+        tone: 'slate' as const
+      };
+    }
+    if (selectedSession.humanTakeover) {
+      return {
+        title: language === 'zh' ? '人工接管中' : 'Human takeover active',
+        description: language === 'zh'
+          ? 'Agent 自动回复已暂停，当前由人工座席处理；点击“交还给 Agent”后才会恢复无人值守自动回复。'
+          : 'Agent auto-reply is paused while an operator owns this conversation. Hand it back to Agent to resume unattended replies.',
+        tone: 'blue' as const
+      };
+    }
+    return {
+      title: language === 'zh' ? 'Agent 自动接待中' : 'Agent auto-reply active',
+      description: language === 'zh'
+        ? '访客新消息会触发 Live Chat Agent 后台回复；人工接管会立即暂停自动回复。'
+        : 'New visitor messages trigger the Live Chat Agent in the background. Human takeover pauses auto replies immediately.',
+      tone: 'cyan' as const
+    };
+  }, [selectedSession, language]);
 
   useEffect(() => {
     if (!selectedSession) return;
@@ -275,6 +318,15 @@ export function LiveChat() {
       name: leadName,
       value: 0,
       status: 'Leads' as const,
+      sourceType: 'live_chat',
+      sourceId: selectedSession.id,
+      sourceLabel: `Live Chat: ${selectedSession.visitorName || selectedSession.visitorEmail || selectedSession.visitorPhone || selectedSession.id}`,
+      leadNotes: [
+        `Source: Live Chat (${selectedSession.id})`,
+        selectedSession.pageUrl ? `Page URL: ${selectedSession.pageUrl}` : '',
+        selectedSession.metadata?.liveChatSummary ? `Live Chat Summary: ${selectedSession.metadata.liveChatSummary}` : '',
+        selectedSession.metadata?.liveChatSummaryNextStep ? `Next Step: ${selectedSession.metadata.liveChatSummaryNextStep}` : ''
+      ].filter(Boolean).join('\n'),
       contactInfo: {
         name: leadName,
         company: linkedClient?.company || '',
@@ -555,7 +607,7 @@ export function LiveChat() {
                   {!selectedSession.humanTakeover && (
                     <button
                       onClick={handleAgentReply}
-                      disabled={agentBusy}
+                      disabled={agentBusy || selectedSession.pendingDelete || selectedSession.status === 'closed'}
                       className="inline-flex items-center gap-2 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-sm font-bold text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-60"
                     >
                       {agentBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bot className="w-4 h-4" />}
@@ -585,6 +637,26 @@ export function LiveChat() {
                       : (language === 'zh' ? '删除' : 'Delete')}
                   </button>
                 </div>
+              </div>
+              <div className={cn(
+                'mt-4 rounded-lg border px-3 py-2 text-xs',
+                liveChatControlState.tone === 'red' && 'border-red-500/30 bg-red-500/10 text-red-100',
+                liveChatControlState.tone === 'blue' && 'border-blue-500/30 bg-blue-500/10 text-blue-100',
+                liveChatControlState.tone === 'cyan' && 'border-cyan-500/30 bg-cyan-500/10 text-cyan-100',
+                liveChatControlState.tone === 'slate' && 'border-slate-700 bg-slate-900/70 text-slate-300'
+              )}>
+                <div className="flex flex-wrap items-center gap-2 font-bold">
+                  {selectedSession.humanTakeover ? <Hand className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
+                  <span>{liveChatControlState.title}</span>
+                  <span className="text-slate-500">socket: {liveChatSocketStatus}</span>
+                </div>
+                <div className="mt-1 text-slate-300">{liveChatControlState.description}</div>
+                {selectedSession.metadata?.liveChatSummaryUpdatedAt && (
+                  <div className="mt-1 text-slate-500">
+                    {language === 'zh' ? '最近自动摘要：' : 'Last auto summary: '}
+                    {formatTime(selectedSession.metadata.liveChatSummaryUpdatedAt)}
+                  </div>
+                )}
               </div>
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 {displayedTags.map(tag => (

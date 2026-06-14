@@ -94,6 +94,9 @@ export function DealFormModal({ onClose, dealId, initialData }: DealFormModalPro
       status,
       leadNotes,
       productIds: selectedProductIds,
+      sourceType: existingDeal?.sourceType || initialData?.sourceType,
+      sourceId: existingDeal?.sourceId || initialData?.sourceId,
+      sourceLabel: existingDeal?.sourceLabel || initialData?.sourceLabel,
     };
 
     if (!linkExisting) {
