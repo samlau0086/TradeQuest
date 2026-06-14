@@ -2447,7 +2447,19 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
                   </p>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {(['email_received', 'customer_reply', 'review_required', 'agent_execution_failed', 'live_chat_received', 'daily_operation_summary'] as const).map(event => {
+                  {([
+                    'email_received',
+                    'whatsapp_received',
+                    'live_chat_received',
+                    'customer_reply',
+                    'review_required',
+                    'agent_review_required',
+                    'execution_failed',
+                    'agent_execution_failed',
+                    'notification_channel_failed',
+                    'daily_operation_summary',
+                    'inactive_login_reminder'
+                  ] as const).map(event => {
                     const template = externalNotificationConfig.templates?.[event] || { enabled: false, title: '', body: '' };
                     return (
                       <div key={event} className="rounded-lg border border-slate-800 bg-slate-900/50 p-3 space-y-2">

@@ -1530,9 +1530,14 @@ const INITIAL_EXTERNAL_NOTIFICATION_CONFIG: ExternalNotificationConfig = {
     email_received: { enabled: false, title: 'New email received', body: '{{body}}' },
     whatsapp_received: { enabled: false, title: 'New WhatsApp message', body: '{{body}}' },
     live_chat_received: { enabled: false, title: 'Live Chat needs attention', body: '{{body}}' },
+    customer_reply: { enabled: false, title: 'Customer reply', body: '{{body}}' },
     review_required: { enabled: false, title: 'Review required', body: '{{body}}' },
+    agent_review_required: { enabled: false, title: 'Agent review required', body: '{{body}}' },
+    execution_failed: { enabled: false, title: 'Execution failed', body: '{{body}}' },
     agent_execution_failed: { enabled: false, title: 'Agent execution failed', body: '{{body}}' },
-    daily_operation_summary: { enabled: false, title: 'Daily operation summary', body: '{{body}}' }
+    notification_channel_failed: { enabled: false, title: 'Notification channel failed', body: '{{body}}' },
+    daily_operation_summary: { enabled: false, title: 'Daily operation summary', body: '{{body}}' },
+    inactive_login_reminder: { enabled: false, title: 'Inactive login reminder', body: '{{body}}' }
   },
   failureEscalation: {
     enabled: true,
