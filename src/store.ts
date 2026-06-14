@@ -1712,6 +1712,31 @@ function evaluateClientProgressRewards(getState: () => StoreState, clientId: str
   );
 }
 
+function getPipelineOutcomeExp(status?: string) {
+  switch (status) {
+    case 'Sample Sent':
+      return { key: 'event_sample_sent', fallback: 25, reason: 'Lead reached Sample Sent' };
+    case 'Negotiating':
+      return { key: 'event_negotiation_started', fallback: 30, reason: 'Lead reached Negotiating' };
+    case 'Closed Won':
+      return { key: 'event_win_deal', fallback: 100, reason: 'Won a deal' };
+    default:
+      return null;
+  }
+}
+
+function awardPipelineOutcomeExpOnce(getState: () => StoreState, entityId: string, status?: string, label = 'lead') {
+  const state = getState();
+  const reward = getPipelineOutcomeExp(status);
+  if (!reward) return;
+  awardGameExpOnce(
+    getState,
+    `[game:outcome:${entityId}:${status}]`,
+    state.expConfig[reward.key] ?? reward.fallback,
+    `${reward.reason}: ${label}.`
+  );
+}
+
 function evaluateSalesComboRewards(getState: () => StoreState, clientId: string) {
   const state = getState();
   const client = state.clients.find(item => item.id === clientId);
@@ -2718,6 +2743,9 @@ export const useStore = create<StoreState>((set, get) => ({
     const id = `q${Date.now()}`;
     const newQuote: Quote = { ...quote, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     set((state) => ({ quotes: [...state.quotes, newQuote] }));
+    if (quote.status === 'Sent') {
+      setTimeout(() => awardGameExpOnce(get, `[game:quote_sent:${id}]`, get().expConfig['event_quote_sent'] ?? 25, `Quote sent to customer: ${quote.quoteNumber || id}.`), 0);
+    }
     if (quote.clientId) {
       setTimeout(() => evaluateSalesComboRewards(get, quote.clientId!), 0);
     }
@@ -2727,19 +2755,27 @@ export const useStore = create<StoreState>((set, get) => ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(newQuote)
+      }).then(res => res.json()).then(data => {
+        if (data.pointsAdded) useAuthStore.getState().fetchProfile();
       }).catch(console.error);
     }
   },
   updateQuote: (id, updates) => {
+    const previousQuote = get().quotes.find(q => q.id === id);
     set((state) => ({
       quotes: state.quotes.map(q => q.id === id ? { ...q, ...updates, updatedAt: new Date().toISOString() } : q)
     }));
+    if (updates.status === 'Sent' && previousQuote?.status !== 'Sent') {
+      setTimeout(() => awardGameExpOnce(get, `[game:quote_sent:${id}]`, get().expConfig['event_quote_sent'] ?? 25, `Quote sent to customer: ${previousQuote?.quoteNumber || id}.`), 0);
+    }
     const token = localStorage.getItem('token');
     if (token) {
       fetch(`/api/quotes/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(updates)
+      }).then(res => res.json()).then(data => {
+        if (data.pointsAdded) useAuthStore.getState().fetchProfile();
       }).catch(console.error);
     }
   },
@@ -2872,7 +2908,8 @@ export const useStore = create<StoreState>((set, get) => ({
             body: JSON.stringify(updates)
           });
           if (!dealRes.ok) throw new Error('Deal update failed');
-
+          const data = await dealRes.json();
+          if (data.pointsAdded) useAuthStore.getState().fetchProfile();
         }
 
         if (statusChanged) {
@@ -2882,9 +2919,7 @@ export const useStore = create<StoreState>((set, get) => ({
             evaluateClientProgressRewards(get, deal.clientId, updates.status);
             evaluateSalesComboRewards(get, deal.clientId);
           }
-          if (updates.status === 'Closed Won') {
-            get().addExp(get().expConfig['event_win_deal'] ?? 100, 'Won a deal!');
-          }
+          awardPipelineOutcomeExpOnce(get, id, updates.status, deal.name);
         } else {
           get().addLog(deal.clientId, `Lead "${deal.name}" updated: ${Object.keys(updates).join(', ')}`, undefined, 'general', { leadId: id, dealId: id });
         }
@@ -2983,6 +3018,7 @@ export const useStore = create<StoreState>((set, get) => ({
     return id;
   },
   editClient: (id, updates) => {
+    const previousClient = get().clients.find(c => c.id === id);
     get().addLog(id, formatInternalUpdateLog(updates, get().language), undefined, 'general', {
       source: 'client_update',
       updatedFields: Object.keys(updates)
@@ -3012,6 +3048,9 @@ export const useStore = create<StoreState>((set, get) => ({
       evaluateClientQualityRewards(get, id);
       evaluateClientProgressRewards(get, id, updates.status);
       evaluateSalesComboRewards(get, id);
+      if (updates.status && updates.status !== previousClient?.status) {
+        awardPipelineOutcomeExpOnce(get, id, updates.status, previousClient?.name || previousClient?.company || 'client');
+      }
     }, 0);
   },
   submitClientEditRequest: (id, requestedData) => set((state) => {
@@ -3071,6 +3110,7 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
   updateClientStatus: (id, status) => {
+    const previousClient = get().clients.find(c => c.id === id);
     get().addLog(id, `Client status changed to: ${status}`);
     set((state) => {
       const token = localStorage.getItem('token');
@@ -3079,10 +3119,15 @@ export const useStore = create<StoreState>((set, get) => ({
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
           body: JSON.stringify({ status, isDormant: false })
+        }).then(res => res.json()).then(data => {
+          if (data.pointsAdded) useAuthStore.getState().fetchProfile();
         }).catch(console.error);
       }
       return { clients: state.clients.map(c => c.id === id ? { ...c, status, isDormant: false } : c) };
     });
+    if (status !== previousClient?.status) {
+      setTimeout(() => awardPipelineOutcomeExpOnce(get, id, status, previousClient?.name || previousClient?.company || 'client'), 0);
+    }
   },
   
   publicClients: [],

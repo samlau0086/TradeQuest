@@ -464,6 +464,7 @@ Recommended near-term roadmap:
 - [x] Add RAG source metadata, source path, update time, folder import incrementality, deletion sync, client/global retrieval weighting, and citation visibility in AI outputs.
 - [ ] Add notification history, quiet hours, templates, and escalation rules for daily summaries and repeated agent failures.
 - [ ] Tie gamification rewards to real CRM outcomes and configurable point/EXP rules.
+- [x] Award configurable, idempotent points and EXP for real sales outcomes: quote sent, sample sent, negotiation started, and closed won.
 
 ## Lead Acquisition and Enrichment Channels
 
@@ -1369,6 +1370,7 @@ Agent Execution Policy 使用的 Global Orchestrator action type：
 - [x] RAG 增加来源元数据、来源路径、更新时间、文件夹增量同步、删除同步、客户/全局检索权重和 AI 输出引用来源展示。
 - [x] 通知系统增加通知历史、免打扰时段、模板和连续失败升级规则；Bark/Webhook 投递日志支持重试和清理。
 - [ ] 将游戏化积分和 EXP 与真实 CRM 结果绑定，并支持可配置规则。
+- [x] 已将报价发出、进入寄样、进入谈判、赢单等真实销售结果接入可配置且幂等的积分与 EXP 奖励。
 
 ## 获客与数据富集渠道
 

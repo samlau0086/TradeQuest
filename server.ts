@@ -1110,6 +1110,8 @@ async function initDB() {
       );
       CREATE INDEX IF NOT EXISTS idx_point_transactions_user_created
       ON point_transactions (user_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_point_transactions_user_source_ref
+      ON point_transactions (user_id, source, reference_id);
 
       CREATE TABLE IF NOT EXISTS notification_delivery_logs (
         id VARCHAR(128) PRIMARY KEY,
@@ -1829,10 +1831,55 @@ async function adjustUserPoints(userId: string, amount: number, reason: string, 
   return { id, amount: normalizedAmount, balanceAfter, reason, source, referenceId, metadata };
 }
 
+async function awardUserPointsOnce(userId: string, amount: number, reason: string, source: string, referenceId: string | null, metadata: any = {}) {
+  const normalizedAmount = Number(amount) || 0;
+  if (normalizedAmount === 0) return null;
+  if (source && referenceId) {
+    const existing = await pool.query(
+      `SELECT id, amount, balance_after, reason, source, reference_id, metadata, created_at
+       FROM point_transactions
+       WHERE user_id = $1 AND source = $2 AND reference_id = $3
+       LIMIT 1`,
+      [userId, source, referenceId]
+    );
+    if (existing.rows.length > 0) {
+      return { ...existing.rows[0], skipped: true };
+    }
+  }
+  return adjustUserPoints(userId, normalizedAmount, reason, source, referenceId, metadata);
+}
+
 async function getGlobalSettingNumber(key: string, fallback: number) {
   const result = await pool.query('SELECT value FROM global_settings WHERE key = $1', [key]);
   const value = Number(result.rows[0]?.value ?? fallback);
   return Number.isFinite(value) ? value : fallback;
+}
+
+function normalizeOutcomeStatus(value: any) {
+  return String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, ' ');
+}
+
+function getPipelineOutcomeReward(status: any) {
+  switch (normalizeOutcomeStatus(status)) {
+    case 'sample sent':
+      return { key: 'point_event_sample_sent', fallback: 10, source: 'sample_sent', reason: 'Lead moved to Sample Sent' };
+    case 'negotiating':
+      return { key: 'point_event_negotiation_started', fallback: 15, source: 'negotiation_started', reason: 'Lead moved to Negotiating' };
+    case 'closed won':
+      return { key: 'point_event_win_deal', fallback: 50, source: 'win_deal', reason: 'Deal marked Closed Won' };
+    default:
+      return null;
+  }
+}
+
+function isQuoteSentStatus(status: any) {
+  return normalizeOutcomeStatus(status) === 'sent';
+}
+
+async function awardConfiguredOutcomePoints(userId: string, reward: ReturnType<typeof getPipelineOutcomeReward>, referenceId: string, metadata: any = {}) {
+  if (!reward) return null;
+  const pointsAdded = Math.max(0, await getGlobalSettingNumber(reward.key, reward.fallback));
+  return awardUserPointsOnce(userId, pointsAdded, reward.reason, reward.source, referenceId, metadata);
 }
 
 const defaultAi = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -11373,6 +11420,8 @@ Return JSON only:
     try {
       const { id } = req.params;
       const { status, name, value, contactInfo, clientId, comments, productIds, leadScore, leadSummary, leadNextStep, leadScoringSignature, leadScoringAnalyzedAt, sourceType, sourceId, sourceLabel, leadNotes } = req.body;
+      let previousStatusForReward: string | null = null;
+      let updatedClientIdForReward: string | null = null;
       
       const updates: string[] = [];
       const values: any[] = [];
@@ -11451,14 +11500,24 @@ Return JSON only:
         const dbClient = await pool.connect();
         try {
           await dbClient.query('BEGIN');
+          const existingDeal = await dbClient.query(
+            `SELECT status, client_id FROM deals WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+            [id, req.user.uid]
+          );
+          if (existingDeal.rowCount === 0) {
+            await dbClient.query('ROLLBACK');
+            return res.status(404).json({ error: 'Deal not found' });
+          }
+          previousStatusForReward = existingDeal.rows[0].status;
           const result = await dbClient.query(
-            `UPDATE deals SET ${updates.join(', ')} WHERE id = $${idx} AND user_id = $${idx + 1} RETURNING client_id`,
+            `UPDATE deals SET ${updates.join(', ')} WHERE id = $${idx} AND user_id = $${idx + 1} RETURNING client_id, status`,
             values
           );
           if (result.rowCount === 0) {
             await dbClient.query('ROLLBACK');
             return res.status(404).json({ error: 'Deal not found' });
           }
+          updatedClientIdForReward = result.rows[0].client_id || null;
           if (status !== undefined && result.rows[0].client_id) {
             await dbClient.query(
               `UPDATE clients SET status = $1, is_dormant = FALSE, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND user_id = $3`,
@@ -11473,7 +11532,22 @@ Return JSON only:
           dbClient.release();
         }
       }
-      res.json({ success: true });
+      const pointRewards: any[] = [];
+      if (status !== undefined && previousStatusForReward !== null && normalizeOutcomeStatus(status) !== normalizeOutcomeStatus(previousStatusForReward)) {
+        const reward = getPipelineOutcomeReward(status);
+        const previousReward = getPipelineOutcomeReward(previousStatusForReward);
+        if (reward && reward.source !== previousReward?.source) {
+          const awarded = await awardConfiguredOutcomePoints(req.user.uid, reward, id, {
+            dealId: id,
+            clientId: updatedClientIdForReward,
+            previousStatus: previousStatusForReward,
+            status
+          });
+          if (awarded) pointRewards.push(awarded);
+        }
+      }
+      const pointsAdded = pointRewards.reduce((sum, reward) => sum + (reward.skipped ? 0 : Number(reward.amount || 0)), 0);
+      res.json({ success: true, pointsAdded, pointRewards });
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: 'Internal error' });
@@ -11618,7 +11692,17 @@ Return JSON only:
       );
       const pointsAdded = Math.max(0, await getGlobalSettingNumber('point_event_create_quote', 8));
       await adjustUserPoints(req.user.uid, pointsAdded, 'Created quote', 'create_quote', id, { quoteId: id, clientId: clientId || null });
-      res.json({ ...result.rows[0], pointsAdded });
+      let quoteSentReward: any = null;
+      if (isQuoteSentStatus(status)) {
+        const sentPoints = Math.max(0, await getGlobalSettingNumber('point_event_quote_sent', 12));
+        quoteSentReward = await awardUserPointsOnce(req.user.uid, sentPoints, 'Sent quote to customer', 'quote_sent', id, {
+          quoteId: id,
+          clientId: clientId || null,
+          leadId: leadId || null,
+          status
+        });
+      }
+      res.json({ ...result.rows[0], pointsAdded: pointsAdded + (quoteSentReward?.skipped ? 0 : Number(quoteSentReward?.amount || 0)), pointRewards: quoteSentReward ? [quoteSentReward] : [] });
     } catch (e) {
       console.error(e); res.status(500).json({ error: 'Internal error' });
     }
@@ -11627,6 +11711,9 @@ Return JSON only:
   app.patch('/api/quotes/:id', authenticateToken, requirePermission('quote.update'), async (req: any, res) => {
     try {
       const { quoteNumber, clientId, leadId, currency, paymentTerms, paymentTermId, advanceRatio, balanceRatio, status, items, fees, comments } = req.body;
+      let previousQuoteStatus: string | null = null;
+      let currentQuoteClientId: string | null = clientId || null;
+      let currentQuoteLeadId: string | null = leadId || null;
       const updates = []; const values = []; let idx = 1;
       const mapping = { quoteNumber: 'quote_number', clientId: 'client_id', leadId: 'lead_id', currency: 'currency', paymentTerms: 'payment_terms', paymentTermId: 'payment_term_id', advanceRatio: 'advance_ratio', balanceRatio: 'balance_ratio', status: 'status', items: 'items', fees: 'fees', comments: 'comments' };
       for (const [k, v] of Object.entries({ quoteNumber, clientId, leadId, currency, paymentTerms, paymentTermId, advanceRatio, balanceRatio, status, items, fees, comments })) {
@@ -11636,11 +11723,30 @@ Return JSON only:
         }
       }
       if (updates.length > 0) {
+        const existingQuote = await pool.query(
+          `SELECT status, client_id, lead_id FROM quotes WHERE id = $1 AND user_id = $2`,
+          [req.params.id, req.user.uid]
+        );
+        if (existingQuote.rowCount === 0) return res.status(404).json({ error: 'Quote not found' });
+        previousQuoteStatus = existingQuote.rows[0].status || null;
+        currentQuoteClientId = clientId !== undefined ? clientId || null : existingQuote.rows[0].client_id || null;
+        currentQuoteLeadId = leadId !== undefined ? leadId || null : existingQuote.rows[0].lead_id || null;
         updates.push(`updated_at = CURRENT_TIMESTAMP`);
         values.push(req.params.id, req.user.uid);
         await pool.query(`UPDATE quotes SET ${updates.join(', ')} WHERE id = $${idx++} AND user_id = $${idx}`, values);
       }
-      res.json({ success: true });
+      let quoteSentReward: any = null;
+      if (status !== undefined && isQuoteSentStatus(status) && !isQuoteSentStatus(previousQuoteStatus)) {
+        const sentPoints = Math.max(0, await getGlobalSettingNumber('point_event_quote_sent', 12));
+        quoteSentReward = await awardUserPointsOnce(req.user.uid, sentPoints, 'Sent quote to customer', 'quote_sent', req.params.id, {
+          quoteId: req.params.id,
+          clientId: currentQuoteClientId,
+          leadId: currentQuoteLeadId,
+          previousStatus: previousQuoteStatus,
+          status
+        });
+      }
+      res.json({ success: true, pointsAdded: quoteSentReward?.skipped ? 0 : Number(quoteSentReward?.amount || 0), pointRewards: quoteSentReward ? [quoteSentReward] : [] });
     } catch (e) {
       console.error(e); res.status(500).json({ error: 'Internal error' });
     }
@@ -13247,9 +13353,11 @@ Return JSON only:
       };
       
       let pointsToAward = 0;
-      const existingClientRes = await pool.query(`SELECT * FROM clients WHERE id = $1`, [id]);
+      let previousClientStatus: string | null = null;
+      const existingClientRes = await pool.query(`SELECT * FROM clients WHERE id = $1 AND user_id = $2`, [id, req.user.uid]);
       if (existingClientRes.rows.length > 0) {
         const ec = existingClientRes.rows[0];
+        previousClientStatus = ec.status || null;
         if (updates.company && !ec.company) pointsToAward += 2;
         if (updates.address && !ec.address) pointsToAward += 2;
         if (updates.country && !ec.country) pointsToAward += 2;
@@ -13290,7 +13398,22 @@ Return JSON only:
           updatedFields: Object.keys(updates)
         }).catch(err => console.warn('Agent Hub client_updated trigger failed', err));
       }
-      res.json({ success: true, pointsAdded: pointsToAward });
+      const pointRewards: any[] = [];
+      if (updates.status !== undefined && previousClientStatus !== null && normalizeOutcomeStatus(updates.status) !== normalizeOutcomeStatus(previousClientStatus)) {
+        const reward = getPipelineOutcomeReward(updates.status);
+        const previousReward = getPipelineOutcomeReward(previousClientStatus);
+        if (reward && reward.source !== previousReward?.source) {
+          const awarded = await awardConfiguredOutcomePoints(req.user.uid, reward, id, {
+            clientId: id,
+            previousStatus: previousClientStatus,
+            status: updates.status,
+            entityType: 'client'
+          });
+          if (awarded) pointRewards.push(awarded);
+        }
+      }
+      const outcomePointsAdded = pointRewards.reduce((sum, reward) => sum + (reward.skipped ? 0 : Number(reward.amount || 0)), 0);
+      res.json({ success: true, pointsAdded: pointsToAward + outcomePointsAdded, pointRewards });
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: 'Failed to update client' });
