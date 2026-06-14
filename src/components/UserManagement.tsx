@@ -66,7 +66,15 @@ export function UserManagement() {
     }
   };
 
-  const handleRoleChange = async (userId: string, newRole: 'user' | 'superadmin') => {
+  const roleOptions = [
+    { value: 'superadmin', label: 'Superadmin' },
+    { value: 'admin', label: 'Admin' },
+    { value: 'sales', label: 'Sales' },
+    { value: 'support', label: 'Support' },
+    { value: 'agent-only', label: 'Agent-only' }
+  ];
+
+  const handleRoleChange = async (userId: string, newRole: UserProfile['role']) => {
     try {
       await fetch(`/api/users/${userId}`, {
         method: 'PATCH',
@@ -147,8 +155,9 @@ export function UserManagement() {
                       onChange={(e) => handleRoleChange(u.id, e.target.value as any)}
                       className={`bg-slate-900 border rounded px-2 py-1 text-xs font-bold outline-none ${u.role === 'superadmin' ? 'border-indigo-500 text-indigo-400' : 'border-slate-700 text-slate-300'}`}
                     >
-                      <option value="user">{t('user')}</option>
-                      <option value="superadmin">{t('superAdmin')}</option>
+                      {roleOptions.map(role => (
+                        <option key={role.value} value={role.value}>{role.label}</option>
+                      ))}
                     </select>
                   </td>
                   <td className="px-4 py-3 text-xs text-slate-400">

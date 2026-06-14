@@ -26,6 +26,105 @@ const WHATSAPP_HISTORY_RECOVERY_LOOKBACK_MS = Math.max(
 const hashApiToken = (token: string) => nodeCrypto.createHash('sha256').update(String(token || '')).digest('hex');
 const createApiTokenValue = () => `tq_${nodeCrypto.randomBytes(32).toString('hex')}`;
 
+const CRM_ROLES = ['superadmin', 'admin', 'sales', 'support', 'agent-only'] as const;
+type CrmRole = typeof CRM_ROLES[number];
+
+const normalizeRole = (role?: string | null): CrmRole => {
+  const normalized = String(role || '').trim().toLowerCase().replace('_', '-');
+  if (CRM_ROLES.includes(normalized as CrmRole)) return normalized as CrmRole;
+  if (normalized === 'user') return 'sales';
+  return 'sales';
+};
+
+const ROLE_PERMISSION_MATRIX: Record<CrmRole, string[]> = {
+  superadmin: ['*'],
+  admin: [
+    'audit.read',
+    'approval.review',
+    'agent.manage',
+    'agent.execute',
+    'client.read',
+    'client.create',
+    'client.update',
+    'client.delete',
+    'client.stage.update',
+    'lead.read',
+    'lead.create',
+    'lead.update',
+    'lead.delete',
+    'email.read',
+    'email.send',
+    'email.delete',
+    'whatsapp.read',
+    'whatsapp.send',
+    'quote.read',
+    'quote.create',
+    'quote.update',
+    'quote.delete',
+    'product.manage',
+    'knowledge.manage',
+    'live_chat.manage'
+  ],
+  sales: [
+    'client.read',
+    'client.create',
+    'client.update',
+    'client.stage.update',
+    'lead.read',
+    'lead.create',
+    'lead.update',
+    'email.read',
+    'email.send',
+    'whatsapp.read',
+    'whatsapp.send',
+    'quote.read',
+    'quote.create',
+    'quote.update',
+    'product.read',
+    'knowledge.read',
+    'live_chat.read',
+    'agent.execute'
+  ],
+  support: [
+    'client.read',
+    'client.update',
+    'lead.read',
+    'email.read',
+    'email.send',
+    'whatsapp.read',
+    'whatsapp.send',
+    'knowledge.read',
+    'live_chat.manage',
+    'agent.execute'
+  ],
+  'agent-only': [
+    'client.read',
+    'lead.read',
+    'email.read',
+    'whatsapp.read',
+    'product.read',
+    'knowledge.read',
+    'agent.execute'
+  ]
+};
+
+const roleHasPermission = (role: string | null | undefined, permission: string) => {
+  const permissions = ROLE_PERMISSION_MATRIX[normalizeRole(role)] || [];
+  return permissions.includes('*') || permissions.includes(permission);
+};
+
+const safeParseJsonField = (value: any, fallback: any = {}) => {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return fallback;
+    }
+  }
+  return value;
+};
+
 const applyWhatsAppHistoryRecoveryLookback = (since: string) => {
   if (!since || !WHATSAPP_HISTORY_RECOVERY_LOOKBACK_MS) return since;
   const sinceTime = new Date(since).getTime();
@@ -1026,6 +1125,28 @@ async function initDB() {
       ON notification_delivery_logs (user_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_notification_delivery_logs_user_event
       ON notification_delivery_logs (user_id, event, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id VARCHAR(128) PRIMARY KEY,
+        owner_user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        actor_user_id VARCHAR(128) REFERENCES users(id) ON DELETE SET NULL,
+        actor_role VARCHAR(64),
+        action VARCHAR(128) NOT NULL,
+        risk VARCHAR(32) DEFAULT 'medium',
+        target_type VARCHAR(64),
+        target_id VARCHAR(128),
+        target_label TEXT,
+        status VARCHAR(32) DEFAULT 'success',
+        reason TEXT,
+        changes JSONB DEFAULT '{}'::jsonb,
+        affected_records JSONB DEFAULT '[]'::jsonb,
+        metadata JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_owner_created
+      ON audit_logs (owner_user_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_action_created
+      ON audit_logs (action, created_at DESC);
 
       CREATE TABLE IF NOT EXISTS api_tokens (
         id VARCHAR(128) PRIMARY KEY,
@@ -2669,12 +2790,71 @@ No markdown wrappers, just valid JSON.`;
   const requireSuperadmin = async (req: any, res: any, next: any) => {
     try {
       const result = await pool.query('SELECT role FROM users WHERE id = $1', [req.user.uid]);
-      if (result.rows.length === 0 || result.rows[0].role !== 'superadmin') {
+      if (result.rows.length === 0 || normalizeRole(result.rows[0].role) !== 'superadmin') {
         return res.sendStatus(403);
       }
+      req.userRole = normalizeRole(result.rows[0].role);
       next();
     } catch (e) {
       res.sendStatus(500);
+    }
+  };
+
+  const requirePermission = (permission: string) => async (req: any, res: any, next: any) => {
+    try {
+      const result = await pool.query('SELECT role FROM users WHERE id = $1', [req.user.uid]);
+      if (result.rows.length === 0) return res.sendStatus(403);
+      const role = normalizeRole(result.rows[0].role);
+      if (!roleHasPermission(role, permission)) {
+        return res.status(403).json({ error: 'Insufficient permission', permission, role });
+      }
+      req.userRole = role;
+      next();
+    } catch (e) {
+      console.error('Permission check failed', e);
+      res.sendStatus(500);
+    }
+  };
+
+  const logAuditEvent = async (input: {
+    ownerUserId: string;
+    actorUserId?: string | null;
+    actorRole?: string | null;
+    action: string;
+    risk?: 'low' | 'medium' | 'high' | string;
+    targetType?: string | null;
+    targetId?: string | null;
+    targetLabel?: string | null;
+    status?: 'success' | 'failed' | 'pending' | 'rolled_back' | string;
+    reason?: string | null;
+    changes?: any;
+    affectedRecords?: any[];
+    metadata?: any;
+  }) => {
+    try {
+      await pool.query(
+        `INSERT INTO audit_logs
+          (id, owner_user_id, actor_user_id, actor_role, action, risk, target_type, target_id, target_label, status, reason, changes, affected_records, metadata)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+        [
+          `audit_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+          input.ownerUserId,
+          input.actorUserId || null,
+          input.actorRole || null,
+          input.action,
+          input.risk || 'medium',
+          input.targetType || null,
+          input.targetId || null,
+          input.targetLabel || null,
+          input.status || 'success',
+          input.reason || null,
+          JSON.stringify(input.changes || {}),
+          JSON.stringify(input.affectedRecords || []),
+          JSON.stringify(input.metadata || {})
+        ]
+      );
+    } catch (error) {
+      console.error('Failed to write audit log', error);
     }
   };
 
@@ -5820,7 +6000,7 @@ Return JSON only:
       res.json(result.rows.map(user => ({
         id: user.id,
         email: user.email,
-        role: user.role,
+        role: normalizeRole(user.role),
         displayName: user.display_name,
         avatarUrl: user.avatar_url,
         createdAt: user.created_at,
@@ -5832,21 +6012,33 @@ Return JSON only:
     }
   });
 
-  app.post('/api/users', authenticateToken, requireSuperadmin, async (req, res) => {
+  app.post('/api/users', authenticateToken, requireSuperadmin, async (req: any, res) => {
     try {
       const { uid, email, displayName, role } = req.body;
+      const nextRole = normalizeRole(role || 'sales');
       const result = await pool.query(
         `INSERT INTO users (id, email, display_name, role)
          VALUES ($1, $2, $3, $4)
          ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email
          RETURNING *`,
-        [uid, email, displayName, role || 'user']
+        [uid, email, displayName, nextRole]
       );
       const user = result.rows[0];
+      await logAuditEvent({
+        ownerUserId: req.user.uid,
+        actorUserId: req.user.uid,
+        actorRole: 'superadmin',
+        action: 'user.create',
+        risk: 'high',
+        targetType: 'user',
+        targetId: user.id,
+        targetLabel: user.email,
+        changes: { role: nextRole, displayName }
+      });
       res.json({
         id: user.id,
         email: user.email,
-        role: user.role,
+        role: normalizeRole(user.role),
         displayName: user.display_name,
         avatarUrl: user.avatar_url,
         createdAt: user.created_at,
@@ -5866,7 +6058,7 @@ Return JSON only:
       // Check if user is modifying themselves or is a superadmin
       let isSuperadmin = false;
       const authResult = await pool.query('SELECT role FROM users WHERE id = $1', [req.user.uid]);
-      if (authResult.rows.length > 0 && authResult.rows[0].role === 'superadmin') {
+      if (authResult.rows.length > 0 && normalizeRole(authResult.rows[0].role) === 'superadmin') {
         isSuperadmin = true;
       }
       
@@ -5875,7 +6067,7 @@ Return JSON only:
       }
       
       // non-superadmins cannot modify roles
-      const updateRole = isSuperadmin && role !== undefined ? role : null;
+      const updateRole = isSuperadmin && role !== undefined ? normalizeRole(role) : null;
 
       const result = await pool.query(
         `UPDATE users 
@@ -5906,10 +6098,23 @@ Return JSON only:
       if (!user) {
         return res.status(404).json({ error: 'User not found' });
       }
+      if (isSuperadmin && updateRole) {
+        await logAuditEvent({
+          ownerUserId: req.user.uid,
+          actorUserId: req.user.uid,
+          actorRole: 'superadmin',
+          action: 'user.role.update',
+          risk: 'high',
+          targetType: 'user',
+          targetId: uid,
+          targetLabel: user.email,
+          changes: { role: updateRole }
+        });
+      }
       res.json({
         id: user.id,
         email: user.email,
-        role: user.role,
+        role: normalizeRole(user.role),
         displayName: user.display_name,
         avatarUrl: user.avatar_url,
         createdAt: user.created_at,
@@ -5921,14 +6126,75 @@ Return JSON only:
     }
   });
 
-  app.delete('/api/users/:uid', authenticateToken, requireSuperadmin, async (req, res) => {
+  app.delete('/api/users/:uid', authenticateToken, requireSuperadmin, async (req: any, res) => {
     try {
       const { uid } = req.params;
+      const before = await pool.query('SELECT id, email, display_name, role FROM users WHERE id = $1', [uid]);
       await pool.query('DELETE FROM users WHERE id = $1', [uid]);
+      await logAuditEvent({
+        ownerUserId: req.user.uid,
+        actorUserId: req.user.uid,
+        actorRole: 'superadmin',
+        action: 'user.delete',
+        risk: 'high',
+        targetType: 'user',
+        targetId: uid,
+        targetLabel: before.rows[0]?.email || uid,
+        changes: { before: before.rows[0] || null }
+      });
       res.json({ success: true });
     } catch (error: any) {
       console.error('DB Error:', error);
       res.status(500).json({ error: 'Database error' });
+    }
+  });
+
+  app.get('/api/admin/role-permissions', authenticateToken, requirePermission('audit.read'), async (_req: any, res) => {
+    res.json({
+      roles: CRM_ROLES,
+      matrix: ROLE_PERMISSION_MATRIX
+    });
+  });
+
+  app.get('/api/admin/audit-logs', authenticateToken, requirePermission('audit.read'), async (req: any, res) => {
+    try {
+      const limit = Math.min(500, Math.max(20, Number(req.query.limit || 200)));
+      const userId = String(req.query.userId || '').trim();
+      const action = String(req.query.action || '').trim();
+      const result = await pool.query(
+        `SELECT l.*, actor.display_name AS actor_name, actor.email AS actor_email, owner.email AS owner_email
+         FROM audit_logs l
+         LEFT JOIN users actor ON actor.id = l.actor_user_id
+         LEFT JOIN users owner ON owner.id = l.owner_user_id
+         WHERE ($1::text = '' OR l.owner_user_id = $1 OR l.actor_user_id = $1)
+           AND ($2::text = '' OR l.action = $2)
+         ORDER BY l.created_at DESC
+         LIMIT $3`,
+        [userId, action, limit]
+      );
+      res.json(result.rows.map(row => ({
+        id: row.id,
+        ownerUserId: row.owner_user_id,
+        ownerEmail: row.owner_email,
+        actorUserId: row.actor_user_id,
+        actorRole: row.actor_role,
+        actorName: row.actor_name,
+        actorEmail: row.actor_email,
+        action: row.action,
+        risk: row.risk,
+        targetType: row.target_type,
+        targetId: row.target_id,
+        targetLabel: row.target_label,
+        status: row.status,
+        reason: row.reason,
+        changes: safeParseJsonField(row.changes),
+        affectedRecords: safeParseJsonField(row.affected_records, []),
+        metadata: safeParseJsonField(row.metadata),
+        createdAt: row.created_at
+      })));
+    } catch (error) {
+      console.error('Failed to load audit logs', error);
+      res.status(500).json({ error: 'Failed to load audit logs' });
     }
   });
 
@@ -10792,7 +11058,7 @@ Return JSON only:
     }
   });
 
-  app.post('/api/deals', authenticateToken, async (req: any, res) => {
+  app.post('/api/deals', authenticateToken, requirePermission('lead.create'), async (req: any, res) => {
     try {
       const { id, clientId, name, value, status, contactInfo, comments, productIds, leadScore, leadSummary, leadNextStep, leadScoringSignature, leadScoringAnalyzedAt, sourceType, sourceId, sourceLabel, leadNotes } = req.body;
       const result = await pool.query(
@@ -10816,7 +11082,7 @@ Return JSON only:
     }
   });
 
-  app.patch('/api/deals/:id', authenticateToken, async (req: any, res) => {
+  app.patch('/api/deals/:id', authenticateToken, requirePermission('lead.update'), async (req: any, res) => {
     try {
       const { id } = req.params;
       const { status, name, value, contactInfo, clientId, comments, productIds, leadScore, leadSummary, leadNextStep, leadScoringSignature, leadScoringAnalyzedAt, sourceType, sourceId, sourceLabel, leadNotes } = req.body;
@@ -10927,7 +11193,7 @@ Return JSON only:
     }
   });
 
-  app.delete('/api/deals/:id', authenticateToken, async (req: any, res) => {
+  app.delete('/api/deals/:id', authenticateToken, requirePermission('lead.delete'), async (req: any, res) => {
     try {
       const { id } = req.params;
       const userRes = await pool.query('SELECT role FROM users WHERE id = $1', [req.user.uid]);
@@ -10969,7 +11235,7 @@ Return JSON only:
     }
   });
 
-  app.post('/api/products', authenticateToken, async (req: any, res) => {
+  app.post('/api/products', authenticateToken, requirePermission('product.manage'), async (req: any, res) => {
     try {
       const { id, sku, name, description, salesPoints, imageUrl, bulkPrices, comments } = req.body;
       const result = await pool.query(
@@ -10985,7 +11251,7 @@ Return JSON only:
     }
   });
 
-  app.patch('/api/products/:id', authenticateToken, async (req: any, res) => {
+  app.patch('/api/products/:id', authenticateToken, requirePermission('product.manage'), async (req: any, res) => {
     try {
       const { sku, name, description, salesPoints, imageUrl, bulkPrices, comments } = req.body;
       const updates = []; const values = []; let idx = 1;
@@ -11007,7 +11273,7 @@ Return JSON only:
     }
   });
 
-  app.delete('/api/products/:id', authenticateToken, async (req: any, res) => {
+  app.delete('/api/products/:id', authenticateToken, requirePermission('product.manage'), async (req: any, res) => {
     try {
       await pool.query('DELETE FROM products WHERE id = $1 AND user_id = $2', [req.params.id, req.user.uid]);
       res.json({ success: true });
@@ -11055,7 +11321,7 @@ Return JSON only:
     }
   });
 
-  app.post('/api/quotes', authenticateToken, async (req: any, res) => {
+  app.post('/api/quotes', authenticateToken, requirePermission('quote.create'), async (req: any, res) => {
     try {
       const { id, quoteNumber, clientId, leadId, currency, paymentTerms, paymentTermId, advanceRatio, balanceRatio, status, items, fees, comments } = req.body;
       const result = await pool.query(
@@ -11071,7 +11337,7 @@ Return JSON only:
     }
   });
 
-  app.patch('/api/quotes/:id', authenticateToken, async (req: any, res) => {
+  app.patch('/api/quotes/:id', authenticateToken, requirePermission('quote.update'), async (req: any, res) => {
     try {
       const { quoteNumber, clientId, leadId, currency, paymentTerms, paymentTermId, advanceRatio, balanceRatio, status, items, fees, comments } = req.body;
       const updates = []; const values = []; let idx = 1;
@@ -11093,7 +11359,7 @@ Return JSON only:
     }
   });
 
-  app.delete('/api/quotes/:id', authenticateToken, async (req: any, res) => {
+  app.delete('/api/quotes/:id', authenticateToken, requirePermission('quote.delete'), async (req: any, res) => {
     try {
       await pool.query('DELETE FROM quotes WHERE id = $1 AND user_id = $2', [req.params.id, req.user.uid]);
       res.json({ success: true });
@@ -12615,7 +12881,7 @@ Return JSON only:
     }
   });
 
-  app.post('/api/clients', authenticateToken, async (req: any, res) => {
+  app.post('/api/clients', authenticateToken, requirePermission('client.create'), async (req: any, res) => {
     try {
       const { id, name, company, country, status, tags, lastContact, isDormant, contactMethods, contacts, primaryContactId, comments, productIds, sourceType, sourceId, sourceLabel } = req.body;
       
@@ -12669,7 +12935,7 @@ Return JSON only:
     }
   });
 
-  app.patch('/api/clients/:id', authenticateToken, async (req: any, res) => {
+  app.patch('/api/clients/:id', authenticateToken, requirePermission('client.update'), async (req: any, res) => {
     try {
       const id = req.params.id;
       const updates = req.body;
@@ -12874,6 +13140,19 @@ No markdown wrappers, just valid JSON.`;
       // Award points for enrichment via edit request
       const editRequestReward = Math.max(0, await getGlobalSettingNumber('point_event_edit_request', 5));
       await adjustUserPoints(req.user.uid, editRequestReward, 'Submitted client edit request', 'client_edit_request', id, { clientId: id });
+      await logAuditEvent({
+        ownerUserId: req.user.uid,
+        actorUserId: req.user.uid,
+        actorRole: req.userRole || 'sales',
+        action: `approval.request.${requestedData?.action || 'client_update'}`,
+        risk: ['delete_email', 'delete_deal', 'delete_live_chat_session'].includes(String(requestedData?.action)) ? 'high' : 'medium',
+        targetType: requestedData?.action === 'delete_email' ? 'email' : requestedData?.action === 'delete_live_chat_session' ? 'live_chat' : requestedData?.action === 'delete_deal' ? 'lead' : 'client',
+        targetId: requestedData?.email_id || requestedData?.live_chat_session_id || requestedData?.deal_id || id,
+        targetLabel: requestedData?.name || requestedData?.subject || client.name || id,
+        status: 'pending',
+        changes: { requestedData },
+        affectedRecords: [{ type: 'client', id }]
+      });
 
       res.json({ success: true, pointsAdded: editRequestReward });
     } catch (e) {
@@ -12882,7 +13161,7 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
-  app.delete('/api/clients/:id', authenticateToken, async (req: any, res) => {
+  app.delete('/api/clients/:id', authenticateToken, requirePermission('client.delete'), async (req: any, res) => {
     try {
       const { id } = req.params;
       const userRes = await pool.query('SELECT role FROM users WHERE id = $1', [req.user.uid]);
@@ -12890,6 +13169,16 @@ No markdown wrappers, just valid JSON.`;
 
       if (role === 'superadmin') {
         await pool.query('DELETE FROM clients WHERE id = $1', [id]);
+        await logAuditEvent({
+          ownerUserId: req.user.uid,
+          actorUserId: req.user.uid,
+          actorRole: 'superadmin',
+          action: 'client.delete.permanent',
+          risk: 'high',
+          targetType: 'client',
+          targetId: id,
+          status: 'success'
+        });
         return res.json({ success: true, permanent: true });
       }
 
@@ -12899,6 +13188,16 @@ No markdown wrappers, just valid JSON.`;
       );
       if (publicLeadRes.rows.length > 0) {
         await pool.query('DELETE FROM deals WHERE client_id = $1', [id]);
+        await logAuditEvent({
+          ownerUserId: req.user.uid,
+          actorUserId: req.user.uid,
+          actorRole: req.userRole || normalizeRole(role),
+          action: 'public_lead.delete',
+          risk: 'medium',
+          targetType: 'client',
+          targetId: id,
+          status: 'success'
+        });
         return res.json({ success: true, permanent: true, publicLead: true });
       }
 
@@ -12912,6 +13211,16 @@ No markdown wrappers, just valid JSON.`;
       
       // Delete associated deals
       await pool.query('DELETE FROM deals WHERE client_id = $1', [id]);
+      await logAuditEvent({
+        ownerUserId: req.user.uid,
+        actorUserId: req.user.uid,
+        actorRole: req.userRole || normalizeRole(role),
+        action: 'client.delete.soft',
+        risk: 'high',
+        targetType: 'client',
+        targetId: id,
+        status: 'success'
+      });
       
       res.json({ success: true, softDeleted: true });
     } catch (e) {
@@ -12924,6 +13233,16 @@ No markdown wrappers, just valid JSON.`;
     try {
       const { id } = req.params;
       await pool.query(`UPDATE clients SET deleted_by = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, [id]);
+      await logAuditEvent({
+        ownerUserId: req.user.uid,
+        actorUserId: req.user.uid,
+        actorRole: req.userRole || 'superadmin',
+        action: 'client.restore',
+        risk: 'medium',
+        targetType: 'client',
+        targetId: id,
+        status: 'success'
+      });
       res.json({ success: true });
     } catch (e) {
       console.error(e);
@@ -13030,7 +13349,7 @@ No markdown wrappers, just valid JSON.`;
     ...extra
   });
 
-  app.get('/api/admin/client-edit-requests', authenticateToken, requireSuperadmin, async (req: any, res) => {
+  app.get('/api/admin/client-edit-requests', authenticateToken, requirePermission('approval.review'), async (req: any, res) => {
     try {
       const status = String(req.query.status || 'pending');
       const includeHistory = status === 'all';
@@ -13052,9 +13371,10 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
-  app.post('/api/admin/client-edit-requests/:requestId/approve', authenticateToken, requireSuperadmin, async (req: any, res) => {
+  app.post('/api/admin/client-edit-requests/:requestId/approve', authenticateToken, requirePermission('approval.review'), async (req: any, res) => {
      try {
        const { requestId } = req.params;
+       const reviewReason = String(req.body?.reason || '').trim();
        const reqRes = await pool.query(`SELECT * FROM client_edit_requests WHERE id = $1`, [requestId]);
        if (reqRes.rows.length === 0) return res.status(404).json({ error: 'Request not found' });
        const editReq = reqRes.rows[0];
@@ -13076,9 +13396,23 @@ No markdown wrappers, just valid JSON.`;
            requestId,
            req.user.uid,
            JSON.stringify(originalData),
-           JSON.stringify(buildClientEditAuditMetadata('approved', req.user.uid, { requestedAction: updates.action || 'client_update' }))
+           JSON.stringify(buildClientEditAuditMetadata('approved', req.user.uid, { requestedAction: updates.action || 'client_update', reason: reviewReason }))
          ]
        );
+       await logAuditEvent({
+         ownerUserId: editReq.user_id,
+         actorUserId: req.user.uid,
+         actorRole: req.userRole || 'superadmin',
+         action: `approval.approve.${updates.action || 'client_update'}`,
+         risk: ['delete_email', 'delete_deal', 'delete_live_chat_session'].includes(String(updates.action)) ? 'high' : 'medium',
+         targetType: updates.action?.startsWith?.('delete_deal') ? 'lead' : updates.action === 'delete_email' ? 'email' : updates.action === 'delete_live_chat_session' ? 'live_chat' : 'client',
+         targetId: updates.email_id || updates.deal_id || updates.live_chat_session_id || editReq.client_id,
+         targetLabel: updates.name || updates.subject || updates.visitor || editReq.client_id,
+         status: 'success',
+         reason: reviewReason,
+         changes: { requestedData: updates, originalData },
+         affectedRecords: [{ type: 'client_edit_request', id: String(requestId), action: 'approved' }]
+       });
        
        if (updates.action === 'delete_email') {
          await pool.query(`INSERT INTO deleted_emails (id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [updates.email_id, editReq.user_id]);
@@ -13170,9 +13504,10 @@ No markdown wrappers, just valid JSON.`;
      }
   });
 
-  app.post('/api/admin/client-edit-requests/:requestId/reject', authenticateToken, requireSuperadmin, async (req: any, res) => {
+  app.post('/api/admin/client-edit-requests/:requestId/reject', authenticateToken, requirePermission('approval.review'), async (req: any, res) => {
      try {
        const { requestId } = req.params;
+       const reviewReason = String(req.body?.reason || '').trim();
        const reqRes = await pool.query(`SELECT client_id, user_id, requested_data FROM client_edit_requests WHERE id = $1`, [requestId]);
        if (reqRes.rows.length === 0) return res.status(404).json({ error: 'Request not found' });
        
@@ -13184,11 +13519,25 @@ No markdown wrappers, just valid JSON.`;
               audit_metadata = COALESCE(audit_metadata, '{}'::jsonb) || $3::jsonb,
               updated_at = CURRENT_TIMESTAMP
           WHERE id = $1`,
-         [requestId, req.user.uid, JSON.stringify(buildClientEditAuditMetadata('rejected', req.user.uid))]
+         [requestId, req.user.uid, JSON.stringify(buildClientEditAuditMetadata('rejected', req.user.uid, { reason: reviewReason }))]
        );
        
        const editReq = reqRes.rows[0];
        const updates = parseJsonField(editReq.requested_data);
+       await logAuditEvent({
+         ownerUserId: editReq.user_id,
+         actorUserId: req.user.uid,
+         actorRole: req.userRole || 'superadmin',
+         action: `approval.reject.${updates.action || 'client_update'}`,
+         risk: ['delete_email', 'delete_deal', 'delete_live_chat_session'].includes(String(updates.action)) ? 'high' : 'medium',
+         targetType: updates.action?.startsWith?.('delete_deal') ? 'lead' : updates.action === 'delete_email' ? 'email' : updates.action === 'delete_live_chat_session' ? 'live_chat' : 'client',
+         targetId: updates.email_id || updates.deal_id || updates.live_chat_session_id || editReq.client_id,
+         targetLabel: updates.name || updates.subject || updates.visitor || editReq.client_id,
+         status: 'success',
+         reason: reviewReason,
+         changes: { requestedData: updates },
+         affectedRecords: [{ type: 'client_edit_request', id: String(requestId), action: 'rejected' }]
+       });
 
        if (updates.action === 'delete_email') {
          await pool.query(`UPDATE emails SET pending_delete = FALSE WHERE id = $1`, [updates.email_id]);
@@ -13240,9 +13589,10 @@ No markdown wrappers, just valid JSON.`;
      }
   });
 
-  app.post('/api/admin/client-edit-requests/:requestId/rollback', authenticateToken, requireSuperadmin, async (req: any, res) => {
+  app.post('/api/admin/client-edit-requests/:requestId/rollback', authenticateToken, requirePermission('approval.review'), async (req: any, res) => {
      try {
        const { requestId } = req.params;
+       const rollbackReason = String(req.body?.reason || '').trim();
        const reqRes = await pool.query(`SELECT * FROM client_edit_requests WHERE id = $1`, [requestId]);
        if (reqRes.rows.length === 0) return res.status(404).json({ error: 'Request not found' });
        const editReq = reqRes.rows[0];
@@ -13348,8 +13698,22 @@ No markdown wrappers, just valid JSON.`;
               audit_metadata = COALESCE(audit_metadata, '{}'::jsonb) || $3::jsonb,
               updated_at = CURRENT_TIMESTAMP
           WHERE id = $1`,
-         [requestId, req.user.uid, JSON.stringify(buildClientEditAuditMetadata('rolled_back', req.user.uid, { requestedAction: action }))]
+         [requestId, req.user.uid, JSON.stringify(buildClientEditAuditMetadata('rolled_back', req.user.uid, { requestedAction: action, reason: rollbackReason }))]
        );
+       await logAuditEvent({
+         ownerUserId: editReq.user_id,
+         actorUserId: req.user.uid,
+         actorRole: req.userRole || 'superadmin',
+         action: `approval.rollback.${action}`,
+         risk: 'high',
+         targetType: action === 'delete_email' ? 'email' : action === 'delete_deal' ? 'lead' : action === 'delete_live_chat_session' ? 'live_chat' : 'client',
+         targetId: updates.email_id || updates.deal_id || updates.live_chat_session_id || editReq.client_id,
+         targetLabel: rollbackData?.name || rollbackData?.subject || editReq.client_id,
+         status: 'rolled_back',
+         reason: rollbackReason,
+         changes: { rollbackData, requestedData: updates },
+         affectedRecords: [{ type: 'client_edit_request', id: String(requestId), action: 'rolled_back' }]
+       });
 
        res.json({ success: true });
      } catch(e) {
@@ -13613,7 +13977,7 @@ No markdown wrappers, just valid JSON.`;
   const formatKnowledgeRowsForPrompt = (rows: any[]) => (rows || []).map(formatKnowledgeSnippetForPrompt).join('\n\n');
 
   // File upload route...
-  app.post('/api/knowledge-base/upload', authenticateToken, upload.single('file'), async (req: any, res) => {
+  app.post('/api/knowledge-base/upload', authenticateToken, requirePermission('knowledge.manage'), upload.single('file'), async (req: any, res) => {
     try {
       if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
       
@@ -13632,7 +13996,7 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
-  app.post('/api/knowledge-base/import-folder', authenticateToken, async (req: any, res) => {
+  app.post('/api/knowledge-base/import-folder', authenticateToken, requirePermission('knowledge.manage'), async (req: any, res) => {
     try {
       const root = await normalizeKnowledgeImportRoot();
       if (!root) {
@@ -13831,7 +14195,7 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
-  app.post('/api/knowledge-base', authenticateToken, async (req: any, res) => {
+  app.post('/api/knowledge-base', authenticateToken, requirePermission('knowledge.manage'), async (req: any, res) => {
     try {
       const { id, clientId, title, content, llmConfig } = req.body;
       const embedding = await generateEmbedding(content, llmConfig);
@@ -13855,7 +14219,7 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
-  app.patch('/api/knowledge-base/:id', authenticateToken, async (req: any, res) => {
+  app.patch('/api/knowledge-base/:id', authenticateToken, requirePermission('knowledge.manage'), async (req: any, res) => {
     try {
       const { title, content, llmConfig } = req.body;
       const embedding = await generateEmbedding(content, llmConfig);
@@ -13877,7 +14241,7 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
-  app.delete('/api/knowledge-base/:id', authenticateToken, async (req: any, res) => {
+  app.delete('/api/knowledge-base/:id', authenticateToken, requirePermission('knowledge.manage'), async (req: any, res) => {
     try {
       await pool.query('DELETE FROM knowledge_base WHERE id = $1 AND user_id = $2', [req.params.id, req.user.uid]);
       res.json({ success: true });
@@ -14306,7 +14670,7 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
-  app.post('/api/emails/delete', authenticateToken, async (req: any, res) => {
+  app.post('/api/emails/delete', authenticateToken, requirePermission('email.delete'), async (req: any, res) => {
     try {
       const { ids } = req.body;
       if (!ids || !Array.isArray(ids)) return res.status(400).json({ error: 'Invalid ids' });
@@ -14378,7 +14742,7 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
-  app.post('/api/emails', authenticateToken, async (req: any, res) => {
+  app.post('/api/emails', authenticateToken, requirePermission('email.send'), async (req: any, res) => {
     try {
       const { id, clientId, sender, senderName, recipient, cc, bcc, subject, body, date, read, type, tags, comments, scheduledAt, attachments, enableTracking, inboxConfigId, outboxConfigId } = req.body;
       
@@ -14506,7 +14870,7 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
-  app.patch('/api/emails/:id', authenticateToken, async (req: any, res) => {
+  app.patch('/api/emails/:id', authenticateToken, requirePermission('email.read'), async (req: any, res) => {
     try {
       const { id } = req.params;
       const updates = req.body;

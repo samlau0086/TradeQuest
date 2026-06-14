@@ -36,7 +36,7 @@ function mergeLiveChatSessionList(existing: LiveChatSession[], incoming: LiveCha
   ));
 }
 
-export type ViewMode = 'kanban' | 'map' | 'inbox' | 'live-chat' | 'customer-forms' | 'dashboard' | 'agent-hub' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests' | 'list' | 'products' | 'quotes' | 'knowledge-base' | 'media-library';
+export type ViewMode = 'kanban' | 'map' | 'inbox' | 'live-chat' | 'customer-forms' | 'dashboard' | 'agent-hub' | 'dormant' | 'leads' | 'followups' | 'settings' | 'user-management' | 'clients' | 'public-pool' | 'edit-requests' | 'audit-logs' | 'list' | 'products' | 'quotes' | 'knowledge-base' | 'media-library';
 
 export type ClientStatus = 'Leads' | 'Contacted' | 'Sample Sent' | 'Negotiating' | 'Closed Won'; // Kept for legacy compatibility if needed, better to rename to DealStage but will keep for now.
 

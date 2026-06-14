@@ -25,6 +25,7 @@ const Settings = lazy(() => import('./components/Settings').then(module => ({ de
 const ClientLeadHub = lazy(() => import('./components/ClientLeadHub').then(module => ({ default: module.ClientLeadHub })));
 const PipelineList = lazy(() => import('./components/PipelineList').then(module => ({ default: module.PipelineList })));
 const EditRequests = lazy(() => import('./components/EditRequests').then(module => ({ default: module.EditRequests })));
+const AuditLogs = lazy(() => import('./components/AuditLogs').then(module => ({ default: module.AuditLogs })));
 const KnowledgeBaseManager = lazy(() => import('./components/KnowledgeBaseManager').then(module => ({ default: module.KnowledgeBaseManager })));
 const ProductQuoteHub = lazy(() => import('./components/ProductQuoteHub').then(module => ({ default: module.ProductQuoteHub })));
 const MediaLibrary = lazy(() => import('./components/MediaLibrary').then(module => ({ default: module.MediaLibrary })));
@@ -470,6 +471,7 @@ export default function App() {
              view === 'clients' ? <ClientLeadHub initialTab="clients" /> :
              view === 'public-pool' ? <ClientLeadHub initialTab="public-pool" /> :
              view === 'edit-requests' ? <EditRequests /> :
+             view === 'audit-logs' ? <AuditLogs /> :
              view === 'inbox' ? <Inbox /> :
              view === 'live-chat' ? <LiveChat /> :
              view === 'customer-forms' ? <CustomerForms /> :

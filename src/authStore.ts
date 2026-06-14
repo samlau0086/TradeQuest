@@ -3,7 +3,7 @@ import { create } from 'zustand';
 export interface UserProfile {
   id: string;
   email: string;
-  role: 'user' | 'superadmin';
+  role: 'superadmin' | 'admin' | 'sales' | 'support' | 'agent-only' | 'user';
   displayName?: string;
   avatarUrl?: string;
   points?: number;

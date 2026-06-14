@@ -12,9 +12,16 @@ export function EditRequests() {
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showHistory, setShowHistory] = useState(false);
+  const [reviewDialog, setReviewDialog] = useState<{
+    ids: number[];
+    action: 'approve' | 'reject' | 'rollback';
+    title: string;
+    message: string;
+    reason: string;
+  } | null>(null);
 
   useEffect(() => {
-    if (profile?.role === 'superadmin') {
+    if (profile?.role === 'superadmin' || profile?.role === 'admin') {
       fetchRequests();
     }
   }, [profile, showHistory]);
@@ -37,13 +44,14 @@ export function EditRequests() {
     }
   };
 
-  const handleAction = async (id: number, action: 'approve' | 'reject') => {
+  const processAction = async (id: number, action: 'approve' | 'reject', reason = '') => {
     useStore.setState({ globalLoading: true });
     try {
       const token = localStorage.getItem('token');
       const res = await fetch(`/api/admin/client-edit-requests/${id}/${action}`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ reason })
       });
       if (res.ok) {
         notify(action === 'approve' ? 'Request approved.' : 'Request rejected.', 'success');
@@ -63,14 +71,27 @@ export function EditRequests() {
     }
   };
 
-  const handleRollback = async (id: number) => {
-    if (!confirm('Roll back this approved action?')) return;
+  const handleAction = async (id: number, action: 'approve' | 'reject') => {
+    const isApprove = action === 'approve';
+    setReviewDialog({
+      ids: [id],
+      action,
+      title: isApprove ? 'Approve request' : 'Reject request',
+      message: isApprove
+        ? 'Add an approval reason. It will be saved to the audit log.'
+        : 'Add a rejection reason so the requester understands the decision.',
+      reason: ''
+    });
+  };
+
+  const processRollback = async (id: number, reason = '') => {
     useStore.setState({ globalLoading: true });
     try {
       const token = localStorage.getItem('token');
       const res = await fetch(`/api/admin/client-edit-requests/${id}/rollback`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ reason })
       });
       if (res.ok) {
         notify('Request rolled back.', 'success');
@@ -92,7 +113,17 @@ export function EditRequests() {
     }
   };
 
-  const handleBulkAction = async (action: 'approve' | 'reject') => {
+  const handleRollback = async (id: number) => {
+    setReviewDialog({
+      ids: [id],
+      action: 'rollback',
+      title: 'Roll back approved action',
+      message: 'Explain why this high-risk action should be rolled back. The reason will be audited.',
+      reason: ''
+    });
+  };
+
+  const processBulkAction = async (action: 'approve' | 'reject', reason = '') => {
     if (selectedIds.size === 0) return;
     
     // Optimistically update some state or just show loading
@@ -103,7 +134,8 @@ export function EditRequests() {
       const promises = Array.from(selectedIds).map(id => 
         fetch(`/api/admin/client-edit-requests/${id}/${action}`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ reason })
         })
       );
       
@@ -135,6 +167,35 @@ export function EditRequests() {
     }
   };
 
+  const handleBulkAction = async (action: 'approve' | 'reject') => {
+    if (selectedIds.size === 0) return;
+    const isApprove = action === 'approve';
+    setReviewDialog({
+      ids: Array.from(selectedIds),
+      action,
+      title: isApprove ? 'Approve selected requests' : 'Reject selected requests',
+      message: isApprove
+        ? 'Add one approval reason for all selected requests.'
+        : 'Add one rejection reason for all selected requests.',
+      reason: ''
+    });
+  };
+
+  const submitReviewDialog = async () => {
+    if (!reviewDialog) return;
+    const { ids, action, reason } = reviewDialog;
+    setReviewDialog(null);
+    if (action === 'rollback') {
+      await processRollback(ids[0], reason);
+      return;
+    }
+    if (ids.length === 1) {
+      await processAction(ids[0], action, reason);
+      return;
+    }
+    await processBulkAction(action, reason);
+  };
+
   const toggleSelection = (id: number) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
@@ -155,7 +216,7 @@ export function EditRequests() {
     }
   };
 
-  if (profile?.role !== 'superadmin') {
+  if (profile?.role !== 'superadmin' && profile?.role !== 'admin') {
     return <div className="p-8 text-center text-slate-400">Access Denied</div>;
   }
 
@@ -225,6 +286,7 @@ export function EditRequests() {
             {requests.map(req => {
               const prev = typeof req.original_data === 'string' ? JSON.parse(req.original_data) : req.original_data;
               const next = typeof req.requested_data === 'string' ? JSON.parse(req.requested_data) : req.requested_data;
+              const audit = typeof req.audit_metadata === 'string' ? JSON.parse(req.audit_metadata || '{}') : (req.audit_metadata || {});
               const isSelected = selectedIds.has(req.id);
               const canReview = req.status === 'pending';
               const canRollback = req.status === 'approved' && !req.rolled_back_at;
@@ -284,6 +346,11 @@ export function EditRequests() {
                       {req.processed_at && <> at {new Date(req.processed_at).toLocaleString()}</>}
                       {req.rollbacker_name && <> · Rolled back by <span className="text-amber-200">{req.rollbacker_name}</span></>}
                       {req.rolled_back_at && <> at {new Date(req.rolled_back_at).toLocaleString()}</>}
+                      {audit.reason && (
+                        <div className="mt-2 rounded border border-slate-800 bg-slate-900/80 px-2 py-1 text-slate-300">
+                          Reason: {audit.reason}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -360,6 +427,50 @@ export function EditRequests() {
           </div>
         )}
       </div>
+      {reviewDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-lg rounded-xl border border-slate-700 bg-slate-900 shadow-2xl">
+            <div className="border-b border-slate-800 px-5 py-4">
+              <h3 className="text-lg font-bold text-white">{reviewDialog.title}</h3>
+              <p className="mt-1 text-sm text-slate-400">{reviewDialog.message}</p>
+            </div>
+            <div className="p-5">
+              <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-500">
+                Review reason
+              </label>
+              <textarea
+                value={reviewDialog.reason}
+                onChange={event => setReviewDialog({ ...reviewDialog, reason: event.target.value })}
+                placeholder="e.g. Approved because the requested deletion is valid and linked records were reviewed."
+                className="min-h-[120px] w-full resize-none rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+              />
+              <div className="mt-2 text-xs text-slate-500">
+                This reason is saved into approval metadata and the independent audit log.
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 border-t border-slate-800 px-5 py-4">
+              <button
+                onClick={() => setReviewDialog(null)}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-slate-400 hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitReviewDialog}
+                className={`rounded-lg px-4 py-2 text-sm font-bold text-white ${
+                  reviewDialog.action === 'reject'
+                    ? 'bg-red-600 hover:bg-red-500'
+                    : reviewDialog.action === 'rollback'
+                      ? 'bg-amber-600 hover:bg-amber-500'
+                      : 'bg-emerald-600 hover:bg-emerald-500'
+                }`}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

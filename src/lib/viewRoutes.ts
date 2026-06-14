@@ -13,6 +13,7 @@ const viewToPath: Record<ViewMode, string> = {
   quotes: '/quotes',
   'public-pool': '/public-pool',
   'edit-requests': '/edit-requests',
+  'audit-logs': '/audit-logs',
   'knowledge-base': '/knowledge',
   'media-library': '/media',
   settings: '/settings',

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Quest, useStore, ViewMode } from '../store';
 import { cn } from '../lib/utils';
-import { Swords, Trophy, Tags, Flame, Plus, Mail, Settings as SettingsIcon, Sun, Moon, Shield, Users, Package, Book, Image as ImageIcon, Bot, MessageSquare, FileText } from 'lucide-react';
+import { Swords, Trophy, Tags, Flame, Plus, Mail, Settings as SettingsIcon, Sun, Moon, Shield, Users, Package, Book, Image as ImageIcon, Bot, MessageSquare, FileText, Activity } from 'lucide-react';
 import { ClientFormModal } from './ClientFormModal';
 import { ExpHistoryModal } from './ExpHistoryModal';
 import { useAuthStore } from '../authStore';
@@ -179,15 +179,25 @@ export function Sidebar() {
           <SettingsIcon className="w-5 h-5" />
           {t('settings')}
         </button>
-        {profile?.role === 'superadmin' && (
-          <button 
-            onClick={() => setView('edit-requests')}
-            className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors", 
-              view === 'edit-requests' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
-          >
-            <Shield className="w-5 h-5 text-yellow-400" />
-            {t('reviewEdits')}
-          </button>
+        {(profile?.role === 'superadmin' || profile?.role === 'admin') && (
+          <>
+            <button
+              onClick={() => setView('edit-requests')}
+              className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                view === 'edit-requests' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
+            >
+              <Shield className="w-5 h-5 text-yellow-400" />
+              {t('reviewEdits')}
+            </button>
+            <button
+              onClick={() => setView('audit-logs')}
+              className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                view === 'audit-logs' ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white")}
+            >
+              <Activity className="w-5 h-5 text-cyan-400" />
+              {language === 'zh' ? '审计日志' : 'Audit Logs'}
+            </button>
+          </>
         )}
       </div>
 
