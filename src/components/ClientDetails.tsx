@@ -575,6 +575,28 @@ export function ClientDetails() {
   const primaryNextStep = leadNextStepText || clientNextStepText || '检查最近互动、确认采购背景，然后选择下一步跟进动作。';
   const primarySummary = leadSummaryText || clientSummaryText || '暂未生成AI摘要，可运行AI Radar或等待Signal Scanner分析此客户/Lead。';
   const contactMethodCount = displayContacts.reduce((sum, contact) => sum + (contact.contactMethods || []).length, 0);
+  const buildCurrentAnalysisSignature = () => buildLeadScoringSignature(client, leadRecord ? leadLogs : logs, emails, {
+    lead: leadRecord || deals
+      .filter(deal => deal.clientId === client.id)
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0] || null,
+    workflows: useStore.getState().agentWorkflows,
+    now: new Date()
+  });
+  const existingAnalysisResult = () => {
+    const score = leadRecord ? leadRecord.leadScore : client.leadScore;
+    const summary = leadRecord ? leadRecord.leadSummary : (client.agentSummary || client.leadSummary);
+    const nextStep = leadRecord ? leadRecord.leadNextStep : (client.agentNextStep || client.leadNextStep);
+    if (score === undefined || !summary || !nextStep) return null;
+    return {
+      sentiment: Number(score) >= 70 ? 'HOT' : Number(score) >= 35 ? 'WARM' : 'COLD',
+      temperature: Number(score) || 0,
+      icebreaker: '',
+      summary,
+      leadScore: Number(score) || 0,
+      leadSummary: summary,
+      leadNextStep: nextStep
+    };
+  };
 
   const closeDetails = () => {
     selectDeal(null);
@@ -613,6 +635,19 @@ export function ClientDetails() {
   };
 
   const handleAnalyze = async () => {
+    const signature = buildCurrentAnalysisSignature();
+    const existingResult = existingAnalysisResult();
+    const previousSignature = leadRecord ? leadRecord.leadScoringSignature : client.leadScoringSignature;
+    if (existingResult && previousSignature === signature) {
+      setAiData(existingResult);
+      notify(
+        language === 'zh'
+          ? '客户/Lead 信息没有变化，已复用上次 AI 分析结果。'
+          : 'No client/lead changes detected. Reused the previous AI analysis.',
+        'info'
+      );
+      return;
+    }
     setLoading(true);
     const clientLogs = leadLogs
       .slice(0, 20)
@@ -655,10 +690,7 @@ export function ClientDetails() {
           leadScore: score,
           leadSummary: analyzedLeadSummary,
           leadNextStep: analyzedLeadNextStep,
-          leadScoringSignature: buildLeadScoringSignature(client, leadLogs, emails, {
-            lead: leadRecord,
-            workflows: useStore.getState().agentWorkflows
-          }),
+          leadScoringSignature: signature,
           leadScoringAnalyzedAt: new Date().toISOString()
         });
       } else {
@@ -666,12 +698,7 @@ export function ClientDetails() {
           leadScore: score,
           agentSummary: analyzedLeadSummary,
           agentNextStep: analyzedLeadNextStep,
-          leadScoringSignature: buildLeadScoringSignature(client, logs, emails, {
-            lead: deals
-              .filter(deal => deal.clientId === client.id)
-              .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0] || null,
-            workflows: useStore.getState().agentWorkflows
-          }),
+          leadScoringSignature: signature,
           leadScoringAnalyzedAt: new Date().toISOString()
         });
       }

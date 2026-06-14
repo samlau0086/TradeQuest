@@ -1356,7 +1356,7 @@ Agent Execution Policy 使用的 Global Orchestrator action type：
 - [x] 为 Email 和 WhatsApp 详情加入共享待跟进状态条。运营人员可在同一位置查看、设置、取消和完成会话待跟进；Email 兼容旧 `todoAt` 字段，WhatsApp 兼容原 follow-up marker comments。
 - [x] 完成 Inbox 会话操作迁移收尾。单条和批量删除、待跟进、重要、标签、评论、客户关联操作现在都会优先走统一 conversation API；旧渠道 store 仅作为本地草稿或尚未索引记录的兜底。
 - [x] 强化客户/Lead 作战室 widgets：AI Summary、Best Next Step、Quotes、Contacts、RAG 依据、待处理任务和全渠道历史。
-- [ ] 客户级和 Lead 级 AI 分析增加 diff 机制，记录无变化时不重复消耗 AI。
+- [x] 客户级和 Lead 级 AI 分析增加 diff 机制，记录无变化时不重复消耗 AI。
 
 ### 阶段 5：治理、RAG 与运营体验
 
