@@ -1976,12 +1976,12 @@ async function startServer() {
         }
         await pool.query(
           `UPDATE whatsapp_conversations
-           SET client_id = COALESCE($1, client_id),
+           SET client_id = CASE WHEN $6::boolean THEN $1 ELSE client_id END,
                tags = $2::jsonb,
                comments = $3::jsonb,
                updated_at = CURRENT_TIMESTAMP
            WHERE id = $4 AND user_id = $5`,
-          [updated.client_id || null, JSON.stringify(nextTags), JSON.stringify(nextComments), updated.source_id, req.user.uid]
+          [updated.client_id || null, JSON.stringify(nextTags), JSON.stringify(nextComments), updated.source_id, req.user.uid, 'clientId' in req.body]
         );
       } else if (updated.channel === 'live_chat') {
         const liveChatUpdates: string[] = [];
@@ -2053,6 +2053,62 @@ async function startServer() {
     } catch (e: any) {
       console.error('Failed to update unified conversation', e);
       res.status(500).json({ error: e.message || 'Failed to update conversation' });
+    }
+  });
+
+  app.delete('/api/conversations/:id', authenticateToken, async (req: any, res) => {
+    try {
+      const currentRes = await pool.query(
+        `SELECT * FROM communication_conversations WHERE id = $1 AND user_id = $2 LIMIT 1`,
+        [req.params.id, req.user.uid]
+      );
+      const current = currentRes.rows[0];
+      if (!current) return res.status(404).json({ error: 'Conversation not found' });
+
+      const deletedAt = new Date().toISOString();
+      const updatedRes = await pool.query(
+        `UPDATE communication_conversations
+         SET deleted_at = $1,
+             status = CASE WHEN channel = 'live_chat' THEN 'closed' ELSE 'deleted' END,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2 AND user_id = $3
+         RETURNING *`,
+        [deletedAt, req.params.id, req.user.uid]
+      );
+      const updated = updatedRes.rows[0];
+
+      if (current.channel === 'email') {
+        await pool.query(
+          `UPDATE emails
+           SET pending_delete = TRUE,
+               type = CASE WHEN type IN ('sent', 'scheduled', 'draft') THEN type ELSE 'deleted' END
+           WHERE id = $1 AND user_id = $2`,
+          [current.source_id, req.user.uid]
+        );
+        await pool.query(
+          `INSERT INTO deleted_emails (id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [current.source_id, req.user.uid]
+        );
+      } else if (current.channel === 'whatsapp') {
+        await pool.query(
+          `UPDATE whatsapp_conversations
+           SET deleted_at = $1, updated_at = CURRENT_TIMESTAMP
+           WHERE id = $2 AND user_id = $3`,
+          [deletedAt, current.source_id, req.user.uid]
+        );
+      } else if (current.channel === 'live_chat') {
+        await pool.query(
+          `UPDATE live_chat_sessions
+           SET status = 'closed', updated_at = CURRENT_TIMESTAMP
+           WHERE id = $1 AND user_id = $2`,
+          [current.source_id, req.user.uid]
+        );
+      }
+
+      res.json({ success: true, conversation: updated });
+    } catch (e: any) {
+      console.error('Failed to delete unified conversation', e);
+      res.status(500).json({ error: e.message || 'Failed to delete conversation' });
     }
   });
 

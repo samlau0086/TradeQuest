@@ -16,6 +16,7 @@ import { getCustomerOutputLanguage } from '../lib/language';
 
 interface InboxWhatsAppConversation {
   id: string;
+  unifiedId?: string;
   targetPhone: string;
   contactPhone?: string;
   rawChatId?: string;
@@ -361,6 +362,7 @@ function mapUnifiedWhatsAppConversation(row: UnifiedCommunicationConversation): 
   const metadata = row.metadata || {};
   return {
     id: row.source_id,
+    unifiedId: row.id,
     targetPhone: metadata.targetPhone || row.contact_address || row.title || row.source_id,
     contactPhone: metadata.contactPhone || row.contact_address || undefined,
     rawChatId: metadata.rawChatId || undefined,
@@ -613,13 +615,7 @@ export function Inbox() {
         updateWhatsAppConversationState(unifiedWhatsApp);
         return;
       }
-      const res = await fetch('/api/whatsapp-hub/conversations', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        updateWhatsAppConversationState(data.conversations || []);
-      }
+      updateWhatsAppConversationState([]);
     } catch (error) {
       console.warn('WhatsApp conversations unavailable in unified inbox', error);
     }
@@ -978,20 +974,6 @@ export function Inbox() {
     setSelectedWhatsAppIds(new Set());
   };
 
-  const patchWhatsAppConversation = async (conversation: InboxWhatsAppConversation, updates: any) => {
-    const res = await fetch(`/api/whatsapp-hub/conversations/${conversation.id}`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${localStorage.getItem('token')}`
-      },
-      body: JSON.stringify(updates)
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Failed to update WhatsApp conversation.');
-    return data.conversation || { ...conversation, ...updates };
-  };
-
   const addWhatsAppConversationComment = async (conversation: InboxWhatsAppConversation, content: string) => {
     const res = await fetch(`/api/whatsapp-hub/conversations/${conversation.id}/comments`, {
       method: 'POST',
@@ -1020,6 +1002,16 @@ export function Inbox() {
     return data.conversation || { ...conversation, ...updates };
   };
 
+  const deleteUnifiedConversation = async (conversation: UnifiedCommunicationConversation) => {
+    const res = await fetch(`/api/conversations/${conversation.id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Failed to delete conversation.');
+    return data.conversation || { ...conversation, deleted_at: new Date().toISOString() };
+  };
+
   const applyUnifiedConversationUpdate = (conversation: UnifiedCommunicationConversation, updates: Partial<UnifiedCommunicationConversation>) => {
     setUnifiedConversations(prev => {
       const exists = prev.some(item => item.id === conversation.id);
@@ -1039,6 +1031,10 @@ export function Inbox() {
     notify(language === 'zh' ? '会话状态已更新。' : 'Conversation status updated.', 'success');
   };
 
+  const findEmailUnifiedConversation = (emailId: string) => (
+    unifiedConversationSource.find(conversation => conversation.channel === 'email' && conversation.source_id === emailId)
+  );
+
   const refreshUnifiedConversationData = async () => {
     await fetchUnifiedConversations();
     void fetchEmails();
@@ -1050,21 +1046,7 @@ export function Inbox() {
     setConfirmDialog({
       message: `Are you sure you want to delete/archive ${selectedCount} selected conversation(s)? Emails associated with a client will be soft-deleted pending admin review; Live Chat sessions will be closed.`,
       onConfirm: async () => {
-        const emailIds = selectedUnifiedConversations.filter(item => item.channel === 'email').map(item => item.source_id);
-        const whatsappIds = selectedUnifiedConversations.filter(item => item.channel === 'whatsapp').map(item => item.source_id);
-        const liveChatItems = selectedUnifiedConversations.filter(item => item.channel === 'live_chat');
-        if (emailIds.length > 0) await useStore.getState().deleteEmails(emailIds);
-        for (const id of whatsappIds) {
-          const res = await fetch(`/api/whatsapp-hub/conversations/${encodeURIComponent(id)}`, {
-            method: 'DELETE',
-            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-          });
-          const data = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(data.error || 'Failed to delete WhatsApp conversation.');
-        }
-        for (const conversation of liveChatItems) {
-          await patchUnifiedConversation(conversation, { status: 'closed' });
-        }
+        for (const conversation of selectedUnifiedConversations) await deleteUnifiedConversation(conversation);
         updateWhatsAppConversationState(whatsappConversations.filter(conversation => !selectedWhatsAppIds.has(conversation.id)));
         clearBulkSelection();
         if (selectedEmailId && selectedIds.has(selectedEmailId)) selectEmail(null);
@@ -1084,7 +1066,6 @@ export function Inbox() {
       const tagToApply = conversation.channel === 'email' ? normalizedTag : tag;
       const tags = Array.from(new Set([...(conversation.tags || []), tagToApply]));
       await patchUnifiedConversation(conversation, { tags });
-      if (conversation.channel === 'email') editEmail(conversation.source_id, { tags });
     }
     await refreshUnifiedConversationData();
     setBulkTagInput('');
@@ -1095,7 +1076,6 @@ export function Inbox() {
     if (selectedCount === 0) return;
     for (const conversation of selectedUnifiedConversations) {
       await patchUnifiedConversation(conversation, { isImportant: true });
-      if (conversation.channel === 'email') editEmail(conversation.source_id, { isImportant: true });
     }
     await refreshUnifiedConversationData();
     notify('Selected items marked important.', 'success');
@@ -1114,7 +1094,6 @@ export function Inbox() {
       };
       const comments = [...(conversation.comments || []), comment];
       await patchUnifiedConversation(conversation, { comments });
-      if (conversation.channel === 'email') addEmailComment(conversation.source_id, content);
     }
     await refreshUnifiedConversationData();
     setBulkNoteInput('');
@@ -1127,7 +1106,6 @@ export function Inbox() {
     for (const conversation of selectedUnifiedConversations) {
       const note = bulkNoteInput.trim() || `Follow up: ${conversation.title || conversation.subject || conversation.contact_address || conversation.source_id}`;
       await patchUnifiedConversation(conversation, { todoAt: dueAt, todoNote: note });
-      if (conversation.channel === 'email') editEmail(conversation.source_id, { todoAt: dueAt, todoNote: note });
     }
     await refreshUnifiedConversationData();
     setBulkFollowUpAt('');
@@ -1317,6 +1295,55 @@ export function Inbox() {
   const activeWhatsAppFollowUp = getWhatsAppFollowUp(activeWhatsAppConversation);
   const activeFollowUpAt = activeUnifiedConversation?.todo_at || selectedEmail?.todoAt || activeWhatsAppFollowUp?.dueAt || null;
   const activeFollowUpNote = activeUnifiedConversation?.todo_note || selectedEmail?.todoNote || activeWhatsAppFollowUp?.note || null;
+  const activeConversationComments = (activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback)
+    ? (activeUnifiedConversation.comments || [])
+    : (selectedEmail?.comments || []);
+
+  const appendActiveConversationComment = async (content: string, attachments?: any[]) => {
+    const comment = {
+      id: `uc_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      author: 'User',
+      content,
+      createdAt: new Date().toISOString(),
+      attachments,
+      replies: []
+    };
+    if (activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback) {
+      await patchUnifiedConversation(activeUnifiedConversation, {
+        comments: [...(activeUnifiedConversation.comments || []), comment]
+      });
+      await refreshUnifiedConversationData();
+    } else if (selectedEmail) {
+      addEmailComment(selectedEmail.id, content, attachments);
+    } else if (activeWhatsAppConversation) {
+      const comments = await addWhatsAppConversationComment(activeWhatsAppConversation, content);
+      updateWhatsAppConversationState(whatsappConversations.map(item => (
+        item.id === activeWhatsAppConversation.id ? { ...item, comments } : item
+      )));
+    }
+  };
+
+  const replyActiveConversationComment = async (commentId: string, content: string, attachments?: any[]) => {
+    if (activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback) {
+      const reply = {
+        id: `ucr_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        author: 'User',
+        content,
+        createdAt: new Date().toISOString(),
+        attachments,
+        replies: []
+      };
+      const comments = (activeUnifiedConversation.comments || []).map((comment: any) => (
+        comment.id === commentId
+          ? { ...comment, replies: [...(comment.replies || []), reply] }
+          : comment
+      ));
+      await patchUnifiedConversation(activeUnifiedConversation, { comments });
+      await refreshUnifiedConversationData();
+    } else if (selectedEmail) {
+      addEmailReply(selectedEmail.id, commentId, content, attachments);
+    }
+  };
 
   const updateActiveConversationFollowUp = async (dueAt: string | null, note: string | null, status: 'open' | 'completed' | 'canceled' = 'open') => {
     if (activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback) {
@@ -1325,15 +1352,13 @@ export function Inbox() {
         todo_at: status === 'open' ? dueAt || undefined : undefined,
         todo_note: status === 'open' ? note || undefined : undefined
       });
-    }
-    if (selectedEmail) {
+    } else if (selectedEmail) {
       editEmail(selectedEmail.id, {
         todoAt: status === 'open' ? dueAt as any : null as any,
         todoNote: status === 'open' ? note as any : null as any
       });
-      if (status === 'completed') addEmailComment(selectedEmail.id, language === 'zh' ? '跟进任务已完成。' : 'Follow-up task completed.');
-    }
-    if (activeWhatsAppConversation) {
+      if (status === 'completed') await appendActiveConversationComment(language === 'zh' ? '跟进任务已完成。' : 'Follow-up task completed.');
+    } else if (activeWhatsAppConversation) {
       const markerPayload = status === 'open'
         ? { status: 'open', dueAt, note: note || `Follow up WhatsApp conversation with ${activeWhatsAppConversation.clientName || activeWhatsAppConversation.targetPhone}.` }
         : status === 'completed'
@@ -1360,7 +1385,12 @@ export function Inbox() {
     setSelectedWhatsAppPhone(null);
     setSelectedWhatsAppClientId(null);
     selectEmail(id);
-    markEmailRead(id);
+    const conversation = findEmailUnifiedConversation(id);
+    if (conversation && !conversation.metadata?.localFallback) {
+      void patchUnifiedConversation(conversation, { read: true }).then(() => refreshUnifiedConversationData()).catch(() => markEmailRead(id));
+    } else {
+      markEmailRead(id);
+    }
   };
 
   const handleSelectWhatsApp = (conversation: InboxWhatsAppConversation) => {
@@ -1396,18 +1426,16 @@ export function Inbox() {
       message: `Are you sure you want to delete this WhatsApp conversation with ${conversation.clientName || conversation.targetPhone}? This will remove the saved conversation and messages from this system.`,
       onConfirm: async () => {
         try {
-          const res = await fetch(`/api/whatsapp-hub/conversations/${encodeURIComponent(conversation.id)}`, {
-            method: 'DELETE',
-            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-          });
-          const data = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(data.error || 'Failed to delete WhatsApp conversation.');
+          const unified = unifiedConversationSource.find(item => item.channel === 'whatsapp' && (item.id === conversation.unifiedId || item.source_id === conversation.id));
+          if (!unified) throw new Error('Unified WhatsApp conversation is not loaded yet.');
+          await deleteUnifiedConversation(unified);
           setWhatsappConversations(prev => {
             const next = prev.filter(item => item.id !== conversation.id);
             writeCachedWhatsAppConversations(next);
             return next;
           });
           if (selectedWhatsAppPhone === conversation.targetPhone) setSelectedWhatsAppPhone(null);
+          await refreshUnifiedConversationData();
           notify('WhatsApp conversation deleted.', 'success');
         } catch (error) {
           notify(error instanceof Error ? error.message : 'Failed to delete WhatsApp conversation.', 'error');
@@ -1438,16 +1466,22 @@ export function Inbox() {
     setIsCreatingLead(true);
   };
 
-  const submitTodo = () => {
+  const submitTodo = async () => {
     if (!todoModalEmail || !todoAt) return;
-    editEmail(todoModalEmail, { todoAt, todoNote });
+    const conversation = findEmailUnifiedConversation(todoModalEmail);
+    if (conversation && !conversation.metadata?.localFallback) {
+      await patchUnifiedConversation(conversation, { todoAt, todoNote });
+      await refreshUnifiedConversationData();
+    } else {
+      editEmail(todoModalEmail, { todoAt, todoNote });
+    }
     setTodoModalEmail(null);
     setTodoAt('');
     setTodoNote('');
     setActiveMenu(null);
   };
 
-  const submitTag = () => {
+  const submitTag = async () => {
     if (!tagModalEmail || !tagInput.trim()) return;
     const email = emails.find(e => e.id === tagModalEmail);
     if (!email) return;
@@ -1455,15 +1489,29 @@ export function Inbox() {
     if (!tg.startsWith('#')) tg = '#' + tg;
     const currentTags = email.tags || [];
     if (!currentTags.includes(tg)) {
-      editEmail(email.id, { tags: [...currentTags, tg] });
+      const tags = [...currentTags, tg];
+      const conversation = findEmailUnifiedConversation(email.id);
+      if (conversation && !conversation.metadata?.localFallback) {
+        await patchUnifiedConversation(conversation, { tags });
+        await refreshUnifiedConversationData();
+      } else {
+        editEmail(email.id, { tags });
+      }
     }
     setTagModalEmail(null);
     setTagInput('');
     setActiveMenu(null);
   };
 
-  const toggleImportant = (email: EmailMessage) => {
-    editEmail(email.id, { isImportant: !email.isImportant });
+  const toggleImportant = async (email: EmailMessage) => {
+    const conversation = findEmailUnifiedConversation(email.id);
+    const nextImportant = !email.isImportant;
+    if (conversation && !conversation.metadata?.localFallback) {
+      await patchUnifiedConversation(conversation, { isImportant: nextImportant });
+      await refreshUnifiedConversationData();
+    } else {
+      editEmail(email.id, { isImportant: nextImportant });
+    }
     setActiveMenu(null);
   };
 
@@ -2288,8 +2336,14 @@ export function Inbox() {
                             setConfirmDialog({
                               message: 'Are you sure you want to delete this email? Emails associated with a client will be soft-deleted pending admin review.',
                               onConfirm: async () => {
+                                const conversation = findEmailUnifiedConversation(email.id);
                                 if (selectedEmailId === email.id) selectEmail(null);
-                                await useStore.getState().deleteEmails([email.id]);
+                                if (conversation && !conversation.metadata?.localFallback) {
+                                  await deleteUnifiedConversation(conversation);
+                                  await refreshUnifiedConversationData();
+                                } else {
+                                  await useStore.getState().deleteEmails([email.id]);
+                                }
                                 setConfirmDialog(null);
                               }
                             });
@@ -2488,9 +2542,11 @@ export function Inbox() {
                 setConfirmDialog({
                   message: 'Are you sure you want to delete this email? Emails associated with a client will be soft-deleted pending admin review.',
                   onConfirm: async () => {
-                    const id = selectedEmail.id;
+                    const conversation = activeUnifiedConversation;
                     selectEmail(null);
-                    await useStore.getState().deleteEmails([id]);
+                    if (conversation && !conversation.metadata?.localFallback) await deleteUnifiedConversation(conversation);
+                    else await useStore.getState().deleteEmails([selectedEmail.id]);
+                    await refreshUnifiedConversationData();
                     setConfirmDialog(null);
                   }
                 });
@@ -2656,40 +2712,29 @@ export function Inbox() {
                    });
                    setIsComposing(true);
                  }}
-                 onAddComment={() => addEmailComment(
-                   selectedEmail.id,
-                   `Agent suggestion: ${selectedEmail.subject || 'Follow up this conversation'}`
-                 )}
+                 onAddComment={async () => {
+                   const content = `Agent suggestion: ${selectedEmail.subject || 'Follow up this conversation'}`;
+                   await appendActiveConversationComment(content);
+                 }}
                  onCreateLead={!selectedEmail.clientId ? handleCreateLead : undefined}
                  onAddToKnowledge={selectedEmail.clientId ? handleAddToRag : undefined}
-                 followUpAt={selectedEmail.todoAt}
-                 followUpNote={selectedEmail.todoNote}
-                 onSetFollowUp={(dueAt, note) => {
-                   editEmail(selectedEmail.id, {
-                     todoAt: dueAt,
-                     todoNote: note || `Follow up: ${selectedEmail.subject || selectedEmail.sender}`
-                   });
-                   notify(language === 'zh' ? '已设置跟进提醒。' : 'Follow-up reminder saved.', 'success');
-                 }}
-                 onClearFollowUp={() => {
-                   editEmail(selectedEmail.id, { todoAt: null as any, todoNote: null as any });
-                   notify(language === 'zh' ? '已取消跟进提醒。' : 'Follow-up reminder canceled.', 'success');
-                 }}
-                 onCompleteFollowUp={() => {
-                   editEmail(selectedEmail.id, { todoAt: null as any, todoNote: null as any });
-                   addEmailComment(selectedEmail.id, language === 'zh' ? '跟进任务已完成。' : 'Follow-up task completed.');
-                   notify(language === 'zh' ? '已标记跟进完成。' : 'Follow-up marked complete.', 'success');
-                 }}
-                 onDeleteItem={() => {
-                   setConfirmDialog({
-                     message: 'Are you sure you want to delete this email? Emails associated with a client will be soft-deleted pending admin review.',
-                     onConfirm: async () => {
-                       const id = selectedEmail.id;
-                       selectEmail(null);
-                       await useStore.getState().deleteEmails([id]);
-                       setConfirmDialog(null);
-                     }
-                   });
+                  followUpAt={activeFollowUpAt || selectedEmail.todoAt}
+                  followUpNote={activeFollowUpNote || selectedEmail.todoNote}
+                  onSetFollowUp={(dueAt, note) => updateActiveConversationFollowUp(dueAt, note || `Follow up: ${selectedEmail.subject || selectedEmail.sender}`, 'open')}
+                  onClearFollowUp={() => updateActiveConversationFollowUp(null, null, 'canceled')}
+                  onCompleteFollowUp={() => updateActiveConversationFollowUp(null, null, 'completed')}
+                  onDeleteItem={() => {
+                    setConfirmDialog({
+                      message: 'Are you sure you want to delete this email? Emails associated with a client will be soft-deleted pending admin review.',
+                      onConfirm: async () => {
+                        const conversation = activeUnifiedConversation;
+                        selectEmail(null);
+                        if (conversation && !conversation.metadata?.localFallback) await deleteUnifiedConversation(conversation);
+                        else await useStore.getState().deleteEmails([selectedEmail.id]);
+                        await refreshUnifiedConversationData();
+                        setConfirmDialog(null);
+                      }
+                    });
                  }}
                  onSaveAnalysis={(key, insight) => editEmail(selectedEmail.id, {
                    agentContextAnalysis: insight,
@@ -2719,8 +2764,8 @@ export function Inbox() {
                    <MessageSquare className="w-4 h-4 mr-2" /> Comments & Notes
                  </h3>
                  <div className="space-y-4 mb-4">
-                   {selectedEmail.comments?.map(comment => (
-                     <CommentItem key={comment.id} comment={comment} onReply={(cmtId, text, atts) => addEmailReply(selectedEmail.id, cmtId, text, atts)} />
+                   {activeConversationComments.map(comment => (
+                     <CommentItem key={comment.id} comment={comment} onReply={(cmtId, text, atts) => void replyActiveConversationComment(cmtId, text, atts)} />
                    ))}
                  </div>
                  <div className="bg-slate-900 border border-slate-800 p-2 rounded-lg">
@@ -2771,7 +2816,7 @@ export function Inbox() {
                                })) 
                              : undefined;
                            if (commentText.trim() || attsPayload) {
-                             addEmailComment(selectedEmail.id, commentText || 'Uploaded attachment(s)', attsPayload); 
+                             void appendActiveConversationComment(commentText || 'Uploaded attachment(s)', attsPayload);
                            }
                            setCommentText(''); 
                            setCommentAttachments([]);
@@ -2807,7 +2852,11 @@ export function Inbox() {
             contactMethods: [{ type: 'email', value: filter === 'inbox' ? selectedEmail.sender : selectedEmail.recipient }]
           }}
           onSave={(newClientId) => {
-            editEmail(selectedEmail.id, { clientId: newClientId });
+            if (activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback) {
+              patchUnifiedConversation(activeUnifiedConversation, { clientId: newClientId }).then(() => refreshUnifiedConversationData());
+            } else {
+              editEmail(selectedEmail.id, { clientId: newClientId });
+            }
             selectClient(newClientId);
           }}
         />
@@ -2819,7 +2868,11 @@ export function Inbox() {
           displayName={selectedEmail.senderName || selectedEmailContactAddress}
           onClose={() => setIsAddingContactToClient(false)}
           onLinked={(clientId) => {
-            editEmail(selectedEmail.id, { clientId });
+            if (activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback) {
+              patchUnifiedConversation(activeUnifiedConversation, { clientId }).then(() => refreshUnifiedConversationData());
+            } else {
+              editEmail(selectedEmail.id, { clientId });
+            }
             selectClient(clientId);
           }}
         />

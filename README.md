@@ -35,7 +35,9 @@ Foreign Trade CRM is an AI-powered CRM for foreign trade teams. It combines clie
 - Email and WhatsApp messages are integrated into one inbox.
 - Inbox supports inbox, sent, drafts, scheduled messages, conversational view, customer grouping, tags, comments, and channel icons.
 - Email, WhatsApp, and Live Chat now have a shared `communication_conversations` / `communication_messages` backend index. Existing channel tables remain the source of truth while the unified model powers the next CRM workspace iteration.
-- Authenticated APIs expose this unified layer through `GET /api/conversations` and `GET /api/conversations/:id/messages`.
+- Authenticated APIs expose this unified layer through `GET /api/conversations`, `GET /api/conversations/:id/messages`, `PATCH /api/conversations/:id`, and `DELETE /api/conversations/:id`.
+- Inbox-level conversation actions now use the unified layer for Email, WhatsApp, and Live Chat: delete/archive, follow-up, important, tags, comments, owner/stage, and client association are written through `/api/conversations` and then synchronized back to the channel-specific records.
+- Channel APIs remain responsible for channel-native actions such as sending email, sending/syncing WhatsApp messages, media upload, scheduled delivery, chatId mapping, and Live Chat visitor/operator message transport.
 - Unmatched email senders/recipients and WhatsApp numbers provide both `New Lead` and `Add to Existing Client` actions.
 - `Add to Existing Client` adds the current email/WhatsApp contact method to the selected client and the selected contact target, then links the message or conversation to that client.
 - WhatsApp conversations are persisted in the CRM database and loaded incrementally.
@@ -448,6 +450,7 @@ Recommended near-term roadmap:
 - [x] Add unified conversation search across all channels. Search now covers conversation fields, linked client fields, tags, comments, metadata, and historical message bodies.
 - [x] Add a shared conversation detail header for Email and WhatsApp. The right-side detail pane now shares channel identity, linked client entry, tags, owner, stage, and primary actions while preserving each channel's existing body and send/reply behavior.
 - [x] Add a shared follow-up status strip to Email and WhatsApp details. Operators can see, set, clear, and complete conversation follow-up reminders from the same location; Email remains backward-compatible with `todoAt`, and WhatsApp remains compatible with its existing follow-up marker comments.
+- [x] Finish Inbox conversation action migration. Single-item and bulk delete, follow-up, important, tag, comment, and client association actions now prefer the unified conversation API across Email, WhatsApp, and Live Chat, with legacy channel stores used only as fallback for local drafts or not-yet-indexed records.
 - [ ] Expand client/lead workroom widgets for AI Summary, Best Next Step, Quotes, Contacts, RAG evidence, pending tasks, and channel history.
 - [ ] Add customer-level and lead-level AI analysis diffing so unchanged records do not repeatedly consume AI calls.
 
@@ -937,7 +940,9 @@ Foreign Trade CRM 是一套面向外贸团队的 AI CRM。系统把客户/线索
 - 邮件和 WhatsApp 消息整合在同一个收件箱。
 - 支持收件、已发送、草稿、定时发送、会话视图、按客户分组、标签、评论和渠道图标。
 - Email、WhatsApp 和 Live Chat 已有统一的 `communication_conversations` / `communication_messages` 后端索引。原渠道表仍作为事实来源，统一模型用于后续 CRM 作战室迭代。
-- 登录后的接口可通过 `GET /api/conversations` 和 `GET /api/conversations/:id/messages` 读取统一沟通层。
+- 登录后的接口可通过 `GET /api/conversations`、`GET /api/conversations/:id/messages`、`PATCH /api/conversations/:id` 和 `DELETE /api/conversations/:id` 读写统一沟通层。
+- 收件箱内的会话级操作已统一走 Email、WhatsApp、Live Chat 共用接口：删除/归档、待跟进、重要、标签、评论、负责人/阶段、客户关联都会写入 `/api/conversations`，再同步回对应渠道记录。
+- 渠道原生 API 仍负责发送邮件、发送/同步 WhatsApp、媒体上传、定时发送、chatId 映射，以及 Live Chat 访客/座席消息传输。
 - WhatsApp 对话会固化到 CRM 数据库，并增量同步。
 - 已删除的 WhatsApp 对话/消息不会因为重新进入收件箱而恢复；除非收到新消息或再次主动发消息。
 - WhatsApp 会按手机号、Hub chatId（如 `@lid`、`@c.us`）以及已建立的 chatId -> 手机号映射做会话身份去重，避免同步后同一会话变成多个收件箱条目。
@@ -1344,6 +1349,7 @@ Agent Execution Policy 使用的 Global Orchestrator action type：
 - [x] 增加跨渠道统一搜索。搜索覆盖会话字段、关联客户字段、标签、备注、metadata 和历史消息正文。
 - [x] 为 Email 和 WhatsApp 右侧详情加入共享 conversation header。详情页已共享渠道标识、关联客户入口、标签、负责人、阶段和主要动作，同时保留各渠道原有正文、发送和回复逻辑。
 - [x] 为 Email 和 WhatsApp 详情加入共享待跟进状态条。运营人员可在同一位置查看、设置、取消和完成会话待跟进；Email 兼容旧 `todoAt` 字段，WhatsApp 兼容原 follow-up marker comments。
+- [x] 完成 Inbox 会话操作迁移收尾。单条和批量删除、待跟进、重要、标签、评论、客户关联操作现在都会优先走统一 conversation API；旧渠道 store 仅作为本地草稿或尚未索引记录的兜底。
 - [ ] 强化客户/Lead 作战室 widgets：AI Summary、Best Next Step、Quotes、Contacts、RAG 依据、待处理任务和全渠道历史。
 - [ ] 客户级和 Lead 级 AI 分析增加 diff 机制，记录无变化时不重复消耗 AI。
 

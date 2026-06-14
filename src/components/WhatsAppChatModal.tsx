@@ -53,6 +53,7 @@ interface Props {
 
 interface WhatsAppConversation {
   id: string;
+  unifiedId?: string;
   targetPhone: string;
   contactPhone?: string;
   rawChatId?: string;
@@ -97,6 +98,23 @@ function writeCachedWhatsAppMessages(targetPhone: string, messages: WhatsAppHubM
   } catch {
     // Session storage is only a speed cache.
   }
+}
+
+function mapUnifiedWhatsAppMessage(row: any): WhatsAppHubMessage {
+  const payload = row.payload || {};
+  return {
+    id: row.source_message_id || row.id,
+    client_id: payload.hubClientId || payload.clientId || payload.client_id || '',
+    direction: row.direction === 'inbound' ? 'inbound' : 'outbound',
+    sender: row.sender || '',
+    recipient: row.recipient || '',
+    body: row.body || '',
+    message_type: row.message_type || payload.messageType || 'text',
+    payload,
+    translation: payload.translation,
+    created_at: row.source_created_at || row.created_at,
+    received_at: row.created_at
+  };
 }
 
 function readCachedWhatsAppTranslations(targetPhone: string, language: 'en' | 'zh'): Record<string, WhatsAppTranslation> {
@@ -485,9 +503,12 @@ ${bodyText}`,
       const messageQuery = isChatId(expectedLookupTarget)
         ? `chatId=${encodeURIComponent(expectedLookupTarget)}&language=${encodeURIComponent(language)}`
         : `targetPhone=${encodeURIComponent(expectedLookupTarget)}&language=${encodeURIComponent(language)}`;
+      const unifiedId = conversation?.unifiedId;
       const [clientsRes, messagesRes] = await Promise.all([
         fetch('/api/whatsapp-hub/clients', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }),
-        fetch(`/api/whatsapp-hub/messages?${messageQuery}&limit=200`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
+        unifiedId
+          ? fetch(`/api/conversations/${encodeURIComponent(unifiedId)}/messages`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
+          : fetch(`/api/whatsapp-hub/messages?${messageQuery}&limit=200`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
       ]);
       const clientsData = await clientsRes.json();
       const messagesData = await messagesRes.json();
@@ -495,7 +516,9 @@ ${bodyText}`,
       if (!messagesRes.ok) throw new Error(messagesData.error || 'Failed to load WhatsApp messages');
       if (requestId !== loadRequestRef.current || expectedTargetPhone !== targetPhone || expectedLookupTarget !== messageLookupTarget) return;
       setHubClients(clientsData.clients || []);
-      const nextMessages = (messagesData.messages || []).slice().reverse();
+      const nextMessages = unifiedId
+        ? (messagesData.messages || []).map(mapUnifiedWhatsAppMessage)
+        : (messagesData.messages || []).slice().reverse();
       setMessages(nextMessages);
       writeCachedWhatsAppMessages(expectedTargetPhone, nextMessages);
       const cachedTranslations = readCachedWhatsAppTranslations(expectedTargetPhone, language);
@@ -511,16 +534,18 @@ ${bodyText}`,
       }, {});
       setTranslations(mergedTranslations);
       writeCachedWhatsAppTranslations(expectedTargetPhone, language, mergedTranslations);
-      const sticky = (messagesData.messages || []).find((message: WhatsAppHubMessage) => message.direction === 'outbound' && message.client_id)?.client_id;
+      const sticky = nextMessages.find((message: WhatsAppHubMessage) => message.direction === 'outbound' && message.client_id)?.client_id;
       if (sticky) setSelectedClientId(sticky);
-      const conversationsRes = await fetch(`/api/whatsapp-hub/conversations?search=${encodeURIComponent(expectedLookupTarget)}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
-      const conversationsData = await conversationsRes.json();
-      if (requestId !== loadRequestRef.current || expectedTargetPhone !== targetPhone || expectedLookupTarget !== messageLookupTarget) return;
-      if (conversationsRes.ok) {
-        const matched = (conversationsData.conversations || []).find((item: WhatsAppConversation) => (
-          item.targetPhone === expectedLookupTarget || item.contactPhone === expectedLookupTarget || item.rawChatId === expectedTargetPhone || item.conversationKey === expectedLookupTarget
-        ));
-        if (matched) setConversation(matched);
+      if (!unifiedId) {
+        const conversationsRes = await fetch(`/api/whatsapp-hub/conversations?search=${encodeURIComponent(expectedLookupTarget)}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+        const conversationsData = await conversationsRes.json();
+        if (requestId !== loadRequestRef.current || expectedTargetPhone !== targetPhone || expectedLookupTarget !== messageLookupTarget) return;
+        if (conversationsRes.ok) {
+          const matched = (conversationsData.conversations || []).find((item: WhatsAppConversation) => (
+            item.targetPhone === expectedLookupTarget || item.contactPhone === expectedLookupTarget || item.rawChatId === expectedTargetPhone || item.conversationKey === expectedLookupTarget
+          ));
+          if (matched) setConversation(matched);
+        }
       }
     } catch (error: any) {
       if (options.notifyErrors !== false) {
@@ -715,7 +740,8 @@ ${bodyText}`,
 
   const updateConversationTags = async (nextTags: string[]) => {
     if (!conversation?.id) return;
-    const response = await fetch(`/api/whatsapp-hub/conversations/${conversation.id}`, {
+    const unifiedId = conversation.unifiedId;
+    const response = await fetch(unifiedId ? `/api/conversations/${unifiedId}` : `/api/whatsapp-hub/conversations/${conversation.id}`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -752,6 +778,23 @@ ${bodyText}`,
   const addConversationComment = async (content = commentInput) => {
     if (!conversation?.id || !content.trim()) return;
     try {
+      const comment = { id: `uc_${Date.now()}_${Math.floor(Math.random() * 1000)}`, author: 'User', content: content.trim(), createdAt: new Date().toISOString(), replies: [] };
+      if (conversation.unifiedId) {
+        const nextComments = [...(conversation.comments || []), comment];
+        const response = await fetch(`/api/conversations/${conversation.unifiedId}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify({ comments: nextComments })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Failed to add WhatsApp comment');
+        setConversation(prev => prev ? { ...prev, comments: data.conversation?.comments || nextComments } : prev);
+        if (content === commentInput) setCommentInput('');
+        return;
+      }
       const response = await fetch(`/api/whatsapp-hub/conversations/${conversation.id}/comments`, {
         method: 'POST',
         headers: {
@@ -772,6 +815,21 @@ ${bodyText}`,
   const deleteConversationComment = async (commentId: string) => {
     if (!conversation?.id) return;
     try {
+      if (conversation.unifiedId) {
+        const nextComments = (conversation.comments || []).filter(comment => comment.id !== commentId);
+        const response = await fetch(`/api/conversations/${conversation.unifiedId}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify({ comments: nextComments })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Failed to delete WhatsApp comment');
+        setConversation(prev => prev ? { ...prev, comments: data.conversation?.comments || nextComments } : prev);
+        return;
+      }
       const response = await fetch(`/api/whatsapp-hub/conversations/${conversation.id}/comments/${commentId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
@@ -788,7 +846,7 @@ ${bodyText}`,
     const linkedClient = useStore.getState().clients.find(item => item.id === clientId);
     if (conversation?.id) {
       try {
-        const response = await fetch(`/api/whatsapp-hub/conversations/${conversation.id}`, {
+        const response = await fetch(conversation.unifiedId ? `/api/conversations/${conversation.unifiedId}` : `/api/whatsapp-hub/conversations/${conversation.id}`, {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',
@@ -1401,7 +1459,7 @@ Return only the message text.`,
             })}`)}
             onDeleteItem={async () => {
               if (!conversation?.id) throw new Error('No WhatsApp conversation is selected.');
-              const response = await fetch(`/api/whatsapp-hub/conversations/${encodeURIComponent(conversation.id)}`, {
+              const response = await fetch(conversation.unifiedId ? `/api/conversations/${encodeURIComponent(conversation.unifiedId)}` : `/api/whatsapp-hub/conversations/${encodeURIComponent(conversation.id)}`, {
                 method: 'DELETE',
                 headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
               });
