@@ -2893,9 +2893,11 @@ No markdown wrappers, just valid JSON.`;
       if (settingsRes.rows.length === 0) {
         return res.status(404).json({ error: 'User not found' });
       }
-      const settings = typeof settingsRes.rows[0].settings === 'string'
+      const rawSettings = typeof settingsRes.rows[0].settings === 'string'
         ? JSON.parse(settingsRes.rows[0].settings || '{}')
         : (settingsRes.rows[0].settings || {});
+      const settings = await hydrateAgentStateFromTables(req.user.uid, rawSettings);
+      const repairDiagnostics = await getAgentRepairDiagnosticsForUser(req.user.uid, settings);
       const [
         globalSettingsRes,
         knowledgeRes,
@@ -2993,7 +2995,8 @@ No markdown wrappers, just valid JSON.`;
         },
         agentPersistence: {
           status: Number(agentCounts.tasks || 0) + Number(agentCounts.opportunities || 0) + Number(agentCounts.run_records || 0) > 0 ? 'ok' : 'idle',
-          ...agentCounts
+          ...agentCounts,
+          repair: repairDiagnostics
         },
         startup: startupDiagnostics
       });
@@ -6110,6 +6113,150 @@ No markdown wrappers, just valid JSON.`;
     return Array.from(ids);
   };
 
+  const collectAgentTargetRefs = (settings: any) => {
+    const refs: Array<{ type: string; id: string; source: string }> = [];
+    const add = (type: any, id: any, source: string) => {
+      if (typeof type === 'string' && typeof id === 'string' && type.trim() && id.trim()) {
+        refs.push({ type: type.trim(), id: id.trim(), source });
+      }
+    };
+    const addMetadata = (metadata: any, source: string) => {
+      add(metadata?.targetType, metadata?.targetId, source);
+      add(metadata?.entityType, metadata?.entityId, source);
+      if (Array.isArray(metadata?.relatedEmailIds)) {
+        metadata.relatedEmailIds.forEach((id: any) => add('email', id, source));
+      }
+      add('email', metadata?.emailId, source);
+      add('email', metadata?.sourceEmailId, source);
+      add('client', metadata?.clientId, source);
+      add('lead', metadata?.leadId, source);
+    };
+
+    (Array.isArray(settings.agentOpportunities) ? settings.agentOpportunities : []).forEach((opportunity: any) => {
+      add(opportunity?.targetType, opportunity?.targetId, `opportunity:${opportunity?.id || ''}`);
+      addMetadata(opportunity?.metadata, `opportunity:${opportunity?.id || ''}`);
+    });
+    (Array.isArray(settings.agentTasks) ? settings.agentTasks : []).forEach((task: any) => {
+      add(task?.entityType, task?.entityId, `task:${task?.id || ''}`);
+      addMetadata(task?.metadata, `task:${task?.id || ''}`);
+    });
+    [...(Array.isArray(settings.agentHarnessRuns) ? settings.agentHarnessRuns : []), ...(Array.isArray(settings.globalAgentPlans) ? settings.globalAgentPlans : [])]
+      .forEach((run: any) => {
+        (Array.isArray(run?.steps) ? run.steps : []).forEach((step: any) => {
+          addMetadata(step?.payload || {}, `run:${run?.id || ''}`);
+          add(step?.payload?.targetType, step?.payload?.targetId, `run:${run?.id || ''}`);
+          add(step?.payload?.entityType, step?.payload?.entityId, `run:${run?.id || ''}`);
+        });
+      });
+
+    return refs;
+  };
+
+  const getAgentRepairDiagnosticsForUser = async (userId: string, settings: any) => {
+    const refs = collectAgentTargetRefs(settings);
+    const byType = refs.reduce((acc: Record<string, Set<string>>, ref) => {
+      if (!acc[ref.type]) acc[ref.type] = new Set<string>();
+      acc[ref.type].add(ref.id);
+      return acc;
+    }, {});
+    const refCounts = Object.fromEntries(Object.entries(byType).map(([type, ids]) => [type, ids.size]));
+    const emailIds = Array.from(byType.email || []);
+    const clientIds = Array.from(byType.client || []);
+    const leadIds = Array.from(byType.lead || []);
+    const [emailRes, clientRes, leadRes] = await Promise.all([
+      emailIds.length > 0
+        ? pool.query(`SELECT id, pending_delete FROM emails WHERE user_id = $1 AND id = ANY($2::varchar[])`, [userId, emailIds])
+        : Promise.resolve({ rows: [] } as any),
+      clientIds.length > 0
+        ? pool.query(`SELECT id, deleted_at FROM clients WHERE user_id = $1 AND id = ANY($2::varchar[])`, [userId, clientIds])
+        : Promise.resolve({ rows: [] } as any),
+      leadIds.length > 0
+        ? pool.query(`SELECT id, pending_delete FROM deals WHERE user_id = $1 AND id = ANY($2::varchar[])`, [userId, leadIds])
+        : Promise.resolve({ rows: [] } as any)
+    ]);
+    const emailRows = new Map<string, any>(emailRes.rows.map((row: any) => [row.id, row]));
+    const clientRows = new Map<string, any>(clientRes.rows.map((row: any) => [row.id, row]));
+    const leadRows = new Map<string, any>(leadRes.rows.map((row: any) => [row.id, row]));
+    const deletedEmailIds = emailIds.filter(id => emailRows.get(id)?.pending_delete === true);
+    const missingEmailIds = emailIds.filter(id => !emailRows.has(id));
+    const deletedClientIds = clientIds.filter(id => Boolean(clientRows.get(id)?.deleted_at));
+    const missingClientIds = clientIds.filter(id => !clientRows.has(id));
+    const deletedLeadIds = leadIds.filter(id => leadRows.get(id)?.pending_delete === true);
+    const missingLeadIds = leadIds.filter(id => !leadRows.has(id));
+    const openOpportunities = (Array.isArray(settings.agentOpportunities) ? settings.agentOpportunities : []).filter((item: any) => !['ignored', 'completed'].includes(item?.status)).length;
+    const openTasks = (Array.isArray(settings.agentTasks) ? settings.agentTasks : []).filter((item: any) => !['ignored', 'completed'].includes(item?.status)).length;
+    const pendingRuns = [
+      ...(Array.isArray(settings.agentHarnessRuns) ? settings.agentHarnessRuns : []),
+      ...(Array.isArray(settings.globalAgentPlans) ? settings.globalAgentPlans : [])
+    ].filter((run: any) => !['completed', 'failed', 'rejected'].includes(run?.status)).length;
+    const repairableCount = deletedEmailIds.length + missingEmailIds.length + deletedClientIds.length + missingClientIds.length + deletedLeadIds.length + missingLeadIds.length;
+    return {
+      status: repairableCount > 0 ? 'warning' : 'ok',
+      openOpportunities,
+      openTasks,
+      pendingRuns,
+      refCounts,
+      repairableCount,
+      deletedEmailIds,
+      missingEmailIds,
+      deletedClientIds,
+      missingClientIds,
+      deletedLeadIds,
+      missingLeadIds
+    };
+  };
+
+  const ignoreAgentStateForInvalidTargets = (settings: any, refs: Array<{ type: string; id: string }>, reason: string, nowIso = new Date().toISOString()) => {
+    const refSet = new Set(refs.map(ref => `${ref.type}:${ref.id}`));
+    if (refSet.size === 0) return 0;
+    let changed = 0;
+    const ignoredOpportunityIds = new Set<string>();
+    const ignoredRunRefs: { id: string; type?: string | null }[] = [];
+    const shouldIgnore = (item: any) => {
+      if (!item) return false;
+      if (refSet.has(`${item.targetType}:${item.targetId}`) || refSet.has(`${item.entityType}:${item.entityId}`)) return true;
+      const metadata = item.metadata || item.payload || {};
+      if (refSet.has(`${metadata.targetType}:${metadata.targetId}`) || refSet.has(`${metadata.entityType}:${metadata.entityId}`)) return true;
+      if (metadata.clientId && refSet.has(`client:${metadata.clientId}`)) return true;
+      if (metadata.leadId && refSet.has(`lead:${metadata.leadId}`)) return true;
+      if (metadata.emailId && refSet.has(`email:${metadata.emailId}`)) return true;
+      if (metadata.sourceEmailId && refSet.has(`email:${metadata.sourceEmailId}`)) return true;
+      const related = Array.isArray(metadata.relatedEmailIds) ? metadata.relatedEmailIds : [];
+      return related.some((id: string) => refSet.has(`email:${id}`));
+    };
+
+    settings.agentOpportunities = (Array.isArray(settings.agentOpportunities) ? settings.agentOpportunities : []).map((opportunity: any) => {
+      if (!shouldIgnore(opportunity) || ['ignored', 'completed'].includes(opportunity.status)) return opportunity;
+      changed += 1;
+      if (opportunity.id) ignoredOpportunityIds.add(opportunity.id);
+      if (opportunity.relatedRunId) ignoredRunRefs.push({ id: opportunity.relatedRunId, type: opportunity.relatedRunType });
+      const nextOpportunity = { ...opportunity, status: 'ignored', completedAt: nowIso, updatedAt: nowIso, resultSummary: reason };
+      rememberAgentOpportunityDedupe(settings, nextOpportunity, { status: 'ignored', completedAt: nowIso, updatedAt: nowIso });
+      syncAgentTaskFromOpportunity(settings, nextOpportunity);
+      return nextOpportunity;
+    });
+    settings.agentTasks = (Array.isArray(settings.agentTasks) ? settings.agentTasks : []).map((task: any) => {
+      if (!shouldIgnore({ targetType: task.entityType, targetId: task.entityId, metadata: task.metadata }) || ['ignored', 'completed'].includes(task.status)) return task;
+      changed += 1;
+      return { ...task, status: 'ignored', approvalStatus: 'rejected', completedAt: nowIso, updatedAt: nowIso, resultSummary: reason };
+    });
+    const runContainsIgnoredTarget = (run: any, expectedType: 'harness' | 'global') => (
+      ignoredRunRefs.some(ref => ref.id === run.id && (!ref.type || ref.type === expectedType)) ||
+      (run.steps || []).some((step: any) => ignoredOpportunityIds.has(step?.payload?.opportunityId) || shouldIgnore(step?.payload || {}))
+    );
+    settings.agentHarnessRuns = (Array.isArray(settings.agentHarnessRuns) ? settings.agentHarnessRuns : []).map((run: any) => {
+      if (!runContainsIgnoredTarget(run, 'harness') || ['completed', 'failed', 'rejected'].includes(run.status)) return run;
+      changed += 1;
+      return { ...run, status: 'rejected', completedAt: nowIso, updatedAt: nowIso, summary: reason };
+    });
+    settings.globalAgentPlans = (Array.isArray(settings.globalAgentPlans) ? settings.globalAgentPlans : []).map((plan: any) => {
+      if (!runContainsIgnoredTarget(plan, 'global') || ['completed', 'failed', 'rejected'].includes(plan.status)) return plan;
+      changed += 1;
+      return { ...plan, status: 'rejected', completedAt: nowIso, updatedAt: nowIso, summary: reason };
+    });
+    return changed;
+  };
+
   const cleanupDeletedEmailAgentStateForUser = async (userId: string, settings: any) => {
     const candidateEmailIds = collectEmailIdsFromAgentState(settings);
     if (candidateEmailIds.length === 0) return 0;
@@ -6127,6 +6274,42 @@ No markdown wrappers, just valid JSON.`;
         : 'Related email was deleted; linked opportunity task was closed to prevent redispatch.'
     );
   };
+
+  app.post('/api/agent-hub/repair', authenticateToken, async (req: any, res) => {
+    try {
+      const result = await pool.query('SELECT settings FROM users WHERE id = $1', [req.user.uid]);
+      if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+      const rawSettings = typeof result.rows[0].settings === 'string'
+        ? JSON.parse(result.rows[0].settings || '{}')
+        : (result.rows[0].settings || {});
+      const settings = await hydrateAgentStateFromTables(req.user.uid, rawSettings);
+      const before = await getAgentRepairDiagnosticsForUser(req.user.uid, settings);
+      const invalidRefs = [
+        ...before.deletedEmailIds.map((id: string) => ({ type: 'email', id })),
+        ...before.missingEmailIds.map((id: string) => ({ type: 'email', id })),
+        ...before.deletedClientIds.map((id: string) => ({ type: 'client', id })),
+        ...before.missingClientIds.map((id: string) => ({ type: 'client', id })),
+        ...before.deletedLeadIds.map((id: string) => ({ type: 'lead', id })),
+        ...before.missingLeadIds.map((id: string) => ({ type: 'lead', id }))
+      ];
+      const changed = ignoreAgentStateForInvalidTargets(
+        settings,
+        invalidRefs,
+        settings.language === 'zh'
+          ? '关联对象已删除或不存在，相关 Agent Hub 任务已关闭以避免重复派发。'
+          : 'The linked object was deleted or no longer exists; related Agent Hub work was closed to prevent redispatch.'
+      );
+      if (changed > 0) {
+        await pool.query('UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [JSON.stringify(settings), req.user.uid]);
+        await syncAgentStateTablesFromSettings(req.user.uid, settings, ['agentOpportunities', 'agentTasks', 'agentHarnessRuns', 'globalAgentPlans']);
+      }
+      const after = await getAgentRepairDiagnosticsForUser(req.user.uid, settings);
+      res.json({ success: true, changed, before, after });
+    } catch (e: any) {
+      console.error('Failed to repair Agent Hub state', e);
+      res.status(500).json({ error: e.message || 'Failed to repair Agent Hub state' });
+    }
+  });
 
   const activeOpportunityDispatches = new Set<string>();
   const activeHarnessExecutions = new Set<string>();
@@ -7855,6 +8038,51 @@ Return JSON only:
     }));
   };
 
+  const getAgentToolImpact = (tool: string) => {
+    if (['email.send', 'whatsapp.send', 'live_chat.reply'].includes(tool)) return 'send';
+    if (tool.endsWith('.create') || ['lead.acquire', 'email.draft', 'quote.create'].includes(tool)) return 'create';
+    if (tool.endsWith('.update') || tool.endsWith('.tag') || tool.endsWith('.comment') || tool.endsWith('.log') || tool.endsWith('.stage') || tool.endsWith('.schedule') || tool.endsWith('.enrich')) return 'write';
+    if (tool.endsWith('.delete')) return 'delete';
+    if (tool.endsWith('.read') || tool === 'knowledge.search' || tool === 'product.read') return 'read';
+    if (['lead.analyze', 'lead.score', 'client.summarize', 'next_step.recommend'].includes(tool)) return 'analyze';
+    return 'process';
+  };
+
+  const buildAgentStepResultMeta = (tool: string, options: {
+    executed: boolean;
+    status: string;
+    resultText: string;
+    evidence?: string[];
+    isZh: boolean;
+  }) => {
+    const impact = getAgentToolImpact(tool);
+    const actionImpact = ['send', 'create', 'write', 'delete'].includes(impact);
+    const landed = options.executed && actionImpact && options.status === 'completed';
+    const readOnly = ['read', 'analyze', 'process'].includes(impact);
+    return {
+      impact,
+      landed,
+      readOnly,
+      label: options.isZh
+        ? landed
+          ? '已落地'
+          : readOnly && options.executed
+            ? (impact === 'analyze' ? '已分析' : '已读取')
+            : options.executed
+              ? '已执行'
+              : '未落地'
+        : landed
+          ? 'Landed'
+          : readOnly && options.executed
+            ? (impact === 'analyze' ? 'Analyzed' : 'Read')
+            : options.executed
+              ? 'Executed'
+              : 'Not landed',
+      evidence: options.evidence?.length ? options.evidence.slice(0, 8) : [options.resultText].filter(Boolean),
+      summary: options.resultText
+    };
+  };
+
   const executeAgentHubHarnessRun = async (userId: string, settings: any, runId: string) => {
     const isZh = settings.language === 'zh';
     const runs = Array.isArray(settings.agentHarnessRuns) ? settings.agentHarnessRuns : [];
@@ -7966,6 +8194,7 @@ Return JSON only:
     let failed = 0;
     const details: string[] = [];
     const executedTools = new Set<string>();
+    const landingEvidence: string[] = [];
     if (subjectOnly && subjectClientIds.size === 0) {
       details.push(isZh
         ? '事件主体模式：未找到事件关联的客户/线索主体，已跳过全局扫描。'
@@ -8406,6 +8635,7 @@ Return JSON only:
         }
 
         acted += 1;
+        landingEvidence.push(...sent, ...concreteActions);
         details.push(isZh ? `${client.id}：已执行 ${[...sent, ...concreteActions].join(', ')}。` : `${client.id}: executed ${[...sent, ...concreteActions].join(', ')}.`);
       } catch (error: any) {
         failed += 1;
@@ -8439,6 +8669,19 @@ Return JSON only:
         : actionLikeTools.has(step.tool)
           ? (isZh ? '该工具本次没有执行具体动作。' : 'This tool did not execute a concrete action in this run.')
           : resultText,
+      resultMeta: buildAgentStepResultMeta(step.tool, {
+        executed: executedTools.has(step.tool),
+        status: run.status === 'failed'
+          ? 'failed'
+          : executedTools.has(step.tool)
+            ? 'completed'
+            : actionLikeTools.has(step.tool)
+              ? 'skipped'
+              : 'completed',
+        resultText: executedTools.has(step.tool) || !actionLikeTools.has(step.tool) ? resultText : (isZh ? '该工具本次没有执行具体动作。' : 'This tool did not execute a concrete action in this run.'),
+        evidence: landingEvidence,
+        isZh
+      }),
       error: run.status === 'failed' ? resultText : undefined
     }));
 
@@ -10001,7 +10244,18 @@ Return JSON only:
       : `Lead acquisition completed: provider ${providerUsed}, query "${query}", acquired ${foundLeads.length}, imported ${imported} to public pool.`;
     run.status = 'completed';
     run.completedAt = new Date().toISOString();
-    run.steps = (run.steps || []).map((step: any) => ({ ...step, status: 'completed', result: resultText }));
+    run.steps = (run.steps || []).map((step: any) => ({
+      ...step,
+      status: 'completed',
+      result: resultText,
+      resultMeta: buildAgentStepResultMeta(step.tool, {
+        executed: true,
+        status: 'completed',
+        resultText,
+        evidence: [`provider:${providerUsed}`, `imported:${imported}`],
+        isZh
+      })
+    }));
     const record = (settings.agentRunRecords || []).find((item: any) => item.relatedRunId === run.id && item.relatedRunType === 'harness');
     if (record) {
       record.status = 'completed';
@@ -10157,6 +10411,16 @@ Return JSON only:
     agent.tasksCompleted = (agent.tasksCompleted || 0) + 1;
     agent.lastRunAt = new Date().toISOString();
     agent.updatedAt = new Date().toISOString();
+    run.steps = (run.steps || []).map((step: any) => ({
+      ...step,
+      resultMeta: buildAgentStepResultMeta(step.tool, {
+        executed: true,
+        status: step.status || 'completed',
+        resultText: step.result || resultText,
+        evidence: step.tool === 'email.draft' ? [`draft:${draftId}`, `recipient:${sourceEmail.sender}`] : [`client:${client.id}`, `email:${sourceEmail.id}`],
+        isZh
+      })
+    }));
     return { scanned: 1, acted: 1, skipped: 0, failed: 0, details: [resultText], draftId };
   };
 
@@ -10304,6 +10568,13 @@ Return JSON only:
       ...step,
       status: run.status === 'failed' ? 'failed' : 'completed',
       result: resultText,
+      resultMeta: buildAgentStepResultMeta(step.tool, {
+        executed: run.status !== 'failed',
+        status: run.status === 'failed' ? 'failed' : 'completed',
+        resultText,
+        evidence: [`processed:${acted}`, `failed:${failed}`],
+        isZh
+      }),
       error: run.status === 'failed' ? resultText : undefined
     }));
     const record = (settings.agentRunRecords || []).find((item: any) => item.relatedRunId === run.id && item.relatedRunType === 'harness');

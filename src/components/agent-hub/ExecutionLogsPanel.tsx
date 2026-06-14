@@ -9,6 +9,14 @@ export interface AgentTraceRunStep {
   status: string;
   result?: string;
   risk?: string;
+  resultMeta?: {
+    impact?: string;
+    landed?: boolean;
+    readOnly?: boolean;
+    label?: string;
+    evidence?: string[];
+    summary?: string;
+  };
 }
 
 export interface AgentTraceRun {
@@ -83,6 +91,13 @@ function timelineTone(tone: string) {
   if (tone === 'amber') return { dot: 'bg-amber-400 border-amber-300 shadow-amber-500/30', label: 'text-amber-300' };
   if (tone === 'red') return { dot: 'bg-red-400 border-red-300 shadow-red-500/30', label: 'text-red-300' };
   return { dot: 'bg-blue-400 border-blue-300 shadow-blue-500/30', label: 'text-blue-300' };
+}
+
+function resultMetaTone(meta?: AgentTraceRunStep['resultMeta']) {
+  if (!meta) return 'border-neutral-700 bg-neutral-900 text-slate-400';
+  if (meta.landed) return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
+  if (meta.readOnly) return 'border-blue-500/30 bg-blue-500/10 text-blue-200';
+  return 'border-amber-500/30 bg-amber-500/10 text-amber-200';
 }
 
 function splitTimelineText(value: string) {
@@ -435,8 +450,22 @@ export function ExecutionLogsPanel({
                         )}>
                           {t(step.status)}
                         </span>
+                        {step.resultMeta && (
+                          <span className={cn('rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide', resultMetaTone(step.resultMeta))}>
+                            {step.resultMeta.label || step.resultMeta.impact || (isZh ? '执行结果' : 'Result')}
+                          </span>
+                        )}
                         {step.title && step.title !== step.tool && <span className="text-slate-400">{step.title}</span>}
                       </div>
+                      {step.resultMeta?.evidence && step.resultMeta.evidence.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {step.resultMeta.evidence.slice(0, 6).map(item => (
+                            <span key={`${run.id}-${step.tool}-${index}-${item}`} className="rounded border border-neutral-800 bg-black px-2 py-1 font-mono text-[10px] text-slate-400">
+                              {item}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       {step.result && <div className="mt-2 text-slate-500 leading-relaxed">{step.result}</div>}
                     </li>
                   ))}

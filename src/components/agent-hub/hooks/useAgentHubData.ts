@@ -22,7 +22,8 @@ const normalizeRunStep = (step: any) => ({
   tool: step.tool || step.actionType || step.title || 'agent.run',
   status: step.status || 'pending',
   result: step.result || step.error || '',
-  risk: step.risk || step.payload?.risk || ''
+  risk: step.risk || step.payload?.risk || '',
+  resultMeta: step.resultMeta || step.payload?.resultMeta || undefined
 });
 
 const isLegacySignalScannerPendingTrace = (run: any) => (

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Info, RefreshCw, Send, ShieldCheck, Trash2, X, Zap } from 'lucide-react';
+import { ArrowRight, Info, RefreshCw, Send, ShieldCheck, Trash2, X, Zap } from 'lucide-react';
 import { AgentHubAgent, AgentOpportunityRoutingPolicy, AgentTask } from '../../store';
 import { cn } from '../../lib/utils';
 import {
@@ -170,6 +170,58 @@ export function AgentTaskQueuePanel({
     if (task.status === 'failed' && task.resultSummary) blockers.push(task.resultSummary);
     return blockers.length ? blockers : [isZh ? '暂无明显阻塞，可按策略派发或执行' : 'No obvious blockers; it can be routed or dispatched according to policy'];
   };
+
+  const triggerLabel = (task: AgentTask) => {
+    const labels: Record<string, string> = {
+      signal: isZh ? '信号扫描' : 'Signal scanner',
+      event: isZh ? '事件触发' : 'Event trigger',
+      schedule: isZh ? '定时运行' : 'Schedule',
+      manual: isZh ? '手动创建' : 'Manual',
+      console: isZh ? 'Agent Chat' : 'Agent Chat',
+      system: isZh ? '系统任务' : 'System'
+    };
+    return labels[task.triggerType] || task.triggerType || (isZh ? '未知来源' : 'Unknown source');
+  };
+  const approvalLabel = (task: AgentTask) => {
+    if (task.approvalStatus === 'pending' || task.status === 'approval_required') return isZh ? '等待人工审核' : 'Waiting for review';
+    if (task.approvalStatus === 'approved') return isZh ? '已通过审核' : 'Approved';
+    if (task.approvalStatus === 'rejected') return isZh ? '已拒绝' : 'Rejected';
+    if (task.approvalStatus === 'required') return isZh ? '需要审核' : 'Review required';
+    return isZh ? '无需审核' : 'No review needed';
+  };
+  const routeDecisionLabel = (task: AgentTask) => {
+    if (task.status === 'ignored') return isZh ? '已忽略，保留去重记录' : 'Ignored; dedupe record kept';
+    if (task.status === 'completed') return isZh ? '已完成' : 'Completed';
+    if (task.status === 'failed' || task.status === 'skipped') return isZh ? '需要重新检查或重试' : 'Needs review or retry';
+    if (task.status === 'approval_required' || task.approvalStatus === 'pending') return isZh ? '进入人工审核' : 'Sent to approval';
+    if (task.status === 'queued' || task.status === 'running') return isZh ? '正在执行链路中' : 'In execution flow';
+    if (task.risk === 'low' && agentOpportunityRoutingPolicy.autoExecuteLowRisk) return isZh ? '低风险可自动执行' : 'Low risk can auto-run';
+    if (task.risk === 'medium' && agentOpportunityRoutingPolicy.routeMediumRiskToReview) return isZh ? '中风险进入审核' : 'Medium risk goes to review';
+    if (task.risk === 'high') return agentOpportunityRoutingPolicy.routeHighRiskToReview ? (isZh ? '高风险进入审核' : 'High risk goes to review') : (isZh ? '高风险保留待手动处理' : 'High risk waits for manual handling');
+    return isZh ? '等待策略路由' : 'Waiting for policy routing';
+  };
+  const sourceChainSteps = (task: AgentTask) => [
+    {
+      label: isZh ? '来源' : 'Source',
+      value: triggerLabel(task),
+      detail: task.source || '-'
+    },
+    {
+      label: isZh ? '主体' : 'Entity',
+      value: taskEntityLabel(task),
+      detail: task.sourceRefId ? `${task.sourceRefType || 'ref'}:${task.sourceRefId}` : ''
+    },
+    {
+      label: isZh ? '负责 Agent' : 'Agent',
+      value: task.agentName || task.agentId || '-',
+      detail: `${isZh ? '风险' : 'Risk'}: ${task.risk}`
+    },
+    {
+      label: isZh ? '路由结果' : 'Routing',
+      value: routeDecisionLabel(task),
+      detail: approvalLabel(task)
+    }
+  ];
 
   return (
     <section className="rounded-lg border border-neutral-800 bg-neutral-950 p-6">
@@ -390,6 +442,18 @@ export function AgentTaskQueuePanel({
                     <p className="mt-2 text-sm leading-relaxed text-slate-400">{task.description}</p>
                     <p className="mt-3 text-xs leading-relaxed text-slate-500">{task.objective}</p>
                     {task.resultSummary && <p className="mt-3 rounded border border-neutral-800 bg-neutral-950 px-3 py-2 text-xs leading-relaxed text-slate-400">{task.resultSummary}</p>}
+                    <div className="mt-3 grid gap-2 rounded-lg border border-neutral-800 bg-neutral-950 p-3 text-xs md:grid-cols-4">
+                      {sourceChainSteps(task).map((step, index) => (
+                        <div key={`${task.id}-${step.label}`} className="min-w-0">
+                          <div className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                            {index > 0 && <ArrowRight className="h-3 w-3 text-slate-700" />}
+                            {step.label}
+                          </div>
+                          <div className="truncate font-semibold text-slate-200" title={step.value}>{step.value}</div>
+                          <div className="mt-1 truncate text-[10px] text-slate-500" title={step.detail}>{step.detail || '-'}</div>
+                        </div>
+                      ))}
+                    </div>
                     <div className="mt-2 text-[10px] text-slate-600">{new Date(task.createdAt).toLocaleString()} · {task.source}</div>
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -479,6 +543,28 @@ export function AgentTaskQueuePanel({
             </div>
 
             <div className="grid gap-4">
+              <div className="rounded-lg border border-blue-500/20 bg-blue-950/10 p-4">
+                <div className="mb-3 text-xs font-bold uppercase tracking-widest text-blue-200">
+                  {isZh ? '任务来源链路' : 'Task Source Chain'}
+                </div>
+                <div className="grid gap-3">
+                  {sourceChainSteps(selectedTask).map((step, index) => (
+                    <div key={`${selectedTask.id}-detail-${step.label}`} className="flex gap-3">
+                      <div className="flex flex-col items-center">
+                        <div className="flex h-7 w-7 items-center justify-center rounded-full border border-blue-500/30 bg-blue-500/10 text-xs font-bold text-blue-200">
+                          {index + 1}
+                        </div>
+                        {index < sourceChainSteps(selectedTask).length - 1 && <div className="h-full min-h-5 w-px bg-blue-500/20" />}
+                      </div>
+                      <div className="min-w-0 flex-1 rounded border border-neutral-800 bg-black px-3 py-2">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{step.label}</div>
+                        <div className="mt-1 text-sm font-semibold text-slate-100">{step.value}</div>
+                        <div className="mt-1 break-all text-xs text-slate-500">{step.detail || '-'}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
               <div className="rounded-lg border border-neutral-800 bg-black p-4">
                 <div className="mb-2 text-xs font-bold uppercase tracking-widest text-slate-500">{isZh ? '触发原因' : 'Trigger Reason'}</div>
                 <p className="text-sm leading-relaxed text-slate-300">

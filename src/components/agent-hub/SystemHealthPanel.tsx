@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, AlertTriangle, CheckCircle2, RefreshCw } from 'lucide-react';
+import { Activity, AlertTriangle, CheckCircle2, RefreshCw, Wrench } from 'lucide-react';
 import { useAuthStore } from '../../authStore';
+import { useStore } from '../../store';
 import { cn } from '../../lib/utils';
 
 interface HealthSection {
@@ -44,8 +45,10 @@ function statusIcon(status: string) {
 export function SystemHealthPanel({ language }: SystemHealthPanelProps) {
   const isZh = language === 'zh';
   const { token } = useAuthStore();
+  const { notify, fetchUserSettings } = useStore();
   const [health, setHealth] = useState<SystemHealth | null>(null);
   const [loading, setLoading] = useState(false);
+  const [repairing, setRepairing] = useState(false);
   const [error, setError] = useState('');
 
   const loadHealth = async () => {
@@ -68,6 +71,37 @@ export function SystemHealthPanel({ language }: SystemHealthPanelProps) {
   useEffect(() => {
     void loadHealth();
   }, [token]);
+
+  const runRepair = async () => {
+    setRepairing(true);
+    setError('');
+    try {
+      const response = await fetch('/api/agent-hub/repair', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ scope: 'invalid-agent-work' })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Failed to repair Agent Hub state');
+      notify(
+        isZh
+          ? `Agent Hub 状态已修复，关闭 ${data.changed || 0} 个无效项。`
+          : `Agent Hub state repaired. Closed ${data.changed || 0} invalid item(s).`,
+        data.changed > 0 ? 'success' : 'info'
+      );
+      await fetchUserSettings();
+      await loadHealth();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to repair Agent Hub state';
+      setError(message);
+      notify(message, 'error');
+    } finally {
+      setRepairing(false);
+    }
+  };
 
   const cards = useMemo(() => health ? [
     {
@@ -180,16 +214,19 @@ export function SystemHealthPanel({ language }: SystemHealthPanelProps) {
       id: 'agentPersistence',
       title: isZh ? 'Agent 数据表' : 'Agent Persistence',
       description: isZh ? '任务、机会、审批和执行记录独立表状态。' : 'Dedicated tables for tasks, opportunities, approvals, and execution records.',
-      status: health.agentPersistence.status,
+      status: health.agentPersistence.repair?.status === 'warning' ? 'warning' : health.agentPersistence.status,
       metrics: [
         [isZh ? '任务' : 'Tasks', health.agentPersistence.tasks],
         [isZh ? '机会' : 'Opportunities', health.agentPersistence.opportunities],
         [isZh ? '运行记录' : 'Run records', health.agentPersistence.run_records],
         [isZh ? 'Harness' : 'Harness', health.agentPersistence.harness_runs],
-        [isZh ? 'Global Plans' : 'Global plans', health.agentPersistence.global_plans]
+        [isZh ? 'Global Plans' : 'Global plans', health.agentPersistence.global_plans],
+        [isZh ? '可修复问题' : 'Repairable issues', health.agentPersistence.repair?.repairableCount || 0]
       ]
     }
   ] : [], [health, isZh]);
+
+  const repair = health?.agentPersistence?.repair;
 
   return (
     <section className="rounded-lg border border-neutral-800 bg-neutral-950 p-6">
@@ -215,6 +252,53 @@ export function SystemHealthPanel({ language }: SystemHealthPanelProps) {
 
       {error && <div className="mb-4 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">{error}</div>}
       {health && <div className="mb-4 text-xs text-slate-500">{isZh ? '生成时间' : 'Generated'}: {new Date(health.generatedAt).toLocaleString()}</div>}
+
+      {repair && (
+        <div className={cn(
+          'mb-4 rounded-lg border p-4',
+          repair.repairableCount > 0 ? 'border-amber-500/30 bg-amber-500/10' : 'border-emerald-500/30 bg-emerald-500/10'
+        )}>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="flex items-center gap-2 text-sm font-bold text-slate-100">
+                <Wrench className={cn('h-4 w-4', repair.repairableCount > 0 ? 'text-amber-300' : 'text-emerald-300')} />
+                {isZh ? 'Agent Hub 状态修复' : 'Agent Hub State Repair'}
+              </div>
+              <p className="mt-1 text-xs text-slate-400">
+                {isZh
+                  ? '检查引用已删除邮件、不存在邮件、不存在客户或 Lead 的任务，避免任务刷新后恢复或重复派发。'
+                  : 'Checks tasks that reference deleted emails, missing emails, missing clients, or missing leads, preventing refresh resurrection and redispatch.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void runRepair()}
+              disabled={repairing || loading || repair.repairableCount === 0}
+              className="inline-flex items-center justify-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/15 px-3 py-2 text-xs font-bold text-amber-100 hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Wrench className={cn('h-4 w-4', repairing && 'animate-pulse')} />
+              {repair.repairableCount > 0
+                ? (isZh ? `修复 ${repair.repairableCount} 个问题` : `Repair ${repair.repairableCount} issue(s)`)
+                : (isZh ? '无需修复' : 'No repair needed')}
+            </button>
+          </div>
+          <div className="mt-4 grid gap-2 text-xs md:grid-cols-3 xl:grid-cols-6">
+            {[
+              [isZh ? '开放任务' : 'Open tasks', repair.openTasks],
+              [isZh ? '开放机会' : 'Open opportunities', repair.openOpportunities],
+              [isZh ? '待处理运行' : 'Pending runs', repair.pendingRuns],
+              [isZh ? '已删邮件引用' : 'Deleted email refs', repair.deletedEmailIds?.length || 0],
+              [isZh ? '缺失客户引用' : 'Missing client refs', (repair.deletedClientIds?.length || 0) + (repair.missingClientIds?.length || 0)],
+              [isZh ? '缺失 Lead 引用' : 'Missing lead refs', (repair.deletedLeadIds?.length || 0) + (repair.missingLeadIds?.length || 0)]
+            ].map(([label, value]) => (
+              <div key={String(label)} className="rounded border border-neutral-800 bg-black/50 px-3 py-2">
+                <div className="text-slate-500">{label}</div>
+                <div className="mt-1 text-lg font-bold text-slate-100">{String(value ?? 0)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {cards.map(card => (
