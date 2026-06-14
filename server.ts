@@ -663,6 +663,94 @@ const communicationId = (prefix: string, parts: Array<string | null | undefined>
   return `${prefix}_${hash}`.slice(0, 128);
 };
 
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function parseSignatureJson(value: any, fallback: any) {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return fallback;
+    }
+  }
+  return value;
+}
+
+function parseSignatureArray(value: any) {
+  const parsed = parseSignatureJson(value, []);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function buildServerLeadAnalysisSignature(client: any, deals: any[] = [], emails: any[] = [], logs: any[] = []) {
+  const filteredLogs = logs
+    .filter((log: any) => {
+      const metadata = parseSignatureJson(log.metadata, {});
+      const content = String(log.content || '');
+      return metadata.source !== 'lead_scoring_agent'
+        && !content.startsWith('Lead Scoring Agent analyzed lead:')
+        && !content.startsWith('线索评分智能体已分析线索')
+        && !content.startsWith('Enriched profile / updated client details:')
+        && !content.startsWith('已补全资料')
+        && !content.startsWith('Agent ');
+    })
+    .slice(0, 20)
+    .map((log: any) => ({ date: log.date, type: log.type || 'general', content: log.content }));
+
+  const normalizedEmails = emails.slice(0, 10).map((email: any) => ({
+    date: email.date,
+    type: email.type,
+    scheduledAt: email.scheduled_at || email.scheduledAt || null,
+    todoAt: email.todo_at || email.todoAt || null,
+    subject: email.subject,
+    body: String(email.body || '').slice(0, 800)
+  }));
+
+  const normalizedDeals = deals.slice(0, 5).map((deal: any) => ({
+    id: deal.id,
+    name: deal.name,
+    value: deal.value,
+    status: deal.status,
+    comments: deal.comments || [],
+    productIds: deal.product_ids || deal.productIds || [],
+    notes: deal.lead_notes || deal.leadNotes || null
+  }));
+
+  return stableStringify({
+    client: {
+      id: client.id,
+      name: client.name,
+      company: client.company,
+      address: client.address,
+      state: client.state,
+      city: client.city,
+      country: client.country,
+      status: client.status,
+      tags: parseSignatureArray(client.tags),
+      contactMethods: parseSignatureArray(client.contact_methods),
+      contacts: parseSignatureArray(client.contacts),
+      primaryContactId: client.primary_contact_id || null,
+      lastContact: client.last_contact || null,
+      preferredLanguage: client.preferred_language,
+      preferredTimeRange: client.preferred_time_range,
+      agentWorkflowId: client.agent_workflow_id || null,
+      agentContext: client.agent_context || null
+    },
+    deals: normalizedDeals,
+    emails: normalizedEmails,
+    logs: filteredLogs
+  });
+}
+
 const normalizeCommunicationBody = (value: any, limit = 8000) => (
   String(value || '')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
@@ -12429,6 +12517,7 @@ Return JSON only:
 
     let scanned = 0;
     let acted = 0;
+    let skipped = 0;
     let failed = 0;
     const details: string[] = [];
     const llmId = settings.llmMappings?.agent_harness || settings.llmMappings?.analysis || settings.activeLLMId;
@@ -12438,13 +12527,29 @@ Return JSON only:
       scanned += 1;
       try {
         const emailsRes = tools.includes('email.read')
-          ? await pool.query(`SELECT sender, recipient, subject, body, date, type FROM emails WHERE client_id = $1 AND user_id = $2 ORDER BY date DESC LIMIT 10`, [client.id, userId])
+          ? await pool.query(`SELECT sender, recipient, subject, body, date, type, scheduled_at, todo_at FROM emails WHERE client_id = $1 AND user_id = $2 ORDER BY date DESC LIMIT 10`, [client.id, userId])
           : { rows: [] };
-        const logsRes = await pool.query(`SELECT date, content, type FROM logs WHERE client_id = $1 ORDER BY date DESC LIMIT 10`, [client.id]);
-        const dealsRes = await pool.query(`SELECT id, name, value, status, comments, lead_score, lead_summary, lead_next_step FROM deals WHERE user_id = $1 AND client_id = $2 ORDER BY updated_at DESC NULLS LAST LIMIT 5`, [userId, client.id]);
+        const logsRes = await pool.query(`SELECT date, content, type, metadata FROM logs WHERE client_id = $1 ORDER BY date DESC LIMIT 20`, [client.id]);
+        const dealsRes = await pool.query(`SELECT id, name, value, status, comments, product_ids, lead_notes, lead_score, lead_summary, lead_next_step, lead_scoring_signature FROM deals WHERE user_id = $1 AND client_id = $2 ORDER BY updated_at DESC NULLS LAST LIMIT 5`, [userId, client.id]);
         const kbRes = (tools.includes('knowledge.search') || tools.includes('knowledge.read'))
           ? await searchKnowledgeBase(userId, client.id, `${agent.name} ${objective} ${client.company || client.name || ''}`, llmConfig, 8).catch(() => ({ rows: [] as any[] }))
           : { rows: [] };
+        const primaryDeal = dealsRes.rows[0];
+        const analysisSignature = buildServerLeadAnalysisSignature(client, dealsRes.rows, emailsRes.rows, logsRes.rows);
+        const writesLeadAnalysis = !!primaryDeal && (tools.includes('lead.score') || tools.includes('lead.update') || tools.includes('lead.analyze'));
+        const writesClientAnalysis = tools.includes('client.summarize') || tools.includes('client.update') || tools.includes('next_step.recommend');
+        const existingSignature = writesLeadAnalysis ? primaryDeal?.lead_scoring_signature : client.lead_scoring_signature;
+        const hasExistingAnalysis = writesLeadAnalysis
+          ? (primaryDeal?.lead_score !== null && primaryDeal?.lead_score !== undefined && !!primaryDeal?.lead_summary && !!primaryDeal?.lead_next_step)
+          : (client.lead_score !== null && client.lead_score !== undefined && !!(client.agent_summary || client.lead_summary) && !!(client.agent_next_step || client.lead_next_step));
+
+        if ((writesLeadAnalysis || writesClientAnalysis) && hasExistingAnalysis && existingSignature === analysisSignature) {
+          skipped += 1;
+          details.push(isZh
+            ? `${client.id}：资料未变化，已复用上次分析，跳过 AI 调用。`
+            : `${client.id}: unchanged signature, reused the previous analysis and skipped AI call.`);
+          continue;
+        }
 
         const prompt = `Execute this CRM insight agent using only its allowed tools.
 Agent name: ${agent.name}
@@ -12505,16 +12610,16 @@ Return JSON only:
         const nextStep = String(parsed.nextStep || '').trim();
         const comment = String(parsed.comment || summary || nextStep || '').trim();
 
-        if ((tools.includes('lead.score') || tools.includes('lead.update')) && dealsRes.rows[0]) {
+        if ((tools.includes('lead.score') || tools.includes('lead.update') || tools.includes('lead.analyze')) && primaryDeal) {
           await pool.query(
-            `UPDATE deals SET lead_score = $1, lead_summary = $2, lead_next_step = $3, lead_scoring_analyzed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $4 AND user_id = $5`,
-            [Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : null, summary || null, nextStep || null, dealsRes.rows[0].id, userId]
+            `UPDATE deals SET lead_score = $1, lead_summary = $2, lead_next_step = $3, lead_scoring_signature = $4, lead_scoring_analyzed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $5 AND user_id = $6`,
+            [Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : null, summary || null, nextStep || null, analysisSignature, primaryDeal.id, userId]
           );
         }
         if (tools.includes('client.summarize') || tools.includes('client.update')) {
           await pool.query(
-            `UPDATE clients SET agent_summary = COALESCE($1, agent_summary), agent_next_step = COALESCE($2, agent_next_step), lead_score = COALESCE($3, lead_score), updated_at = CURRENT_TIMESTAMP WHERE id = $4 AND user_id = $5`,
-            [summary || null, nextStep || null, Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : null, client.id, userId]
+            `UPDATE clients SET agent_summary = COALESCE($1, agent_summary), agent_next_step = COALESCE($2, agent_next_step), lead_score = COALESCE($3, lead_score), lead_scoring_signature = $4, lead_scoring_analyzed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $5 AND user_id = $6`,
+            [summary || null, nextStep || null, Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : null, analysisSignature, client.id, userId]
           );
         }
         if (comment && (tools.includes('client.comment') || tools.includes('lead.comment') || tools.includes('client.log') || tools.includes('lead.log'))) {
@@ -12534,8 +12639,8 @@ Return JSON only:
     }
 
     const resultText = isZh
-      ? `洞察型智能体执行完成：扫描 ${scanned} 个客户/线索，处理 ${acted} 个，失败 ${failed} 个。${details.slice(0, 8).join(' ')}`
-      : `Insight agent completed: scanned ${scanned} client/lead record(s), processed ${acted}, failed ${failed}. ${details.slice(0, 8).join(' ')}`;
+      ? `洞察型智能体执行完成：扫描 ${scanned} 个客户/线索，处理 ${acted} 个，跳过 ${skipped} 个，失败 ${failed} 个。${details.slice(0, 8).join(' ')}`
+      : `Insight agent completed: scanned ${scanned} client/lead record(s), processed ${acted}, skipped ${skipped}, failed ${failed}. ${details.slice(0, 8).join(' ')}`;
     run.status = failed > 0 && acted === 0 ? 'failed' : 'completed';
     run.completedAt = new Date().toISOString();
     run.steps = (run.steps || []).map((step: any) => ({
@@ -12546,7 +12651,7 @@ Return JSON only:
         executed: run.status !== 'failed',
         status: run.status === 'failed' ? 'failed' : 'completed',
         resultText,
-        evidence: [`processed:${acted}`, `failed:${failed}`],
+        evidence: [`processed:${acted}`, `skipped:${skipped}`, `failed:${failed}`],
         isZh
       }),
       error: run.status === 'failed' ? resultText : undefined
@@ -12561,7 +12666,7 @@ Return JSON only:
     agent.tasksCompleted = (agent.tasksCompleted || 0) + Math.max(1, acted);
     agent.lastRunAt = new Date().toISOString();
     agent.updatedAt = new Date().toISOString();
-    return { scanned, acted, skipped: 0, failed, details };
+    return { scanned, acted, skipped, failed, details };
   };
 
   const readLeadChannelResponseMessage = async (response: Response) => {
