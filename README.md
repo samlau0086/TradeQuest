@@ -247,13 +247,25 @@ For compatibility, `/api/user/settings` still returns these arrays. On read, dat
 
 ### System Health
 
-Agent Hub includes a Health tab backed by `GET /api/system/health`. It checks:
+Agent Hub includes a Health tab backed by `GET /api/system/health`. It is now a real runtime monitor instead of only a configuration checklist.
+
+The Health tab includes a unified Worker status table for:
+
+- Email Sync.
+- WhatsApp Sync.
+- Live Chat Agent.
+- Signal Scanner.
+- Agent Hub Scheduler.
+
+Each Worker row shows current status, last run time, duration, success/failure counts, last error, compact run details, and next scheduled run time when available.
+
+The same Health API also reports:
 
 - Startup diagnostics for required environment variables, RAG import directory access, database migrations, and background worker registration.
-- Email sync configuration and last background sync state.
-- WhatsApp Actor Hub configuration, actor pool, and customer-service agent state.
-- Live Chat session status.
-- Agent scheduler polling interval, scheduled agents, and event-triggered agents.
+- Email sync configuration and runtime state.
+- WhatsApp Actor Hub configuration, actor pool, and sync runtime state.
+- Live Chat session status and Live Chat Agent runtime state.
+- Agent scheduler polling interval, scheduled agents, event-triggered agents, and Signal Scanner runtime state.
 - Bark/Webhook notification configuration.
 - RAG item count, embedding count, and import directory configuration.
 - LLM provider and module mapping configuration.
@@ -425,6 +437,7 @@ Recommended near-term roadmap:
 - [x] Move critical Agent task, approval, and execution records from user settings JSON toward dedicated database tables.
 - [x] Add a system health page for email sync, WhatsApp sync, Live Chat agent, scheduler, notification delivery, RAG indexing, and LLM provider status.
 - [x] Add startup checks for required directories, environment variables, database migrations, and background workers.
+- [x] Upgrade Health from configuration checks to real Worker runtime monitoring with last run, duration, success/failure, error, and next run time.
 - [x] Add deployment health checks after GitHub Actions deployment.
 
 ### Phase 4: Unified Communication and CRM Workspace
@@ -1132,13 +1145,25 @@ Signal Scanner Agent 会定期扫描 CRM 信号，例如：
 
 ### 系统健康检查
 
-Agent Hub 包含 Health 标签页，后端接口为 `GET /api/system/health`。它会检查：
+Agent Hub 包含 Health 标签页，后端接口为 `GET /api/system/health`。它现在是实际运行监控面板，而不只是配置检查清单。
+
+Health 标签页包含统一的 Worker 状态表，覆盖：
+
+- Email Sync。
+- WhatsApp Sync。
+- Live Chat Agent。
+- Signal Scanner。
+- Agent Hub Scheduler。
+
+每个 Worker 会显示当前状态、最近运行时间、耗时、成功/失败次数、最近错误、简要运行明细，以及可计算时的下次运行时间。
+
+同一个 Health API 还会返回：
 
 - 启动诊断：必要环境变量、RAG 导入目录访问、数据库迁移、后台 worker 注册。
-- 邮件同步配置和最近后台同步状态。
-- WhatsApp Actor Hub 配置、Actor 池和客服 Agent 状态。
-- Live Chat 会话状态。
-- Agent Scheduler 轮询周期、定时 Agent 和事件触发 Agent。
+- 邮件同步配置和真实运行状态。
+- WhatsApp Actor Hub 配置、Actor 池和同步运行状态。
+- Live Chat 会话状态和 Live Chat Agent 运行状态。
+- Agent Scheduler 轮询周期、定时 Agent、事件触发 Agent 和 Signal Scanner 运行状态。
 - Bark/Webhook 通知配置。
 - RAG 条目数量、embedding 数量和导入目录配置。
 - LLM Provider 和模块映射配置。
@@ -1310,6 +1335,7 @@ Agent Execution Policy 使用的 Global Orchestrator action type：
 - [x] 将关键 Agent 任务、审批、执行记录从 user settings JSON 逐步迁移到独立数据库表。
 - [x] 增加系统健康检查页面，覆盖邮件同步、WhatsApp 同步、Live Chat Agent、Scheduler、通知投递、RAG 索引和 LLM Provider。
 - [x] 启动时检查必要目录、环境变量、数据库迁移和后台 worker。
+- [x] 将 Health 从配置检查升级为真实 Worker 运行监控，显示最近运行、耗时、成功/失败、错误原因和下次运行时间。
 - [x] GitHub Actions 部署后增加自动 health check。
 
 ### 阶段 4：统一沟通与 CRM 作战室

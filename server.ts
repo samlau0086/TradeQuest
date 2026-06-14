@@ -308,6 +308,130 @@ const recordStartupWorker = (name: string, intervalMs: number, message = 'regist
     registeredAt: new Date().toISOString(),
     message
   };
+  registerWorkerState(name, intervalMs, message);
+};
+
+type RuntimeWorkerStatus = 'idle' | 'running' | 'ok' | 'failed';
+
+type RuntimeWorkerState = {
+  id: string;
+  label: string;
+  status: RuntimeWorkerStatus;
+  intervalMs?: number;
+  registeredAt: string | null;
+  lastRunAt?: string;
+  lastFinishedAt?: string;
+  lastSuccessAt?: string;
+  lastFailureAt?: string;
+  lastDurationMs?: number;
+  lastError?: string | null;
+  nextRunAt?: string | null;
+  runCount: number;
+  successCount: number;
+  failureCount: number;
+  details?: any;
+};
+
+const workerLabels: Record<string, string> = {
+  email_sync: 'Email Sync',
+  whatsapp_sync: 'WhatsApp Sync',
+  live_chat_agent: 'Live Chat Agent',
+  signal_scanner: 'Signal Scanner',
+  agent_hub_scheduler: 'Agent Hub Scheduler',
+  background_email_sync: 'Background Email Sync',
+  whatsapp_customer_service_sync: 'WhatsApp Customer Service Sync',
+  scheduled_email_sender: 'Scheduled Email Sender',
+  scheduled_whatsapp_sender: 'Scheduled WhatsApp Sender',
+  external_notifications: 'External Notifications',
+  idle_lead_release: 'Idle Lead Release',
+  client_agent_polling: 'Client Agent Polling'
+};
+
+const workerRuntimeState: Record<string, RuntimeWorkerState> = {};
+
+const registerWorkerState = (id: string, intervalMs?: number, message?: string) => {
+  const now = new Date();
+  const existing = workerRuntimeState[id];
+  workerRuntimeState[id] = {
+    id,
+    label: workerLabels[id] || id,
+    status: existing?.status || 'idle',
+    intervalMs,
+    registeredAt: existing?.registeredAt || now.toISOString(),
+    nextRunAt: existing?.nextRunAt || (intervalMs ? new Date(now.getTime() + intervalMs).toISOString() : null),
+    runCount: existing?.runCount || 0,
+    successCount: existing?.successCount || 0,
+    failureCount: existing?.failureCount || 0,
+    lastRunAt: existing?.lastRunAt,
+    lastFinishedAt: existing?.lastFinishedAt,
+    lastSuccessAt: existing?.lastSuccessAt,
+    lastFailureAt: existing?.lastFailureAt,
+    lastDurationMs: existing?.lastDurationMs,
+    lastError: existing?.lastError || null,
+    details: existing?.details || (message ? { message } : undefined)
+  };
+};
+
+const beginWorkerRun = (id: string, details?: any) => {
+  registerWorkerState(id, workerRuntimeState[id]?.intervalMs);
+  const startedAt = new Date();
+  workerRuntimeState[id] = {
+    ...workerRuntimeState[id],
+    status: 'running',
+    lastRunAt: startedAt.toISOString(),
+    lastError: null,
+    details: details || workerRuntimeState[id].details
+  };
+  return startedAt.getTime();
+};
+
+const finishWorkerRun = (id: string, startedAt: number, success: boolean, details?: any, error?: any) => {
+  registerWorkerState(id, workerRuntimeState[id]?.intervalMs);
+  const finishedAt = new Date();
+  const intervalMs = workerRuntimeState[id].intervalMs;
+  workerRuntimeState[id] = {
+    ...workerRuntimeState[id],
+    status: success ? 'ok' : 'failed',
+    lastFinishedAt: finishedAt.toISOString(),
+    lastSuccessAt: success ? finishedAt.toISOString() : workerRuntimeState[id].lastSuccessAt,
+    lastFailureAt: success ? workerRuntimeState[id].lastFailureAt : finishedAt.toISOString(),
+    lastDurationMs: Math.max(0, finishedAt.getTime() - startedAt),
+    lastError: success ? null : (error?.message || String(error || 'Worker failed')),
+    nextRunAt: intervalMs ? new Date(finishedAt.getTime() + intervalMs).toISOString() : null,
+    runCount: workerRuntimeState[id].runCount + 1,
+    successCount: workerRuntimeState[id].successCount + (success ? 1 : 0),
+    failureCount: workerRuntimeState[id].failureCount + (success ? 0 : 1),
+    details: details || workerRuntimeState[id].details
+  };
+};
+
+const getWorkerFailureCount = (result: any) => {
+  if (!result || typeof result !== 'object') return 0;
+  const failed = Number(result.failed || 0);
+  const errors = Number(result.errors || 0);
+  return Math.max(
+    Number.isFinite(failed) ? failed : 0,
+    Number.isFinite(errors) ? errors : 0
+  );
+};
+
+const runMonitoredWorker = async <T,>(id: string, runner: () => Promise<T>, details?: any): Promise<T> => {
+  const startedAt = beginWorkerRun(id, details);
+  try {
+    const result = await runner();
+    const failureCount = getWorkerFailureCount(result);
+    finishWorkerRun(
+      id,
+      startedAt,
+      failureCount === 0,
+      result,
+      failureCount > 0 ? new Error(`${failureCount} item(s) failed`) : undefined
+    );
+    return result;
+  } catch (error) {
+    finishWorkerRun(id, startedAt, false, undefined, error);
+    throw error;
+  }
 };
 
 const runStartupDiagnostics = async () => {
@@ -2947,32 +3071,58 @@ No markdown wrappers, just valid JSON.`;
         ? Number(globalSettings.agent_polling_interval_seconds)
         : Number(globalSettings.agent_polling_interval_hours || 0) * 3600;
       const agentCounts = agentCountsRes.rows[0] || {};
+      const monitoredWorkerIds = ['email_sync', 'whatsapp_sync', 'live_chat_agent', 'signal_scanner', 'agent_hub_scheduler'];
+      const workers: RuntimeWorkerState[] = monitoredWorkerIds.map(id => ({
+        id,
+        ...(workerRuntimeState[id] || {
+          label: workerLabels[id] || id,
+          status: 'idle',
+          registeredAt: null,
+          runCount: 0,
+          successCount: 0,
+          failureCount: 0
+        })
+      }));
+      const workerById = Object.fromEntries(workers.map(worker => [worker.id, worker]));
+      const workerHealthStatus = (id: string, fallback: string) => {
+        const status = workerRuntimeState[id]?.status;
+        if (status === 'failed') return 'warning';
+        if (status === 'running') return 'idle';
+        if (status === 'ok') return 'ok';
+        return fallback;
+      };
       res.json({
         generatedAt: new Date().toISOString(),
+        workers,
         emailSync: {
-          status: inboxConfigs.length > 0 ? 'ok' : 'warning',
+          status: workerHealthStatus('email_sync', inboxConfigs.length > 0 ? 'ok' : 'warning'),
+          worker: workerById.email_sync,
           inboxConfigs: inboxConfigs.length,
           outboxConfigs: outboxConfigs.length,
           backgroundEnabled: true,
-          lastSyncAt: emailSyncState.lastRunAt || emailSyncState.lastSyncAt || null,
-          lastError: emailSyncState.lastError || null
+          lastSyncAt: workerById.email_sync?.lastRunAt || emailSyncState.lastRunAt || emailSyncState.lastSyncAt || null,
+          lastError: workerById.email_sync?.lastError || emailSyncState.lastError || null
         },
         whatsappSync: {
-          status: whatsappActors.length > 0 || settings.whatsappHubConfig?.baseUrl ? 'ok' : 'warning',
+          status: workerHealthStatus('whatsapp_sync', whatsappActors.length > 0 || settings.whatsappHubConfig?.baseUrl ? 'ok' : 'warning'),
+          worker: workerById.whatsapp_sync,
           actorCount: whatsappActors.length,
           hubConfigured: !!settings.whatsappHubConfig?.baseUrl,
           customerServiceAgentEnabled: !!settings.whatsappCustomerServiceAgentEnabled,
           processedMessageCount: Object.keys(settings.whatsappCustomerServiceAgentState?.processedMessageIds || {}).length
         },
         liveChat: {
-          status: liveChatRes.rows[0]?.total > 0 ? 'ok' : 'idle',
+          status: workerHealthStatus('live_chat_agent', liveChatRes.rows[0]?.total > 0 ? 'ok' : 'idle'),
+          worker: workerById.live_chat_agent,
           totalSessions: liveChatRes.rows[0]?.total || 0,
           openSessions: liveChatRes.rows[0]?.open || 0,
           lastUpdatedAt: liveChatRes.rows[0]?.last_updated_at || null,
           agentConfigured: agents.some((agent: any) => agent.id === 'live_chat_agent')
         },
         scheduler: {
-          status: pollingSeconds > 0 ? 'ok' : 'warning',
+          status: workerHealthStatus('agent_hub_scheduler', pollingSeconds > 0 ? 'ok' : 'warning'),
+          worker: workerById.agent_hub_scheduler,
+          signalScannerWorker: workerById.signal_scanner,
           pollingSeconds,
           activeScheduledAgents: agents.filter((agent: any) => agent.status === 'active' && agent.scheduleEnabled).length,
           activeEventAgents: agents.filter((agent: any) => (agent.eventTriggers || []).length > 0).length
@@ -6667,6 +6817,7 @@ No markdown wrappers, just valid JSON.`;
           const reviewStatus = agent.guardrail === 'auto' ? 'approved' : 'pending_review';
           const isZh = settings.language === 'zh';
           if (agent.id === 'signal_scanner_agent') {
+            const signalWorkerStartedAt = beginWorkerRun('signal_scanner', { userId: user.id, agentId: agent.id, agentName: agent.name });
             const startedRecord = addAgentHubRunRecordToSettings(settings, {
               agentId: agent.id,
               agentName: agent.name,
@@ -6680,6 +6831,14 @@ No markdown wrappers, just valid JSON.`;
             try {
               const opportunities = await scanAgentOpportunitiesForUser(user.id, settings);
               const routed = await routeAgentOpportunitiesForUser(user.id, settings);
+              const signalDetails = {
+                userId: user.id,
+                created: opportunities.length,
+                routed: routed.routed,
+                review: routed.review,
+                executed: routed.executed,
+                failed: routed.failed
+              };
               summary.opportunitiesCreated += opportunities.length;
               summary.opportunitiesRouted += routed.routed;
               summary.opportunitiesExecuted += routed.executed;
@@ -6698,6 +6857,7 @@ No markdown wrappers, just valid JSON.`;
               agent.scheduleEnabled = agent.scheduleMaxRuns != null && nextRunCount >= agent.scheduleMaxRuns ? false : agent.scheduleEnabled;
               agent.tasksCompleted = (agent.tasksCompleted || 0) + opportunities.length;
               agent.updatedAt = new Date().toISOString();
+              finishWorkerRun('signal_scanner', signalWorkerStartedAt, routed.failed === 0, signalDetails, routed.failed > 0 ? new Error(`${routed.failed} routed task(s) failed`) : undefined);
             } catch (error: any) {
               summary.errors += 1;
               updateAgentHubRunRecordInSettings(settings, startedRecord.id, {
@@ -6705,6 +6865,7 @@ No markdown wrappers, just valid JSON.`;
                 actualResult: isZh ? `Signal Scanner 扫描失败：${error?.message || '未知错误'}` : (error?.message || 'Signal Scanner failed.'),
                 completedAt: new Date().toISOString()
               });
+              finishWorkerRun('signal_scanner', signalWorkerStartedAt, false, { userId: user.id }, error);
             }
             changed = true;
             continue;
@@ -7503,6 +7664,24 @@ Return JSON only:
     return message;
   };
 
+  const runLiveChatAgentWorker = async (userId: string, sessionId: string) => {
+    const startedAt = beginWorkerRun('live_chat_agent', { userId, sessionId });
+    try {
+      const message = await maybeRunLiveChatAgent(userId, sessionId);
+      finishWorkerRun('live_chat_agent', startedAt, true, {
+        userId,
+        sessionId,
+        replied: !!message,
+        messageId: message?.id || null
+      });
+      return message;
+    } catch (error) {
+      finishWorkerRun('live_chat_agent', startedAt, false, { userId, sessionId }, error);
+      throw error;
+    }
+  };
+  registerWorkerState('live_chat_agent', undefined, 'event-driven live chat replies');
+
   if (liveChatIo) {
     liveChatIo.on('connection', (socket: any) => {
       socket.on('live_chat:operator_auth', async (payload: any, ack?: (response: any) => void) => {
@@ -7589,7 +7768,7 @@ Return JSON only:
             visitorEmail: session.visitor_email,
             clientId: session.client_id
           }).catch(err => console.warn('Agent Hub live_chat_received trigger failed', err));
-          const agentMessage = await maybeRunLiveChatAgent(userId, sessionId);
+          const agentMessage = await runLiveChatAgentWorker(userId, sessionId);
           if (agentMessage) await emitLiveChatMessage(userId, agentMessage);
           ack?.({
             ok: true,
@@ -7732,7 +7911,7 @@ Return JSON only:
         visitorEmail: session.visitor_email,
         clientId: session.client_id
       }).catch(err => console.warn('Agent Hub live_chat_received trigger failed', err));
-      const agentMessage = await maybeRunLiveChatAgent(session.user_id, session.id);
+      const agentMessage = await runLiveChatAgentWorker(session.user_id, session.id);
       if (agentMessage) await emitLiveChatMessage(session.user_id, agentMessage);
       res.json({
         message: liveChatMessageToDto(visitorMessage),
@@ -7868,7 +8047,7 @@ Return JSON only:
         'UPDATE live_chat_sessions SET human_takeover = FALSE, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND user_id = $2',
         [req.params.id, req.user.uid]
       );
-      const message = await maybeRunLiveChatAgent(req.user.uid, req.params.id);
+      const message = await runLiveChatAgentWorker(req.user.uid, req.params.id);
       if (message) await emitLiveChatMessage(req.user.uid, message);
       res.json({ message: message ? liveChatMessageToDto(message) : null });
     } catch (e: any) {
@@ -9331,8 +9510,11 @@ Return JSON only:
     }
   });
 
-  void runAgentHubScheduler();
-  setInterval(runAgentHubScheduler, 5 * 1000);
+  registerWorkerState('signal_scanner', 5 * 1000, 'tracked inside Agent Hub scheduler');
+  void runMonitoredWorker('agent_hub_scheduler', runAgentHubScheduler).catch(error => console.warn('Agent Hub scheduler monitor failed', error?.message || error));
+  setInterval(() => {
+    void runMonitoredWorker('agent_hub_scheduler', runAgentHubScheduler).catch(error => console.warn('Agent Hub scheduler monitor failed', error?.message || error));
+  }, 5 * 1000);
   recordStartupWorker('agent_hub_scheduler', 5 * 1000);
   
   // Scheduled Emails Processor
@@ -9406,6 +9588,7 @@ Return JSON only:
   recordStartupWorker('scheduled_email_sender', 60 * 1000);
 
   const processBackgroundEmailSync = async () => {
+    const summary = { users: 0, inboxes: 0, synced: 0, linkedExistingEmails: 0, failed: 0 };
     try {
       const usersRes = await pool.query(
         `SELECT id, settings
@@ -9416,12 +9599,14 @@ Return JSON only:
       );
       const now = Date.now();
       for (const user of usersRes.rows) {
+        summary.users += 1;
         const settings = typeof user.settings === 'string' ? JSON.parse(user.settings || '{}') : (user.settings || {});
         const inboxConfigs = Array.isArray(settings.inboxConfigs) ? settings.inboxConfigs : [];
         const syncState = settings.emailBackgroundSyncState || {};
         let changed = false;
         for (const inboxConfig of inboxConfigs) {
           if (!inboxConfig?.id || (inboxConfig.type !== 'imap' && inboxConfig.type !== 'pop3')) continue;
+          summary.inboxes += 1;
           const intervalMinutes = Math.max(5, Number(inboxConfig.syncIntervalMinutes || 60) || 60);
           const lastSyncAt = syncState[inboxConfig.id]?.lastSyncAt ? new Date(syncState[inboxConfig.id].lastSyncAt).getTime() : 0;
           if (lastSyncAt && now - lastSyncAt < intervalMinutes * 60 * 1000) continue;
@@ -9433,6 +9618,8 @@ Return JSON only:
           changed = true;
           try {
             const result = await syncEmailInboxForUser(user.id, inboxConfig);
+            summary.synced += Number(result.count || 0);
+            summary.linkedExistingEmails += Number(result.linkedExistingEmails || 0);
             syncState[inboxConfig.id] = {
               lastSyncAt: new Date().toISOString(),
               status: 'completed',
@@ -9440,6 +9627,7 @@ Return JSON only:
               linkedExistingEmails: result.linkedExistingEmails
             };
           } catch (error: any) {
+            summary.failed += 1;
             syncState[inboxConfig.id] = {
               lastSyncAt: new Date().toISOString(),
               status: 'failed',
@@ -9456,10 +9644,16 @@ Return JSON only:
       }
     } catch (error: any) {
       console.warn('Background email sync scheduler failed', error.message || error);
+      summary.failed += 1;
+      throw error;
     }
+    return summary;
   };
 
-  setInterval(processBackgroundEmailSync, 60 * 1000);
+  registerWorkerState('email_sync', 60 * 1000, 'background email sync');
+  setInterval(() => {
+    void runMonitoredWorker('email_sync', processBackgroundEmailSync).catch(error => console.warn('Email Sync worker failed', error?.message || error));
+  }, 60 * 1000);
   recordStartupWorker('background_email_sync', 60 * 1000);
 
   const processScheduledWhatsAppMessages = async () => {
@@ -9522,6 +9716,7 @@ Return JSON only:
   recordStartupWorker('scheduled_whatsapp_sender', 60 * 1000);
 
   const processWhatsAppCustomerServiceSync = async () => {
+    const summary = { users: 0, chatsSynced: 0, messagesSynced: 0, failed: 0 };
     try {
       const usersRes = await pool.query(
         `SELECT id
@@ -9529,6 +9724,7 @@ Return JSON only:
          WHERE COALESCE((settings->>'whatsappCustomerServiceAgentEnabled')::boolean, false) = true`
       );
       for (const user of usersRes.rows) {
+        summary.users += 1;
         try {
           const values: any[] = [user.id];
           let where = 'user_id = $1';
@@ -9542,21 +9738,29 @@ Return JSON only:
           const since = latest.rows[0]?.latest_at
             ? applyWhatsAppHistoryRecoveryLookback(new Date(latest.rows[0].latest_at).toISOString())
             : undefined;
-          await syncWhatsAppHubChats(user.id, 100).catch(() => 0);
-          await syncWhatsAppHubMessages(user.id, { limit: 200, since }).catch((error: any) => {
+          summary.chatsSynced += await syncWhatsAppHubChats(user.id, 100).catch(() => 0);
+          summary.messagesSynced += await syncWhatsAppHubMessages(user.id, { limit: 200, since }).catch((error: any) => {
             console.warn(`WhatsApp Customer Service sync failed for user ${user.id}`, error?.message || error);
+            summary.failed += 1;
             return 0;
           });
         } catch (error: any) {
+          summary.failed += 1;
           console.warn(`WhatsApp Customer Service background sync skipped for user ${user.id}`, error?.message || error);
         }
       }
     } catch (error: any) {
       console.warn('WhatsApp Customer Service background sync failed', error?.message || error);
+      summary.failed += 1;
+      throw error;
     }
+    return summary;
   };
 
-  setInterval(processWhatsAppCustomerServiceSync, 60 * 1000);
+  registerWorkerState('whatsapp_sync', 60 * 1000, 'WhatsApp Actor Hub incremental sync');
+  setInterval(() => {
+    void runMonitoredWorker('whatsapp_sync', processWhatsAppCustomerServiceSync).catch(error => console.warn('WhatsApp Sync worker failed', error?.message || error));
+  }, 60 * 1000);
   recordStartupWorker('whatsapp_customer_service_sync', 60 * 1000);
   
   // Deals API Endpoints

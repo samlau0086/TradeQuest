@@ -1,16 +1,38 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, AlertTriangle, CheckCircle2, RefreshCw, Wrench } from 'lucide-react';
+import { Activity, AlertTriangle, CheckCircle2, Clock3, RefreshCw, Wrench } from 'lucide-react';
 import { useAuthStore } from '../../authStore';
 import { useStore } from '../../store';
 import { cn } from '../../lib/utils';
 
+interface WorkerState {
+  id: string;
+  label: string;
+  status: 'idle' | 'running' | 'ok' | 'failed' | string;
+  intervalMs?: number;
+  registeredAt?: string | null;
+  lastRunAt?: string | null;
+  lastFinishedAt?: string | null;
+  lastSuccessAt?: string | null;
+  lastFailureAt?: string | null;
+  lastDurationMs?: number;
+  lastError?: string | null;
+  nextRunAt?: string | null;
+  runCount?: number;
+  successCount?: number;
+  failureCount?: number;
+  details?: any;
+}
+
 interface HealthSection {
   status: 'ok' | 'warning' | 'idle' | string;
+  worker?: WorkerState;
+  signalScannerWorker?: WorkerState;
   [key: string]: any;
 }
 
 interface SystemHealth {
   generatedAt: string;
+  workers?: WorkerState[];
   emailSync: HealthSection;
   whatsappSync: HealthSection;
   liveChat: HealthSection;
@@ -32,14 +54,48 @@ interface SystemHealthPanelProps {
 
 function statusTone(status: string) {
   if (status === 'ok') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
-  if (status === 'warning') return 'border-amber-500/30 bg-amber-500/10 text-amber-200';
+  if (status === 'running') return 'border-blue-500/30 bg-blue-500/10 text-blue-200';
+  if (status === 'failed' || status === 'warning') return 'border-amber-500/30 bg-amber-500/10 text-amber-200';
   return 'border-slate-500/30 bg-slate-500/10 text-slate-300';
 }
 
 function statusIcon(status: string) {
   if (status === 'ok') return <CheckCircle2 className="h-4 w-4" />;
-  if (status === 'warning') return <AlertTriangle className="h-4 w-4" />;
+  if (status === 'running') return <RefreshCw className="h-4 w-4 animate-spin" />;
+  if (status === 'failed' || status === 'warning') return <AlertTriangle className="h-4 w-4" />;
   return <Activity className="h-4 w-4" />;
+}
+
+function formatTime(value?: string | null) {
+  if (!value) return '-';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function formatDuration(ms?: number) {
+  if (typeof ms !== 'number') return '-';
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
+}
+
+function formatInterval(ms?: number) {
+  if (!ms) return '-';
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
+  return `${Math.round(ms / 3_600_000)}h`;
+}
+
+function compactDetails(details: any) {
+  if (!details) return '-';
+  if (typeof details === 'string') return details;
+  if (Array.isArray(details)) return `${details.length} item(s)`;
+  if (typeof details === 'object') {
+    return Object.entries(details)
+      .slice(0, 5)
+      .map(([key, value]) => `${key}:${String(value)}`)
+      .join(' · ');
+  }
+  return String(details);
 }
 
 export function SystemHealthPanel({ language }: SystemHealthPanelProps) {
@@ -103,125 +159,91 @@ export function SystemHealthPanel({ language }: SystemHealthPanelProps) {
     }
   };
 
+  const workers = health?.workers || [];
+  const workerSummary = useMemo(() => ({
+    running: workers.filter(worker => worker.status === 'running').length,
+    failed: workers.filter(worker => worker.status === 'failed').length,
+    ok: workers.filter(worker => worker.status === 'ok').length,
+    idle: workers.filter(worker => worker.status === 'idle').length
+  }), [workers]);
+
   const cards = useMemo(() => health ? [
-    {
-      id: 'startup',
-      title: isZh ? '启动检查' : 'Startup Checks',
-      description: isZh ? '环境变量、必要目录和数据库迁移检查。' : 'Environment, required directories, and database migration checks.',
-      status: health.startup?.checks?.some(check => check.status === 'error') ? 'warning' : 'ok',
-      metrics: [
-        [isZh ? '检查时间' : 'Checked at', health.startup?.generatedAt ? new Date(health.startup.generatedAt).toLocaleString() : '-'],
-        [isZh ? '通过' : 'OK', health.startup?.checks?.filter(check => check.status === 'ok').length || 0],
-        [isZh ? '警告' : 'Warnings', health.startup?.checks?.filter(check => check.status === 'warning').length || 0],
-        [isZh ? '错误' : 'Errors', health.startup?.checks?.filter(check => check.status === 'error').length || 0]
-      ],
-      details: health.startup?.checks?.map(check => `${check.name}: ${check.message}`) || []
-    },
-    {
-      id: 'workers',
-      title: isZh ? '后台 Worker' : 'Background Workers',
-      description: isZh ? '后台调度、同步、发送和通知 worker 注册状态。' : 'Background scheduler, sync, sender, and notification worker registration.',
-      status: Object.keys(health.startup?.workers || {}).length > 0 ? 'ok' : 'warning',
-      metrics: [
-        [isZh ? '已注册' : 'Registered', Object.keys(health.startup?.workers || {}).length],
-        [isZh ? '最近检查' : 'Last checked', health.startup?.generatedAt ? new Date(health.startup.generatedAt).toLocaleString() : '-']
-      ],
-      details: Object.entries(health.startup?.workers || {}).map(([name, worker]) => `${name}: ${worker.intervalMs ? `${Math.round(worker.intervalMs / 1000)}s` : worker.status}`)
-    },
     {
       id: 'email',
       title: isZh ? '邮件同步' : 'Email Sync',
-      description: isZh ? '后台收件、发件配置和最近同步状态。' : 'Background inbox sync, mailbox configuration, and recent sync state.',
+      description: isZh ? '后台收件同步的真实运行状态和邮箱配置。' : 'Real background inbox sync runtime and mailbox configuration.',
       status: health.emailSync.status,
       metrics: [
+        [isZh ? '最近运行' : 'Last run', formatTime(health.emailSync.worker?.lastRunAt || health.emailSync.lastSyncAt)],
+        [isZh ? '耗时' : 'Duration', formatDuration(health.emailSync.worker?.lastDurationMs)],
+        [isZh ? '下次运行' : 'Next run', formatTime(health.emailSync.worker?.nextRunAt)],
         [isZh ? '收件服务器' : 'Inbox configs', health.emailSync.inboxConfigs],
-        [isZh ? '发件服务器' : 'Outbox configs', health.emailSync.outboxConfigs],
-        [isZh ? '最近同步' : 'Last sync', health.emailSync.lastSyncAt ? new Date(health.emailSync.lastSyncAt).toLocaleString() : '-'],
-        [isZh ? '错误' : 'Error', health.emailSync.lastError || '-']
+        [isZh ? '最近错误' : 'Last error', health.emailSync.worker?.lastError || health.emailSync.lastError || '-']
       ]
     },
     {
       id: 'whatsapp',
-      title: 'WhatsApp',
-      description: isZh ? 'Actor Hub、Actor 池和客服 Agent 状态。' : 'Actor Hub, actor pool, and customer-service agent state.',
+      title: 'WhatsApp Sync',
+      description: isZh ? 'Actor Hub 增量同步与客服消息拉取状态。' : 'Actor Hub incremental sync and customer-service message fetch state.',
       status: health.whatsappSync.status,
       metrics: [
-        [isZh ? 'Hub 已配置' : 'Hub configured', health.whatsappSync.hubConfigured ? (isZh ? '是' : 'Yes') : (isZh ? '否' : 'No')],
+        [isZh ? '最近运行' : 'Last run', formatTime(health.whatsappSync.worker?.lastRunAt)],
+        [isZh ? '耗时' : 'Duration', formatDuration(health.whatsappSync.worker?.lastDurationMs)],
+        [isZh ? '下次运行' : 'Next run', formatTime(health.whatsappSync.worker?.nextRunAt)],
         [isZh ? 'Actor 数量' : 'Actors', health.whatsappSync.actorCount],
-        [isZh ? '客服 Agent' : 'Service agent', health.whatsappSync.customerServiceAgentEnabled ? (isZh ? '启用' : 'Enabled') : (isZh ? '关闭' : 'Off')],
-        [isZh ? '已处理消息' : 'Processed messages', health.whatsappSync.processedMessageCount]
+        [isZh ? '最近错误' : 'Last error', health.whatsappSync.worker?.lastError || '-']
       ]
     },
     {
       id: 'liveChat',
-      title: isZh ? 'Live Chat' : 'Live Chat',
-      description: isZh ? '网站访客会话和人工接管工作台状态。' : 'Website visitor sessions and operator desk state.',
-      status: health.liveChat.status,
+      title: isZh ? 'Live Chat Agent' : 'Live Chat Agent',
+      description: isZh ? '访客消息触发的实时客服 Agent 运行状态。' : 'Event-driven customer-service agent runtime for visitor messages.',
+      status: health.liveChat.worker?.status || health.liveChat.status,
       metrics: [
-        [isZh ? '总会话' : 'Total sessions', health.liveChat.totalSessions],
+        [isZh ? '最近运行' : 'Last run', formatTime(health.liveChat.worker?.lastRunAt)],
+        [isZh ? '耗时' : 'Duration', formatDuration(health.liveChat.worker?.lastDurationMs)],
+        [isZh ? '成功/失败' : 'Success/Fail', `${health.liveChat.worker?.successCount || 0}/${health.liveChat.worker?.failureCount || 0}`],
         [isZh ? '开放会话' : 'Open sessions', health.liveChat.openSessions],
-        [isZh ? 'Agent 已配置' : 'Agent configured', health.liveChat.agentConfigured ? (isZh ? '是' : 'Yes') : (isZh ? '否' : 'No')],
-        [isZh ? '最近更新' : 'Last updated', health.liveChat.lastUpdatedAt ? new Date(health.liveChat.lastUpdatedAt).toLocaleString() : '-']
+        [isZh ? '最近错误' : 'Last error', health.liveChat.worker?.lastError || '-']
+      ]
+    },
+    {
+      id: 'signal',
+      title: isZh ? 'Signal Scanner' : 'Signal Scanner',
+      description: isZh ? '扫描 CRM 信号并生成机会任务的实际运行状态。' : 'Runtime for scanning CRM signals and creating opportunity tasks.',
+      status: health.scheduler.signalScannerWorker?.status || 'idle',
+      metrics: [
+        [isZh ? '最近运行' : 'Last run', formatTime(health.scheduler.signalScannerWorker?.lastRunAt)],
+        [isZh ? '耗时' : 'Duration', formatDuration(health.scheduler.signalScannerWorker?.lastDurationMs)],
+        [isZh ? '下次检查' : 'Next check', formatTime(health.scheduler.signalScannerWorker?.nextRunAt)],
+        [isZh ? '成功/失败' : 'Success/Fail', `${health.scheduler.signalScannerWorker?.successCount || 0}/${health.scheduler.signalScannerWorker?.failureCount || 0}`],
+        [isZh ? '最近错误' : 'Last error', health.scheduler.signalScannerWorker?.lastError || '-']
       ]
     },
     {
       id: 'scheduler',
-      title: isZh ? '调度器' : 'Scheduler',
-      description: isZh ? '后台智能体调度、周期和事件触发状态。' : 'Background agent schedule, polling, and event trigger state.',
-      status: health.scheduler.status,
+      title: isZh ? 'Scheduler' : 'Scheduler',
+      description: isZh ? 'Agent Hub 调度器本身的心跳与执行状态。' : 'Agent Hub scheduler heartbeat and execution state.',
+      status: health.scheduler.worker?.status || health.scheduler.status,
       metrics: [
-        [isZh ? '轮询秒数' : 'Polling seconds', health.scheduler.pollingSeconds || '-'],
+        [isZh ? '最近运行' : 'Last run', formatTime(health.scheduler.worker?.lastRunAt)],
+        [isZh ? '耗时' : 'Duration', formatDuration(health.scheduler.worker?.lastDurationMs)],
+        [isZh ? '下次运行' : 'Next run', formatTime(health.scheduler.worker?.nextRunAt)],
         [isZh ? '定时 Agent' : 'Scheduled agents', health.scheduler.activeScheduledAgents],
         [isZh ? '事件 Agent' : 'Event agents', health.scheduler.activeEventAgents]
       ]
     },
     {
-      id: 'notifications',
-      title: isZh ? '通知' : 'Notifications',
-      description: isZh ? 'Bark、Webhook 和事件通知配置。' : 'Bark, webhook, and notification event configuration.',
-      status: health.notifications.status,
-      metrics: [
-        [isZh ? '通知总开关' : 'Enabled', health.notifications.enabled ? (isZh ? '开启' : 'On') : (isZh ? '关闭' : 'Off')],
-        ['Bark', health.notifications.barkEnabled ? (isZh ? '开启' : 'On') : (isZh ? '关闭' : 'Off')],
-        ['Webhook', health.notifications.webhookEnabled ? (isZh ? '开启' : 'On') : (isZh ? '关闭' : 'Off')],
-        [isZh ? '事件数量' : 'Events', health.notifications.enabledEvents?.length || 0]
-      ]
-    },
-    {
       id: 'rag',
-      title: 'RAG',
-      description: isZh ? '知识库、embedding 和服务器导入目录状态。' : 'Knowledge base, embeddings, and server import directory state.',
-      status: health.rag.status,
+      title: 'RAG / LLM',
+      description: isZh ? '知识库、Embedding 与 AI Provider 配置。' : 'Knowledge base, embeddings, and AI provider configuration.',
+      status: health.rag.status === 'ok' && health.llm.status === 'ok' ? 'ok' : 'warning',
       metrics: [
         [isZh ? '知识条目' : 'Knowledge items', health.rag.knowledgeItems],
         [isZh ? '已向量化' : 'Embedded', health.rag.embeddedItems],
-        [isZh ? '导入目录' : 'Import dir', health.rag.importDirConfigured ? (isZh ? '已配置' : 'Configured') : (isZh ? '未配置' : 'Not configured')],
-        [isZh ? '最近更新' : 'Last updated', health.rag.lastUpdatedAt ? new Date(health.rag.lastUpdatedAt).toLocaleString() : '-']
-      ]
-    },
-    {
-      id: 'llm',
-      title: 'LLM',
-      description: isZh ? 'AI Provider 和模块模型映射。' : 'AI providers and module-to-model mapping.',
-      status: health.llm.status,
-      metrics: [
         [isZh ? 'Provider 数量' : 'Providers', health.llm.configuredProviders],
         [isZh ? '默认模型' : 'Active LLM', health.llm.activeLLMId || '-'],
-        [isZh ? '模块映射' : 'Mapped modules', health.llm.mappedModules]
-      ]
-    },
-    {
-      id: 'agentPersistence',
-      title: isZh ? 'Agent 数据表' : 'Agent Persistence',
-      description: isZh ? '任务、机会、审批和执行记录独立表状态。' : 'Dedicated tables for tasks, opportunities, approvals, and execution records.',
-      status: health.agentPersistence.repair?.status === 'warning' ? 'warning' : health.agentPersistence.status,
-      metrics: [
-        [isZh ? '任务' : 'Tasks', health.agentPersistence.tasks],
-        [isZh ? '机会' : 'Opportunities', health.agentPersistence.opportunities],
-        [isZh ? '运行记录' : 'Run records', health.agentPersistence.run_records],
-        [isZh ? 'Harness' : 'Harness', health.agentPersistence.harness_runs],
-        [isZh ? 'Global Plans' : 'Global plans', health.agentPersistence.global_plans],
-        [isZh ? '可修复问题' : 'Repairable issues', health.agentPersistence.repair?.repairableCount || 0]
+        [isZh ? '最近更新' : 'Last updated', formatTime(health.rag.lastUpdatedAt)]
       ]
     }
   ] : [], [health, isZh]);
@@ -233,10 +255,12 @@ export function SystemHealthPanel({ language }: SystemHealthPanelProps) {
       <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400">
-            <Activity className="h-4 w-4 text-blue-300" /> {isZh ? '系统健康检查' : 'System Health'}
+            <Activity className="h-4 w-4 text-blue-300" /> {isZh ? '后台 Worker 运行监控' : 'Background Worker Monitor'}
           </div>
           <p className="mt-2 text-xs text-slate-500">
-            {isZh ? '检查后台同步、智能体调度、通知、RAG、LLM 和 Agent 数据持久化状态。' : 'Monitor background sync, agent scheduling, notifications, RAG, LLM, and Agent persistence.'}
+            {isZh
+              ? '显示 Email Sync、WhatsApp Sync、Live Chat Agent、Signal Scanner 和 Scheduler 的真实运行状态。'
+              : 'Shows real runtime status for Email Sync, WhatsApp Sync, Live Chat Agent, Signal Scanner, and Scheduler.'}
           </p>
         </div>
         <button
@@ -251,7 +275,81 @@ export function SystemHealthPanel({ language }: SystemHealthPanelProps) {
       </div>
 
       {error && <div className="mb-4 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">{error}</div>}
-      {health && <div className="mb-4 text-xs text-slate-500">{isZh ? '生成时间' : 'Generated'}: {new Date(health.generatedAt).toLocaleString()}</div>}
+
+      {health && (
+        <div className="mb-4 grid gap-3 md:grid-cols-4">
+          <div className="rounded border border-neutral-800 bg-black px-3 py-2">
+            <div className="text-xs text-slate-500">{isZh ? '生成时间' : 'Generated'}</div>
+            <div className="mt-1 text-sm text-slate-200">{formatTime(health.generatedAt)}</div>
+          </div>
+          <div className="rounded border border-neutral-800 bg-black px-3 py-2">
+            <div className="text-xs text-slate-500">{isZh ? '运行中' : 'Running'}</div>
+            <div className="mt-1 text-lg font-bold text-blue-200">{workerSummary.running}</div>
+          </div>
+          <div className="rounded border border-neutral-800 bg-black px-3 py-2">
+            <div className="text-xs text-slate-500">{isZh ? '成功' : 'OK'}</div>
+            <div className="mt-1 text-lg font-bold text-emerald-200">{workerSummary.ok}</div>
+          </div>
+          <div className="rounded border border-neutral-800 bg-black px-3 py-2">
+            <div className="text-xs text-slate-500">{isZh ? '失败' : 'Failed'}</div>
+            <div className="mt-1 text-lg font-bold text-amber-200">{workerSummary.failed}</div>
+          </div>
+        </div>
+      )}
+
+      <div className="mb-6 overflow-hidden rounded-lg border border-neutral-800 bg-black">
+        <div className="flex items-center gap-2 border-b border-neutral-800 px-4 py-3 text-xs font-bold uppercase tracking-widest text-slate-400">
+          <Clock3 className="h-4 w-4 text-blue-300" />
+          {isZh ? 'Worker 状态表' : 'Worker Status Table'}
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-xs">
+            <thead className="bg-neutral-950 text-slate-500">
+              <tr>
+                <th className="px-4 py-3">{isZh ? 'Worker' : 'Worker'}</th>
+                <th className="px-4 py-3">{isZh ? '状态' : 'Status'}</th>
+                <th className="px-4 py-3">{isZh ? '最近运行' : 'Last Run'}</th>
+                <th className="px-4 py-3">{isZh ? '耗时' : 'Duration'}</th>
+                <th className="px-4 py-3">{isZh ? '下次运行' : 'Next Run'}</th>
+                <th className="px-4 py-3">{isZh ? '成功/失败' : 'Success/Fail'}</th>
+                <th className="px-4 py-3">{isZh ? '详情 / 错误' : 'Details / Error'}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {workers.map(worker => (
+                <tr key={worker.id} className="border-t border-neutral-900">
+                  <td className="px-4 py-3">
+                    <div className="font-bold text-slate-100">{worker.label}</div>
+                    <div className="mt-1 font-mono text-[10px] text-slate-600">{worker.id} · {formatInterval(worker.intervalMs)}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={cn('inline-flex items-center gap-1 rounded border px-2 py-1 text-[10px] font-bold uppercase', statusTone(worker.status))}>
+                      {statusIcon(worker.status)}
+                      {worker.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-slate-300">{formatTime(worker.lastRunAt)}</td>
+                  <td className="px-4 py-3 text-slate-300">{formatDuration(worker.lastDurationMs)}</td>
+                  <td className="px-4 py-3 text-slate-300">{formatTime(worker.nextRunAt)}</td>
+                  <td className="px-4 py-3 text-slate-300">{worker.successCount || 0}/{worker.failureCount || 0}</td>
+                  <td className="max-w-xs px-4 py-3">
+                    <div className={cn('truncate', worker.lastError ? 'text-amber-200' : 'text-slate-500')} title={worker.lastError || compactDetails(worker.details)}>
+                      {worker.lastError || compactDetails(worker.details)}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {workers.length === 0 && (
+                <tr>
+                  <td className="px-4 py-8 text-center text-slate-500" colSpan={7}>
+                    {isZh ? '暂无 Worker 运行记录。' : 'No worker runtime records yet.'}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       {repair && (
         <div className={cn(
@@ -266,8 +364,8 @@ export function SystemHealthPanel({ language }: SystemHealthPanelProps) {
               </div>
               <p className="mt-1 text-xs text-slate-400">
                 {isZh
-                  ? '检查引用已删除邮件、不存在邮件、不存在客户或 Lead 的任务，避免任务刷新后恢复或重复派发。'
-                  : 'Checks tasks that reference deleted emails, missing emails, missing clients, or missing leads, preventing refresh resurrection and redispatch.'}
+                  ? '检查引用已删除或缺失邮件、客户、Lead 的任务，避免刷新后复活或重复派发。'
+                  : 'Checks tasks that reference deleted or missing emails, clients, or leads to prevent resurrection and redispatch.'}
               </p>
             </div>
             <button
@@ -282,25 +380,10 @@ export function SystemHealthPanel({ language }: SystemHealthPanelProps) {
                 : (isZh ? '无需修复' : 'No repair needed')}
             </button>
           </div>
-          <div className="mt-4 grid gap-2 text-xs md:grid-cols-3 xl:grid-cols-6">
-            {[
-              [isZh ? '开放任务' : 'Open tasks', repair.openTasks],
-              [isZh ? '开放机会' : 'Open opportunities', repair.openOpportunities],
-              [isZh ? '待处理运行' : 'Pending runs', repair.pendingRuns],
-              [isZh ? '已删邮件引用' : 'Deleted email refs', repair.deletedEmailIds?.length || 0],
-              [isZh ? '缺失客户引用' : 'Missing client refs', (repair.deletedClientIds?.length || 0) + (repair.missingClientIds?.length || 0)],
-              [isZh ? '缺失 Lead 引用' : 'Missing lead refs', (repair.deletedLeadIds?.length || 0) + (repair.missingLeadIds?.length || 0)]
-            ].map(([label, value]) => (
-              <div key={String(label)} className="rounded border border-neutral-800 bg-black/50 px-3 py-2">
-                <div className="text-slate-500">{label}</div>
-                <div className="mt-1 text-lg font-bold text-slate-100">{String(value ?? 0)}</div>
-              </div>
-            ))}
-          </div>
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {cards.map(card => (
           <div key={card.id} className="rounded-lg border border-neutral-800 bg-black p-4">
             <div className="flex items-start justify-between gap-3">
@@ -317,17 +400,10 @@ export function SystemHealthPanel({ language }: SystemHealthPanelProps) {
               {card.metrics.map(([label, value]) => (
                 <div key={String(label)} className="flex items-center justify-between gap-3 rounded border border-neutral-900 bg-neutral-950 px-2 py-1.5">
                   <dt className="text-slate-500">{label}</dt>
-                  <dd className="max-w-[55%] truncate text-right text-slate-200">{String(value ?? '-')}</dd>
+                  <dd className="max-w-[58%] truncate text-right text-slate-200" title={String(value ?? '-')}>{String(value ?? '-')}</dd>
                 </div>
               ))}
             </dl>
-            {'details' in card && Array.isArray(card.details) && card.details.length > 0 && (
-              <div className="mt-3 max-h-28 space-y-1 overflow-y-auto rounded border border-neutral-900 bg-neutral-950 p-2">
-                {card.details.slice(0, 12).map(detail => (
-                  <div key={detail} className="truncate text-[10px] text-slate-500" title={detail}>{detail}</div>
-                ))}
-              </div>
-            )}
           </div>
         ))}
       </div>
