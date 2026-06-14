@@ -99,7 +99,7 @@ export function AgentHubHeader({
               )}
             >
               <MessageSquare className="h-4 w-4" />
-              Agent Chat
+              {isZh ? '辅助聊天' : 'Helper Chat'}
             </button>
             <button onClick={onCreateAgent} className="flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-500">
               <Plus className="h-4 w-4" /> {t('Create Agent')}

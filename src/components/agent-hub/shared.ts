@@ -27,6 +27,49 @@ export type AgentHubTab = 'fleet' | 'approvals' | 'opportunities' | 'runs' | 'ch
 export type AgentQueueFilter = 'system' | 'custom';
 export type AgentTaskQueueFilter = 'active' | 'open' | 'approval_required' | 'running' | 'completed' | 'failed' | 'ignored' | 'all';
 
+export function agentTaskSourceLabel(triggerType?: string, source?: string, language?: string) {
+  const isZh = language === 'zh';
+  const normalized = (triggerType || source || '').toLowerCase();
+  if (normalized === 'signal' || source === 'signal_scanner') return isZh ? 'Signal Scanner' : 'Signal Scanner';
+  if (normalized === 'event' || source === 'agent_event') return isZh ? '事件触发' : 'Event Trigger';
+  if (normalized === 'schedule' || source === 'agent_schedule') return isZh ? '定时触发' : 'Scheduled Trigger';
+  if (normalized === 'manual') return isZh ? '用户手动' : 'Manual';
+  if (normalized === 'console') return isZh ? 'Agent Chat 辅助' : 'Agent Chat Helper';
+  if (normalized === 'system') return isZh ? '系统任务' : 'System';
+  return isZh ? '未知来源' : 'Unknown source';
+}
+
+export function agentFixSuggestions(text: string, language?: string) {
+  const isZh = language === 'zh';
+  const lower = text.toLowerCase();
+  const suggestions: string[] = [];
+  const add = (zh: string, en: string) => suggestions.push(isZh ? zh : en);
+
+  if (/(not configured|missing|api key|credential|channel|server|smtp|imap|pop3|whatsapp hub|outscraper|apify|phantombuster|hasdata|decodo|clay|未配置|缺少|密钥|凭证|服务器)/i.test(lower)) {
+    add('检查 Settings → AI & Integrations / Email Servers / WhatsApp Actor Hub / Lead 数据渠道，补齐 API Key、服务器或渠道配置后重试。', 'Check Settings → AI & Integrations / Email Servers / WhatsApp Actor Hub / Lead data channels, then add the missing API key, server, or channel config and retry.');
+  }
+  if (/(no linked|not linked|client\/lead|linked entity|subject mode|entity subject|未关联|客户\/线索|事件主体|主体模式)/i.test(lower)) {
+    add('先把邮件、WhatsApp、Live Chat 或事件关联到客户/Lead；如果确实要全局扫描，请把该 Agent 的事件作用范围改为全局。', 'Link the message/event to a client or lead first. If this agent should scan globally, change its event trigger scope to global.');
+  }
+  if (/(permission|forbidden|unauthorized|403|401|not allowed|权限|未授权|禁止)/i.test(lower)) {
+    add('检查 Agent 工具权限、用户角色权限和高风险动作审批策略，确认该 Agent 有权执行对应工具。', 'Review the agent tool permissions, user role permissions, and high-risk approval policy before retrying.');
+  }
+  if (/(approval|review|required|pending_review|human|审批|审核|人工)/i.test(lower)) {
+    add('到 Agent Hub → 审批处理该动作；批准后会进入执行链路，拒绝时可填写原因并保留审计记录。', 'Handle it in Agent Hub → Approvals. Approved items continue into execution; rejected items keep the audit trail.');
+  }
+  if (/(idempot|duplicate|dedupe|skip window|same day|重复|去重|幂等|窗口)/i.test(lower)) {
+    add('这是幂等/去重保护。若需要再次执行，请确认客户状态或输入确有变化，或在任务中重新打开后重试。', 'This is idempotency/dedupe protection. Retry only after the customer state or input has changed, or reopen the task intentionally.');
+  }
+  if (/(quota|offline|not online|client offline|rate limit|429|限额|离线|不在线|频率)/i.test(lower)) {
+    add('检查 WhatsApp actor/client 在线状态、发送 quota 和限流设置；恢复在线或额度后重新派发。', 'Check WhatsApp actor/client online status, send quota, and rate limits; retry after capacity is available.');
+  }
+  if (/(failed|error|exception|失败|错误|异常)/i.test(lower) && suggestions.length === 0) {
+    add('打开该运行记录的步骤详情，优先确认输入主体、工具权限、渠道配置和最近一次代码/部署变更。', 'Open the run step details and check the linked entity, tool permissions, channel config, and the latest deployment changes.');
+  }
+
+  return Array.from(new Set(suggestions)).slice(0, 4);
+}
+
 export interface AgentHubPendingItem {
   kind: 'harness' | 'global';
   id: string;

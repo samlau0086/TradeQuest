@@ -55,7 +55,7 @@ export function useAgentHubData({
         kind: 'harness' as const,
         id: run.id,
         title: run.summary,
-        agent: 'Execution Engine',
+        agent: language === 'zh' ? 'Agent Hub 执行器' : 'Agent Hub Executor',
         body: run.objective,
         createdAt: run.createdAt
       })),
@@ -65,11 +65,11 @@ export function useAgentHubData({
         kind: 'global' as const,
         id: plan.id,
         title: plan.summary,
-        agent: 'Global Orchestrator',
+        agent: language === 'zh' ? '全局编排器' : 'Global Orchestrator',
         body: plan.objective,
         createdAt: plan.createdAt
       }))
-  ], [agentHarnessRuns, globalAgentPlans]);
+  ], [agentHarnessRuns, globalAgentPlans, language]);
 
   const runLogs = useMemo<AgentTraceRun[]>(() => [
     ...agentHarnessRuns
@@ -78,7 +78,7 @@ export function useAgentHubData({
         kind: 'harness' as const,
         id: run.id,
         title: run.summary,
-        agent: 'Execution Engine',
+        agent: language === 'zh' ? 'Agent Hub 执行器' : 'Agent Hub Executor',
         status: run.status,
         steps: run.steps.map(normalizeRunStep),
         createdAt: run.createdAt
@@ -87,12 +87,12 @@ export function useAgentHubData({
       kind: 'global' as const,
       id: plan.id,
       title: plan.summary,
-      agent: 'Global Orchestrator',
+      agent: language === 'zh' ? '全局编排器' : 'Global Orchestrator',
       status: plan.status,
       steps: plan.steps.map(normalizeRunStep),
       createdAt: plan.createdAt
     }))
-  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [agentHarnessRuns, globalAgentPlans]);
+  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [agentHarnessRuns, globalAgentPlans, language]);
 
   const visibleOpportunities = useMemo(() => (
     agentOpportunities

@@ -1,8 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowRight, Info, RefreshCw, Send, ShieldCheck, Trash2, X, Zap } from 'lucide-react';
+import { ArrowRight, GitBranch, Info, RefreshCw, Send, ShieldCheck, Trash2, Wrench, X, Zap } from 'lucide-react';
 import { AgentHubAgent, AgentOpportunityRoutingPolicy, AgentTask } from '../../store';
 import { cn } from '../../lib/utils';
 import {
+  agentFixSuggestions,
+  agentTaskSourceLabel,
   linkedOpportunityIdFromTask,
   opportunityStatusClass,
   opportunityStatusLabel,
@@ -222,6 +224,46 @@ export function AgentTaskQueuePanel({
       detail: approvalLabel(task)
     }
   ];
+  const sourceLabelForTask = (task: AgentTask) => agentTaskSourceLabel(task.triggerType, task.source, language);
+  const lifecycleToneClass = (tone: string) => {
+    if (tone === 'red') return 'border-red-500/30 bg-red-500/10 text-red-200';
+    if (tone === 'amber') return 'border-amber-500/30 bg-amber-500/10 text-amber-200';
+    if (tone === 'emerald') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
+    return 'border-blue-500/30 bg-blue-500/10 text-blue-200';
+  };
+  const taskLifecycleSteps = (task: AgentTask) => [
+    {
+      label: isZh ? '任务' : 'Task',
+      value: sourceLabelForTask(task),
+      detail: task.sourceRefId ? `${task.sourceRefType || 'ref'}:${task.sourceRefId}` : task.source || '-',
+      tone: 'blue'
+    },
+    {
+      label: isZh ? '审批' : 'Approval',
+      value: approvalLabel(task),
+      detail: task.approvedAt ? new Date(task.approvedAt).toLocaleString() : (task.approvedBy || '-'),
+      tone: task.approvalStatus === 'rejected' ? 'red' : task.approvalStatus === 'pending' || task.status === 'approval_required' ? 'amber' : 'emerald'
+    },
+    {
+      label: isZh ? '执行' : 'Execution',
+      value: task.agentName || task.agentId || '-',
+      detail: task.runId ? `${task.runType || 'run'}:${task.runId}` : (task.executedAt || task.startedAt ? new Date(task.executedAt || task.startedAt || '').toLocaleString() : '-'),
+      tone: task.status === 'failed' ? 'red' : task.status === 'queued' || task.status === 'running' ? 'amber' : task.runId ? 'emerald' : 'blue'
+    },
+    {
+      label: isZh ? '结果' : 'Result',
+      value: opportunityStatusLabel(task.status, language),
+      detail: task.completedAt ? new Date(task.completedAt).toLocaleString() : (task.resultSummary || '-'),
+      tone: task.status === 'failed' ? 'red' : task.status === 'completed' ? 'emerald' : task.status === 'ignored' ? 'amber' : 'blue'
+    }
+  ];
+  const fixSuggestionsForTask = (task: AgentTask) => agentFixSuggestions([
+    task.resultSummary,
+    task.description,
+    task.objective,
+    executionBlockers(task).join('\n'),
+    task.metadata ? JSON.stringify(task.metadata) : ''
+  ].filter(Boolean).join('\n'), language);
   const formatAuditActor = (actor?: string) => {
     if (!actor) return '-';
     if (actor === 'system') return isZh ? '系统' : 'System';
@@ -459,11 +501,25 @@ export function AgentTaskQueuePanel({
                       <span className="rounded border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-[10px] text-slate-400">{task.agentName || task.agentId}</span>
                       {task.entityType && <span className="rounded border border-neutral-800 px-2 py-0.5 text-[10px] text-slate-500">{taskEntityLabel(task)}</span>}
                       {task.runId && <span className="rounded border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] text-blue-300">{task.runType}:{task.runId}</span>}
-                      <span className="rounded border border-neutral-800 px-2 py-0.5 text-[10px] text-slate-500">{task.triggerType}</span>
+                      <span className="inline-flex items-center gap-1 rounded border border-cyan-500/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-bold text-cyan-200">
+                        <GitBranch className="h-3 w-3" />
+                        {isZh ? '来源' : 'Source'}: {sourceLabelForTask(task)}
+                      </span>
                     </div>
                     <p className="mt-2 text-sm leading-relaxed text-slate-400">{task.description}</p>
                     <p className="mt-3 text-xs leading-relaxed text-slate-500">{task.objective}</p>
                     {task.resultSummary && <p className="mt-3 rounded border border-neutral-800 bg-neutral-950 px-3 py-2 text-xs leading-relaxed text-slate-400">{task.resultSummary}</p>}
+                    {task.status === 'failed' && fixSuggestionsForTask(task).length > 0 && (
+                      <div className="mt-3 rounded border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                        <div className="mb-1 flex items-center gap-1.5 font-bold">
+                          <Wrench className="h-3.5 w-3.5" />
+                          {isZh ? '可修复建议' : 'Fix suggestions'}
+                        </div>
+                        <ul className="space-y-1 text-amber-100/90">
+                          {fixSuggestionsForTask(task).map(item => <li key={item}>• {item}</li>)}
+                        </ul>
+                      </div>
+                    )}
                     <div className="mt-3 grid gap-2 rounded-lg border border-neutral-800 bg-neutral-950 p-3 text-xs md:grid-cols-4">
                       {sourceChainSteps(task).map((step, index) => (
                         <div key={`${task.id}-${step.label}`} className="min-w-0">
@@ -551,7 +607,10 @@ export function AgentTaskQueuePanel({
                     {opportunityStatusLabel(selectedTask.status, language)}
                   </span>
                   <span className={cn('rounded border px-2 py-0.5 text-[10px] font-bold uppercase', riskClass(selectedTask.risk))}>{selectedTask.risk}</span>
-                  <span className="rounded border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-[10px] text-slate-400">{selectedTask.triggerType}</span>
+                  <span className="inline-flex items-center gap-1 rounded border border-cyan-500/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-bold text-cyan-200">
+                    <GitBranch className="h-3 w-3" />
+                    {sourceLabelForTask(selectedTask)}
+                  </span>
                 </div>
               </div>
               <button
@@ -565,6 +624,24 @@ export function AgentTaskQueuePanel({
             </div>
 
             <div className="grid gap-4">
+              <div className="rounded-lg border border-neutral-800 bg-black p-4">
+                <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400">
+                  <GitBranch className="h-4 w-4 text-cyan-300" />
+                  {isZh ? '任务 / 审批 / 执行关系' : 'Task / Approval / Execution'}
+                </div>
+                <div className="grid gap-2 sm:grid-cols-4">
+                  {taskLifecycleSteps(selectedTask).map((step, index) => (
+                    <div key={`${selectedTask.id}-life-${step.label}`} className={cn('rounded-md border px-3 py-2 text-xs', lifecycleToneClass(step.tone))}>
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <span className="font-bold uppercase tracking-wide">{step.label}</span>
+                        <span className="text-[10px] opacity-70">{index + 1}</span>
+                      </div>
+                      <div className="truncate font-semibold" title={step.value}>{step.value}</div>
+                      <div className="mt-1 truncate text-[10px] opacity-70" title={step.detail}>{step.detail || '-'}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
               <div className="rounded-lg border border-blue-500/20 bg-blue-950/10 p-4">
                 <div className="mb-3 text-xs font-bold uppercase tracking-widest text-blue-200">
                   {isZh ? '任务来源链路' : 'Task Source Chain'}
@@ -674,6 +751,17 @@ export function AgentTaskQueuePanel({
                     <li key={`${blocker}-${index}`} className="rounded border border-neutral-800 bg-neutral-950 px-3 py-2">{blocker}</li>
                   ))}
                 </ul>
+                {fixSuggestionsForTask(selectedTask).length > 0 && (
+                  <div className="mt-4 rounded-md border border-amber-500/20 bg-amber-500/10 p-3">
+                    <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-amber-200">
+                      <Wrench className="h-4 w-4" />
+                      {isZh ? '可修复建议' : 'Fix Suggestions'}
+                    </div>
+                    <ul className="space-y-1 text-xs leading-relaxed text-amber-100/90">
+                      {fixSuggestionsForTask(selectedTask).map(item => <li key={item}>• {item}</li>)}
+                    </ul>
+                  </div>
+                )}
               </div>
 
               <div className="rounded-lg border border-blue-500/20 bg-blue-950/10 p-4">

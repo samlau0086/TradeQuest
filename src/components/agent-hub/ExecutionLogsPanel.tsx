@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { Cpu, ListChecks, RefreshCw, Trash2 } from 'lucide-react';
+import { Cpu, ListChecks, RefreshCw, Trash2, Wrench } from 'lucide-react';
 import { AgentHubRunRecord } from '../../store';
 import { cn } from '../../lib/utils';
+import { agentFixSuggestions } from './shared';
 
 export interface AgentTraceRunStep {
   title: string;
@@ -374,6 +375,17 @@ export function ExecutionLogsPanel({
                     <span className="rounded bg-blue-500/10 px-2 py-0.5 text-[10px] font-bold text-blue-200">{item.count}</span>
                   </div>
                   <p className="mt-2 line-clamp-2 text-[10px] leading-relaxed text-slate-500">{item.sample}</p>
+                  {agentFixSuggestions(`${item.label}\n${item.sample}`, language).length > 0 && (
+                    <div className="mt-2 rounded border border-amber-500/20 bg-amber-500/10 px-2 py-1.5">
+                      <div className="mb-1 flex items-center gap-1 text-[10px] font-bold text-amber-200">
+                        <Wrench className="h-3 w-3" />
+                        {isZh ? '可修复建议' : 'Fix'}
+                      </div>
+                      <ul className="space-y-1 text-[10px] leading-relaxed text-amber-100/90">
+                        {agentFixSuggestions(`${item.label}\n${item.sample}`, language).slice(0, 2).map(suggestion => <li key={suggestion}>• {suggestion}</li>)}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -467,6 +479,17 @@ export function ExecutionLogsPanel({
                         </div>
                       )}
                       {step.result && <div className="mt-2 text-slate-500 leading-relaxed">{step.result}</div>}
+                      {agentFixSuggestions(`${step.status}\n${step.title}\n${step.tool}\n${step.result || ''}`, language).length > 0 && (
+                        <div className="mt-2 rounded border border-amber-500/20 bg-amber-500/10 px-3 py-2">
+                          <div className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-amber-200">
+                            <Wrench className="h-3.5 w-3.5" />
+                            {isZh ? '可修复建议' : 'Fix suggestions'}
+                          </div>
+                          <ul className="space-y-1 text-[10px] leading-relaxed text-amber-100/90">
+                            {agentFixSuggestions(`${step.status}\n${step.title}\n${step.tool}\n${step.result || ''}`, language).map(suggestion => <li key={suggestion}>• {suggestion}</li>)}
+                          </ul>
+                        </div>
+                      )}
                     </li>
                   ))}
                   {run.steps.length > 5 && (
@@ -589,6 +612,17 @@ export function ExecutionLogsPanel({
                   })}
                 </div>
               </div>
+              {agentFixSuggestions(`${record.status}\n${record.plan}\n${record.expectedResult}\n${record.actualResult || ''}`, language).length > 0 && (
+                <div className="mt-4 rounded-md border border-amber-500/20 bg-amber-500/10 p-3">
+                  <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-amber-200">
+                    <Wrench className="h-4 w-4" />
+                    {isZh ? '可修复建议' : 'Fix Suggestions'}
+                  </div>
+                  <ul className="space-y-1 text-xs leading-relaxed text-amber-100/90">
+                    {agentFixSuggestions(`${record.status}\n${record.plan}\n${record.expectedResult}\n${record.actualResult || ''}`, language).map(suggestion => <li key={suggestion}>• {suggestion}</li>)}
+                  </ul>
+                </div>
+              )}
             </div>
           ))}
         </div>
