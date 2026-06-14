@@ -844,6 +844,11 @@ Response:
     "direction": "inbound",
     "body": "Hi, I want to know more about solar monitoring.",
     "messageType": "text"
+  },
+  "agentMessage": {
+    "direction": "outbound",
+    "body": "Hi Alex, thanks for reaching out. Could you share your target project size and country?",
+    "messageType": "text"
   }
 }
 ```
@@ -854,7 +859,38 @@ Notes:
 - The endpoint stores Telegram conversations and messages locally, deduplicates Telegram webhook retries, syncs them into the unified conversation/message model, triggers `telegram_received`, and can send Bark/Webhook notifications.
 - Customer linking checks Telegram username, Telegram user id, and contact phone when available.
 - CRM operators can reply from the unified Inbox after enabling Telegram Bot and setting the Bot Token in Settings -> AI & Integrations -> Telegram Bot. Sent replies are stored back into Telegram and the unified conversation model.
-- Unattended Telegram Customer Service Agent replies and richer human takeover controls are still roadmap items.
+- If the `Telegram Customer Service Agent` is active and the conversation is not under human takeover, new inbound webhook messages can trigger unattended Telegram replies. Duplicate Telegram webhook retries do not trigger another Agent reply.
+- Human takeover can be toggled from the Telegram conversation header in the unified Inbox. When enabled, the Agent is paused for that conversation until takeover is released.
+
+Manual operator reply:
+
+```http
+POST /api/telegram/conversations/tg_conv_user_hash/messages
+Authorization: Bearer <crm-token>
+Content-Type: application/json
+```
+
+```json
+{
+  "body": "Thanks, I will ask our engineer to confirm the monitoring gateway model."
+}
+```
+
+Conversation controls:
+
+```http
+PATCH /api/telegram/conversations/tg_conv_user_hash
+Authorization: Bearer <crm-token>
+Content-Type: application/json
+```
+
+```json
+{
+  "humanTakeover": true,
+  "priority": "high",
+  "tags": ["needs-engineer"]
+}
+```
 
 ## Recent Functional Notes / 近期功能说明
 

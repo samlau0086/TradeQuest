@@ -1447,7 +1447,7 @@ const INITIAL_AGENT_HUB_AGENTS: AgentHubAgent[] = [
     eventTriggers: ['telegram_received'],
     eventTriggerScope: 'subject',
     contextSuggestionMode: 'auto',
-    soul: 'Telegram customer-service agent. It will share the same public-safe, human-takeover, and customer-linking model as Live Chat after the Telegram Bot connector is enabled.',
+    soul: 'Telegram customer-service agent. Uses public-safe company/product/RAG context, respects per-conversation human takeover, and replies to new inbound Telegram messages when the Bot connector and agent are enabled.',
     evolutionLog: [],
     builtIn: true,
     createdAt: new Date().toISOString(),

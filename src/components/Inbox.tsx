@@ -1494,6 +1494,40 @@ export function Inbox() {
     }
   };
 
+  const toggleTelegramHumanTakeover = async () => {
+    if (!selectedTelegramConversation) return;
+    const nextHumanTakeover = !selectedTelegramConversation.metadata?.humanTakeover;
+    try {
+      const res = await fetch(`/api/telegram/conversations/${encodeURIComponent(selectedTelegramConversation.source_id)}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ humanTakeover: nextHumanTakeover })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to update Telegram takeover mode');
+      setSelectedTelegramConversation(prev => prev ? {
+        ...prev,
+        metadata: {
+          ...(prev.metadata || {}),
+          humanTakeover: nextHumanTakeover,
+          priority: data.conversation?.priority ?? prev.metadata?.priority
+        }
+      } : prev);
+      await refreshUnifiedConversationData();
+      notify(
+        nextHumanTakeover
+          ? (language === 'zh' ? '已开启人工接管，Telegram Agent 将暂停自动回复。' : 'Human takeover enabled. Telegram Agent auto-reply is paused.')
+          : (language === 'zh' ? '已关闭人工接管，Telegram Agent 将在新入站消息后自动回复。' : 'Human takeover disabled. Telegram Agent can auto-reply to the next inbound message.'),
+        'success'
+      );
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Failed to update Telegram takeover mode.', 'error');
+    }
+  };
+
   const handleDeleteWhatsAppConversation = (conversation: InboxWhatsAppConversation) => {
     setConfirmDialog({
       message: `Are you sure you want to delete this WhatsApp conversation with ${conversation.clientName || conversation.targetPhone}? This will remove the saved conversation and messages from this system.`,
@@ -2583,6 +2617,24 @@ export function Inbox() {
                   }
                 });
               }}
+              actions={(
+                <button
+                  type="button"
+                  onClick={toggleTelegramHumanTakeover}
+                  className={cn(
+                    "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-colors",
+                    selectedTelegramConversation.metadata?.humanTakeover
+                      ? "border-amber-500/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20"
+                      : "border-sky-500/40 bg-sky-500/10 text-sky-200 hover:bg-sky-500/20"
+                  )}
+                  title={selectedTelegramConversation.metadata?.humanTakeover ? 'Human takeover is active' : 'Telegram Agent auto-reply is enabled when the agent is active'}
+                >
+                  {selectedTelegramConversation.metadata?.humanTakeover ? <User className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
+                  {selectedTelegramConversation.metadata?.humanTakeover
+                    ? (language === 'zh' ? '人工接管' : 'Human Takeover')
+                    : (language === 'zh' ? 'Agent 自动' : 'Agent Auto')}
+                </button>
+              )}
               meta={(
                 <>
                   {selectedTelegramConversation.metadata?.telegramChatId && (
@@ -2590,6 +2642,11 @@ export function Inbox() {
                   )}
                   {selectedTelegramConversation.metadata?.telegramUserId && (
                     <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">user: {selectedTelegramConversation.metadata.telegramUserId}</span>
+                  )}
+                  {selectedTelegramConversation.metadata?.humanTakeover && (
+                    <span className="bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-700/40 text-amber-200">
+                      {language === 'zh' ? 'Agent 已暂停' : 'Agent paused'}
+                    </span>
                   )}
                 </>
               )}
@@ -2671,7 +2728,7 @@ export function Inbox() {
               <div className="mt-2 text-[11px] text-slate-500">
                 {language === 'zh'
                   ? '发送使用 Settings -> Telegram Bot 中配置的 Bot Token。AI 自动回复和人工接管控制将在下一步接入。'
-                  : 'Sending uses the Bot Token configured in Settings -> Telegram Bot. AI auto-reply and human takeover controls are next.'}
+                  : 'Sending uses the Bot Token configured in Settings -> Telegram Bot. Human takeover pauses Telegram Agent auto-replies.'}
               </div>
             </div>
           </div>
