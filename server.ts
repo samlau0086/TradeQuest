@@ -8718,6 +8718,33 @@ No markdown wrappers, just valid JSON.`;
     }).catch(err => console.warn('Telegram customer reply notification failed', err));
   };
 
+  const getTelegramBotToken = async (userId: string, overrideToken?: string) => {
+    const explicitToken = String(overrideToken || '').trim();
+    if (explicitToken) return explicitToken;
+    const result = await pool.query('SELECT settings FROM users WHERE id = $1 LIMIT 1', [userId]);
+    const settings = result.rows[0]?.settings || {};
+    const config = settings.telegramBotConfig || {};
+    const token = String(config.botToken || process.env.TELEGRAM_BOT_TOKEN || '').trim();
+    const enabled = config.enabled === true || (!!process.env.TELEGRAM_BOT_TOKEN && config.enabled !== false);
+    if (!enabled || !token) {
+      throw new Error('Telegram Bot is not configured. Enable Telegram Bot and set Bot Token in Settings.');
+    }
+    return token;
+  };
+
+  const callTelegramBotApi = async (botToken: string, method: string, body?: any) => {
+    const response = await fetch(`https://api.telegram.org/bot${botToken}/${method}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {})
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.ok === false) {
+      throw new Error(data?.description || `Telegram Bot API ${method} failed`);
+    }
+    return data;
+  };
+
   const liveChatSessionToDto = (row: any, lastMessage?: any) => ({
     id: row.id,
     clientId: row.client_id || null,
@@ -9618,6 +9645,17 @@ Return JSON only:
     }
   });
 
+  app.post('/api/telegram-bot/test', authenticateToken, requirePermission('telegram.manage'), async (req: any, res) => {
+    try {
+      const botToken = await getTelegramBotToken(req.user.uid, req.body?.botToken);
+      const data = await callTelegramBotApi(botToken, 'getMe');
+      res.json({ ok: true, bot: data.result || null });
+    } catch (e: any) {
+      console.error('Failed to test Telegram Bot', e);
+      res.status(500).json({ error: e.message || 'Failed to test Telegram Bot' });
+    }
+  });
+
   app.get('/api/telegram/conversations', authenticateToken, requirePermission('telegram.read'), async (req: any, res) => {
     try {
       const includeDeleted = String(req.query.includeDeleted || '').toLowerCase() === 'true';
@@ -9670,6 +9708,55 @@ Return JSON only:
     } catch (e: any) {
       console.error('Failed to fetch Telegram messages', e);
       res.status(500).json({ error: e.message || 'Failed to fetch Telegram messages' });
+    }
+  });
+
+  app.post('/api/telegram/conversations/:id/messages', authenticateToken, requirePermission('telegram.manage'), async (req: any, res) => {
+    try {
+      const text = String(req.body?.body || req.body?.text || '').trim();
+      if (!text) return res.status(400).json({ error: 'Message body is required' });
+      const conversationRes = await pool.query(
+        `SELECT * FROM telegram_conversations WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL LIMIT 1`,
+        [req.params.id, req.user.uid]
+      );
+      const conversation = conversationRes.rows[0];
+      if (!conversation) return res.status(404).json({ error: 'Telegram conversation not found' });
+      const botToken = await getTelegramBotToken(req.user.uid);
+      const data = await callTelegramBotApi(botToken, 'sendMessage', {
+        chat_id: conversation.telegram_chat_id,
+        text,
+        disable_web_page_preview: req.body?.disableWebPagePreview !== false
+      });
+      const telegramMessageId = String(data.result?.message_id || `out_${Date.now()}`);
+      const message = await addTelegramMessage({
+        userId: req.user.uid,
+        conversation,
+        telegramMessageId,
+        direction: 'outbound',
+        senderName: req.user.email || 'Operator',
+        body: text,
+        messageType: 'text',
+        payload: {
+          source: 'crm_operator',
+          telegramResult: data.result || null
+        },
+        sourceCreatedAt: data.result?.date ? new Date(Number(data.result.date) * 1000).toISOString() : new Date().toISOString()
+      });
+      const updatedConversation = await pool.query(
+        `SELECT t.*, cl.name AS client_name, cl.company AS client_company
+         FROM telegram_conversations t
+         LEFT JOIN clients cl ON cl.id = t.client_id
+         WHERE t.id = $1 AND t.user_id = $2
+         LIMIT 1`,
+        [conversation.id, req.user.uid]
+      );
+      res.json({
+        message: telegramMessageToDto(message),
+        conversation: telegramConversationToDto(updatedConversation.rows[0] || conversation)
+      });
+    } catch (e: any) {
+      console.error('Failed to send Telegram message', e);
+      res.status(500).json({ error: e.message || 'Failed to send Telegram message' });
     }
   });
 

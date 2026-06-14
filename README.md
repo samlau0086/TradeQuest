@@ -420,7 +420,8 @@ Additional roadmap items:
 
 - [x] Telegram Bot intelligent customer service structure: registered Telegram tools, Telegram Customer Service Agent, permissions, event trigger, notification event, and API token template.
 - [x] Telegram Bot inbound connector: scoped webhook API, Telegram conversation/message persistence, unified conversation indexing, deduplication, customer linking, notifications, and Agent Hub event trigger.
-- [ ] Telegram Bot outbound and desk layer: implement Bot API send, operator console UI, AI auto-replies, customer/lead linking controls, and human takeover controls.
+- [x] Telegram Bot outbound reply layer: Settings Bot Token configuration, Bot API `sendMessage`, Inbox reply composer, outbound persistence, and unified conversation sync.
+- [ ] Telegram Bot automation layer: AI auto-replies, richer customer/lead linking controls, and human takeover controls.
 
 ## Product Roadmap
 
@@ -852,7 +853,8 @@ Notes:
 - The token must include `telegram.webhook`.
 - The endpoint stores Telegram conversations and messages locally, deduplicates Telegram webhook retries, syncs them into the unified conversation/message model, triggers `telegram_received`, and can send Bark/Webhook notifications.
 - Customer linking checks Telegram username, Telegram user id, and contact phone when available.
-- Outbound Telegram sending, Telegram operator console UI, and unattended Telegram Customer Service Agent replies are still roadmap items.
+- CRM operators can reply from the unified Inbox after enabling Telegram Bot and setting the Bot Token in Settings -> AI & Integrations -> Telegram Bot. Sent replies are stored back into Telegram and the unified conversation model.
+- Unattended Telegram Customer Service Agent replies and richer human takeover controls are still roadmap items.
 
 ## Recent Functional Notes / 近期功能说明
 
@@ -1382,7 +1384,8 @@ Agent Execution Policy 使用的 Global Orchestrator action type：
 
 - [x] Telegram Bot 智能客服结构接入：已注册 Telegram 工具、Telegram Customer Service Agent、权限、事件触发、通知事件和 API Token 模板。
 - [x] Telegram Bot 入站连接器：受限 webhook API、Telegram 会话/消息持久化、统一 conversation 索引、去重、客户关联、通知和 Agent Hub 事件触发。
-- [ ] Telegram Bot 出站与座席层：实现 Bot API 发送、座席界面、AI 自动回复、客户/Lead 关联控制和人工接管控制。
+- [x] Telegram Bot 出站回复层：Settings Bot Token 配置、Bot API `sendMessage`、Inbox 回复框、出站消息持久化和统一 conversation 同步。
+- [ ] Telegram Bot 自动化层：AI 自动回复、更完整的客户/Lead 关联控制和人工接管控制。
 
 ## 产品 Roadmap
 
@@ -1813,7 +1816,8 @@ Response：
 - Token 必须包含 `telegram.webhook` 权限。
 - 接口会把 Telegram 会话和消息保存到 CRM 数据库，自动去重 Telegram webhook 重试，同步到统一 conversation/message 模型，并触发 `telegram_received` 事件和 Bark/Webhook 通知。
 - 客户关联会尝试匹配 Telegram username、Telegram user id，以及 contact 消息中的手机号。
-- Telegram 对外发送、Telegram 座席界面、无人值守 Telegram Customer Service Agent 自动回复仍是后续 roadmap。
+- 在 Settings -> AI & Integrations -> Telegram Bot 启用并配置 Bot Token 后，CRM 操作员可以在统一 Inbox 中直接回复 Telegram，会同步写回 Telegram 和统一 conversation 模型。
+- 无人值守 Telegram Customer Service Agent 自动回复，以及更完整的人工接管控制仍是后续 roadmap。
 
 ## 部署
 

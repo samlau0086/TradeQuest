@@ -557,6 +557,8 @@ export function Inbox() {
   const [selectedTelegramConversation, setSelectedTelegramConversation] = useState<UnifiedCommunicationConversation | null>(null);
   const [telegramMessages, setTelegramMessages] = useState<any[]>([]);
   const [isTelegramMessagesLoading, setIsTelegramMessagesLoading] = useState(false);
+  const [telegramReply, setTelegramReply] = useState('');
+  const [isSendingTelegramReply, setIsSendingTelegramReply] = useState(false);
   const [isStartingWhatsApp, setIsStartingWhatsApp] = useState(false);
   const [newWhatsAppPhone, setNewWhatsAppPhone] = useState('');
   const [showWhatsAppContactPicker, setShowWhatsAppContactPicker] = useState(false);
@@ -1452,6 +1454,7 @@ export function Inbox() {
       setSelectedWhatsAppPhone(null);
       setSelectedWhatsAppClientId(null);
       setSelectedTelegramConversation(conversation);
+      setTelegramReply('');
       void loadTelegramMessages(conversation);
       return;
     }
@@ -1464,6 +1467,31 @@ export function Inbox() {
     setIsComposing(false);
     setIsStartingWhatsApp(false);
     setView('live-chat');
+  };
+
+  const sendTelegramReply = async () => {
+    if (!selectedTelegramConversation || !telegramReply.trim()) return;
+    setIsSendingTelegramReply(true);
+    try {
+      const res = await fetch(`/api/telegram/conversations/${encodeURIComponent(selectedTelegramConversation.source_id)}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ body: telegramReply.trim() })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to send Telegram message');
+      setTelegramReply('');
+      await loadTelegramMessages(selectedTelegramConversation);
+      await refreshUnifiedConversationData();
+      notify(language === 'zh' ? 'Telegram 消息已发送。' : 'Telegram message sent.', 'success');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Failed to send Telegram message.', 'error');
+    } finally {
+      setIsSendingTelegramReply(false);
+    }
   };
 
   const handleDeleteWhatsAppConversation = (conversation: InboxWhatsAppConversation) => {
@@ -2616,8 +2644,35 @@ export function Inbox() {
                 );
               })}
             </div>
-            <div className="border-t border-slate-800 bg-slate-900/80 px-4 py-3 text-xs text-slate-500">
-              Telegram outbound sending and AI auto-reply will be enabled after Bot API send configuration is connected.
+            <div className="border-t border-slate-800 bg-slate-900/80 p-4">
+              <div className="flex items-end gap-3">
+                <textarea
+                  value={telegramReply}
+                  onChange={event => setTelegramReply(event.target.value)}
+                  onKeyDown={event => {
+                    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                      event.preventDefault();
+                      void sendTelegramReply();
+                    }
+                  }}
+                  placeholder={language === 'zh' ? '输入 Telegram 回复，Ctrl+Enter 发送...' : 'Write a Telegram reply, Ctrl+Enter to send...'}
+                  className="min-h-[76px] flex-1 resize-none rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-sky-500"
+                />
+                <button
+                  type="button"
+                  onClick={sendTelegramReply}
+                  disabled={isSendingTelegramReply || !telegramReply.trim()}
+                  className="inline-flex h-10 items-center gap-2 rounded-lg bg-sky-600 px-4 text-sm font-bold text-white hover:bg-sky-500 disabled:bg-slate-800 disabled:text-slate-500"
+                >
+                  {isSendingTelegramReply ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  {language === 'zh' ? '发送' : 'Send'}
+                </button>
+              </div>
+              <div className="mt-2 text-[11px] text-slate-500">
+                {language === 'zh'
+                  ? '发送使用 Settings -> Telegram Bot 中配置的 Bot Token。AI 自动回复和人工接管控制将在下一步接入。'
+                  : 'Sending uses the Bot Token configured in Settings -> Telegram Bot. AI auto-reply and human takeover controls are next.'}
+              </div>
             </div>
           </div>
         ) : selectedWhatsAppPhone ? (

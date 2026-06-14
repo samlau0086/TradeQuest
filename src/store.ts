@@ -901,6 +901,11 @@ export interface WhatsAppHubConfig {
   actors?: WhatsAppHubActorConfig[];
 }
 
+export interface TelegramBotConfig {
+  enabled: boolean;
+  botToken: string;
+}
+
 export interface WhatsAppHubActorConfig {
   id: string;
   name: string;
@@ -1058,6 +1063,8 @@ export interface StoreState {
 
   whatsappHubConfig: WhatsAppHubConfig;
   updateWhatsAppHubConfig: (updates: Partial<WhatsAppHubConfig>) => void;
+  telegramBotConfig: TelegramBotConfig;
+  updateTelegramBotConfig: (updates: Partial<TelegramBotConfig>) => void;
   whatsappCustomerServiceAgentEnabled: boolean;
   setWhatsAppCustomerServiceAgentEnabled: (enabled: boolean) => void;
   whatsappAutoTranslateConfig: Record<string, boolean>;
@@ -1521,6 +1528,11 @@ const INITIAL_WHATSAPP_HUB_CONFIG: WhatsAppHubConfig = {
   dailyBaseQuota: 40,
   minReplyRate: 0.25,
   actors: []
+};
+
+const INITIAL_TELEGRAM_BOT_CONFIG: TelegramBotConfig = {
+  enabled: false,
+  botToken: ''
 };
 
 const INITIAL_EXTERNAL_NOTIFICATION_CONFIG: ExternalNotificationConfig = {
@@ -2526,6 +2538,10 @@ export const useStore = create<StoreState>((set, get) => ({
   whatsappHubConfig: INITIAL_WHATSAPP_HUB_CONFIG,
   updateWhatsAppHubConfig: (updates) => set((state) => ({
     whatsappHubConfig: { ...state.whatsappHubConfig, ...updates }
+  })),
+  telegramBotConfig: INITIAL_TELEGRAM_BOT_CONFIG,
+  updateTelegramBotConfig: (updates) => set((state) => ({
+    telegramBotConfig: { ...state.telegramBotConfig, ...updates }
   })),
   whatsappCustomerServiceAgentEnabled: false,
   setWhatsAppCustomerServiceAgentEnabled: (enabled) => set({ whatsappCustomerServiceAgentEnabled: enabled }),
@@ -3801,6 +3817,9 @@ export const useStore = create<StoreState>((set, get) => ({
           whatsappHubConfig: settings.whatsappHubConfig
             ? { ...INITIAL_WHATSAPP_HUB_CONFIG, ...settings.whatsappHubConfig }
             : state.whatsappHubConfig,
+          telegramBotConfig: settings.telegramBotConfig
+            ? { ...INITIAL_TELEGRAM_BOT_CONFIG, ...settings.telegramBotConfig }
+            : state.telegramBotConfig,
           whatsappCustomerServiceAgentEnabled: settings.whatsappCustomerServiceAgentEnabled ?? state.whatsappCustomerServiceAgentEnabled,
           whatsappAutoTranslateConfig: settings.whatsappAutoTranslateConfig
             || settings.autoTranslateConfig?.whatsapp
@@ -3961,6 +3980,7 @@ useStore.subscribe((state, prevState) => {
     state.outboxConfigs !== prevState.outboxConfigs ||
     state.emailServerMappings !== prevState.emailServerMappings ||
     state.whatsappHubConfig !== prevState.whatsappHubConfig ||
+    state.telegramBotConfig !== prevState.telegramBotConfig ||
     state.whatsappCustomerServiceAgentEnabled !== prevState.whatsappCustomerServiceAgentEnabled ||
     state.whatsappAutoTranslateConfig !== prevState.whatsappAutoTranslateConfig ||
     state.whatsappOutboundAutoTranslateConfig !== prevState.whatsappOutboundAutoTranslateConfig ||
@@ -4006,6 +4026,7 @@ useStore.subscribe((state, prevState) => {
             outboxConfigs: state.outboxConfigs,
             emailServerMappings: state.emailServerMappings,
             whatsappHubConfig: state.whatsappHubConfig,
+            telegramBotConfig: state.telegramBotConfig,
             whatsappCustomerServiceAgentEnabled: state.whatsappCustomerServiceAgentEnabled,
             whatsappAutoTranslateConfig: state.whatsappAutoTranslateConfig,
             whatsappOutboundAutoTranslateConfig: state.whatsappOutboundAutoTranslateConfig,

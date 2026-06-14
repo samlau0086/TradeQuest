@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useStore, InboxConfig, OutboxConfig, LLMConfig, PaymentTerm, LeadDataProvider, EmailSignature, EmailServerMapping, GLOBAL_AGENT_ACTION_TYPES, GlobalAgentActionType, WhatsAppHubActorConfig } from '../store';
 import { useAuthStore } from '../authStore';
-import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark, Clock, Book, Target, Trophy, Eye, EyeOff, MessageCircle, Bell, RefreshCw, KeyRound, Copy, ShieldCheck, Search } from 'lucide-react';
+import { Settings as SettingsIcon, Mail, Plus, Trash2, Edit2, Save, X, Server, Send, Landmark, Clock, Book, Target, Trophy, Eye, EyeOff, MessageCircle, Bell, RefreshCw, KeyRound, Copy, ShieldCheck, Search, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ProfileSettings } from './ProfileSettings';
 import { UserManagement } from './UserManagement';
@@ -124,7 +124,7 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
     timezone, setTimezone,
     outscraperApiKey, setOutscraperApiKey,
     leadDataChannelConfigs, updateLeadDataChannelConfig,
-    whatsappHubConfig, updateWhatsAppHubConfig,
+    whatsappHubConfig, updateWhatsAppHubConfig, telegramBotConfig, updateTelegramBotConfig,
     externalNotificationConfig, updateExternalNotificationConfig,
     notificationDeliveryLogs, fetchNotificationDeliveryLogs, clearNotificationDeliveryLogs, retryNotificationDeliveryLog,
     agentContextAnalysisConfig, updateAgentContextAnalysisConfig,
@@ -297,6 +297,7 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
   const [creatingApiToken, setCreatingApiToken] = useState(false);
   const [whatsAppHubClients, setWhatsAppHubClients] = useState<WhatsAppHubClientOption[]>([]);
   const [loadingWhatsAppHubClients, setLoadingWhatsAppHubClients] = useState(false);
+  const [testingTelegramBot, setTestingTelegramBot] = useState(false);
   const [whatsAppActorSearch, setWhatsAppActorSearch] = useState('');
   const [isWhatsAppActorPickerOpen, setIsWhatsAppActorPickerOpen] = useState(false);
 
@@ -461,6 +462,32 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
       notify(error?.message || (language === 'zh' ? '读取 WhatsApp Hub clients 失败。' : 'Failed to load WhatsApp Hub clients.'), 'error');
     } finally {
       setLoadingWhatsAppHubClients(false);
+    }
+  };
+
+  const testTelegramBot = async () => {
+    if (!token) return;
+    if (!telegramBotConfig.enabled || !telegramBotConfig.botToken.trim()) {
+      notify(language === 'zh' ? '请先启用并填写 Telegram Bot Token。' : 'Enable Telegram Bot and enter a Bot Token first.', 'warning');
+      return;
+    }
+    setTestingTelegramBot(true);
+    try {
+      const response = await fetch('/api/telegram-bot/test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ botToken: telegramBotConfig.botToken })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Telegram Bot test failed');
+      notify((language === 'zh' ? 'Telegram Bot 已连接：' : 'Telegram Bot connected: ') + (data.bot?.username ? `@${data.bot.username}` : data.bot?.first_name || 'OK'), 'success');
+    } catch (error: any) {
+      notify(error?.message || (language === 'zh' ? 'Telegram Bot 测试失败。' : 'Telegram Bot test failed.'), 'error');
+    } finally {
+      setTestingTelegramBot(false);
     }
   };
 
@@ -2275,6 +2302,51 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
                     </div>
                   )}
                 </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-300 px-1 flex items-center gap-2">
+                    <Send className="w-4 h-4 text-sky-400" />
+                    Telegram Bot
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1 px-1">Connect a Telegram Bot for CRM replies, inbox conversations, and future customer-service automation.</p>
+                </div>
+                <label className="flex items-center gap-2 text-xs text-slate-400">
+                  <input
+                    type="checkbox"
+                    checked={telegramBotConfig.enabled}
+                    onChange={e => updateTelegramBotConfig({ enabled: e.target.checked })}
+                    className="accent-sky-500"
+                  />
+                  Enabled
+                </label>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-end">
+                <div className="space-y-1">
+                  <label className="text-xs text-slate-400 font-bold uppercase">Bot Token</label>
+                  <input
+                    type="password"
+                    value={telegramBotConfig.botToken}
+                    onChange={e => updateTelegramBotConfig({ botToken: e.target.value })}
+                    placeholder="123456789:AA..."
+                    className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-sky-500"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={testTelegramBot}
+                  disabled={testingTelegramBot || !telegramBotConfig.enabled || !telegramBotConfig.botToken.trim()}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-2 text-xs font-bold text-sky-300 hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {testingTelegramBot ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  Test Bot
+                </button>
+              </div>
+              <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-500">
+                Inbound webhooks still use the scoped <span className="font-mono text-slate-300">Telegram Bot Webhook</span> API token. This Bot Token is used only for CRM-side outbound replies.
               </div>
             </div>
 
