@@ -120,7 +120,7 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
     leadDataChannelConfigs, updateLeadDataChannelConfig,
     whatsappHubConfig, updateWhatsAppHubConfig,
     externalNotificationConfig, updateExternalNotificationConfig,
-    notificationDeliveryLogs, fetchNotificationDeliveryLogs, clearNotificationDeliveryLogs,
+    notificationDeliveryLogs, fetchNotificationDeliveryLogs, clearNotificationDeliveryLogs, retryNotificationDeliveryLog,
     agentContextAnalysisConfig, updateAgentContextAnalysisConfig,
     dailyQuests, achievements,
     notify
@@ -423,6 +423,15 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
       notify(language === 'zh' ? '通知日志已清空。' : 'Notification logs cleared.', 'success');
     } catch (error: any) {
       notify(error?.message || (language === 'zh' ? '清空通知日志失败。' : 'Failed to clear notification logs.'), 'error');
+    }
+  };
+
+  const handleRetryNotificationLog = async (id: string) => {
+    try {
+      await retryNotificationDeliveryLog(id);
+      notify(language === 'zh' ? '通知已重新发送。' : 'Notification retried.', 'success');
+    } catch (error: any) {
+      notify(error?.message || (language === 'zh' ? '重试通知失败。' : 'Failed to retry notification.'), 'error');
     }
   };
 
@@ -2312,12 +2321,168 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
                 </div>
               </div>
 
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                        {language === 'zh' ? '免打扰时段' : 'Quiet Hours'}
+                      </h4>
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        {language === 'zh' ? '在设定时间内跳过普通通知；关键失败通知可继续发送。' : 'Skip normal notifications during this window; critical failures can still pass through.'}
+                      </p>
+                    </div>
+                    <label className="flex items-center gap-2 text-xs text-slate-400">
+                      <input
+                        type="checkbox"
+                        checked={externalNotificationConfig.quietHours?.enabled || false}
+                        onChange={e => updateExternalNotificationConfig({ quietHours: { ...externalNotificationConfig.quietHours!, enabled: e.target.checked } })}
+                        className="accent-amber-500"
+                      />
+                      {language === 'zh' ? '启用' : 'Enable'}
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <input
+                      type="time"
+                      value={externalNotificationConfig.quietHours?.start || '22:00'}
+                      onChange={e => updateExternalNotificationConfig({ quietHours: { ...externalNotificationConfig.quietHours!, start: e.target.value } })}
+                      className="bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-amber-500"
+                    />
+                    <input
+                      type="time"
+                      value={externalNotificationConfig.quietHours?.end || '08:00'}
+                      onChange={e => updateExternalNotificationConfig({ quietHours: { ...externalNotificationConfig.quietHours!, end: e.target.value } })}
+                      className="bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-amber-500"
+                    />
+                    <input
+                      value={externalNotificationConfig.quietHours?.timezone || timezone || 'UTC'}
+                      onChange={e => updateExternalNotificationConfig({ quietHours: { ...externalNotificationConfig.quietHours!, timezone: e.target.value } })}
+                      placeholder="Asia/Shanghai"
+                      className="bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <label className="flex items-center gap-2 text-xs text-slate-400">
+                    <input
+                      type="checkbox"
+                      checked={externalNotificationConfig.quietHours?.allowCritical !== false}
+                      onChange={e => updateExternalNotificationConfig({ quietHours: { ...externalNotificationConfig.quietHours!, allowCritical: e.target.checked } })}
+                      className="accent-red-500"
+                    />
+                    {language === 'zh' ? '免打扰期间仍发送关键失败通知' : 'Allow critical failure notifications during quiet hours'}
+                  </label>
+                </div>
+
+                <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                        {language === 'zh' ? '连续失败升级' : 'Failure Escalation'}
+                      </h4>
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        {language === 'zh' ? '当 Bark/Webhook 连续失败时，在通知日志中生成管理员提醒。' : 'Create an admin-visible alert in notification logs after repeated Bark/Webhook failures.'}
+                      </p>
+                    </div>
+                    <label className="flex items-center gap-2 text-xs text-slate-400">
+                      <input
+                        type="checkbox"
+                        checked={externalNotificationConfig.failureEscalation?.enabled !== false}
+                        onChange={e => updateExternalNotificationConfig({ failureEscalation: { ...externalNotificationConfig.failureEscalation!, enabled: e.target.checked } })}
+                        className="accent-red-500"
+                      />
+                      {language === 'zh' ? '启用' : 'Enable'}
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="space-y-1 text-xs text-slate-500">
+                      {language === 'zh' ? '连续失败次数' : 'Failure threshold'}
+                      <input
+                        type="number"
+                        min={2}
+                        max={20}
+                        value={externalNotificationConfig.failureEscalation?.threshold || 3}
+                        onChange={e => updateExternalNotificationConfig({ failureEscalation: { ...externalNotificationConfig.failureEscalation!, threshold: Number(e.target.value) } })}
+                        className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-red-500"
+                      />
+                    </label>
+                    <label className="space-y-1 text-xs text-slate-500">
+                      {language === 'zh' ? '升级冷却分钟' : 'Cooldown minutes'}
+                      <input
+                        type="number"
+                        min={5}
+                        max={1440}
+                        value={externalNotificationConfig.failureEscalation?.cooldownMinutes || 60}
+                        onChange={e => updateExternalNotificationConfig({ failureEscalation: { ...externalNotificationConfig.failureEscalation!, cooldownMinutes: Number(e.target.value) } })}
+                        className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-red-500"
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-4">
+                <div className="mb-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                    {language === 'zh' ? '通知模板' : 'Notification Templates'}
+                  </h4>
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    {language === 'zh' ? '支持变量：{{event}}、{{title}}、{{body}}、{{url}}、{{metadata.clientName}}。' : 'Variables: {{event}}, {{title}}, {{body}}, {{url}}, {{metadata.clientName}}.'}
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {(['email_received', 'customer_reply', 'review_required', 'agent_execution_failed', 'live_chat_received', 'daily_operation_summary'] as const).map(event => {
+                    const template = externalNotificationConfig.templates?.[event] || { enabled: false, title: '', body: '' };
+                    return (
+                      <div key={event} className="rounded-lg border border-slate-800 bg-slate-900/50 p-3 space-y-2">
+                        <label className="flex items-center justify-between gap-3 text-xs font-bold text-slate-300">
+                          <span className="font-mono">{event}</span>
+                          <input
+                            type="checkbox"
+                            checked={!!template.enabled}
+                            onChange={e => updateExternalNotificationConfig({
+                              templates: {
+                                ...externalNotificationConfig.templates,
+                                [event]: { ...template, enabled: e.target.checked }
+                              }
+                            })}
+                            className="accent-cyan-500"
+                          />
+                        </label>
+                        <input
+                          value={template.title || ''}
+                          onChange={e => updateExternalNotificationConfig({
+                            templates: {
+                              ...externalNotificationConfig.templates,
+                              [event]: { ...template, title: e.target.value }
+                            }
+                          })}
+                          placeholder="Title template"
+                          className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-xs text-slate-200 outline-none focus:border-cyan-500"
+                        />
+                        <textarea
+                          value={template.body || ''}
+                          onChange={e => updateExternalNotificationConfig({
+                            templates: {
+                              ...externalNotificationConfig.templates,
+                              [event]: { ...template, body: e.target.value }
+                            }
+                          })}
+                          placeholder="Body template"
+                          className="min-h-[70px] w-full resize-none bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-xs text-slate-200 outline-none focus:border-cyan-500"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 {[
                   ['email_received', 'New email received / 收到新邮件'],
                   ['live_chat_received', 'Live chat message received / 收到 Live Chat 消息'],
                   ['review_required', 'Review required / 需要审核'],
                   ['execution_failed', 'Execution failed / 执行失败'],
+                  ['notification_channel_failed', 'Notification channel failed / 通知渠道连续失败'],
                   ['daily_operation_summary', 'Daily operation summary / 每日运营摘要'],
                   ['inactive_login_reminder', 'Inactive login reminder / 长时间未登录提醒']
                 ].map(([event, label]) => (
@@ -2422,6 +2587,14 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
                             {log.status}{log.httpStatus ? ` · ${log.httpStatus}` : ''}
                           </span>
                           {log.error && <div className="mt-1 break-words text-red-300">{log.error}</div>}
+                          <button
+                            type="button"
+                            onClick={() => handleRetryNotificationLog(log.id)}
+                            className="mt-2 inline-flex items-center gap-1 rounded border border-cyan-500/40 bg-cyan-500/10 px-2 py-1 text-[11px] font-bold text-cyan-200 hover:bg-cyan-500/20"
+                          >
+                            <RefreshCw className="h-3 w-3" />
+                            {language === 'zh' ? '重试' : 'Retry'}
+                          </button>
                         </div>
                       </div>
                     ))}

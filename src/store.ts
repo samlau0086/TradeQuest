@@ -194,8 +194,15 @@ export type ExternalNotificationEvent =
   | 'agent_review_required'
   | 'execution_failed'
   | 'agent_execution_failed'
+  | 'notification_channel_failed'
   | 'daily_operation_summary'
   | 'inactive_login_reminder';
+
+export interface ExternalNotificationTemplate {
+  enabled: boolean;
+  title: string;
+  body: string;
+}
 
 export interface ExternalNotificationConfig {
   enabled: boolean;
@@ -205,6 +212,19 @@ export interface ExternalNotificationConfig {
   webhookEnabled: boolean;
   webhookUrl: string;
   events: Record<ExternalNotificationEvent, boolean>;
+  quietHours?: {
+    enabled: boolean;
+    start: string;
+    end: string;
+    timezone: string;
+    allowCritical: boolean;
+  };
+  templates?: Partial<Record<ExternalNotificationEvent, ExternalNotificationTemplate>>;
+  failureEscalation?: {
+    enabled: boolean;
+    threshold: number;
+    cooldownMinutes: number;
+  };
 }
 
 export interface NotificationDeliveryLog {
@@ -1032,6 +1052,7 @@ export interface StoreState {
   notificationDeliveryLogs: NotificationDeliveryLog[];
   fetchNotificationDeliveryLogs: (limit?: number) => Promise<void>;
   clearNotificationDeliveryLogs: () => Promise<void>;
+  retryNotificationDeliveryLog: (id: string) => Promise<void>;
   agentContextAnalysisConfig: AgentContextAnalysisConfig;
   updateAgentContextAnalysisConfig: (updates: Partial<AgentContextAnalysisConfig>) => void;
   
@@ -1478,8 +1499,29 @@ const INITIAL_EXTERNAL_NOTIFICATION_CONFIG: ExternalNotificationConfig = {
     agent_review_required: true,
     execution_failed: true,
     agent_execution_failed: true,
+    notification_channel_failed: true,
     daily_operation_summary: true,
     inactive_login_reminder: true
+  },
+  quietHours: {
+    enabled: false,
+    start: '22:00',
+    end: '08:00',
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    allowCritical: true
+  },
+  templates: {
+    email_received: { enabled: false, title: 'New email received', body: '{{body}}' },
+    whatsapp_received: { enabled: false, title: 'New WhatsApp message', body: '{{body}}' },
+    live_chat_received: { enabled: false, title: 'Live Chat needs attention', body: '{{body}}' },
+    review_required: { enabled: false, title: 'Review required', body: '{{body}}' },
+    agent_execution_failed: { enabled: false, title: 'Agent execution failed', body: '{{body}}' },
+    daily_operation_summary: { enabled: false, title: 'Daily operation summary', body: '{{body}}' }
+  },
+  failureEscalation: {
+    enabled: true,
+    threshold: 3,
+    cooldownMinutes: 60
   }
 };
 
@@ -2444,7 +2486,16 @@ export const useStore = create<StoreState>((set, get) => ({
       ...updates,
       events: updates.events
         ? { ...state.externalNotificationConfig.events, ...updates.events }
-        : state.externalNotificationConfig.events
+        : state.externalNotificationConfig.events,
+      quietHours: updates.quietHours
+        ? { ...state.externalNotificationConfig.quietHours, ...updates.quietHours }
+        : state.externalNotificationConfig.quietHours,
+      templates: updates.templates
+        ? { ...state.externalNotificationConfig.templates, ...updates.templates }
+        : state.externalNotificationConfig.templates,
+      failureEscalation: updates.failureEscalation
+        ? { ...state.externalNotificationConfig.failureEscalation, ...updates.failureEscalation }
+        : state.externalNotificationConfig.failureEscalation
     }
   })),
   agentContextAnalysisConfig: INITIAL_AGENT_CONTEXT_ANALYSIS_CONFIG,
@@ -2498,6 +2549,17 @@ export const useStore = create<StoreState>((set, get) => ({
       throw new Error(data.error || 'Failed to clear notification logs');
     }
     set({ notificationDeliveryLogs: [] });
+  },
+  retryNotificationDeliveryLog: async (id) => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    const res = await fetch(`/api/notifications/logs/${encodeURIComponent(id)}/retry`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Failed to retry notification');
+    await get().fetchNotificationDeliveryLogs(50);
   },
 
   view: 'kanban',
@@ -3656,7 +3718,10 @@ export const useStore = create<StoreState>((set, get) => ({
             ? {
                 ...INITIAL_EXTERNAL_NOTIFICATION_CONFIG,
                 ...settings.externalNotificationConfig,
-                events: { ...INITIAL_EXTERNAL_NOTIFICATION_CONFIG.events, ...(settings.externalNotificationConfig.events || {}) }
+                events: { ...INITIAL_EXTERNAL_NOTIFICATION_CONFIG.events, ...(settings.externalNotificationConfig.events || {}) },
+                quietHours: { ...INITIAL_EXTERNAL_NOTIFICATION_CONFIG.quietHours, ...(settings.externalNotificationConfig.quietHours || {}) },
+                templates: { ...INITIAL_EXTERNAL_NOTIFICATION_CONFIG.templates, ...(settings.externalNotificationConfig.templates || {}) },
+                failureEscalation: { ...INITIAL_EXTERNAL_NOTIFICATION_CONFIG.failureEscalation, ...(settings.externalNotificationConfig.failureEscalation || {}) }
               }
             : state.externalNotificationConfig,
           agentContextAnalysisConfig: settings.agentContextAnalysisConfig

@@ -3512,6 +3512,69 @@ No markdown wrappers, just valid JSON.`;
     return `${raw.slice(0, 4)}***${raw.slice(-4)}`;
   };
 
+  const NOTIFICATION_CRITICAL_EVENTS = new Set([
+    'execution_failed',
+    'agent_execution_failed',
+    'notification_channel_failed'
+  ]);
+
+  const renderNotificationTemplate = (template: string, payload: { event: string; title: string; body: string; url?: string; metadata?: any }) => {
+    const metadata = payload.metadata && typeof payload.metadata === 'object' ? payload.metadata : {};
+    return String(template || '')
+      .replace(/\{\{\s*event\s*\}\}/gi, payload.event || '')
+      .replace(/\{\{\s*title\s*\}\}/gi, payload.title || '')
+      .replace(/\{\{\s*body\s*\}\}/gi, payload.body || '')
+      .replace(/\{\{\s*url\s*\}\}/gi, payload.url || '')
+      .replace(/\{\{\s*metadata\.([a-zA-Z0-9_.-]+)\s*\}\}/g, (_match, key) => {
+        const value = String(key).split('.').reduce((acc: any, part: string) => acc?.[part], metadata);
+        return value == null ? '' : String(value);
+      });
+  };
+
+  const applyNotificationTemplate = (config: any, payload: { event: string; title: string; body: string; url?: string; metadata?: any }) => {
+    const template = config?.templates?.[payload.event];
+    if (!template?.enabled) return payload;
+    return {
+      ...payload,
+      title: renderNotificationTemplate(template.title || payload.title, payload).slice(0, 160) || payload.title,
+      body: renderNotificationTemplate(template.body || payload.body, payload).slice(0, 2000) || payload.body
+    };
+  };
+
+  const minutesOfDay = (hhmm: string) => {
+    const [h, m] = String(hhmm || '').split(':').map(Number);
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+    return Math.max(0, Math.min(23, h)) * 60 + Math.max(0, Math.min(59, m));
+  };
+
+  const getZonedMinutesNow = (timezone?: string) => {
+    try {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone || 'UTC',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      }).formatToParts(new Date());
+      const hour = Number(parts.find(part => part.type === 'hour')?.value || 0);
+      const minute = Number(parts.find(part => part.type === 'minute')?.value || 0);
+      return hour * 60 + minute;
+    } catch {
+      const now = new Date();
+      return now.getUTCHours() * 60 + now.getUTCMinutes();
+    }
+  };
+
+  const isNotificationQuietHoursActive = (config: any, event: string, payload: any) => {
+    const quiet = config?.quietHours || {};
+    if (!quiet.enabled || payload?.metadata?.__bypassQuietHours) return false;
+    if (quiet.allowCritical && NOTIFICATION_CRITICAL_EVENTS.has(event)) return false;
+    const start = minutesOfDay(quiet.start || '22:00');
+    const end = minutesOfDay(quiet.end || '08:00');
+    if (start === null || end === null || start === end) return false;
+    const now = getZonedMinutesNow(quiet.timezone || 'UTC');
+    return start < end ? now >= start && now < end : now >= start || now < end;
+  };
+
   const recordNotificationDeliveryLog = async (
     userId: string,
     payload: { event: string; title: string; body: string; url?: string; metadata?: any },
@@ -3540,6 +3603,58 @@ No markdown wrappers, just valid JSON.`;
     ).catch(error => console.warn('Failed to record notification delivery log', error?.message || error));
   };
 
+  const maybeEscalateNotificationFailures = async (
+    userId: string,
+    config: any,
+    channel: string,
+    lastResult: { ok?: boolean; error?: string; status?: number }
+  ) => {
+    const escalation = config?.failureEscalation || {};
+    if (!escalation.enabled || lastResult.ok) return;
+    const threshold = Math.max(2, Number(escalation.threshold || 3));
+    const cooldownMinutes = Math.max(5, Number(escalation.cooldownMinutes || 60));
+    const recent = await pool.query(
+      `SELECT status, created_at
+       FROM notification_delivery_logs
+       WHERE user_id = $1 AND channel = $2
+       ORDER BY created_at DESC
+       LIMIT $3`,
+      [userId, channel, threshold]
+    );
+    const consecutiveFailures = recent.rows.length >= threshold && recent.rows.every(row => row.status === 'failed');
+    if (!consecutiveFailures) return;
+    const state = config.failureEscalationState || {};
+    const stateKey = `${channel}EscalatedAt`;
+    const lastEscalatedAt = state[stateKey] ? new Date(state[stateKey]).getTime() : 0;
+    if (lastEscalatedAt && Date.now() - lastEscalatedAt < cooldownMinutes * 60 * 1000) return;
+
+    const title = `TradeQuest notification channel failed: ${channel}`;
+    const body = `${channel} has failed ${threshold} times consecutively. Last error: ${lastResult.error || lastResult.status || 'unknown error'}`;
+    await recordNotificationDeliveryLog(userId, {
+      event: 'notification_channel_failed',
+      title,
+      body,
+      metadata: { channel, threshold, lastError: lastResult.error, httpStatus: lastResult.status }
+    }, {
+      channel: 'system',
+      skipped: true,
+      reason: body
+    });
+    const result = await pool.query('SELECT settings FROM users WHERE id = $1', [userId]);
+    const settings = result.rows[0]?.settings || {};
+    const nextConfig = {
+      ...(settings.externalNotificationConfig || {}),
+      failureEscalationState: {
+        ...((settings.externalNotificationConfig || {}).failureEscalationState || {}),
+        [stateKey]: new Date().toISOString()
+      }
+    };
+    await pool.query(
+      `UPDATE users SET settings = COALESCE(settings, '{}'::jsonb) || $2::jsonb, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+      [userId, JSON.stringify({ externalNotificationConfig: nextConfig })]
+    );
+  };
+
   const sendExternalNotification = async (
     userId: string,
     payload: { event: string; title: string; body: string; url?: string; metadata?: any }
@@ -3549,7 +3664,7 @@ No markdown wrappers, just valid JSON.`;
     const config = settings.externalNotificationConfig || {};
     const events = config.events || {};
     const normalizedEvent = normalizeNotificationEvent(payload.event);
-    const effectivePayload = { ...payload, event: normalizedEvent };
+    const effectivePayload = applyNotificationTemplate(config, { ...payload, event: normalizedEvent });
     if (!config.enabled) {
       await recordNotificationDeliveryLog(userId, effectivePayload, { channel: 'none', skipped: true, reason: 'External notifications are disabled.' });
       return { skipped: true, reason: 'External notifications are disabled.', results: [] };
@@ -3557,6 +3672,11 @@ No markdown wrappers, just valid JSON.`;
     if (events[normalizedEvent] === false || (payload.event !== normalizedEvent && events[payload.event] === false)) {
       const reason = `Event ${normalizedEvent} is disabled.`;
       await recordNotificationDeliveryLog(userId, effectivePayload, { channel: 'none', skipped: true, reason });
+      return { skipped: true, reason, results: [] };
+    }
+    if (isNotificationQuietHoursActive(config, normalizedEvent, effectivePayload)) {
+      const reason = 'Notification skipped by quiet hours.';
+      await recordNotificationDeliveryLog(userId, effectivePayload, { channel: 'quiet_hours', skipped: true, reason });
       return { skipped: true, reason, results: [] };
     }
 
@@ -3622,6 +3742,7 @@ No markdown wrappers, just valid JSON.`;
     }
     const results = await Promise.all(jobs);
     await Promise.all(results.map(item => recordNotificationDeliveryLog(userId, effectivePayload, item)));
+    await Promise.all(results.map(item => maybeEscalateNotificationFailures(userId, config, item.channel, item)));
     return { skipped: false, results };
   };
 
@@ -3673,6 +3794,36 @@ No markdown wrappers, just valid JSON.`;
     } catch (e) {
       console.error('Failed to fetch notification logs', e);
       res.status(500).json({ error: 'Failed to fetch notification logs' });
+    }
+  });
+
+  app.post('/api/notifications/logs/:id/retry', authenticateToken, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const result = await pool.query(
+        `SELECT event, title, body, url, metadata
+         FROM notification_delivery_logs
+         WHERE id = $1 AND user_id = $2`,
+        [id, req.user.uid]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Notification log not found' });
+      const row = result.rows[0];
+      const metadata = safeParseJsonField(row.metadata, {});
+      const retryResult = await sendExternalNotification(req.user.uid, {
+        event: row.event,
+        title: row.title || row.event,
+        body: row.body || '',
+        url: row.url || undefined,
+        metadata: {
+          ...metadata,
+          retryOf: id,
+          __bypassQuietHours: true
+        }
+      });
+      res.json({ success: true, ...retryResult });
+    } catch (e) {
+      console.error('Failed to retry notification', e);
+      res.status(500).json({ error: 'Failed to retry notification' });
     }
   });
 
