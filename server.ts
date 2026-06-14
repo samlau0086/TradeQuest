@@ -2480,6 +2480,10 @@ No markdown wrappers, just valid JSON.`;
         : (result.rows[0].settings || {});
       await bootstrapAgentStateTablesFromSettings(req.user.uid, settings);
       const hydratedSettings = await hydrateAgentStateFromTables(req.user.uid, settings);
+      const cleanedAgentStateCount = await cleanupDeletedEmailAgentStateForUser(req.user.uid, hydratedSettings);
+      if (cleanedAgentStateCount > 0) {
+        await pool.query('UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [JSON.stringify(hydratedSettings), req.user.uid]);
+      }
       await syncAgentStateTablesFromSettings(req.user.uid, hydratedSettings);
       res.json(hydratedSettings);
     } catch (e) {
@@ -6074,6 +6078,56 @@ No markdown wrappers, just valid JSON.`;
     return changed;
   };
 
+  const collectEmailIdsFromAgentState = (settings: any) => {
+    const ids = new Set<string>();
+    const addId = (value: any) => {
+      if (typeof value === 'string' && value.trim()) ids.add(value.trim());
+    };
+    const addRelatedIds = (metadata: any) => {
+      if (Array.isArray(metadata?.relatedEmailIds)) metadata.relatedEmailIds.forEach(addId);
+      addId(metadata?.emailId);
+      addId(metadata?.sourceEmailId);
+    };
+
+    (Array.isArray(settings.agentOpportunities) ? settings.agentOpportunities : []).forEach((opportunity: any) => {
+      if (opportunity?.targetType === 'email') addId(opportunity.targetId);
+      addRelatedIds(opportunity?.metadata);
+    });
+    (Array.isArray(settings.agentTasks) ? settings.agentTasks : []).forEach((task: any) => {
+      if (task?.entityType === 'email') addId(task.entityId);
+      addRelatedIds(task?.metadata);
+    });
+    [...(Array.isArray(settings.agentHarnessRuns) ? settings.agentHarnessRuns : []), ...(Array.isArray(settings.globalAgentPlans) ? settings.globalAgentPlans : [])]
+      .forEach((run: any) => {
+        (Array.isArray(run?.steps) ? run.steps : []).forEach((step: any) => {
+          const payload = step?.payload || {};
+          if (payload?.targetType === 'email') addId(payload.targetId);
+          if (payload?.entityType === 'email') addId(payload.entityId);
+          addRelatedIds(payload);
+        });
+      });
+
+    return Array.from(ids);
+  };
+
+  const cleanupDeletedEmailAgentStateForUser = async (userId: string, settings: any) => {
+    const candidateEmailIds = collectEmailIdsFromAgentState(settings);
+    if (candidateEmailIds.length === 0) return 0;
+    const deletedRes = await pool.query(
+      `SELECT id FROM emails WHERE user_id = $1 AND pending_delete = TRUE AND id = ANY($2::varchar[])`,
+      [userId, candidateEmailIds]
+    );
+    const deletedEmailIds = deletedRes.rows.map((row: any) => row.id).filter(Boolean);
+    if (deletedEmailIds.length === 0) return 0;
+    return ignoreAgentOpportunitiesForDeletedEmails(
+      settings,
+      deletedEmailIds,
+      settings.language === 'zh'
+        ? '关联邮件已删除，相关机会任务已关闭以避免重复派发。'
+        : 'Related email was deleted; linked opportunity task was closed to prevent redispatch.'
+    );
+  };
+
   const activeOpportunityDispatches = new Set<string>();
   const activeHarnessExecutions = new Set<string>();
   let agentHubSchedulerRunning = false;
@@ -6335,12 +6389,22 @@ No markdown wrappers, just valid JSON.`;
 
       for (const user of usersRes.rows) {
         summary.users += 1;
-        const settings = typeof user.settings === 'string' ? JSON.parse(user.settings || '{}') : (user.settings || {});
+        const rawSettings = typeof user.settings === 'string' ? JSON.parse(user.settings || '{}') : (user.settings || {});
+        const settings = await hydrateAgentStateFromTables(user.id, rawSettings);
+        let changed = await cleanupDeletedEmailAgentStateForUser(user.id, settings) > 0;
         const agents = Array.isArray(settings.agentHubAgents) ? settings.agentHubAgents : [];
-        if (agents.length === 0) continue;
+        if (agents.length === 0) {
+          if (changed) {
+            await schedulerLockClient.query(
+              'UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+              [JSON.stringify(settings), user.id]
+            );
+            await syncAgentStateTablesFromSettings(user.id, settings, ['agentOpportunities', 'agentTasks', 'agentHarnessRuns', 'globalAgentPlans']);
+          }
+          continue;
+        }
         summary.configuredAgents += agents.length;
 
-        let changed = false;
         for (const agent of agents) {
           const scheduleState = getAgentHubScheduleState(agent, now);
           summary.agents.push({
@@ -6575,6 +6639,7 @@ No markdown wrappers, just valid JSON.`;
             'UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
             [JSON.stringify(settings), user.id]
           );
+          await syncAgentStateTablesFromSettings(user.id, settings);
         }
       }
     } catch (e) {
