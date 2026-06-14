@@ -93,6 +93,12 @@ const API_TOKEN_TEMPLATES = [
     permissions: ['webhook.ingest', 'lead.capture']
   },
   {
+    id: 'telegram_bot_webhook',
+    label: 'Telegram Bot Webhook',
+    description: 'For future Telegram Bot webhook ingestion. Allows Telegram webhook verification and public-safe conversation intake only.',
+    permissions: ['telegram.webhook', 'telegram.public_read']
+  },
+  {
     id: 'whatsapp_widget',
     label: 'WhatsApp Widget',
     description: 'For lightweight website WhatsApp widgets with public send/read bridge permissions.',
@@ -2451,6 +2457,7 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
                     'email_received',
                     'whatsapp_received',
                     'live_chat_received',
+                    'telegram_received',
                     'customer_reply',
                     'review_required',
                     'agent_review_required',
@@ -2508,7 +2515,9 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 {[
                   ['email_received', 'New email received / 收到新邮件'],
+                  ['whatsapp_received', 'WhatsApp received / 收到 WhatsApp'],
                   ['live_chat_received', 'Live chat message received / 收到 Live Chat 消息'],
+                  ['telegram_received', 'Telegram message received / 收到 Telegram 消息'],
                   ['review_required', 'Review required / 需要审核'],
                   ['execution_failed', 'Execution failed / 执行失败'],
                   ['notification_channel_failed', 'Notification channel failed / 通知渠道连续失败'],

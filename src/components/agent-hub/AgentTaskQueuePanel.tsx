@@ -63,6 +63,7 @@ export function AgentTaskQueuePanel({
       email: isZh ? '邮件' : 'Email',
       whatsapp: isZh ? 'WhatsApp' : 'WhatsApp',
       live_chat: isZh ? 'Live Chat' : 'Live Chat',
+      telegram: isZh ? 'Telegram' : 'Telegram',
       conversation: isZh ? '统一会话' : 'Conversation',
       system: isZh ? '系统' : 'System'
     };

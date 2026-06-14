@@ -52,6 +52,10 @@ export const AGENT_TOOL_REGISTRY: AgentToolDefinition[] = [
   { id: 'live_chat.reply', label: 'Reply in live chat', description: 'Send a customer-facing reply in a live chat session using public-safe context only.', category: 'Live Chat', risk: 'high', reviewRequired: true },
   { id: 'live_chat.escalate', label: 'Escalate live chat', description: 'Mark a live chat for human takeover or high-priority review.', category: 'Live Chat', risk: 'medium', reviewRequired: false },
   { id: 'live_chat.tag', label: 'Tag live chat', description: 'Add or update tags on a live chat session.', category: 'Live Chat', risk: 'low', reviewRequired: false },
+  { id: 'telegram.read', label: 'Read Telegram', description: 'Read Telegram Bot conversations after the Telegram channel connector is enabled.', category: 'Telegram', risk: 'low', reviewRequired: false },
+  { id: 'telegram.reply', label: 'Reply in Telegram', description: 'Send a customer-facing Telegram Bot reply using public-safe context after the Telegram connector is enabled.', category: 'Telegram', risk: 'high', reviewRequired: true },
+  { id: 'telegram.escalate', label: 'Escalate Telegram', description: 'Mark a Telegram conversation for human takeover or priority review.', category: 'Telegram', risk: 'medium', reviewRequired: false },
+  { id: 'telegram.tag', label: 'Tag Telegram', description: 'Add or update tags on a Telegram conversation.', category: 'Telegram', risk: 'low', reviewRequired: false },
   { id: 'product.read', label: 'Read products', description: 'Read product catalog details, SKUs, descriptions, pricing, and bulk price rules.', category: 'Products', risk: 'low', reviewRequired: false },
   { id: 'product.create', label: 'Create product', description: 'Create a new product catalog item.', category: 'Products', risk: 'medium', reviewRequired: true },
   { id: 'product.update', label: 'Update product', description: 'Update product catalog details, pricing, images, and bulk price rules.', category: 'Products', risk: 'medium', reviewRequired: true },
@@ -109,6 +113,10 @@ const TOOL_INFERENCE_KEYWORDS: Record<string, string[]> = {
   'whatsapp.send': ['whatsapp', 'wa', 'message', 'chat', 'send message', 'whatsapp消息', '发whatsapp', '发送消息', '聊天'],
   'conversation.tag': ['tag conversation', 'conversation tag', 'label conversation', '对话标签', '打标签', '标签'],
   'conversation.comment': ['conversation comment', 'internal note', 'comment on conversation', '对话备注', '内部备注', '评论'],
+  'telegram.read': ['telegram read', 'telegram history', 'bot conversation', '读取telegram', 'telegram记录', '机器人对话'],
+  'telegram.reply': ['telegram', 'telegram bot', 'bot reply', 'telegram message', 'telegram客服', 'telegram回复', 'telegram消息'],
+  'telegram.escalate': ['telegram escalate', 'telegram takeover', 'human takeover', 'telegram人工接管', 'telegram升级'],
+  'telegram.tag': ['telegram tag', 'tag telegram', 'telegram标签'],
   'product.read': ['product', 'catalog', 'sku', 'price', 'pricing', 'bulk price', '产品', '目录', '产品目录', '型号', '价格', '报价规则', '阶梯价'],
   'product.create': ['create product', 'new product', 'add product', '创建产品', '新增产品', '添加产品'],
   'product.update': ['update product', 'edit product', 'pricing rule', 'bulk price', '更新产品', '编辑产品', '价格规则', '阶梯报价'],
@@ -166,6 +174,9 @@ export function inferAgentToolsFromPrompt(prompt: string) {
   }
   if (/(live.?chat|website chat|visitor message|customer service chat|\u5728\u7ebf\u5ba2\u670d|\u7f51\u7ad9\u5ba2\u670d|\u8bbf\u5ba2\u6d88\u606f|\u4eba\u5de5\u63a5\u7ba1)/i.test(normalized)) {
     selected.push('live_chat.read', 'live_chat.reply', 'live_chat.escalate', 'product.read', 'knowledge.search');
+  }
+  if (/(telegram|tg|telegram bot|bot客服|telegram客服|telegram消息|telegram人工接管)/i.test(normalized)) {
+    selected.push('telegram.read', 'telegram.reply', 'telegram.escalate', 'product.read', 'knowledge.search');
   }
   if (selected.includes('lead.acquire') && selected.includes('product.read')) {
     selected.push('knowledge.search', 'client.read', 'client.dedupe', 'data.normalize', 'lead.create', 'lead.enrich', 'public_pool.import');

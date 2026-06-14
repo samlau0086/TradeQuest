@@ -58,6 +58,8 @@ const ROLE_PERMISSION_MATRIX: Record<CrmRole, string[]> = {
     'email.delete',
     'whatsapp.read',
     'whatsapp.send',
+    'telegram.read',
+    'telegram.manage',
     'quote.read',
     'quote.create',
     'quote.update',
@@ -78,6 +80,7 @@ const ROLE_PERMISSION_MATRIX: Record<CrmRole, string[]> = {
     'email.send',
     'whatsapp.read',
     'whatsapp.send',
+    'telegram.read',
     'quote.read',
     'quote.create',
     'quote.update',
@@ -94,6 +97,7 @@ const ROLE_PERMISSION_MATRIX: Record<CrmRole, string[]> = {
     'email.send',
     'whatsapp.read',
     'whatsapp.send',
+    'telegram.manage',
     'knowledge.read',
     'live_chat.manage',
     'agent.execute'
@@ -103,6 +107,7 @@ const ROLE_PERMISSION_MATRIX: Record<CrmRole, string[]> = {
     'lead.read',
     'email.read',
     'whatsapp.read',
+    'telegram.read',
     'product.read',
     'knowledge.read',
     'agent.execute'
@@ -3309,6 +3314,9 @@ No markdown wrappers, just valid JSON.`;
     'global_agent',
     'follow_up_agent',
     'whatsapp_agent',
+    'whatsapp_customer_service_agent',
+    'live_chat_agent',
+    'telegram_customer_service_agent',
     'lead_scoring_agent',
     'lead_data_agent',
     'email_draft_agent',
@@ -8443,6 +8451,7 @@ No markdown wrappers, just valid JSON.`;
     product_catalog_read: ['product.read', 'knowledge.public_read'],
     rag_public_read: ['knowledge.public_read'],
     webhook_ingest: ['webhook.ingest', 'lead.capture'],
+    telegram_bot_webhook: ['telegram.webhook', 'telegram.public_read'],
     whatsapp_widget: ['whatsapp.public_send', 'whatsapp.public_read'],
     readonly_crm: ['client.read', 'lead.read', 'product.read', 'knowledge.public_read']
   };
@@ -9659,7 +9668,7 @@ Return JSON only:
   };
 
   const getAgentToolRisk = (tool: string, agentGuardrail?: string) => (
-    ['email.send', 'whatsapp.send', 'live_chat.reply', 'quote.create', 'email.delete', 'product.delete', 'knowledge.delete', 'client.delete', 'lead.delete'].includes(tool)
+    ['email.send', 'whatsapp.send', 'live_chat.reply', 'telegram.reply', 'quote.create', 'email.delete', 'product.delete', 'knowledge.delete', 'client.delete', 'lead.delete'].includes(tool)
       ? 'high'
       : ['lead.acquire', 'lead.create', 'lead.update', 'client.update', 'product.update', 'email.schedule', 'quote.update', 'knowledge.create', 'knowledge.update'].includes(tool)
         ? 'medium'
@@ -9713,6 +9722,11 @@ Return JSON only:
       'live_chat.read': ['live_chat.read', 'live_chat.manage'],
       'live_chat.reply': ['live_chat.manage'],
       'live_chat.escalate': ['live_chat.manage'],
+      'live_chat.tag': ['live_chat.manage'],
+      'telegram.read': ['telegram.read', 'telegram.manage'],
+      'telegram.reply': ['telegram.manage'],
+      'telegram.escalate': ['telegram.manage'],
+      'telegram.tag': ['telegram.manage'],
       'conversation.tag': ['email.read', 'whatsapp.read', 'live_chat.manage'],
       'conversation.comment': ['email.read', 'whatsapp.read', 'live_chat.manage'],
       'quote.read': ['quote.read'],
@@ -9753,7 +9767,7 @@ Return JSON only:
   };
 
   const getAgentToolImpact = (tool: string) => {
-    if (['email.send', 'whatsapp.send', 'live_chat.reply'].includes(tool)) return 'send';
+    if (['email.send', 'whatsapp.send', 'live_chat.reply', 'telegram.reply'].includes(tool)) return 'send';
     if (tool.endsWith('.create') || ['lead.acquire', 'email.draft', 'quote.create'].includes(tool)) return 'create';
     if (tool.endsWith('.update') || tool.endsWith('.tag') || tool.endsWith('.comment') || tool.endsWith('.log') || tool.endsWith('.stage') || tool.endsWith('.schedule') || tool.endsWith('.enrich')) return 'write';
     if (tool.endsWith('.delete')) return 'delete';
@@ -10660,12 +10674,14 @@ Return JSON only:
           ? 'email'
           : payload?.whatsappId || payload?.conversationId
             ? 'whatsapp'
+            : payload?.telegramId || payload?.telegramConversationId
+              ? 'telegram'
             : payload?.liveChatSessionId || payload?.sessionId
               ? 'live_chat'
               : payload?.clientId || payload?.customerId
                 ? 'client'
                 : 'system';
-      const eventEntityId = payload?.leadId || payload?.dealId || payload?.emailId || payload?.whatsappId || payload?.conversationId || payload?.liveChatSessionId || payload?.sessionId || payload?.clientId || payload?.customerId || null;
+      const eventEntityId = payload?.leadId || payload?.dealId || payload?.emailId || payload?.whatsappId || payload?.conversationId || payload?.telegramId || payload?.telegramConversationId || payload?.liveChatSessionId || payload?.sessionId || payload?.clientId || payload?.customerId || null;
       const eventTask = addAgentTaskToSettings(settings, {
         id: `task_${relatedRunId}`,
         title: isZh ? `事件触发：${agent.name}` : `Event-triggered run: ${agent.name}`,
