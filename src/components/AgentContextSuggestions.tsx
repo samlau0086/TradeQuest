@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, CalendarClock, CornerDownRight, Loader2, MessageSquare, ShieldCheck, Sparkles, Trash2, UserPlus, Zap } from 'lucide-react';
+import { AlertTriangle, BookOpen, Bot, CalendarClock, CornerDownRight, Loader2, MessageSquare, ShieldCheck, Sparkles, Trash2, UserPlus, Zap } from 'lucide-react';
 import { AgentContextAnalysisMode, AgentContextSuggestionInsight, useStore } from '../store';
 import { useTranslation } from '../lib/i18n';
 import { cn } from '../lib/utils';
@@ -121,7 +121,7 @@ export function AgentContextSuggestions({
     notify
   } = useStore();
   const t = useTranslation(language);
-  const [aiInsight, setAiInsight] = useState<{ intent: string; customerContext: string; knowledgeContext: string } | null>(null);
+  const [aiInsight, setAiInsight] = useState<AgentContextSuggestionInsight | null>(null);
   const [loadingInsight, setLoadingInsight] = useState(false);
   const [runningOptionId, setRunningOptionId] = useState<string | null>(null);
   const [optionStatus, setOptionStatus] = useState<string | null>(null);
@@ -265,6 +265,8 @@ ${additionalContext || 'N/A'}`,
           intent: parsed.intent || fallbackIntent,
           customerContext: parsed.customerContext || '',
           knowledgeContext: parsed.knowledgeContext || '',
+          knowledgeEvidence: Array.isArray(data.knowledgeEvidence) ? data.knowledgeEvidence : [],
+          knowledgeConflicts: Array.isArray(data.knowledgeConflicts) ? data.knowledgeConflicts : [],
           analyzedAt: new Date().toISOString(),
           modelId: llmConfig.id
         };
@@ -417,6 +419,15 @@ ${additionalContext || 'N/A'}`,
     });
   }
 
+  const knowledgeEvidence = aiInsight?.knowledgeEvidence || [];
+  const clientKnowledgeHits = knowledgeEvidence.filter(item => item.scope === 'client').length;
+  const globalKnowledgeHits = knowledgeEvidence.filter(item => item.scope === 'global').length;
+  const knowledgeConflicts = aiInsight?.knowledgeConflicts || [];
+  const formatConfidence = (value?: number) => {
+    if (typeof value !== 'number' || Number.isNaN(value)) return '';
+    return `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
+  };
+
   return (
     <section ref={panelRef} className="mt-6 rounded-lg border border-blue-500/30 bg-blue-950/20 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -472,6 +483,67 @@ ${additionalContext || 'N/A'}`,
           <span>{aiInsight?.knowledgeContext || (hasKnowledge ? t('Relevant CRM/RAG context is available.') : t('No RAG snippet found yet; consider saving this context.'))}</span>
         </div>
       </div>
+
+      {knowledgeEvidence.length > 0 && (
+        <div className="mt-4 rounded-lg border border-slate-700/70 bg-slate-950/70 p-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-300">
+              <BookOpen className="h-4 w-4 text-cyan-300" />
+              {language === 'zh' ? 'RAG 引用依据' : 'RAG Evidence'}
+            </div>
+            <div className="flex flex-wrap gap-1.5 text-[10px]">
+              <span className="rounded border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-blue-200">
+                {language === 'zh' ? '客户知识' : 'Client'}: {clientKnowledgeHits}
+              </span>
+              <span className="rounded border border-slate-600 bg-slate-900 px-2 py-0.5 text-slate-300">
+                {language === 'zh' ? '全局知识' : 'Global'}: {globalKnowledgeHits}
+              </span>
+            </div>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            {knowledgeEvidence.slice(0, 4).map(item => (
+              <div key={`${item.id || item.title}-${item.source}`} className="rounded-md border border-slate-800 bg-black/40 p-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-xs font-bold text-slate-100" title={item.title}>{item.title}</div>
+                    <div className="mt-1 flex flex-wrap gap-1 text-[10px]">
+                      <span className={cn(
+                        'rounded border px-1.5 py-0.5 font-bold uppercase',
+                        item.scope === 'client' ? 'border-blue-500/30 bg-blue-500/10 text-blue-200' : 'border-slate-700 bg-slate-900 text-slate-400'
+                      )}>
+                        {item.scope === 'client' ? (language === 'zh' ? '客户' : 'Client') : (language === 'zh' ? '全局' : 'Global')}
+                      </span>
+                      {item.sourceType && <span className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-slate-400">{item.sourceType}</span>}
+                      {formatConfidence(item.confidence) && <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-emerald-200">{formatConfidence(item.confidence)}</span>}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-1 truncate text-[10px] text-slate-500" title={item.source}>{item.source}</div>
+                {item.excerpt && <p className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-slate-400">{item.excerpt}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {knowledgeConflicts.length > 0 && (
+        <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+          <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-amber-200">
+            <AlertTriangle className="h-4 w-4" />
+            {language === 'zh' ? '知识冲突提示' : 'Knowledge Conflict Warning'}
+          </div>
+          <div className="space-y-2">
+            {knowledgeConflicts.slice(0, 3).map(conflict => (
+              <div key={`${conflict.type}-${conflict.values.join('|')}`} className="rounded border border-amber-500/20 bg-black/30 px-3 py-2 text-xs text-amber-100">
+                <div className="font-bold">{conflict.label}: {conflict.values.join(' / ')}</div>
+                <div className="mt-1 text-[10px] text-amber-100/70">
+                  {language === 'zh' ? '来源' : 'Sources'}: {conflict.sources.join(', ')}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {(followUpAt || followUpEditorOpen) && (
         <div className="mt-4 rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3">

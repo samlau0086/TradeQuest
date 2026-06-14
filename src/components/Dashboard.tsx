@@ -33,6 +33,9 @@ type DashboardConversation = {
   contact_name?: string;
   contact_address?: string;
   last_message_preview?: string;
+  last_message_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
   todo_at?: string | null;
   todo_note?: string | null;
   deleted_at?: string | null;
@@ -268,6 +271,133 @@ function SparklineChart({ points, color = 'stroke-cyan-400', valueLabel = 'event
       </div>
       <div className="grid grid-cols-7 text-[10px] text-slate-500">
         {points.map((point, index) => <span key={point.label} className="text-center">{index === points.length - 1 ? point.label : `-${points.length - 1 - index}d`}</span>)}
+      </div>
+    </div>
+  );
+}
+
+function TrendComparisonChart({
+  title,
+  points,
+  valueLabel,
+  color = 'stroke-emerald-400'
+}: {
+  title: string;
+  points: { label: string; value: number; meta?: string }[];
+  valueLabel: string;
+  color?: string;
+}) {
+  const latest = points[points.length - 1]?.value || 0;
+  const previous = points[points.length - 2]?.value || 0;
+  const delta = latest - previous;
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div>
+          <div className="text-xs font-black uppercase tracking-wide text-slate-500">{title}</div>
+          <div className="mt-1 text-xl font-black text-white">{latest}{valueLabel}</div>
+        </div>
+        <span className={cn(
+          'rounded-full border px-2 py-1 text-[10px] font-bold',
+          delta >= 0 ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : 'border-rose-500/30 bg-rose-500/10 text-rose-300'
+        )}>
+          {delta >= 0 ? '+' : ''}{delta}{valueLabel}
+        </span>
+      </div>
+      <SparklineChart points={points} color={color} valueLabel={valueLabel} />
+    </div>
+  );
+}
+
+function AgentContributionBreakdown({
+  rows,
+  language
+}: {
+  rows: { label: string; value: string | number; detail: string; tone: InsightTone }[];
+  language: string;
+}) {
+  const toneClass = {
+    cyan: 'border-cyan-500/30 bg-cyan-500/10 text-cyan-200',
+    emerald: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
+    amber: 'border-amber-500/30 bg-amber-500/10 text-amber-200',
+    rose: 'border-rose-500/30 bg-rose-500/10 text-rose-200'
+  };
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-5">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-cyan-400" /> {language === 'zh' ? 'Agent 贡献拆解' : 'Agent Contribution Breakdown'}
+        </h3>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {rows.map(row => (
+          <div key={row.label} className={cn('rounded-xl border p-3', toneClass[row.tone])}>
+            <div className="text-[10px] font-black uppercase tracking-wide opacity-75">{row.label}</div>
+            <div className="mt-2 text-2xl font-black">{row.value}</div>
+            <div className="mt-2 text-xs leading-5 opacity-80">{row.detail}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LeadSourceQualityTable({
+  rows,
+  language
+}: {
+  rows: { source: string; count: number; avgScore: number; hot: number; quotes: number; won: number; conversion: number }[];
+  language: string;
+}) {
+  if (rows.length === 0) {
+    return (
+      <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-6 text-center text-sm text-slate-500">
+        {language === 'zh' ? '暂无可分析的线索来源数据。' : 'No lead source quality data yet.'}
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-5">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
+          <Target className="w-4 h-4 text-emerald-400" /> {language === 'zh' ? '线索质量按来源分析' : 'Lead Quality by Source'}
+        </h3>
+        <span className="text-xs text-slate-500">{language === 'zh' ? '按平均分排序' : 'Sorted by average score'}</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] text-left text-xs">
+          <thead className="text-slate-500">
+            <tr className="border-b border-slate-800">
+              <th className="py-2 pr-3">{language === 'zh' ? '来源' : 'Source'}</th>
+              <th className="py-2 pr-3">{language === 'zh' ? '数量' : 'Count'}</th>
+              <th className="py-2 pr-3">{language === 'zh' ? '均分' : 'Avg Score'}</th>
+              <th className="py-2 pr-3">{language === 'zh' ? '高分线索' : 'Hot'}</th>
+              <th className="py-2 pr-3">{language === 'zh' ? '报价影响' : 'Quotes'}</th>
+              <th className="py-2 pr-3">{language === 'zh' ? '赢单' : 'Won'}</th>
+              <th className="py-2 pr-3">{language === 'zh' ? '转化' : 'Conversion'}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(row => (
+              <tr key={row.source} className="border-b border-slate-900 text-slate-300">
+                <td className="py-2 pr-3 font-bold text-slate-100">{row.source}</td>
+                <td className="py-2 pr-3">{row.count}</td>
+                <td className="py-2 pr-3">
+                  <div className="flex items-center gap-2">
+                    <span className="w-10 font-bold">{row.avgScore || '-'}</span>
+                    <div className="h-1.5 w-20 rounded-full bg-slate-900">
+                      <div className="h-full rounded-full bg-emerald-400" style={{ width: `${Math.max(2, Math.min(100, row.avgScore))}%` }} />
+                    </div>
+                  </div>
+                </td>
+                <td className="py-2 pr-3">{row.hot}</td>
+                <td className="py-2 pr-3">{row.quotes}</td>
+                <td className="py-2 pr-3">{row.won}</td>
+                <td className="py-2 pr-3">{row.conversion}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -623,6 +753,23 @@ export function Dashboard() {
       date.setDate(today.getDate() - (6 - index));
       return date.toISOString().slice(0, 10);
     });
+    const dateKeyOf = (value?: string | null) => {
+      if (!value) return '';
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10);
+    };
+    const channelDateKey = (conversation: DashboardConversation) => dateKeyOf(conversation.last_message_at || conversation.updated_at || conversation.created_at || conversation.todo_at);
+    const sourceLabel = (record: { sourceType?: string; sourceLabel?: string; contactMethods?: { type: string }[]; tags?: string[] }) => {
+      const raw = String(record.sourceType || record.sourceLabel || '').toLowerCase();
+      if (/form|customer_form|lead_form/.test(raw)) return language === 'zh' ? '表单' : 'Forms';
+      if (/whatsapp/.test(raw)) return 'WhatsApp';
+      if (/email|mail/.test(raw)) return language === 'zh' ? '邮件' : 'Email';
+      if (/public|pool/.test(raw)) return language === 'zh' ? '公海' : 'Public Pool';
+      if (/outscraper|apify|phantombuster|scrapio|hasdata|decodo|clay|lead_acquire|campaign/.test(raw)) return language === 'zh' ? '获客渠道' : 'Lead Channels';
+      if (record.contactMethods?.some(method => method.type === 'whatsapp')) return 'WhatsApp';
+      if (record.contactMethods?.some(method => method.type === 'email')) return language === 'zh' ? '邮件' : 'Email';
+      return language === 'zh' ? '手动/未知' : 'Manual / Unknown';
+    };
 
     const clientStageRows = PIPELINE_STAGES.map((stage, index) => ({
       label: t(stage),
@@ -740,6 +887,21 @@ export function Dashboard() {
     const outboundTotal = emailOutbound + whatsAppLoad.outbound;
     const responseCoverage = inboundTotal ? Math.min(100, Math.round((outboundTotal / inboundTotal) * 100)) : 0;
     const channelConversionScore = Math.round((linkedRate * 0.55) + (responseCoverage * 0.45));
+    const channelConversionTrend = dayKeys.map((key, index) => {
+      const dayConversations = communicationConversations.filter(conversation => channelDateKey(conversation) === key && !conversation.deleted_at);
+      const dayWhatsapp = dayConversations.filter(conversation => conversation.channel === 'whatsapp');
+      const dayEmail = dayConversations.filter(conversation => conversation.channel === 'email');
+      const dayLiveChat = dayConversations.filter(conversation => conversation.channel === 'live_chat');
+      const total = dayConversations.length;
+      const linked = dayConversations.filter(conversation => !!conversation.client_id).length;
+      const rate = total ? Math.round((linked / total) * 100) : 0;
+      const date = new Date(`${key}T00:00:00`);
+      return {
+        label: index === dayKeys.length - 1 ? t('Today') : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+        meta: `${key} · E:${dayEmail.length} W:${dayWhatsapp.length} L:${dayLiveChat.length}`,
+        value: rate
+      };
+    });
 
     const sevenDaysAgo = addDays(startOfDay(new Date()), -6).getTime();
     const recentAgentRuns = agentRunRecords.filter(record => new Date(record.createdAt).getTime() >= sevenDaysAgo);
@@ -747,6 +909,95 @@ export function Dashboard() {
     const failedAgentRuns = recentAgentRuns.filter(record => record.status === 'failed').length;
     const agentCompletionRate = recentAgentRuns.length ? Math.round((completedAgentRuns / recentAgentRuns.length) * 100) : 0;
     const agentContributionScore = Math.max(0, Math.round(agentCompletionRate - failedAgentRuns * 8));
+    const completedRunText = recentAgentRuns
+      .filter(record => record.status === 'completed')
+      .map(record => `${record.agentName} ${record.plan} ${record.expectedResult} ${record.actualResult || ''}`.toLowerCase());
+    const agentFollowUpImpact = completedRunText.filter(text => /follow|reply|email|whatsapp|跟进|回复|邮件/.test(text)).length;
+    const agentQuoteImpact = completedRunText.filter(text => /quote|quotation|proposal|报价|方案/.test(text)).length;
+    const agentDealImpact = completedRunText.filter(text => /deal|won|closed|stage|成交|赢单|阶段/.test(text)).length;
+    const estimatedMinutesSaved = completedRunText.reduce((sum, text) => {
+      const base = 6;
+      const draftBoost = /draft|reply|email|whatsapp|起草|回复/.test(text) ? 4 : 0;
+      const analysisBoost = /analy|score|enrich|summary|分析|评分|富集|摘要/.test(text) ? 5 : 0;
+      const actionBoost = /send|quote|create|update|发送|报价|创建|更新/.test(text) ? 6 : 0;
+      return sum + base + draftBoost + analysisBoost + actionBoost;
+    }, 0);
+    const agentContributionBreakdown = [
+      {
+        label: language === 'zh' ? '节省时间' : 'Time Saved',
+        value: estimatedMinutesSaved >= 60 ? `${Math.round(estimatedMinutesSaved / 60)}h` : `${estimatedMinutesSaved}m`,
+        detail: language === 'zh' ? '按最近 7 天完成任务的类型估算。' : 'Estimated from completed run types in the last 7 days.',
+        tone: 'cyan' as const
+      },
+      {
+        label: language === 'zh' ? '完成任务' : 'Tasks Done',
+        value: completedAgentRuns,
+        detail: language === 'zh' ? `${failedAgentRuns} 次失败需要修复。` : `${failedAgentRuns} failures need attention.`,
+        tone: failedAgentRuns > 0 ? 'amber' as const : 'emerald' as const
+      },
+      {
+        label: language === 'zh' ? '跟进影响' : 'Follow-up Impact',
+        value: agentFollowUpImpact,
+        detail: language === 'zh' ? '包含邮件、WhatsApp、回复草稿和跟进行动。' : 'Includes email, WhatsApp, reply drafts, and follow-up actions.',
+        tone: 'emerald' as const
+      },
+      {
+        label: language === 'zh' ? '报价/成交影响' : 'Quote / Deal Impact',
+        value: `${agentQuoteImpact}/${agentDealImpact}`,
+        detail: language === 'zh' ? '前者为报价/方案，后者为阶段推进或赢单相关。' : 'Quotes/proposals first; stage or closed-won impact second.',
+        tone: agentQuoteImpact + agentDealImpact > 0 ? 'emerald' as const : 'cyan' as const
+      }
+    ];
+
+    const leadRecords = [
+      ...clients.map(client => ({
+        id: client.id,
+        source: sourceLabel(client),
+        score: Number(client.leadScore) || 0,
+        status: client.status,
+        quoteCount: quotes.filter(quote => quote.clientId === client.id).length,
+        won: client.status === 'Closed Won' ? 1 : 0
+      })),
+      ...deals.map(deal => ({
+        id: deal.id,
+        source: sourceLabel(deal),
+        score: Number(deal.leadScore) || 0,
+        status: deal.status,
+        quoteCount: quotes.filter(quote => quote.leadId === deal.id || quote.clientId === deal.clientId).length,
+        won: deal.status === 'Closed Won' ? 1 : 0
+      })),
+      ...publicClients.map(client => ({
+        id: client.id,
+        source: language === 'zh' ? '公海' : 'Public Pool',
+        score: Number(client.leadScore) || 0,
+        status: client.status,
+        quoteCount: 0,
+        won: 0
+      }))
+    ];
+    const leadSourceQualityRows = Array.from(leadRecords.reduce((map, record) => {
+      const existing = map.get(record.source) || { source: record.source, count: 0, totalScore: 0, scored: 0, hot: 0, quotes: 0, won: 0 };
+      existing.count += 1;
+      if (record.score > 0) {
+        existing.totalScore += record.score;
+        existing.scored += 1;
+        if (record.score >= 70) existing.hot += 1;
+      }
+      existing.quotes += record.quoteCount;
+      existing.won += record.won;
+      map.set(record.source, existing);
+      return map;
+    }, new Map<string, { source: string; count: number; totalScore: number; scored: number; hot: number; quotes: number; won: number }>()).values())
+      .map(row => ({
+        source: row.source,
+        count: row.count,
+        avgScore: row.scored ? Math.round(row.totalScore / row.scored) : 0,
+        hot: row.hot,
+        quotes: row.quotes,
+        won: row.won,
+        conversion: row.count ? Math.round((row.won / row.count) * 100) : 0
+      }))
+      .sort((a, b) => b.avgScore - a.avgScore || b.count - a.count);
 
     const recentExpLogs = expLogs.filter(log => new Date(log.date).getTime() >= sevenDaysAgo);
     const salesActionKeywords = ['Sent', 'Quote', 'Deal', 'Won', 'Updated lead status', 'WhatsApp', 'Client profile', 'Imported'];
@@ -820,6 +1071,9 @@ export function Dashboard() {
       activityTrend,
       emailRows,
       whatsappRows,
+      channelConversionTrend,
+      agentContributionBreakdown,
+      leadSourceQualityRows,
       dealValue,
       wonValue,
       openTodos,
@@ -855,6 +1109,9 @@ export function Dashboard() {
     pipeline: operations.clientStageRows.map(row => ({ stage: row.label, count: row.value })),
     dealPipeline: operations.dealStageRows.map(row => ({ stage: row.label, count: row.value })),
     activityTrend: operations.activityTrend.map(point => ({ date: point.meta, events: point.value })),
+    channelConversionTrend: operations.channelConversionTrend.map(point => ({ date: point.label, rate: point.value, meta: point.meta })),
+    leadSourceQuality: operations.leadSourceQualityRows,
+    agentContribution: operations.agentContributionBreakdown,
     whatsapp: operations.whatsappRows.map(row => ({ label: row.label, value: row.value })),
     upcomingTodos: upcomingTodos.slice(0, 5).map(todo => ({
       channel: todo.channel,
@@ -1133,6 +1390,18 @@ export function Dashboard() {
                 onOpen={() => setView('agent-hub')}
                 actionLabel={language === 'zh' ? '查看 Agent Hub' : 'Open Agent Hub'}
               />
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+              <TrendComparisonChart
+                title={language === 'zh' ? '渠道转化率趋势' : 'Channel Conversion Trend'}
+                points={operations.channelConversionTrend}
+                valueLabel="%"
+                color="stroke-emerald-400"
+              />
+              <AgentContributionBreakdown rows={operations.agentContributionBreakdown} language={language} />
+            </div>
+            <div className="mt-4">
+              <LeadSourceQualityTable rows={operations.leadSourceQualityRows} language={language} />
             </div>
             <div className="mt-4 rounded-xl border border-indigo-900/40 bg-indigo-950/20 p-4">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">

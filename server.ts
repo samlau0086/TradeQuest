@@ -2305,7 +2305,18 @@ If the command asks to follow up or draft an email, write a short, professional,
 Respond only with the draft or the direct output of the action requested. Do not include markdown formatting like \`\`\`.`;
       
       const text = await callAI(prompt, llmConfig, false);
-      res.json({ result: text });
+      const knowledgeEvidence = buildKnowledgeEvidence(kbRes.rows || []);
+      const knowledgeConflicts = detectKnowledgeConflicts(kbRes.rows || []);
+      res.json({
+        result: text,
+        knowledgeEvidence,
+        knowledgeConflicts,
+        knowledgeStats: {
+          total: knowledgeEvidence.length,
+          clientHits: knowledgeEvidence.filter(item => item.scope === 'client').length,
+          globalHits: knowledgeEvidence.filter(item => item.scope === 'global').length
+        }
+      });
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: e instanceof Error ? e.message : "Failed to process magic command" });
@@ -14126,6 +14137,62 @@ No markdown wrappers, just valid JSON.`;
   };
 
   const formatKnowledgeRowsForPrompt = (rows: any[]) => (rows || []).map(formatKnowledgeSnippetForPrompt).join('\n\n');
+
+  const knowledgeConfidenceFromScore = (score: number) => {
+    if (!Number.isFinite(score) || score <= 0) return 0.45;
+    if (score > 1) return 0.6;
+    return Math.max(0.2, Math.min(0.98, Number(score.toFixed(3))));
+  };
+
+  const buildKnowledgeEvidence = (rows: any[]) => (rows || []).slice(0, 8).map((row: any) => {
+    const scope = row.scope || (row.client_id || row.clientId ? 'client' : 'global');
+    const score = Number(row.relevanceScore ?? row.relevance_score ?? 0);
+    const source = row.source || row.sourcePath || row.source_path || row.sourceType || row.source_type || 'knowledge_base';
+    return {
+      id: row.id,
+      title: row.title || 'Knowledge',
+      scope,
+      source,
+      sourceType: row.sourceType || row.source_type || 'manual',
+      confidence: knowledgeConfidenceFromScore(score),
+      relevanceScore: Number.isFinite(score) ? Number(score.toFixed(3)) : 0,
+      excerpt: String(row.content || '').replace(/\s+/g, ' ').trim().slice(0, 240)
+    };
+  });
+
+  const detectKnowledgeConflicts = (rows: any[]) => {
+    const buckets: Record<string, Map<string, Set<string>>> = {
+      price: new Map(),
+      moq: new Map(),
+      lead_time: new Map()
+    };
+    const add = (type: string, value: string, source: string) => {
+      if (!value) return;
+      const normalized = value.toLowerCase().replace(/\s+/g, ' ').trim();
+      if (!buckets[type].has(normalized)) buckets[type].set(normalized, new Set());
+      buckets[type].get(normalized)?.add(source);
+    };
+    (rows || []).forEach((row: any) => {
+      const text = `${row.title || ''}\n${row.content || ''}`;
+      const source = row.source_path || row.sourcePath || row.title || row.id || 'knowledge';
+      const priceMatches = text.matchAll(/(?:price|pricing|unit price|usd|us\$|\$|价格|单价|报价)[^\n]{0,40}?((?:US\$|\$|USD\s*)?\d+(?:\.\d+)?)/gi);
+      for (const match of priceMatches) add('price', match[1], source);
+      const moqMatches = text.matchAll(/(?:moq|minimum order|minimum quantity|起订|最小起订|最低起订)[^\n]{0,40}?(\d+(?:,\d{3})*)/gi);
+      for (const match of moqMatches) add('moq', match[1], source);
+      const leadTimeMatches = text.matchAll(/(?:lead time|delivery time|交期|交货期|生产周期)[^\n]{0,50}?(\d+\s*(?:day|days|week|weeks|天|周))/gi);
+      for (const match of leadTimeMatches) add('lead_time', match[1], source);
+    });
+    const labels: Record<string, string> = { price: 'Price', moq: 'MOQ', lead_time: 'Lead time' };
+    return Object.entries(buckets).flatMap(([type, values]) => {
+      if (values.size <= 1) return [];
+      return [{
+        type,
+        label: labels[type] || type,
+        values: Array.from(values.keys()).slice(0, 6),
+        sources: Array.from(new Set(Array.from(values.values()).flatMap(set => Array.from(set)))).slice(0, 8)
+      }];
+    });
+  };
 
   // File upload route...
   app.post('/api/knowledge-base/upload', authenticateToken, requirePermission('knowledge.manage'), upload.single('file'), async (req: any, res) => {

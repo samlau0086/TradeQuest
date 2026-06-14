@@ -1,11 +1,26 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useStore, KnowledgeItem } from '../store';
 import { useAuthStore } from '../authStore';
-import { Book, Plus, Trash2, Edit2, Save, X, FileUp, Loader2, FolderDown, Search } from 'lucide-react';
+import { AlertTriangle, Book, CheckCircle2, Plus, Trash2, Edit2, Save, X, FileUp, Loader2, FolderDown, Search } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 import { useTranslation } from '../lib/i18n';
 import { UploadDocModal } from './UploadDocModal';
+
+interface KnowledgeImportReport {
+  importBatchId?: string;
+  folder?: string;
+  scanned?: number;
+  imported?: number;
+  updated?: number;
+  unchanged?: number;
+  deleted?: number;
+  skipped?: number;
+  failed?: number;
+  deleteSyncSkipped?: boolean;
+  items?: Array<{ path: string; title: string; status: string; error?: string }>;
+  createdAt?: string;
+}
 
 export function KnowledgeBaseManager({ clientId = null }: { clientId?: string | null }) {
   const { knowledgeBase, addKnowledgeItem, updateKnowledgeItem, deleteKnowledgeItem, fetchKnowledgeBase, language, notify, llmConfigs, activeLLMId, llmMappings } = useStore();
@@ -22,6 +37,7 @@ export function KnowledgeBaseManager({ clientId = null }: { clientId?: string | 
   const [totalItems, setTotalItems] = useState(0);
   const [search, setSearch] = useState('');
   const [isPageLoading, setIsPageLoading] = useState(false);
+  const [lastImportReport, setLastImportReport] = useState<KnowledgeImportReport | null>(null);
   
   const relevantKbs = pagedKbs;
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
@@ -167,6 +183,7 @@ export function KnowledgeBaseManager({ clientId = null }: { clientId?: string | 
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Failed to import knowledge folder');
+      setLastImportReport({ ...data, createdAt: new Date().toISOString() });
       fetchKnowledgeBase();
       fetchKnowledgePage();
       notify(
@@ -232,6 +249,69 @@ export function KnowledgeBaseManager({ clientId = null }: { clientId?: string | 
               {language === 'zh' ? '导入文件夹' : 'Import Folder'}
             </button>
           </div>
+        </div>
+      )}
+
+      {lastImportReport && (
+        <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3">
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-300">
+                {lastImportReport.failed ? <AlertTriangle className="h-4 w-4 text-amber-300" /> : <CheckCircle2 className="h-4 w-4 text-emerald-300" />}
+                {language === 'zh' ? '最近导入报告' : 'Latest Import Report'}
+              </div>
+              <div className="mt-1 text-[11px] text-slate-500">
+                {lastImportReport.folder || '.'}
+                {lastImportReport.createdAt ? ` · ${new Date(lastImportReport.createdAt).toLocaleString()}` : ''}
+                {lastImportReport.importBatchId ? ` · ${lastImportReport.importBatchId}` : ''}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setLastImportReport(null)}
+              className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-slate-200"
+              aria-label={language === 'zh' ? '关闭导入报告' : 'Close import report'}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            {[
+              [language === 'zh' ? '扫描' : 'Scanned', lastImportReport.scanned || 0],
+              [language === 'zh' ? '新增' : 'Created', lastImportReport.imported || 0],
+              [language === 'zh' ? '更新' : 'Updated', lastImportReport.updated || 0],
+              [language === 'zh' ? '未变' : 'Unchanged', lastImportReport.unchanged || 0],
+              [language === 'zh' ? '删除同步' : 'Deleted', lastImportReport.deleted || 0],
+              [language === 'zh' ? '失败' : 'Failed', lastImportReport.failed || 0]
+            ].map(([labelText, value]) => (
+              <div key={String(labelText)} className="rounded border border-slate-800 bg-slate-950 px-3 py-2">
+                <div className="text-[10px] uppercase tracking-wider text-slate-500">{labelText}</div>
+                <div className="mt-1 text-lg font-bold text-slate-100">{value}</div>
+              </div>
+            ))}
+          </div>
+          {lastImportReport.deleteSyncSkipped && (
+            <div className="mt-3 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+              {language === 'zh'
+                ? '删除同步已跳过：本次扫描达到文件数量上限。请调高 maxFiles 后再执行安全删除同步。'
+                : 'Delete sync was skipped because the scan hit maxFiles. Increase maxFiles before running delete sync safely.'}
+            </div>
+          )}
+          {(lastImportReport.items || []).filter(item => item.status === 'failed' || item.error).length > 0 && (
+            <div className="mt-3 rounded border border-rose-500/30 bg-rose-500/10 p-3">
+              <div className="mb-2 text-xs font-bold uppercase tracking-wider text-rose-200">
+                {language === 'zh' ? '失败文件列表' : 'Failed Files'}
+              </div>
+              <div className="max-h-40 space-y-1 overflow-y-auto">
+                {(lastImportReport.items || []).filter(item => item.status === 'failed' || item.error).slice(0, 20).map(item => (
+                  <div key={`${item.path}-${item.status}`} className="rounded bg-black/30 px-2 py-1 text-[11px] text-rose-100">
+                    <span className="font-mono">{item.path}</span>
+                    {item.error ? <span className="text-rose-200/80"> · {item.error}</span> : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

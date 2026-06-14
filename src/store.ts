@@ -255,6 +255,22 @@ export interface AgentContextSuggestionInsight {
   intent: string;
   customerContext: string;
   knowledgeContext: string;
+  knowledgeEvidence?: Array<{
+    id?: string;
+    title: string;
+    scope: 'client' | 'global' | string;
+    source: string;
+    sourceType?: string;
+    confidence?: number;
+    relevanceScore?: number;
+    excerpt?: string;
+  }>;
+  knowledgeConflicts?: Array<{
+    type: string;
+    label: string;
+    values: string[];
+    sources: string[];
+  }>;
   analyzedAt: string;
   modelId?: string | null;
 }
