@@ -90,6 +90,7 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
     leadDataChannelConfigs, updateLeadDataChannelConfig,
     whatsappHubConfig, updateWhatsAppHubConfig,
     externalNotificationConfig, updateExternalNotificationConfig,
+    notificationDeliveryLogs, fetchNotificationDeliveryLogs, clearNotificationDeliveryLogs,
     agentContextAnalysisConfig, updateAgentContextAnalysisConfig,
     dailyQuests, achievements,
     notify
@@ -244,6 +245,7 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
   const [showLLMApiKey, setShowLLMApiKey] = useState(false);
   const [showOutscraperApiKey, setShowOutscraperApiKey] = useState(false);
   const [testingExternalNotification, setTestingExternalNotification] = useState(false);
+  const [notificationLogsLoading, setNotificationLogsLoading] = useState(false);
   const [visibleLeadChannelKeys, setVisibleLeadChannelKeys] = useState<Record<string, boolean>>({});
   const [testingLeadChannel, setTestingLeadChannel] = useState<LeadDataProvider | null>(null);
   const [leadChannelTestResults, setLeadChannelTestResults] = useState<Partial<Record<LeadDataProvider, { status: 'success' | 'failed'; message: string }>>>({});
@@ -371,6 +373,26 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
       notify(error?.message || (language === 'zh' ? '测试通知发送失败。' : 'Failed to send test notification.'), 'error');
     } finally {
       setTestingExternalNotification(false);
+    }
+  };
+
+  const handleRefreshNotificationLogs = async () => {
+    setNotificationLogsLoading(true);
+    try {
+      await fetchNotificationDeliveryLogs(50);
+    } finally {
+      setNotificationLogsLoading(false);
+    }
+  };
+
+  const handleClearNotificationLogs = async () => {
+    const confirmed = window.confirm(language === 'zh' ? '确定清空通知日志吗？' : 'Clear notification logs?');
+    if (!confirmed) return;
+    try {
+      await clearNotificationDeliveryLogs();
+      notify(language === 'zh' ? '通知日志已清空。' : 'Notification logs cleared.', 'success');
+    } catch (error: any) {
+      notify(error?.message || (language === 'zh' ? '清空通知日志失败。' : 'Failed to clear notification logs.'), 'error');
     }
   };
 
@@ -684,6 +706,12 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
   };
 
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
+
+  useEffect(() => {
+    if (activeTab !== 'ai') return;
+    setNotificationLogsLoading(true);
+    fetchNotificationDeliveryLogs(50).finally(() => setNotificationLogsLoading(false));
+  }, [activeTab, fetchNotificationDeliveryLogs]);
 
   useEffect(() => {
     if (!isSuperadmin && ['system', 'gamification', 'users'].includes(activeTab)) {
@@ -2250,6 +2278,24 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
                     {label}
                   </label>
                 ))}
+                {[
+                  ['whatsapp_received', 'WhatsApp received / 收到 WhatsApp'],
+                  ['customer_reply', 'Customer reply / 客户回复'],
+                  ['agent_review_required', 'Agent review required / Agent 需要审核'],
+                  ['agent_execution_failed', 'Agent execution failed / Agent 执行失败']
+                ].map(([event, label]) => (
+                  <label key={event} className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={externalNotificationConfig.events[event as keyof typeof externalNotificationConfig.events] !== false}
+                      onChange={e => updateExternalNotificationConfig({
+                        events: { ...externalNotificationConfig.events, [event]: e.target.checked }
+                      })}
+                      className="accent-amber-500"
+                    />
+                    {label}
+                  </label>
+                ))}
               </div>
 
               <button
@@ -2261,6 +2307,72 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
                 {testingExternalNotification && <RefreshCw className="w-4 h-4 animate-spin" />}
                 Send Test Notification
               </button>
+
+              <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-4">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-200">{language === 'zh' ? '通知日志' : 'Notification Logs'}</h4>
+                    <p className="text-xs text-slate-500">{language === 'zh' ? '记录 Bark / Webhook 发给谁、是否成功以及失败原因。' : 'Tracks recipient, success status, and failure reason for Bark / Webhook deliveries.'}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleRefreshNotificationLogs}
+                      disabled={notificationLogsLoading}
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-bold text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      <RefreshCw className={cn('h-3.5 w-3.5', notificationLogsLoading && 'animate-spin')} />
+                      {language === 'zh' ? '刷新' : 'Refresh'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearNotificationLogs}
+                      className="inline-flex items-center gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-xs font-bold text-red-200 hover:bg-red-500/20"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      {language === 'zh' ? '清空' : 'Clear'}
+                    </button>
+                  </div>
+                </div>
+                {notificationDeliveryLogs.length === 0 ? (
+                  <div className="rounded border border-dashed border-slate-800 px-3 py-6 text-center text-xs text-slate-500">
+                    {language === 'zh' ? '暂无通知日志。发送测试通知或等待后台事件触发后会显示在这里。' : 'No notification logs yet. Send a test notification or wait for a background event.'}
+                  </div>
+                ) : (
+                  <div className="max-h-72 overflow-y-auto rounded-lg border border-slate-800">
+                    {notificationDeliveryLogs.map(log => (
+                      <div key={log.id} className="grid grid-cols-1 gap-2 border-b border-slate-800 px-3 py-3 text-xs last:border-b-0 lg:grid-cols-[1.2fr_0.8fr_0.8fr_1fr]">
+                        <div className="min-w-0">
+                          <div className="font-bold text-slate-200">{log.title || log.event}</div>
+                          <div className="mt-1 truncate text-slate-500">{log.body}</div>
+                          <div className="mt-1 text-slate-600">{new Date(log.createdAt).toLocaleString()}</div>
+                        </div>
+                        <div>
+                          <div className="text-slate-500">{language === 'zh' ? '事件' : 'Event'}</div>
+                          <div className="font-mono text-cyan-200">{log.event}</div>
+                        </div>
+                        <div>
+                          <div className="text-slate-500">{language === 'zh' ? '渠道/收件人' : 'Channel / Recipient'}</div>
+                          <div className="font-mono text-slate-300">{log.channel}</div>
+                          <div className="truncate text-slate-500">{log.recipient || '-'}</div>
+                        </div>
+                        <div>
+                          <div className="text-slate-500">{language === 'zh' ? '结果' : 'Result'}</div>
+                          <span className={cn(
+                            'inline-flex rounded px-2 py-0.5 font-bold',
+                            log.status === 'success' && 'bg-emerald-500/10 text-emerald-300',
+                            log.status === 'failed' && 'bg-red-500/10 text-red-300',
+                            log.status === 'skipped' && 'bg-slate-700/50 text-slate-300'
+                          )}>
+                            {log.status}{log.httpStatus ? ` · ${log.httpStatus}` : ''}
+                          </span>
+                          {log.error && <div className="mt-1 break-words text-red-300">{log.error}</div>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">

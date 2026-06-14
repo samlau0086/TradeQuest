@@ -185,7 +185,17 @@ export interface AppNotification {
   tone: NotificationTone;
 }
 
-export type ExternalNotificationEvent = 'email_received' | 'live_chat_received' | 'review_required' | 'execution_failed' | 'daily_operation_summary' | 'inactive_login_reminder';
+export type ExternalNotificationEvent =
+  | 'email_received'
+  | 'whatsapp_received'
+  | 'live_chat_received'
+  | 'customer_reply'
+  | 'review_required'
+  | 'agent_review_required'
+  | 'execution_failed'
+  | 'agent_execution_failed'
+  | 'daily_operation_summary'
+  | 'inactive_login_reminder';
 
 export interface ExternalNotificationConfig {
   enabled: boolean;
@@ -195,6 +205,21 @@ export interface ExternalNotificationConfig {
   webhookEnabled: boolean;
   webhookUrl: string;
   events: Record<ExternalNotificationEvent, boolean>;
+}
+
+export interface NotificationDeliveryLog {
+  id: string;
+  event: string;
+  channel: string;
+  recipient: string;
+  title: string;
+  body: string;
+  url?: string;
+  status: 'success' | 'failed' | 'skipped' | string;
+  httpStatus?: number;
+  error?: string;
+  metadata?: any;
+  createdAt: string;
 }
 
 export type AgentContextAnalysisMode = 'manual' | 'auto';
@@ -996,6 +1021,9 @@ export interface StoreState {
   externalNotificationConfig: ExternalNotificationConfig;
   updateExternalNotificationConfig: (updates: Partial<ExternalNotificationConfig>) => void;
   sendExternalNotification: (payload: { event: ExternalNotificationEvent; title: string; body: string; url?: string; metadata?: any }) => Promise<void>;
+  notificationDeliveryLogs: NotificationDeliveryLog[];
+  fetchNotificationDeliveryLogs: (limit?: number) => Promise<void>;
+  clearNotificationDeliveryLogs: () => Promise<void>;
   agentContextAnalysisConfig: AgentContextAnalysisConfig;
   updateAgentContextAnalysisConfig: (updates: Partial<AgentContextAnalysisConfig>) => void;
   
@@ -1435,9 +1463,13 @@ const INITIAL_EXTERNAL_NOTIFICATION_CONFIG: ExternalNotificationConfig = {
   webhookUrl: '',
   events: {
     email_received: true,
+    whatsapp_received: true,
     live_chat_received: true,
+    customer_reply: true,
     review_required: true,
+    agent_review_required: true,
     execution_failed: true,
+    agent_execution_failed: true,
     daily_operation_summary: true,
     inactive_login_reminder: true
   }
@@ -2430,6 +2462,34 @@ export const useStore = create<StoreState>((set, get) => ({
     } catch (error) {
       console.warn('External notification failed', error);
     }
+  },
+  notificationDeliveryLogs: [],
+  fetchNotificationDeliveryLogs: async (limit = 50) => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const res = await fetch(`/api/notifications/logs?limit=${encodeURIComponent(String(limit))}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Failed to fetch notification logs');
+      const logs = await res.json();
+      set({ notificationDeliveryLogs: Array.isArray(logs) ? logs : [] });
+    } catch (error) {
+      console.warn('Failed to fetch notification logs', error);
+    }
+  },
+  clearNotificationDeliveryLogs: async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    const res = await fetch('/api/notifications/logs', {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Failed to clear notification logs');
+    }
+    set({ notificationDeliveryLogs: [] });
   },
 
   view: 'kanban',

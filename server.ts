@@ -1007,6 +1007,26 @@ async function initDB() {
       CREATE INDEX IF NOT EXISTS idx_point_transactions_user_created
       ON point_transactions (user_id, created_at DESC);
 
+      CREATE TABLE IF NOT EXISTS notification_delivery_logs (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
+        event VARCHAR(128) NOT NULL,
+        channel VARCHAR(64) NOT NULL,
+        recipient TEXT,
+        title TEXT,
+        body TEXT,
+        url TEXT,
+        status VARCHAR(32) NOT NULL,
+        http_status INT,
+        error TEXT,
+        metadata JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_notification_delivery_logs_user_created
+      ON notification_delivery_logs (user_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_notification_delivery_logs_user_event
+      ON notification_delivery_logs (user_id, event, created_at DESC);
+
       CREATE TABLE IF NOT EXISTS api_tokens (
         id VARCHAR(128) PRIMARY KEY,
         user_id VARCHAR(128) REFERENCES users(id) ON DELETE CASCADE,
@@ -3252,6 +3272,54 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
+  const normalizeNotificationEvent = (event: string) => {
+    const raw = String(event || '').trim();
+    return raw;
+  };
+
+  const maskNotificationRecipient = (value: string) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    if (/^https?:\/\//i.test(raw)) {
+      try {
+        const parsed = new URL(raw);
+        return `${parsed.origin}${parsed.pathname ? parsed.pathname.slice(0, 18) : ''}${parsed.pathname.length > 18 ? '...' : ''}`;
+      } catch {
+        return raw.slice(0, 24);
+      }
+    }
+    if (raw.length <= 8) return `${raw.slice(0, 2)}***`;
+    return `${raw.slice(0, 4)}***${raw.slice(-4)}`;
+  };
+
+  const recordNotificationDeliveryLog = async (
+    userId: string,
+    payload: { event: string; title: string; body: string; url?: string; metadata?: any },
+    item: { channel: string; recipient?: string; ok?: boolean; skipped?: boolean; status?: number; error?: string; reason?: string }
+  ) => {
+    const id = `notif_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+    const status = item.skipped ? 'skipped' : item.ok ? 'success' : 'failed';
+    await pool.query(
+      `INSERT INTO notification_delivery_logs
+       (id, user_id, event, channel, recipient, title, body, url, status, http_status, error, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [
+        id,
+        userId,
+        payload.event,
+        item.channel,
+        item.recipient || null,
+        payload.title,
+        payload.body,
+        payload.url || null,
+        status,
+        item.status || null,
+        item.error || item.reason || null,
+        JSON.stringify(payload.metadata || {})
+      ]
+    ).catch(error => console.warn('Failed to record notification delivery log', error?.message || error));
+  };
+
   const sendExternalNotification = async (
     userId: string,
     payload: { event: string; title: string; body: string; url?: string; metadata?: any }
@@ -3260,65 +3328,80 @@ No markdown wrappers, just valid JSON.`;
     const settings = result.rows[0]?.settings || {};
     const config = settings.externalNotificationConfig || {};
     const events = config.events || {};
-    if (!config.enabled) return { skipped: true, reason: 'External notifications are disabled.', results: [] };
-    if (events[payload.event] === false) return { skipped: true, reason: `Event ${payload.event} is disabled.`, results: [] };
+    const normalizedEvent = normalizeNotificationEvent(payload.event);
+    const effectivePayload = { ...payload, event: normalizedEvent };
+    if (!config.enabled) {
+      await recordNotificationDeliveryLog(userId, effectivePayload, { channel: 'none', skipped: true, reason: 'External notifications are disabled.' });
+      return { skipped: true, reason: 'External notifications are disabled.', results: [] };
+    }
+    if (events[normalizedEvent] === false || (payload.event !== normalizedEvent && events[payload.event] === false)) {
+      const reason = `Event ${normalizedEvent} is disabled.`;
+      await recordNotificationDeliveryLog(userId, effectivePayload, { channel: 'none', skipped: true, reason });
+      return { skipped: true, reason, results: [] };
+    }
 
-    const jobs: Promise<{ channel: string; ok: boolean; status?: number; error?: string }>[] = [];
+    const jobs: Promise<{ channel: string; recipient: string; ok: boolean; status?: number; error?: string }>[] = [];
     if (config.barkEnabled && config.barkDeviceKey) {
       const serverUrl = String(config.barkServerUrl || 'https://api.day.app').replace(/\/+$/, '');
       const deviceKey = String(config.barkDeviceKey).trim().replace(/^\/+|\/+$/g, '');
       const barkUrl = /^https?:\/\//i.test(deviceKey) ? deviceKey : `${serverUrl}/${encodeURIComponent(deviceKey)}`;
+      const recipient = maskNotificationRecipient(deviceKey);
       jobs.push(
         fetch(barkUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            title: payload.title,
-            body: payload.body,
-            url: payload.url,
+            title: effectivePayload.title,
+            body: effectivePayload.body,
+            url: effectivePayload.url,
             group: 'TradeQuest',
-            level: payload.event === 'execution_failed' ? 'timeSensitive' : 'active'
+            level: normalizedEvent === 'execution_failed' ? 'timeSensitive' : 'active'
           })
         })
           .then(async response => ({
             channel: 'bark',
+            recipient,
             ok: response.ok,
             status: response.status,
             error: response.ok ? undefined : (await response.text().catch(() => response.statusText)).slice(0, 300)
           }))
-          .catch(error => ({ channel: 'bark', ok: false, error: error instanceof Error ? error.message : String(error) }))
+          .catch(error => ({ channel: 'bark', recipient, ok: false, error: error instanceof Error ? error.message : String(error) }))
       );
     }
 
     if (config.webhookEnabled && config.webhookUrl) {
+      const recipient = maskNotificationRecipient(String(config.webhookUrl));
       jobs.push(
         fetch(String(config.webhookUrl), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             app: 'TradeQuest',
-            event: payload.event,
-            title: payload.title,
-            body: payload.body,
-            url: payload.url,
-            metadata: payload.metadata || {},
+            event: normalizedEvent,
+            title: effectivePayload.title,
+            body: effectivePayload.body,
+            url: effectivePayload.url,
+            metadata: effectivePayload.metadata || {},
             createdAt: new Date().toISOString()
           })
         })
           .then(async response => ({
             channel: 'webhook',
+            recipient,
             ok: response.ok,
             status: response.status,
             error: response.ok ? undefined : (await response.text().catch(() => response.statusText)).slice(0, 300)
           }))
-          .catch(error => ({ channel: 'webhook', ok: false, error: error instanceof Error ? error.message : String(error) }))
+          .catch(error => ({ channel: 'webhook', recipient, ok: false, error: error instanceof Error ? error.message : String(error) }))
       );
     }
 
     if (jobs.length === 0) {
+      await recordNotificationDeliveryLog(userId, effectivePayload, { channel: 'none', skipped: true, reason: 'No Bark or Webhook channel is configured.' });
       return { skipped: true, reason: 'No Bark or Webhook channel is configured.', results: [] };
     }
     const results = await Promise.all(jobs);
+    await Promise.all(results.map(item => recordNotificationDeliveryLog(userId, effectivePayload, item)));
     return { skipped: false, results };
   };
 
@@ -3339,6 +3422,47 @@ No markdown wrappers, just valid JSON.`;
     } catch (e) {
       console.error('External notification failed', e);
       res.status(500).json({ error: 'Failed to send external notification' });
+    }
+  });
+
+  app.get('/api/notifications/logs', authenticateToken, async (req: any, res) => {
+    try {
+      const limit = Math.max(1, Math.min(200, Number(req.query.limit || 50)));
+      const result = await pool.query(
+        `SELECT id, event, channel, recipient, title, body, url, status, http_status, error, metadata, created_at
+         FROM notification_delivery_logs
+         WHERE user_id = $1
+         ORDER BY created_at DESC
+         LIMIT $2`,
+        [req.user.uid, limit]
+      );
+      res.json(result.rows.map((row: any) => ({
+        id: row.id,
+        event: row.event,
+        channel: row.channel,
+        recipient: row.recipient || '',
+        title: row.title || '',
+        body: row.body || '',
+        url: row.url || '',
+        status: row.status,
+        httpStatus: row.http_status,
+        error: row.error || '',
+        metadata: row.metadata || {},
+        createdAt: row.created_at
+      })));
+    } catch (e) {
+      console.error('Failed to fetch notification logs', e);
+      res.status(500).json({ error: 'Failed to fetch notification logs' });
+    }
+  });
+
+  app.delete('/api/notifications/logs', authenticateToken, async (req: any, res) => {
+    try {
+      await pool.query('DELETE FROM notification_delivery_logs WHERE user_id = $1', [req.user.uid]);
+      res.json({ success: true });
+    } catch (e) {
+      console.error('Failed to clear notification logs', e);
+      res.status(500).json({ error: 'Failed to clear notification logs' });
     }
   });
 
@@ -3838,6 +3962,36 @@ No markdown wrappers, just valid JSON.`;
       }
     }).catch((error: any) => console.warn('Failed to sync WhatsApp message to unified conversation', error?.message || error));
     if (isNewInboundMessage) {
+      const whatsappPreview = String(body || '').replace(/\s+/g, ' ').trim().slice(0, 240) || 'New WhatsApp message received.';
+      void sendExternalNotification(userId, {
+        event: 'whatsapp_received',
+        title: 'New WhatsApp message received',
+        body: whatsappPreview,
+        url: '/inbox',
+        metadata: {
+          channel: 'whatsapp',
+          messageId,
+          conversationId: conversation.id,
+          clientId: conversation.clientId || null,
+          targetPhone,
+          contactPhone: identity.contactPhone || null,
+          hubClientId
+        }
+      }).catch(err => console.warn('WhatsApp external notification failed', err));
+      void sendExternalNotification(userId, {
+        event: 'customer_reply',
+        title: 'Customer reply received',
+        body: whatsappPreview,
+        url: '/inbox',
+        metadata: {
+          channel: 'whatsapp',
+          messageId,
+          conversationId: conversation.id,
+          clientId: conversation.clientId || null,
+          targetPhone,
+          contactPhone: identity.contactPhone || null
+        }
+      }).catch(err => console.warn('Customer reply notification failed', err));
       void handleWhatsAppCustomerServiceInbound(userId, {
         messageId,
         conversationId: conversation.id,
@@ -6831,6 +6985,25 @@ No markdown wrappers, just valid JSON.`;
       relatedRunType,
       completedAt: reviewStatus === 'pending_review' ? nowIso : undefined
     });
+    if (reviewStatus === 'pending_review') {
+      void sendExternalNotification(userId, {
+        event: 'agent_review_required',
+        title: 'Agent action requires review',
+        body: `${agent.name}: ${opportunity.title}`,
+        url: '/agent-hub',
+        metadata: {
+          agentId: agent.id,
+          agentName: agent.name,
+          opportunityId,
+          relatedRunId,
+          relatedRunType,
+          risk: opportunity.risk || null,
+          targetType: opportunity.targetType || null,
+          targetId: opportunity.targetId || null,
+          recordId: record.id
+        }
+      }).catch(err => console.warn('Agent review notification failed', err));
+    }
 
     let executionResult = null;
     if (reviewStatus === 'approved' && relatedRunType === 'harness') {
@@ -6852,6 +7025,20 @@ No markdown wrappers, just valid JSON.`;
       } catch (error: any) {
         const failedAt = new Date().toISOString();
         const failedRun = (settings.agentHarnessRuns || []).find((run: any) => run.id === relatedRunId);
+        void sendExternalNotification(userId, {
+          event: 'agent_execution_failed',
+          title: 'Agent execution failed',
+          body: `${agent.name}: ${error?.message || 'Opportunity execution failed.'}`,
+          url: '/agent-hub',
+          metadata: {
+            agentId: agent.id,
+            agentName: agent.name,
+            opportunityId,
+            relatedRunId,
+            relatedRunType,
+            error: error?.message || 'Opportunity execution failed.'
+          }
+        }).catch(err => console.warn('Agent failure notification failed', err));
         updateAgentHubRunRecordInSettings(settings, record.id, {
           status: 'failed',
           actualResult: error?.message || 'Opportunity execution failed.',
@@ -7522,6 +7709,18 @@ No markdown wrappers, just valid JSON.`;
         clientId: session?.client_id || null
       }
     }).catch(err => console.warn('Live chat external notification failed', err));
+    void sendExternalNotification(userId, {
+      event: 'customer_reply',
+      title: `Customer reply from ${visitor}`,
+      body: preview || 'A website visitor sent a live chat message.',
+      url: '/live-chat',
+      metadata: {
+        channel: 'live_chat',
+        liveChatSessionId: session?.id,
+        liveChatMessageId: message?.id,
+        clientId: session?.client_id || null
+      }
+    }).catch(err => console.warn('Customer reply notification failed', err));
   };
 
   const getUserSettings = async (userId: string) => {
@@ -8693,6 +8892,13 @@ Return JSON only:
         body: `${syncedEmails.length} new email(s) synced from ${username}.`,
         metadata: { count: syncedEmails.length, mailbox: username, type }
       }).catch(err => console.warn('Email external notification failed', err));
+      await sendExternalNotification(userId, {
+        event: 'customer_reply',
+        title: 'Customer reply received',
+        body: `${syncedEmails.length} inbound email(s) may need follow-up.`,
+        url: '/inbox',
+        metadata: { channel: 'email', count: syncedEmails.length, mailbox: username, emailIds: syncedEmails.slice(0, 20) }
+      }).catch(err => console.warn('Customer reply notification failed', err));
       await triggerAgentHubEvent(userId, 'email_received', {
         count: syncedEmails.length,
         mailbox: username,
@@ -9660,6 +9866,25 @@ Return JSON only:
         }
       });
       created += 1;
+      if (reviewStatus === 'pending_review') {
+        void sendExternalNotification(userId, {
+          event: 'agent_review_required',
+          title: 'Agent action requires review',
+          body: `${agent.name}: ${event}`,
+          url: '/agent-hub',
+          metadata: {
+            source: 'agent_event',
+            event,
+            agentId: agent.id,
+            agentName: agent.name,
+            relatedRunId,
+            relatedRunType,
+            taskId: eventTask.id,
+            entityType: eventEntityType,
+            entityId: eventEntityId
+          }
+        }).catch(err => console.warn('Agent review notification failed', err));
+      }
 
       if (reviewStatus === 'approved' && relatedRunType === 'harness') {
         try {
@@ -9678,6 +9903,22 @@ Return JSON only:
         } catch (error: any) {
           const failedAt = new Date().toISOString();
           const failedRun = (settings.agentHarnessRuns || []).find((run: any) => run.id === relatedRunId);
+          void sendExternalNotification(userId, {
+            event: 'agent_execution_failed',
+            title: 'Agent execution failed',
+            body: `${agent.name}: ${error?.message || 'Event-triggered run failed.'}`,
+            url: '/agent-hub',
+            metadata: {
+              source: 'agent_event',
+              event,
+              agentId: agent.id,
+              agentName: agent.name,
+              relatedRunId,
+              relatedRunType,
+              taskId: eventTask.id,
+              error: error?.message || 'Event-triggered run failed.'
+            }
+          }).catch(err => console.warn('Agent failure notification failed', err));
           updateAgentHubRunRecordInSettings(settings, eventRecord.id, {
             status: 'failed',
             actualResult: isZh
@@ -10016,6 +10257,20 @@ Return JSON only:
         executedAt: finishedAt,
         affectedRecords: collectAffectedRecordsFromRun(executedRun)
       });
+      if (completedStatus === 'failed') {
+        void sendExternalNotification(req.user.uid, {
+          event: 'agent_execution_failed',
+          title: 'Agent execution failed',
+          body: resultSummary || 'An Agent Hub run completed with failures.',
+          url: '/agent-hub',
+          metadata: {
+            source: 'agent-hub-harness',
+            runId,
+            opportunityId: opportunityId || null,
+            result
+          }
+        }).catch(err => console.warn('Agent failure notification failed', err));
+      }
       await pool.query('UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [JSON.stringify(settings), req.user.uid]);
       const pointsAdded = Math.max(0, await getGlobalSettingNumber('point_event_agent_run', 5));
       await adjustUserPoints(req.user.uid, pointsAdded, 'Completed agent run', 'agent_run', runId, { runId });
@@ -10063,6 +10318,17 @@ Return JSON only:
           console.warn('Failed to persist Agent Hub harness failure state', err);
         });
       }
+      await sendExternalNotification(req.user.uid, {
+        event: 'agent_execution_failed',
+        title: 'Agent execution failed',
+        body: e.message || 'Failed to execute Agent Hub run',
+        url: '/agent-hub',
+        metadata: {
+          source: 'agent-hub-harness',
+          runId: req.params?.runId,
+          error: e.message || 'Failed to execute Agent Hub run'
+        }
+      }).catch(err => console.warn('Agent failure notification failed', err));
       await triggerAgentHubEvent(req.user.uid, 'execution_failed', {
         source: 'agent-hub-harness',
         runId: req.params?.runId,
