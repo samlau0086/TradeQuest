@@ -892,6 +892,31 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
 
         {isSuperadmin && activeTab === 'gamification' && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <section className="rounded-xl border border-cyan-500/20 bg-cyan-500/10 p-4 md:p-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <h2 className="text-lg font-bold text-cyan-100">Sales Behavior Scoring Strategy</h2>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
+                    Configure rewards so points and EXP push users toward revenue-generating behavior: high-quality profiles, timely follow-ups, stage progression, quotes, and closed deals. Keep passive actions such as reading emails low, and avoid rewarding repeated low-value activity.
+                  </p>
+                </div>
+                <span className="rounded-full border border-cyan-500/30 bg-slate-950 px-3 py-1 text-xs font-black uppercase tracking-wide text-cyan-300">
+                  Growth aligned
+                </span>
+              </div>
+              <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
+                {[
+                  { title: 'Reward outcomes', body: 'Closed deals, quote creation, stage progress, and completed follow-ups should be worth more than simple activity.' },
+                  { title: 'Reward quality', body: 'Profile enrichment, linked conversations, product/RAG context, and lead scoring improve future agent performance.' },
+                  { title: 'Control spend', body: 'Use point costs for scarce resources such as claiming public leads, so users prioritize fit instead of volume.' }
+                ].map(item => (
+                  <div key={item.title} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+                    <div className="text-xs font-black uppercase tracking-wide text-cyan-300">{item.title}</div>
+                    <p className="mt-2 text-xs leading-5 text-slate-500">{item.body}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
             <section className="space-y-6">
               <h2 className="text-xl font-bold flex items-center gap-2">
                 <Target className="w-5 h-5 text-rose-400" /> Event & Quest EXP Rewards

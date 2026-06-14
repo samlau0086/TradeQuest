@@ -49,7 +49,9 @@ type DashboardTodoItem = {
   clientId?: string;
 };
 
-function MetricCard({ icon, label, value, subtext, tone = 'cyan' }: { icon: React.ReactNode; label: string; value: string | number; subtext?: string; tone?: 'cyan' | 'emerald' | 'amber' | 'rose' }) {
+type InsightTone = 'cyan' | 'emerald' | 'amber' | 'rose';
+
+function MetricCard({ icon, label, value, subtext, tone = 'cyan' }: { icon: React.ReactNode; label: string; value: string | number; subtext?: string; tone?: InsightTone }) {
   const toneClass = {
     cyan: 'text-cyan-400 bg-cyan-950/30 border-cyan-900/40',
     emerald: 'text-emerald-400 bg-emerald-950/30 border-emerald-900/40',
@@ -69,6 +71,71 @@ function MetricCard({ icon, label, value, subtext, tone = 'cyan' }: { icon: Reac
         </div>
       </div>
       {subtext && <div className="text-xs text-slate-500 mt-3 truncate">{subtext}</div>}
+    </div>
+  );
+}
+
+function GrowthInsightCard({
+  icon,
+  title,
+  value,
+  score,
+  explanation,
+  recommendation,
+  tone = 'cyan',
+  onOpen,
+  actionLabel
+}: {
+  icon: React.ReactNode;
+  title: string;
+  value: string;
+  score: number;
+  explanation: string;
+  recommendation: string;
+  tone?: InsightTone;
+  onOpen?: () => void;
+  actionLabel?: string;
+}) {
+  const toneClass = {
+    cyan: 'border-cyan-900/50 bg-cyan-950/20 text-cyan-300',
+    emerald: 'border-emerald-900/50 bg-emerald-950/20 text-emerald-300',
+    amber: 'border-amber-900/50 bg-amber-950/20 text-amber-300',
+    rose: 'border-rose-900/50 bg-rose-950/20 text-rose-300'
+  }[tone];
+  const barClass = {
+    cyan: 'bg-cyan-400',
+    emerald: 'bg-emerald-400',
+    amber: 'bg-amber-400',
+    rose: 'bg-rose-400'
+  }[tone];
+
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-950/55 p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="text-xs font-black uppercase tracking-wide text-slate-500">{title}</div>
+          <div className="mt-2 text-2xl font-black text-white">{value}</div>
+        </div>
+        <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border', toneClass)}>
+          {icon}
+        </div>
+      </div>
+      <div className="mt-4 h-2 rounded-full bg-slate-900">
+        <div className={cn('h-full rounded-full transition-all duration-700', barClass)} style={{ width: `${Math.max(3, Math.min(100, score))}%` }} />
+      </div>
+      <div className="mt-4 space-y-2 text-sm">
+        <p className="leading-5 text-slate-300">{explanation}</p>
+        <p className="leading-5 text-slate-500">{recommendation}</p>
+      </div>
+      {onOpen && (
+        <button
+          type="button"
+          onClick={onOpen}
+          className="mt-4 rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-cyan-300 hover:border-cyan-500/60 hover:bg-cyan-500/10"
+        >
+          {actionLabel}
+        </button>
+      )}
     </div>
   );
 }
@@ -427,7 +494,7 @@ function ContributionHeatmap({
 }
 
 export function Dashboard() {
-  const { userExp, userLevel, userTitle, currentStreak, dailyQuests, expLogs, setView, openInboxFollowUps, skipQuest, language, emails, clients, deals, quotes, logs, publicClients, fetchPublicClients, llmConfigs, activeLLMId, llmMappings, notify } = useStore();
+  const { userExp, userLevel, userTitle, currentStreak, dailyQuests, expLogs, setView, openInboxFollowUps, skipQuest, language, emails, clients, deals, quotes, logs, publicClients, fetchPublicClients, llmConfigs, activeLLMId, llmMappings, notify, agentRunRecords } = useStore();
   const { profile, token } = useAuthStore();
   const t = useTranslation(language);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
@@ -643,6 +710,108 @@ export function Dashboard() {
     const openTodos = allFollowUpTodos.length;
     const quoteDrafts = quotes.filter(quote => String(quote.status).toLowerCase() === 'draft').length;
     const conversionRate = clients.length > 0 ? Math.round((clients.filter(client => client.status === 'Closed Won').length / clients.length) * 100) : 0;
+    const leadScores = [
+      ...clients.map(client => Number(client.leadScore)).filter(score => Number.isFinite(score) && score > 0),
+      ...deals.map(deal => Number(deal.leadScore)).filter(score => Number.isFinite(score) && score > 0)
+    ];
+    const totalLeadRecords = clients.length + deals.length;
+    const averageLeadScore = leadScores.length ? Math.round(leadScores.reduce((sum, score) => sum + score, 0) / leadScores.length) : 0;
+    const hotLeadCount = leadScores.filter(score => score >= 70).length;
+    const scoredRate = totalLeadRecords ? Math.round((leadScores.length / totalLeadRecords) * 100) : 0;
+    const leadQualityScore = Math.round((averageLeadScore * 0.65) + (scoredRate * 0.35));
+
+    const overdueTodos = allFollowUpTodos.filter(todo => new Date(todo.todoAt).getTime() < now).length;
+    const dueSoonTodos = upcomingTodos.length;
+    const activeClients = clients.filter(client => client.status !== 'Closed Won');
+    const staleClients = activeClients.filter(client => {
+      const last = client.lastContact ? new Date(client.lastContact).getTime() : 0;
+      return !last || now - last > 14 * 24 * 60 * 60 * 1000;
+    }).length;
+    const followUpBase = Math.max(1, allFollowUpTodos.length + staleClients);
+    const followUpScore = Math.max(0, Math.round(100 - ((overdueTodos + staleClients) / followUpBase) * 100));
+
+    const emailInbound = emails.filter(email => email.type === 'inbox' || email.type === 'inbound').length;
+    const emailOutbound = emails.filter(email => email.type === 'sent' || email.type === 'outbound').length;
+    const liveChatConversations = communicationConversations.filter(conversation => conversation.channel === 'live_chat').length;
+    const totalChannelConversations = communicationConversations.length + whatsAppLoad.conversations;
+    const linkedChannelConversations = communicationConversations.filter(conversation => !!conversation.client_id).length + Math.max(0, whatsAppLoad.conversations - whatsAppLoad.unlinked);
+    const linkedRate = totalChannelConversations ? Math.round((linkedChannelConversations / totalChannelConversations) * 100) : 0;
+    const inboundTotal = emailInbound + whatsAppLoad.inbound + liveChatConversations;
+    const outboundTotal = emailOutbound + whatsAppLoad.outbound;
+    const responseCoverage = inboundTotal ? Math.min(100, Math.round((outboundTotal / inboundTotal) * 100)) : 0;
+    const channelConversionScore = Math.round((linkedRate * 0.55) + (responseCoverage * 0.45));
+
+    const sevenDaysAgo = addDays(startOfDay(new Date()), -6).getTime();
+    const recentAgentRuns = agentRunRecords.filter(record => new Date(record.createdAt).getTime() >= sevenDaysAgo);
+    const completedAgentRuns = recentAgentRuns.filter(record => record.status === 'completed').length;
+    const failedAgentRuns = recentAgentRuns.filter(record => record.status === 'failed').length;
+    const agentCompletionRate = recentAgentRuns.length ? Math.round((completedAgentRuns / recentAgentRuns.length) * 100) : 0;
+    const agentContributionScore = Math.max(0, Math.round(agentCompletionRate - failedAgentRuns * 8));
+
+    const recentExpLogs = expLogs.filter(log => new Date(log.date).getTime() >= sevenDaysAgo);
+    const salesActionKeywords = ['Sent', 'Quote', 'Deal', 'Won', 'Updated lead status', 'WhatsApp', 'Client profile', 'Imported'];
+    const passiveKeywords = ['Read/Track Email', 'Read an email'];
+    const salesActionExp = recentExpLogs.filter(log => salesActionKeywords.some(keyword => log.reason.includes(keyword))).reduce((sum, log) => sum + log.amount, 0);
+    const passiveExp = recentExpLogs.filter(log => passiveKeywords.some(keyword => log.reason.includes(keyword))).reduce((sum, log) => sum + log.amount, 0);
+    const salesBehaviorScore = salesActionExp + passiveExp > 0 ? Math.round((salesActionExp / (salesActionExp + passiveExp)) * 100) : 0;
+
+    const growthInsights = {
+      leadQuality: {
+        value: averageLeadScore ? `${averageLeadScore}/100` : (language === 'zh' ? '待分析' : 'Not scored'),
+        score: leadQualityScore,
+        tone: leadQualityScore >= 70 ? 'emerald' as const : leadQualityScore >= 45 ? 'amber' as const : 'rose' as const,
+        explanation: language === 'zh'
+          ? `${leadScores.length}/${totalLeadRecords || 0} 条客户/线索已有评分，${hotLeadCount} 条高热度。`
+          : `${leadScores.length}/${totalLeadRecords || 0} clients/leads are scored; ${hotLeadCount} are hot.`,
+        recommendation: scoredRate < 70
+          ? (language === 'zh' ? '优先运行 Lead Scoring / AI Radar，补齐未评分线索，避免销售只凭感觉推进。' : 'Run Lead Scoring / AI Radar first so sales prioritization is based on scored records.')
+          : (language === 'zh' ? '把高分线索推入报价或下一步跟进，并检查低分线索是否需要富集。' : 'Move high-score leads into quotes or next steps, and enrich low-score records if needed.')
+      },
+      followUpTimeliness: {
+        value: `${followUpScore}%`,
+        score: followUpScore,
+        tone: overdueTodos > 0 || staleClients > 0 ? 'amber' as const : 'emerald' as const,
+        explanation: language === 'zh'
+          ? `${overdueTodos} 个跟进已超时，${dueSoonTodos} 个 24 小时内需要处理，${staleClients} 个活跃客户超过 14 天无联系。`
+          : `${overdueTodos} follow-ups are overdue, ${dueSoonTodos} are due within 24h, and ${staleClients} active clients are stale for 14+ days.`,
+        recommendation: language === 'zh'
+          ? '先清理超时跟进，再给高分客户设置下一次触达时间。'
+          : 'Clear overdue follow-ups first, then set next-touch dates for high-score clients.'
+      },
+      channelConversion: {
+        value: `${channelConversionScore}%`,
+        score: channelConversionScore,
+        tone: channelConversionScore >= 70 ? 'emerald' as const : channelConversionScore >= 45 ? 'amber' as const : 'rose' as const,
+        explanation: language === 'zh'
+          ? `渠道关联率 ${linkedRate}%，外发/入站覆盖率 ${responseCoverage}%。`
+          : `Channel linking is ${linkedRate}%; outbound-to-inbound coverage is ${responseCoverage}%.`,
+        recommendation: linkedRate < 80
+          ? (language === 'zh' ? '先把未关联 WhatsApp/邮件/Live Chat 对话绑定到客户，否则 Agent 很难使用完整上下文。' : 'Link unassigned WhatsApp, email, and Live Chat conversations to clients so agents can use full context.')
+          : (language === 'zh' ? '继续比较邮件、WhatsApp、Live Chat 的响应质量，把有效渠道作为下一轮触达默认渠道。' : 'Compare email, WhatsApp, and Live Chat response quality and use the strongest channel by default.')
+      },
+      agentContribution: {
+        value: `${completedAgentRuns}/${recentAgentRuns.length}`,
+        score: agentContributionScore,
+        tone: failedAgentRuns > 0 ? 'amber' as const : completedAgentRuns > 0 ? 'emerald' as const : 'cyan' as const,
+        explanation: language === 'zh'
+          ? `近 7 天 Agent 完成 ${completedAgentRuns} 次，失败 ${failedAgentRuns} 次。`
+          : `Agents completed ${completedAgentRuns} runs in the last 7 days; ${failedAgentRuns} failed.`,
+        recommendation: completedAgentRuns === 0
+          ? (language === 'zh' ? '给关键 Agent 配置事件触发或周期运行，并在 Agent Hub 检查运行记录。' : 'Enable event triggers or schedules for key agents and check Agent Hub run logs.')
+          : (language === 'zh' ? '关注失败的 Agent 运行，把高风险动作继续留在审批流里。' : 'Review failed agent runs and keep high-risk actions in approval flows.')
+      },
+      gamificationAlignment: {
+        value: `${salesBehaviorScore}%`,
+        score: salesBehaviorScore,
+        tone: salesBehaviorScore >= 70 ? 'emerald' as const : salesBehaviorScore >= 40 ? 'amber' as const : 'rose' as const,
+        explanation: language === 'zh'
+          ? `近 7 天销售动作 EXP ${salesActionExp}，被动浏览类 EXP ${passiveExp}。`
+          : `Last 7 days: ${salesActionExp} EXP from sales actions vs ${passiveExp} EXP from passive activity.`,
+        recommendation: language === 'zh'
+          ? '积分应更多奖励创建报价、推进阶段、完成跟进和高质量资料，而不是单纯阅读。'
+          : 'Reward quotes, stage progress, completed follow-ups, and quality profiles more than passive reading.'
+      }
+    };
 
     return {
       clientStageRows,
@@ -657,9 +826,10 @@ export function Dashboard() {
       quoteDrafts,
       conversionRate,
       contributionDays,
-      contributionTotal
+      contributionTotal,
+      growthInsights
     };
-  }, [allFollowUpTodos.length, clients, deals, emails, expLogs, language, logs, publicClients, quotes, t, whatsAppLoad]);
+  }, [agentRunRecords, allFollowUpTodos, clients, communicationConversations, deals, emails, expLogs, language, logs, now, publicClients, quotes, t, upcomingTodos.length, whatsAppLoad]);
 
   const todayKey = formatDateKey(new Date());
   const summaryCacheKey = `tradequest:dashboard-daily-summary:${profile?.id || profile?.email || 'local'}:${language}:${todayKey}`;
@@ -679,7 +849,8 @@ export function Dashboard() {
       unreadEmails: operations.emailRows[0]?.value || 0,
       openFollowUpTodos: operations.openTodos,
       quoteDrafts: operations.quoteDrafts,
-      contributionEventsLastYear: operations.contributionTotal
+      contributionEventsLastYear: operations.contributionTotal,
+      growthInsights: operations.growthInsights
     },
     pipeline: operations.clientStageRows.map(row => ({ stage: row.label, count: row.value })),
     dealPipeline: operations.dealStageRows.map(row => ({ stage: row.label, count: row.value })),
@@ -895,6 +1066,94 @@ export function Dashboard() {
             <MetricCard icon={<DollarSign className="w-5 h-5" />} label={t('Pipeline Value')} value={`$${operations.dealValue.toLocaleString()}`} subtext={t('Won: {value}').replace('{value}', `$${operations.wonValue.toLocaleString()}`)} tone="emerald" />
             <MetricCard icon={<Mail className="w-5 h-5" />} label={t('Unread Emails')} value={operations.emailRows[0].value} subtext={t('{count} open follow-up todos').replace('{count}', String(operations.openTodos))} tone={operations.emailRows[0].value > 0 ? 'amber' : 'cyan'} />
             <MetricCard icon={<Users className="w-5 h-5" />} label={t('Public Pool')} value={publicClients.length} subtext={t('{count} public pool leads').replace('{count}', String(publicClients.length))} tone="rose" />
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-5">
+            <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h3 className="flex items-center gap-2 text-sm font-black uppercase tracking-wide text-slate-200">
+                  <Sparkles className="h-4 w-4 text-cyan-400" />
+                  {language === 'zh' ? '经营洞察' : 'Growth Insights'}
+                </h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  {language === 'zh'
+                    ? '这些指标解释为什么当前增长健康或卡住，并给出下一步动作。'
+                    : 'Explainable metrics that show why growth is healthy or blocked, with the next action attached.'}
+                </p>
+              </div>
+              <button
+                onClick={() => setView('settings')}
+                className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300 hover:border-indigo-500/60 hover:bg-indigo-500/10"
+              >
+                {language === 'zh' ? '调整积分规则' : 'Tune Points Rules'}
+              </button>
+            </div>
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 2xl:grid-cols-4">
+              <GrowthInsightCard
+                icon={<Target className="h-5 w-5" />}
+                title={language === 'zh' ? '线索质量' : 'Lead Quality'}
+                value={operations.growthInsights.leadQuality.value}
+                score={operations.growthInsights.leadQuality.score}
+                tone={operations.growthInsights.leadQuality.tone}
+                explanation={operations.growthInsights.leadQuality.explanation}
+                recommendation={operations.growthInsights.leadQuality.recommendation}
+                onOpen={() => setView('clients')}
+                actionLabel={language === 'zh' ? '查看客户/线索' : 'Open Clients & Leads'}
+              />
+              <GrowthInsightCard
+                icon={<Clock className="h-5 w-5" />}
+                title={language === 'zh' ? '跟进及时性' : 'Follow-up Timeliness'}
+                value={operations.growthInsights.followUpTimeliness.value}
+                score={operations.growthInsights.followUpTimeliness.score}
+                tone={operations.growthInsights.followUpTimeliness.tone}
+                explanation={operations.growthInsights.followUpTimeliness.explanation}
+                recommendation={operations.growthInsights.followUpTimeliness.recommendation}
+                onOpen={openInboxFollowUps}
+                actionLabel={language === 'zh' ? '处理待跟进' : 'Open Follow-ups'}
+              />
+              <GrowthInsightCard
+                icon={<MessageCircle className="h-5 w-5" />}
+                title={language === 'zh' ? '渠道转化基础' : 'Channel Conversion Base'}
+                value={operations.growthInsights.channelConversion.value}
+                score={operations.growthInsights.channelConversion.score}
+                tone={operations.growthInsights.channelConversion.tone}
+                explanation={operations.growthInsights.channelConversion.explanation}
+                recommendation={operations.growthInsights.channelConversion.recommendation}
+                onOpen={() => setView('inbox')}
+                actionLabel={language === 'zh' ? '打开统一收件箱' : 'Open Unified Inbox'}
+              />
+              <GrowthInsightCard
+                icon={<Sparkles className="h-5 w-5" />}
+                title={language === 'zh' ? 'Agent 贡献度' : 'Agent Contribution'}
+                value={operations.growthInsights.agentContribution.value}
+                score={operations.growthInsights.agentContribution.score}
+                tone={operations.growthInsights.agentContribution.tone}
+                explanation={operations.growthInsights.agentContribution.explanation}
+                recommendation={operations.growthInsights.agentContribution.recommendation}
+                onOpen={() => setView('agent-hub')}
+                actionLabel={language === 'zh' ? '查看 Agent Hub' : 'Open Agent Hub'}
+              />
+            </div>
+            <div className="mt-4 rounded-xl border border-indigo-900/40 bg-indigo-950/20 p-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="text-xs font-black uppercase tracking-wide text-indigo-300">
+                    {language === 'zh' ? '游戏化对齐度' : 'Gamification Alignment'}
+                  </div>
+                  <p className="mt-1 text-sm text-slate-300">{operations.growthInsights.gamificationAlignment.explanation}</p>
+                  <p className="mt-1 text-xs text-slate-500">{operations.growthInsights.gamificationAlignment.recommendation}</p>
+                </div>
+                <div className="min-w-[180px]">
+                  <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
+                    <span>{language === 'zh' ? '销售行为占比' : 'Sales-action share'}</span>
+                    <span className="font-bold text-indigo-200">{operations.growthInsights.gamificationAlignment.value}</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-slate-900">
+                    <div className="h-full rounded-full bg-indigo-400" style={{ width: `${Math.max(3, Math.min(100, operations.growthInsights.gamificationAlignment.score))}%` }} />
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <button
