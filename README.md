@@ -95,12 +95,15 @@ Foreign Trade CRM is an AI-powered CRM for foreign trade teams. It combines clie
 ### Knowledge Base and RAG
 
 - Knowledge base items store title, content, optional client association, and embedding vectors.
-- RAG search uses global knowledge plus client-specific knowledge when a client context is available.
+- Knowledge base items track source metadata such as `sourceType`, `sourcePath`, `sourceHash`, source modified time, import batch, and import state.
+- RAG search uses global knowledge plus client-specific knowledge when a client context is available. Client-specific knowledge receives a higher retrieval weight than global knowledge, while global knowledge remains available as broad product/company context.
 - Global RAG can import server-side folders. Set `KNOWLEDGE_IMPORT_DIR` or `RAG_IMPORT_DIR` on the server, place structured files under that folder, then use the Knowledge Base page to import the configured root or a relative subfolder.
 - Folder import supports `.txt`, `.md`, `.markdown`, `.json`, `.csv`, `.tsv`, `.html`, `.htm`, and `.pdf`. Re-importing the same relative file path updates the same knowledge item instead of creating duplicates.
+- Folder import is incremental: unchanged files are skipped by content hash, changed files are re-embedded, new files are created, and missing source files are deleted from folder-sourced RAG items so stale embeddings are cleared. Delete sync is skipped if the scan hits `maxFiles`, preventing accidental deletion from a partial scan.
 - Deleting a knowledge item hard-deletes both the content and the stored embedding from the same `knowledge_base` table.
 - After deletion, future RAG searches will not retrieve that item.
-- If knowledge update embedding generation fails, the content can update while the old embedding may remain; deleting does not have this issue.
+- AI/Agent prompts include RAG citation metadata such as scope, source path/type, and relevance score so operators can see whether an answer used client knowledge or global knowledge.
+- If knowledge update embedding generation fails, the content updates and the stale embedding is cleared to avoid mismatched retrieval.
 
 ### AI and Language Policy
 
@@ -458,7 +461,7 @@ Recommended near-term roadmap:
 
 - [ ] Add role-based permissions for agent tools, external messaging, destructive actions, and API tokens.
 - [ ] Add approval comments, approver identity, rollback metadata, and audit trails for sensitive actions.
-- [ ] Add RAG indexing status, source path, update time, failed-index retry, and citation visibility in AI outputs.
+- [x] Add RAG source metadata, source path, update time, folder import incrementality, deletion sync, client/global retrieval weighting, and citation visibility in AI outputs.
 - [ ] Add notification history, quiet hours, templates, and escalation rules for daily summaries and repeated agent failures.
 - [ ] Tie gamification rewards to real CRM outcomes and configurable point/EXP rules.
 
@@ -995,13 +998,15 @@ Foreign Trade CRM 是一套面向外贸团队的 AI CRM。系统把客户/线索
 
 ### 知识库与 RAG
 
-- 知识库条目包含标题、内容、可选客户关联和 embedding 向量。
-- RAG 会检索全局知识库；有客户上下文时也会检索客户专属知识。
+- 知识库条目包含标题、内容、可选客户关联、embedding 向量，以及 `sourceType`、`sourcePath`、`sourceHash`、源文件修改时间、导入批次和导入状态等来源元数据。
+- RAG 会检索全局知识库；有客户上下文时也会检索客户专属知识。客户专属知识拥有更高检索权重，全局知识则作为产品/公司级上下文补充。
 - 全局 RAG 支持从服务器指定文件夹批量导入。服务端配置 `KNOWLEDGE_IMPORT_DIR` 或 `RAG_IMPORT_DIR` 后，把结构化文件放入该目录，即可在知识库页面导入配置根目录或相对路径子目录。
 - 文件夹导入支持 `.txt`、`.md`、`.markdown`、`.json`、`.csv`、`.tsv`、`.html`、`.htm` 和 `.pdf`。重复导入同一个相对路径文件会更新同一条知识库，不会重复创建。
+- 文件夹导入支持增量同步：内容 hash 未变化的文件会跳过，内容变化的文件会重新生成 embedding，新文件会创建，源文件已删除的 folder-sourced RAG 条目会同步删除以清理陈旧向量。如果扫描触达 `maxFiles` 上限，删除同步会自动跳过，避免部分扫描导致误删。
 - 删除知识库条目时，会从同一张 `knowledge_base` 表中硬删除内容和 embedding。
 - 删除后，后续 RAG 不会再检索到该条知识。
-- 如果更新知识库时 embedding 生成失败，正文可能已更新但旧 embedding 仍保留；删除操作没有这个问题。
+- AI/Agent Prompt 会带上 RAG 引用元数据，例如作用域、来源路径/类型和相关度分数，便于判断答案使用的是客户知识还是全局知识。
+- 如果更新知识库时 embedding 生成失败，正文会更新且旧 embedding 会被清空，避免正文和旧向量不匹配。
 
 ### AI 与语言策略
 
@@ -1357,7 +1362,7 @@ Agent Execution Policy 使用的 Global Orchestrator action type：
 
 - [ ] 增加基于角色的权限，覆盖 Agent 工具、外发消息、破坏性操作和 API Token。
 - [ ] 敏感动作增加审批评论、审批人、回滚元数据和审计日志。
-- [ ] RAG 增加索引状态、来源路径、更新时间、失败重试和 AI 输出引用来源展示。
+- [x] RAG 增加来源元数据、来源路径、更新时间、文件夹增量同步、删除同步、客户/全局检索权重和 AI 输出引用来源展示。
 - [ ] 通知系统增加通知历史、免打扰时段、模板和连续失败升级规则。
 - [ ] 将游戏化积分和 EXP 与真实 CRM 结果绑定，并支持可配置规则。
 

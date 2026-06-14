@@ -137,8 +137,8 @@ export function KnowledgeBaseManager({ clientId = null }: { clientId?: string | 
       fetchKnowledgeBase();
       notify(
         language === 'zh'
-          ? `已导入服务器文件夹：新增 ${data.imported || 0}，更新 ${data.updated || 0}，跳过 ${data.skipped || 0}，失败 ${data.failed || 0}。`
-          : `Folder import complete: ${data.imported || 0} created, ${data.updated || 0} updated, ${data.skipped || 0} skipped, ${data.failed || 0} failed.`,
+          ? `服务器文件夹同步完成：新增 ${data.imported || 0}，更新 ${data.updated || 0}，未变 ${data.unchanged || 0}，删除 ${data.deleted || 0}，跳过 ${data.skipped || 0}，失败 ${data.failed || 0}。${data.deleteSyncSkipped ? ' 删除同步因达到文件上限而跳过。' : ''}`
+          : `Folder sync complete: ${data.imported || 0} created, ${data.updated || 0} updated, ${data.unchanged || 0} unchanged, ${data.deleted || 0} deleted, ${data.skipped || 0} skipped, ${data.failed || 0} failed.${data.deleteSyncSkipped ? ' Delete sync skipped because maxFiles was reached.' : ''}`,
         data.failed ? 'warning' : 'success'
       );
     } catch (error: any) {
@@ -318,7 +318,26 @@ export function KnowledgeBaseManager({ clientId = null }: { clientId?: string | 
                       className="mt-1 accent-cyan-500"
                       aria-label={language === 'zh' ? `选择 ${kb.title}` : `Select ${kb.title}`}
                     />
-                    <h4 className="font-medium text-cyan-400">{kb.title}</h4>
+                    <div className="min-w-0">
+                      <h4 className="font-medium text-cyan-400">{kb.title}</h4>
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500">
+                        <span className={cn(
+                          'rounded border px-1.5 py-0.5 font-bold uppercase',
+                          kb.clientId ? 'border-blue-500/30 bg-blue-500/10 text-blue-300' : 'border-slate-700 bg-slate-900 text-slate-400'
+                        )}>
+                          {kb.clientId ? (language === 'zh' ? '客户知识' : 'Client RAG') : (language === 'zh' ? '全局知识' : 'Global RAG')}
+                        </span>
+                        <span className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 uppercase">
+                          {kb.sourceType || 'manual'}
+                        </span>
+                        {kb.sourcePath && (
+                          <span className="max-w-[420px] truncate rounded border border-cyan-500/20 bg-cyan-500/10 px-1.5 py-0.5 text-cyan-200" title={kb.sourcePath}>
+                            {kb.sourcePath}
+                          </span>
+                        )}
+                        {kb.updatedAt && <span>{new Date(kb.updatedAt).toLocaleString()}</span>}
+                      </div>
+                    </div>
                   </div>
                   <div className="flex gap-2">
                     <button

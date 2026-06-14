@@ -859,6 +859,12 @@ export interface KnowledgeItem {
   clientId: string | null;
   title: string;
   content: string;
+  sourceType?: 'manual' | 'folder' | 'upload' | string;
+  sourcePath?: string | null;
+  sourceHash?: string | null;
+  sourceMtime?: string | null;
+  importState?: 'active' | 'deleted' | string;
+  metadata?: any;
   createdAt?: string;
   updatedAt?: string;
 }

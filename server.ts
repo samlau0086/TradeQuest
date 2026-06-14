@@ -1211,11 +1211,27 @@ async function initDB() {
         title VARCHAR(255) NOT NULL,
         content TEXT NOT NULL,
         embedding vector(768),
+        source_type VARCHAR(64) DEFAULT 'manual',
+        source_path TEXT,
+        source_hash VARCHAR(128),
+        source_mtime TIMESTAMP WITH TIME ZONE,
+        import_batch_id VARCHAR(128),
+        import_state VARCHAR(32) DEFAULT 'active',
+        metadata JSONB DEFAULT '{}'::jsonb,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
       
       ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS embedding vector(768);
+      ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS source_type VARCHAR(64) DEFAULT 'manual';
+      ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS source_path TEXT;
+      ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS source_hash VARCHAR(128);
+      ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS source_mtime TIMESTAMP WITH TIME ZONE;
+      ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS import_batch_id VARCHAR(128);
+      ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS import_state VARCHAR(32) DEFAULT 'active';
+      ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb;
+      CREATE INDEX IF NOT EXISTS idx_knowledge_base_source
+      ON knowledge_base (user_id, client_id, source_type, source_path);
 
       CREATE TABLE IF NOT EXISTS logs (
         id VARCHAR(128) PRIMARY KEY,
@@ -2134,7 +2150,7 @@ Client Context: ${JSON.stringify(context)}.
 Language policy:
 ${buildLanguagePolicy({ systemLanguage: context?.systemLanguage, customerLanguage: context?.customerLanguage || context?.outboundLanguage })}
 Knowledge Base (RAG):
-${kbRes.rows.map(kb => `[${kb.title}]\n${kb.content}`).join('\n\n')}
+${formatKnowledgeRowsForPrompt(kbRes.rows)}
 If the command asks to draft a WhatsApp message, write a concise, natural, conversational WhatsApp message that respects the customer preferences, prior records, recent conversation, and RAG context. Do not format it like an email.
 If the command asks to follow up or draft an email, write a short, professional, yet engaging drafted email.
 Respond only with the draft or the direct output of the action requested. Do not include markdown formatting like \`\`\`.`;
@@ -2460,7 +2476,7 @@ Lead/Opportunity: ${JSON.stringify(lead || null)}
 Logs: ${JSON.stringify(logs)}
 Emails: ${JSON.stringify(emails || [])}
 Knowledge Base (RAG):
-${kbRes.rows.map(kb => `[${kb.title}]\n${kb.content}`).join('\n\n')}
+${formatKnowledgeRowsForPrompt(kbRes.rows)}
 
 Return a JSON object:
 {
@@ -4208,7 +4224,12 @@ No markdown wrappers, just valid JSON.`;
       clientId
         ? pool.query('SELECT date, type, subject, body FROM emails WHERE user_id = $1 AND client_id = $2 ORDER BY date DESC LIMIT 6', [userId, clientId])
         : Promise.resolve({ rows: [] } as any),
-      pool.query('SELECT title, content FROM knowledge_base WHERE user_id = $1 AND (client_id IS NULL OR client_id = $2) ORDER BY updated_at DESC LIMIT 8', [userId, clientId]),
+      pool.query(`SELECT title, content, client_id, source_type, source_path,
+                         CASE WHEN client_id = $2 THEN 1.35 ELSE 1.0 END AS relevance_score
+                  FROM knowledge_base
+                  WHERE user_id = $1 AND import_state = 'active' AND (client_id IS NULL OR client_id = $2)
+                  ORDER BY CASE WHEN client_id = $2 THEN 0 ELSE 1 END, updated_at DESC
+                  LIMIT 8`, [userId, clientId]),
       pool.query('SELECT name, sku, description, sales_points, bulk_prices FROM products WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 12', [userId])
     ]);
 
@@ -4262,7 +4283,7 @@ Recent emails:
 ${JSON.stringify(emailsRes.rows.map((email: any) => ({ ...email, body: String(email.body || '').replace(/<[^>]+>/g, ' ').slice(0, 500) })))}
 
 Knowledge/RAG:
-${JSON.stringify(kbRes.rows.map((item: any) => ({ title: item.title, content: String(item.content || '').slice(0, 900) })))}
+${JSON.stringify(kbRes.rows.map((item: any) => ({ title: item.title, scope: item.scope || (item.client_id ? 'client' : 'global'), source: item.source || item.source_path || item.source_type || 'knowledge_base', score: item.relevanceScore || item.relevance_score || null, content: String(item.content || '').slice(0, 900) })))}
 
 Products:
 ${JSON.stringify(productsRes.rows.map((product: any) => ({
@@ -5775,7 +5796,7 @@ Lead Scoring Agent:
 ${workflowInstructions}
 
 Knowledge Base context:
-${kbRes.rows.map((kb: any) => `[${kb.title}]\n${kb.content}`).join('\n\n')}
+${formatKnowledgeRowsForPrompt(kbRes.rows)}
 
 Recent Logs:
 ${JSON.stringify(logsRes.rows)}
@@ -7801,6 +7822,9 @@ Return JSON only:
       : { rows: [] as any[] };
     const safeRagSnippets = (ragRes.rows || []).map((row: any) => ({
       title: String(row.title || '').slice(0, 160),
+      scope: row.scope || (row.client_id ? 'client' : 'global'),
+      source: row.source || row.source_path || row.source_type || 'knowledge_base',
+      score: row.relevanceScore || row.relevance_score || null,
       content: String(row.content || '').slice(0, 900)
     }));
     const prompt = `You are the Live Chat Agent for a foreign trade CRM website.
@@ -8828,7 +8852,7 @@ Recent logs:
 ${JSON.stringify(logsRes.rows, null, 2)}
 
 Knowledge base:
-${kbRes.rows.map((kb: any) => `[${kb.title}]\n${kb.content}`).join('\n\n')}
+${formatKnowledgeRowsForPrompt(kbRes.rows)}
 
 Products:
 ${JSON.stringify(productsRes.rows, null, 2)}
@@ -10875,7 +10899,7 @@ Products:
 ${JSON.stringify(productsRes.rows, null, 2)}
 
 Knowledge:
-${(kbRes.rows || []).map((kb: any) => `[${kb.title}]\n${kb.content}`).join('\n\n')}
+${formatKnowledgeRowsForPrompt(kbRes.rows || [])}
 
 Return JSON only:
 {
@@ -11023,7 +11047,7 @@ Products:
 ${JSON.stringify(productsRes.rows, null, 2)}
 
 Knowledge:
-${(kbRes.rows || []).map((kb: any) => `[${kb.title}]\n${kb.content}`).join('\n\n')}
+${formatKnowledgeRowsForPrompt(kbRes.rows || [])}
 
 Rules:
 ${buildLanguagePolicy({ systemLanguage: settings.language, customerLanguage: outboundLanguage })}
@@ -11182,7 +11206,7 @@ Products:
 ${JSON.stringify(productsRes.rows, null, 2)}
 
 Knowledge:
-${(kbRes.rows || []).map((kb: any) => `[${kb.title}]\n${kb.content}`).join('\n\n')}
+${formatKnowledgeRowsForPrompt(kbRes.rows || [])}
 
 Rules:
 ${buildLanguagePolicy({ systemLanguage: settings.language })}
@@ -12150,7 +12174,7 @@ Lead Scoring Agent:
 - Coordination Rule: Do not repeat lead scoring or rewrite the lead summary unless new evidence materially changes it. Use the score, summary, and next step above to choose follow-up timing and content.
 
 Knowledge Base context:
-${kbRes.rows.map((kb: any) => `[${kb.title}]\n${kb.content}`).join('\n\n')}
+${formatKnowledgeRowsForPrompt(kbRes.rows)}
 
 Recent Logs:
 ${JSON.stringify(logsRes.rows)}
@@ -12655,57 +12679,156 @@ No markdown wrappers, just valid JSON.`;
     title: string;
     content: string;
     llmConfig?: any;
+    sourceType?: string;
+    sourcePath?: string | null;
+    sourceHash?: string | null;
+    sourceMtime?: string | null;
+    importBatchId?: string | null;
+    metadata?: any;
+    skipEmbeddingIfUnchanged?: boolean;
   }) => {
+    const existing = await pool.query('SELECT id, source_hash FROM knowledge_base WHERE id = $1 AND user_id = $2 LIMIT 1', [input.id, input.userId]);
+    if (input.skipEmbeddingIfUnchanged && existing.rows[0]?.source_hash && input.sourceHash && existing.rows[0].source_hash === input.sourceHash) {
+      await pool.query(
+        `UPDATE knowledge_base
+         SET source_mtime = COALESCE($1, source_mtime),
+             import_batch_id = COALESCE($2, import_batch_id),
+             import_state = 'active',
+             metadata = COALESCE(metadata, '{}'::jsonb) || COALESCE($3::jsonb, '{}'::jsonb),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $4 AND user_id = $5`,
+        [input.sourceMtime || null, input.importBatchId || null, JSON.stringify(input.metadata || {}), input.id, input.userId]
+      );
+      return 'unchanged';
+    }
     const embedding = await generateEmbedding(input.content, input.llmConfig);
-    const existing = await pool.query('SELECT id FROM knowledge_base WHERE id = $1 AND user_id = $2 LIMIT 1', [input.id, input.userId]);
     if (embedding) {
       await pool.query(
-        `INSERT INTO knowledge_base (id, user_id, client_id, title, content, embedding)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO knowledge_base
+           (id, user_id, client_id, title, content, embedding, source_type, source_path, source_hash, source_mtime, import_batch_id, import_state, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active', $12)
          ON CONFLICT (id)
          DO UPDATE SET title = EXCLUDED.title,
                        content = EXCLUDED.content,
                        client_id = EXCLUDED.client_id,
                        embedding = EXCLUDED.embedding,
+                       source_type = EXCLUDED.source_type,
+                       source_path = EXCLUDED.source_path,
+                       source_hash = EXCLUDED.source_hash,
+                       source_mtime = EXCLUDED.source_mtime,
+                       import_batch_id = EXCLUDED.import_batch_id,
+                       import_state = 'active',
+                       metadata = COALESCE(knowledge_base.metadata, '{}'::jsonb) || COALESCE(EXCLUDED.metadata, '{}'::jsonb),
                        updated_at = CURRENT_TIMESTAMP`,
-        [input.id, input.userId, input.clientId || null, input.title, input.content, formatVector(embedding)]
+        [
+          input.id,
+          input.userId,
+          input.clientId || null,
+          input.title,
+          input.content,
+          formatVector(embedding),
+          input.sourceType || 'manual',
+          input.sourcePath || null,
+          input.sourceHash || null,
+          input.sourceMtime || null,
+          input.importBatchId || null,
+          JSON.stringify(input.metadata || {})
+        ]
       );
     } else {
       await pool.query(
-        `INSERT INTO knowledge_base (id, user_id, client_id, title, content)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO knowledge_base
+           (id, user_id, client_id, title, content, source_type, source_path, source_hash, source_mtime, import_batch_id, import_state, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'active', $11)
          ON CONFLICT (id)
          DO UPDATE SET title = EXCLUDED.title,
                        content = EXCLUDED.content,
                        client_id = EXCLUDED.client_id,
+                       embedding = NULL,
+                       source_type = EXCLUDED.source_type,
+                       source_path = EXCLUDED.source_path,
+                       source_hash = EXCLUDED.source_hash,
+                       source_mtime = EXCLUDED.source_mtime,
+                       import_batch_id = EXCLUDED.import_batch_id,
+                       import_state = 'active',
+                       metadata = COALESCE(knowledge_base.metadata, '{}'::jsonb) || COALESCE(EXCLUDED.metadata, '{}'::jsonb),
                        updated_at = CURRENT_TIMESTAMP`,
-        [input.id, input.userId, input.clientId || null, input.title, input.content]
+        [
+          input.id,
+          input.userId,
+          input.clientId || null,
+          input.title,
+          input.content,
+          input.sourceType || 'manual',
+          input.sourcePath || null,
+          input.sourceHash || null,
+          input.sourceMtime || null,
+          input.importBatchId || null,
+          JSON.stringify(input.metadata || {})
+        ]
       );
     }
     return existing.rows[0] ? 'updated' : 'created';
   };
 
   async function searchKnowledgeBase(userId: string, clientId: string | null, queryText: string, llmConfig?: any, limit: number = 5) {
+    const normalizeKnowledgeRows = (rows: any[]) => rows.map((row: any) => ({
+      ...row,
+      scope: row.client_id ? 'client' : 'global',
+      sourceType: row.source_type || 'manual',
+      sourcePath: row.source_path || null,
+      source: row.source_path || row.source_type || (row.client_id ? 'client knowledge' : 'global knowledge'),
+      relevanceScore: Number(row.relevance_score ?? row.weighted_score ?? 0) || 0
+    }));
     try {
       const queryEmbedding = await generateEmbedding(queryText, llmConfig);
       if (queryEmbedding) {
         const res = await pool.query(
-          `SELECT title, content FROM knowledge_base 
-           WHERE user_id = $1 AND (client_id IS NULL OR client_id = $2)
-           ORDER BY embedding <=> $3 LIMIT $4`,
+          `SELECT id, client_id, title, content, source_type, source_path, metadata,
+                  CASE WHEN client_id = $2 THEN 1.35 ELSE 1.0 END AS scope_weight,
+                  (1 / (1 + (embedding <=> $3))) * CASE WHEN client_id = $2 THEN 1.35 ELSE 1.0 END AS relevance_score
+           FROM knowledge_base
+           WHERE user_id = $1
+             AND import_state = 'active'
+             AND embedding IS NOT NULL
+             AND (client_id IS NULL OR client_id = $2)
+           ORDER BY relevance_score DESC, updated_at DESC
+           LIMIT $4`,
           [userId, clientId, formatVector(queryEmbedding), limit]
         );
+        res.rows = normalizeKnowledgeRows(res.rows);
         return res;
       }
     } catch(e) {
       console.error('Vector search failed', e);
     }
     // Fallback
-    return await pool.query(
-      `SELECT title, content FROM knowledge_base WHERE user_id = $1 AND (client_id IS NULL OR client_id = $2) LIMIT $3`,
+    const fallbackRes = await pool.query(
+      `SELECT id, client_id, title, content, source_type, source_path, metadata,
+              CASE WHEN client_id = $2 THEN 1.35 ELSE 1.0 END AS relevance_score
+       FROM knowledge_base
+       WHERE user_id = $1
+         AND import_state = 'active'
+         AND (client_id IS NULL OR client_id = $2)
+       ORDER BY CASE WHEN client_id = $2 THEN 0 ELSE 1 END, updated_at DESC
+       LIMIT $3`,
       [userId, clientId, limit]
     );
+    fallbackRes.rows = normalizeKnowledgeRows(fallbackRes.rows);
+    return fallbackRes;
   }
+
+  const formatKnowledgeSnippetForPrompt = (kb: any) => {
+    const scope = kb?.scope || (kb?.client_id || kb?.clientId ? 'client' : 'global');
+    const sourceType = kb?.sourceType || kb?.source_type || 'manual';
+    const sourcePath = kb?.sourcePath || kb?.source_path || '';
+    const score = Number(kb?.relevanceScore ?? kb?.relevance_score ?? 0);
+    const source = sourcePath || sourceType;
+    const scoreText = score > 0 ? `, score=${score.toFixed(3)}` : '';
+    return `[${kb.title}] (scope=${scope}, source=${source}${scoreText})\n${kb.content}`;
+  };
+
+  const formatKnowledgeRowsForPrompt = (rows: any[]) => (rows || []).map(formatKnowledgeSnippetForPrompt).join('\n\n');
 
   // File upload route...
   app.post('/api/knowledge-base/upload', authenticateToken, upload.single('file'), async (req: any, res) => {
@@ -12744,18 +12867,26 @@ No markdown wrappers, just valid JSON.`;
         return res.status(400).json({ error: 'Folder is outside the configured knowledge import root.' });
       }
       const maxFiles = Math.max(1, Math.min(500, Number(req.body?.maxFiles || 200)));
+      const syncDeletes = req.body?.syncDeletes !== false;
+      const forceReindex = req.body?.forceReindex === true;
       const stats = await fsPromises.stat(targetDir).catch(() => null);
       if (!stats?.isDirectory()) return res.status(404).json({ error: 'Knowledge import folder was not found.' });
 
       const files: string[] = [];
       await collectKnowledgeFiles(root, targetDir, files, maxFiles);
       const llmConfig = req.body?.llmConfig;
+      const importBatchId = `kb_import_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      const folderPrefix = (path.relative(root, targetDir) || '').replace(/\\/g, '/');
+      const currentSourcePaths = new Set<string>();
       const result = {
         rootConfigured: root,
         folder: path.relative(root, targetDir) || '.',
         scanned: files.length,
         imported: 0,
         updated: 0,
+        unchanged: 0,
+        deleted: 0,
+        deleteSyncSkipped: false,
         skipped: 0,
         failed: 0,
         items: [] as Array<{ path: string; title: string; status: string; error?: string }>
@@ -12763,6 +12894,7 @@ No markdown wrappers, just valid JSON.`;
 
       for (const filePath of files) {
         const relativePath = path.relative(root, filePath).replace(/\\/g, '/');
+        currentSourcePaths.add(relativePath);
         try {
           const buffer = await fsPromises.readFile(filePath);
           const content = (await parseKnowledgeFileBuffer(filePath, buffer)).trim();
@@ -12771,6 +12903,8 @@ No markdown wrappers, just valid JSON.`;
             result.items.push({ path: relativePath, title: relativePath, status: 'skipped_empty' });
             continue;
           }
+          const fileStat = await fsPromises.stat(filePath);
+          const sourceHash = nodeCrypto.createHash('sha1').update(buffer).digest('hex');
           const title = relativePath.replace(/\.[^.]+$/, '').replace(/[\/_-]+/g, ' ').trim() || path.basename(filePath);
           const id = `kb_folder_${nodeCrypto.createHash('sha1').update(`${req.user.uid}:${relativePath}`).digest('hex')}`;
           const mode = await upsertKnowledgeItem({
@@ -12779,15 +12913,57 @@ No markdown wrappers, just valid JSON.`;
             clientId: req.body?.clientId || null,
             title,
             content: [`Source file: ${relativePath}`, '', content].join('\n'),
-            llmConfig
+            llmConfig,
+            sourceType: 'folder',
+            sourcePath: relativePath,
+            sourceHash,
+            sourceMtime: fileStat.mtime.toISOString(),
+            importBatchId,
+            metadata: {
+              importRoot: root,
+              relativeFolder: result.folder,
+              fileName: path.basename(filePath),
+              fileSize: fileStat.size,
+              extension: path.extname(filePath).toLowerCase()
+            },
+            skipEmbeddingIfUnchanged: !forceReindex
           });
           if (mode === 'updated') result.updated += 1;
+          else if (mode === 'unchanged') result.unchanged += 1;
           else result.imported += 1;
           result.items.push({ path: relativePath, title, status: mode });
         } catch (error: any) {
           result.failed += 1;
           result.items.push({ path: relativePath, title: relativePath, status: 'failed', error: error?.message || 'Failed to import file' });
         }
+      }
+
+      if (syncDeletes && files.length < maxFiles) {
+        const sourcePathPattern = folderPrefix ? `${folderPrefix}/%` : '%';
+        const deleteParams: any[] = [req.user.uid, req.body?.clientId || null, Array.from(currentSourcePaths), sourcePathPattern];
+        const deleteRes = await pool.query(
+          `DELETE FROM knowledge_base
+           WHERE user_id = $1
+             AND COALESCE(client_id, '') = COALESCE($2::text, '')
+             AND source_type = 'folder'
+             AND import_state = 'active'
+             AND source_path LIKE $4
+             AND NOT (source_path = ANY($3::text[]))
+           RETURNING id, title, source_path`,
+          deleteParams
+        );
+        result.deleted = deleteRes.rowCount || 0;
+        for (const row of deleteRes.rows) {
+          result.items.push({ path: row.source_path || row.id, title: row.title || row.source_path || row.id, status: 'deleted_missing_source' });
+        }
+      } else if (syncDeletes && files.length >= maxFiles) {
+        result.deleteSyncSkipped = true;
+        result.items.push({
+          path: result.folder,
+          title: result.folder,
+          status: 'delete_sync_skipped_max_files',
+          error: 'Delete sync skipped because the scan hit maxFiles; increase maxFiles to safely sync deletions.'
+        });
       }
 
       const pointsAdded = result.imported > 0
@@ -12801,7 +12977,7 @@ No markdown wrappers, just valid JSON.`;
         });
       }
 
-      res.json({ success: true, ...result, pointsAdded });
+      res.json({ success: true, ...result, syncDeletes, forceReindex, importBatchId, pointsAdded });
     } catch (e: any) {
       console.error('Knowledge folder import failed', e);
       res.status(500).json({ error: e.message || 'Failed to import knowledge folder' });
@@ -12816,6 +12992,12 @@ No markdown wrappers, just valid JSON.`;
         clientId: row.client_id,
         title: row.title,
         content: row.content,
+        sourceType: row.source_type || 'manual',
+        sourcePath: row.source_path || null,
+        sourceHash: row.source_hash || null,
+        sourceMtime: row.source_mtime || null,
+        importState: row.import_state || 'active',
+        metadata: row.metadata || {},
         createdAt: row.created_at,
         updatedAt: row.updated_at
       })));
@@ -12832,10 +13014,10 @@ No markdown wrappers, just valid JSON.`;
       let query, params;
       
       if (embedding) {
-        query = `INSERT INTO knowledge_base (id, user_id, client_id, title, content, embedding) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`;
+        query = `INSERT INTO knowledge_base (id, user_id, client_id, title, content, embedding, source_type, import_state) VALUES ($1, $2, $3, $4, $5, $6, 'manual', 'active') RETURNING *`;
         params = [id, req.user.uid, clientId || null, title, content, formatVector(embedding)];
       } else {
-        query = `INSERT INTO knowledge_base (id, user_id, client_id, title, content) VALUES ($1, $2, $3, $4, $5) RETURNING *`;
+        query = `INSERT INTO knowledge_base (id, user_id, client_id, title, content, source_type, import_state) VALUES ($1, $2, $3, $4, $5, 'manual', 'active') RETURNING *`;
         params = [id, req.user.uid, clientId || null, title, content];
       }
       
@@ -12856,10 +13038,10 @@ No markdown wrappers, just valid JSON.`;
       
       let query, params;
       if (embedding) {
-        query = `UPDATE knowledge_base SET title = $1, content = $2, embedding = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $4 AND user_id = $5`;
+        query = `UPDATE knowledge_base SET title = $1, content = $2, embedding = $3, source_hash = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $4 AND user_id = $5`;
         params = [title, content, formatVector(embedding), req.params.id, req.user.uid];
       } else {
-        query = `UPDATE knowledge_base SET title = $1, content = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3 AND user_id = $4`;
+        query = `UPDATE knowledge_base SET title = $1, content = $2, embedding = NULL, source_hash = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $3 AND user_id = $4`;
         params = [title, content, req.params.id, req.user.uid];
       }
       
