@@ -466,7 +466,7 @@ export type AgentHubRunStatus = 'planned' | 'pending_review' | 'approved' | 'run
 export type AgentHubRunTrigger = 'scheduled' | 'manual' | 'approval' | 'system' | 'event';
 export type AgentOpportunityStatus = 'open' | 'queued' | 'pending_review' | 'running' | 'completed' | 'failed' | 'ignored';
 export type AgentOpportunityRisk = 'low' | 'medium' | 'high';
-export type AgentTaskStatus = 'open' | 'queued' | 'approval_required' | 'running' | 'completed' | 'failed' | 'skipped' | 'ignored';
+export type AgentTaskStatus = 'open' | 'queued' | 'approval_required' | 'running' | 'completed' | 'failed' | 'ignored';
 export type AgentTaskRisk = 'low' | 'medium' | 'high';
 export type AgentTaskTriggerType = 'signal' | 'event' | 'schedule' | 'manual' | 'console' | 'system';
 export type AgentTaskEntityType = 'client' | 'lead' | 'email' | 'whatsapp' | 'live_chat' | 'conversation' | 'system';
@@ -493,6 +493,13 @@ export interface AgentOpportunity {
   updatedAt: string;
   dispatchedAt?: string;
   completedAt?: string;
+  triggeredBy?: string;
+  triggeredAt?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  executedBy?: string;
+  executedAt?: string;
+  affectedRecords?: Array<{ type: string; id: string; action?: string; label?: string }>;
   metadata?: any;
 }
 
@@ -519,6 +526,13 @@ export interface AgentTask {
   sourceRefType?: 'opportunity' | 'chat' | 'schedule' | 'event' | 'manual';
   sourceRefId?: string;
   resultSummary?: string;
+  triggeredBy?: string;
+  triggeredAt?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  executedBy?: string;
+  executedAt?: string;
+  affectedRecords?: Array<{ type: string; id: string; action?: string; label?: string }>;
   metadata?: any;
   createdAt: string;
   updatedAt: string;
@@ -575,6 +589,22 @@ function agentTaskFromOpportunity(opportunity: AgentOpportunity): AgentTask {
     sourceRefType: 'opportunity',
     sourceRefId: opportunity.id,
     resultSummary: opportunity.resultSummary,
+    triggeredBy: opportunity.triggeredBy || (opportunity.source === 'signal_scanner' ? 'system' : undefined),
+    triggeredAt: opportunity.triggeredAt || opportunity.dispatchedAt || opportunity.createdAt,
+    approvedBy: opportunity.approvedBy,
+    approvedAt: opportunity.approvedAt,
+    executedBy: opportunity.executedBy,
+    executedAt: opportunity.executedAt,
+    affectedRecords: Array.isArray(opportunity.affectedRecords) && opportunity.affectedRecords.length
+      ? opportunity.affectedRecords
+      : [
+        opportunity.targetType && opportunity.targetId ? {
+          type: opportunity.targetType,
+          id: opportunity.targetId,
+          action: opportunity.status === 'completed' ? 'completed' : opportunity.status || 'open',
+          label: opportunity.title
+        } : null
+      ].filter(Boolean) as Array<{ type: string; id: string; action?: string; label?: string }>,
     metadata: opportunity.metadata,
     createdAt: opportunity.createdAt,
     updatedAt: opportunity.updatedAt,

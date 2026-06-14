@@ -94,7 +94,7 @@ export function ApprovalCenterPanel({
                 : 'The former Agent Harness is now the execution engine: it checks tool permissions, applies policy, creates review items, and records traces. It is no longer a standalone business agent.'}
             </p>
           </div>
-          <button onClick={() => onTabChange('global')} className="bg-black border border-neutral-800 rounded-md p-4 text-left hover:border-blue-500/50 transition-colors">
+          <button onClick={() => onTabChange('opportunities')} className="bg-black border border-neutral-800 rounded-md p-4 text-left hover:border-blue-500/50 transition-colors">
             <div className="flex items-center gap-2 text-sm font-bold text-slate-100">
               <Bot className="w-4 h-4 text-blue-300" /> Global Orchestrator
             </div>

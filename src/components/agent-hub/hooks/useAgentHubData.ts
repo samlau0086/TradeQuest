@@ -111,7 +111,7 @@ export function useAgentHubData({
   }, [agentTasks, visibleOpportunities]);
 
   const dispatchableTasks = useMemo(() => (
-    visibleTasks.filter(task => !!linkedOpportunityIdFromTask(task) && ['open', 'failed', 'skipped'].includes(task.status))
+    visibleTasks.filter(task => !!linkedOpportunityIdFromTask(task) && ['open', 'failed'].includes(task.status))
   ), [visibleTasks]);
 
   const computedAgents = useMemo<AgentHubAgent[]>(() => (

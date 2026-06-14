@@ -183,6 +183,10 @@ The queue is backed by a unified `Agent Task` record. Scheduled runs, Signal Sca
 
 Core task fields include `source`, `triggerType`, `entityType`, `entityId`, `agentId`, `status`, `risk`, `dedupeKey`, `approvalStatus`, `runId`, `retryCount`, and timestamps. Legacy opportunity tasks are bridged into deterministic task IDs such as `task_<opportunityId>` so old data and new task execution stay in sync.
 
+Task lifecycle status is normalized to exactly seven queue states: `open`, `queued`, `approval_required`, `running`, `completed`, `failed`, and `ignored`. Legacy states such as `pending_review`, `approved`, `rejected`, `complete`, or `skipped` are converted at the Agent Hub data boundary so older Harness / Global Agent records do not leak parallel lifecycle semantics into the current queue.
+
+Each task also carries audit fields: `triggeredBy`, `triggeredAt`, `approvedBy`, `approvedAt`, `executedBy`, `executedAt`, and `affectedRecords`. The task detail drawer shows who triggered the task, who approved it, who executed it, and which CRM records were read, written, sent, imported, drafted, or otherwise affected.
+
 Task cards and the task detail drawer show a source chain: source -> linked entity -> responsible agent -> routing result. This helps operators understand why a task exists, which record it affects, which agent owns it, and whether it is waiting for policy routing, approval, execution, completion, or ignore state.
 
 Execution trace steps include landing metadata. Each tool call can show whether it only read/analyzed context or actually landed a write/send/create action, along with compact evidence such as draft IDs, imported lead counts, sent channels, tags, quote numbers, or updated records.
@@ -226,6 +230,8 @@ Execution output is shown as a timeline. By default only part of long step lists
 - Individual agents do the specialist work.
 
 Older direct scheduled agent execution has been optimized to route through the opportunity mechanism first. This avoids conflicting execution paths and keeps scheduled work, event-triggered work, and manual work in one governance model.
+
+Legacy direct planning endpoints `/api/global-agent/plan` and `/api/agent-harness/plan` are deprecated and return a compatibility error. New planning and execution should enter through Agent Hub tasks, approvals, agent runs, and execution logs.
 
 ### Agent State Persistence
 
@@ -1062,6 +1068,10 @@ Signal Scanner Agent 会定期扫描 CRM 信号，例如：
 
 核心字段包括 `source`、`triggerType`、`entityType`、`entityId`、`agentId`、`status`、`risk`、`dedupeKey`、`approvalStatus`、`runId`、`retryCount` 和时间戳。旧机会任务会桥接成确定性任务 ID，例如 `task_<opportunityId>`，保证旧数据和新的任务执行模型保持同步。
 
+任务生命周期状态统一为 7 个队列状态：`open`、`queued`、`approval_required`、`running`、`completed`、`failed`、`ignored`。旧状态如 `pending_review`、`approved`、`rejected`、`complete` 或 `skipped` 会在 Agent Hub 数据边界被转换，避免旧 Harness / Global Agent 记录把并行生命周期语义带回当前任务队列。
+
+每个任务还会记录完整审计字段：`triggeredBy`、`triggeredAt`、`approvedBy`、`approvedAt`、`executedBy`、`executedAt` 和 `affectedRecords`。任务详情抽屉会显示谁触发、谁审核、谁执行，以及哪些 CRM 记录被读取、写入、发送、导入、起草或影响。
+
 任务卡片和任务详情抽屉会显示来源链路：来源 -> 关联主体 -> 负责 Agent -> 路由结果。这样运营人员可以直接判断任务为什么出现、影响哪条记录、由哪个 Agent 负责，以及当前是等待策略路由、审核、执行、完成还是忽略状态。
 
 执行追踪步骤会包含落地元数据。每个工具调用可以显示它只是读取/分析上下文，还是已经真实落地写入、发送或创建动作，并附带简洁证据，例如草稿 ID、导入线索数量、发送渠道、标签、报价编号或更新记录。
@@ -1105,6 +1115,8 @@ Signal Scanner Agent 会定期扫描 CRM 信号，例如：
 - 各个专业 Agent 负责执行具体工作。
 
 旧的直接定时执行逻辑已经优化为先进入机会任务机制，避免定时执行、事件触发和手动执行互相冲突。
+
+旧的直接规划接口 `/api/global-agent/plan` 和 `/api/agent-harness/plan` 已弃用，会返回兼容错误。新的规划和执行应统一进入 Agent Hub 的任务队列、审批中心、Agent Run 和执行日志。
 
 ### Agent 状态持久化
 

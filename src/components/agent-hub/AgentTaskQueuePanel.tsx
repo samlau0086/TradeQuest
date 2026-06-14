@@ -81,7 +81,7 @@ export function AgentTaskQueuePanel({
     if (filter === 'all') return true;
     if (filter === 'active') return !['completed', 'ignored'].includes(task.status);
     if (filter === 'running') return ['queued', 'running'].includes(task.status);
-    if (filter === 'failed') return ['failed', 'skipped'].includes(task.status);
+    if (filter === 'failed') return task.status === 'failed';
     return task.status === filter;
   };
   const taskFilterCounts = useMemo(() => (
@@ -134,7 +134,7 @@ export function AgentTaskQueuePanel({
     clearSelection();
   };
   const bulkDispatch = async () => {
-    for (const task of selectedTasks.filter(item => !!taskOpportunityId(item) && ['open', 'failed', 'skipped'].includes(item.status))) {
+    for (const task of selectedTasks.filter(item => !!taskOpportunityId(item) && ['open', 'failed'].includes(item.status))) {
       // eslint-disable-next-line no-await-in-loop
       await onDispatchTask(task);
     }
@@ -192,7 +192,7 @@ export function AgentTaskQueuePanel({
   const routeDecisionLabel = (task: AgentTask) => {
     if (task.status === 'ignored') return isZh ? '已忽略，保留去重记录' : 'Ignored; dedupe record kept';
     if (task.status === 'completed') return isZh ? '已完成' : 'Completed';
-    if (task.status === 'failed' || task.status === 'skipped') return isZh ? '需要重新检查或重试' : 'Needs review or retry';
+    if (task.status === 'failed') return isZh ? '需要重新检查或重试' : 'Needs review or retry';
     if (task.status === 'approval_required' || task.approvalStatus === 'pending') return isZh ? '进入人工审核' : 'Sent to approval';
     if (task.status === 'queued' || task.status === 'running') return isZh ? '正在执行链路中' : 'In execution flow';
     if (task.risk === 'low' && agentOpportunityRoutingPolicy.autoExecuteLowRisk) return isZh ? '低风险可自动执行' : 'Low risk can auto-run';
@@ -222,6 +222,28 @@ export function AgentTaskQueuePanel({
       detail: approvalLabel(task)
     }
   ];
+  const formatAuditActor = (actor?: string) => {
+    if (!actor) return '-';
+    if (actor === 'system') return isZh ? '系统' : 'System';
+    return actor;
+  };
+  const formatAuditTime = (value?: string) => {
+    if (!value) return '-';
+    const timestamp = new Date(value).getTime();
+    return Number.isNaN(timestamp) ? value : new Date(value).toLocaleString();
+  };
+  const auditRows = (task: AgentTask) => [
+    { label: isZh ? '触发人' : 'Triggered by', actor: formatAuditActor(task.triggeredBy || task.createdBy), time: formatAuditTime(task.triggeredAt || task.createdAt) },
+    { label: isZh ? '审核人' : 'Approved by', actor: formatAuditActor(task.approvedBy), time: formatAuditTime(task.approvedAt) },
+    { label: isZh ? '执行人' : 'Executed by', actor: formatAuditActor(task.executedBy), time: formatAuditTime(task.executedAt || task.startedAt || task.completedAt) }
+  ];
+  const affectedRecords = (task: AgentTask) => (
+    Array.isArray(task.affectedRecords) && task.affectedRecords.length
+      ? task.affectedRecords
+      : task.entityType && task.entityId
+        ? [{ type: task.entityType, id: task.entityId, action: task.status, label: task.title }]
+        : []
+  );
 
   return (
     <section className="rounded-lg border border-neutral-800 bg-neutral-950 p-6">
@@ -483,7 +505,7 @@ export function AgentTaskQueuePanel({
                     <button
                       type="button"
                       onClick={() => void onDispatchTask(task)}
-                      disabled={!opportunityId || !['open', 'failed', 'skipped'].includes(task.status) || dispatchingOpportunityId === task.id}
+                      disabled={!opportunityId || !['open', 'failed'].includes(task.status) || dispatchingOpportunityId === task.id}
                       className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-500 disabled:opacity-50"
                     >
                       {dispatchingOpportunityId === task.id ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
@@ -592,6 +614,33 @@ export function AgentTaskQueuePanel({
                     <dd className="mt-1 font-mono text-slate-200">{selectedTask.runType || '-'}:{selectedTask.runId || '-'}</dd>
                   </div>
                 </dl>
+              </div>
+
+              <div className="rounded-lg border border-neutral-800 bg-black p-4">
+                <div className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-500">{isZh ? '审计记录' : 'Audit Trail'}</div>
+                <div className="grid gap-2 text-xs">
+                  {auditRows(selectedTask).map(row => (
+                    <div key={row.label} className="grid grid-cols-[88px_1fr] gap-3 rounded border border-neutral-800 bg-neutral-950 px-3 py-2">
+                      <div className="text-slate-500">{row.label}</div>
+                      <div className="min-w-0">
+                        <div className="truncate font-mono text-slate-200" title={row.actor}>{row.actor}</div>
+                        <div className="mt-1 text-[10px] text-slate-500">{row.time}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 text-xs">
+                  <div className="mb-2 font-bold uppercase tracking-widest text-slate-500">{isZh ? '影响数据' : 'Affected Records'}</div>
+                  <div className="flex flex-wrap gap-2">
+                    {affectedRecords(selectedTask).length > 0 ? affectedRecords(selectedTask).map((record, index) => (
+                      <span key={`${record.type}-${record.id}-${index}`} className="rounded border border-blue-500/20 bg-blue-500/10 px-2 py-1 font-mono text-[10px] text-blue-200" title={record.label || record.action || ''}>
+                        {record.type}:{record.id}{record.action ? ` · ${record.action}` : ''}
+                      </span>
+                    )) : (
+                      <span className="text-slate-500">{isZh ? '暂无落库记录' : 'No affected records captured yet'}</span>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div className="rounded-lg border border-neutral-800 bg-black p-4">

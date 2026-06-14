@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../store';
-import { GlobalAgent } from './GlobalAgent';
 import { useTranslation } from '../lib/i18n';
 import { useAuthStore } from '../authStore';
 import {
@@ -278,11 +277,6 @@ export function AgentHub() {
           <SystemHealthPanel language={language} />
         )}
 
-        {tab === 'global' && (
-          <div className="rounded-lg border border-neutral-800 overflow-hidden bg-slate-950">
-            <GlobalAgent />
-          </div>
-        )}
       </div>
 
     </div>

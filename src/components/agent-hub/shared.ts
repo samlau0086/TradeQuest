@@ -23,7 +23,7 @@ export const ACTION_LABELS: Record<GlobalAgentActionType, string> = {
   review_pipeline: 'Review Pipeline'
 };
 
-export type AgentHubTab = 'fleet' | 'approvals' | 'opportunities' | 'runs' | 'chat' | 'global' | 'health';
+export type AgentHubTab = 'fleet' | 'approvals' | 'opportunities' | 'runs' | 'chat' | 'health';
 export type AgentQueueFilter = 'system' | 'custom';
 export type AgentTaskQueueFilter = 'active' | 'open' | 'approval_required' | 'running' | 'completed' | 'failed' | 'ignored' | 'all';
 

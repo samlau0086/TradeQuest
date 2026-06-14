@@ -289,7 +289,7 @@ export function useAgentOperations({
     if (item.kind === 'harness') updateAgentHarnessRun(item.id, { status: 'rejected', rejectedAt, rejectedReason: 'Rejected from Agent Hub' });
     if (item.kind === 'global') updateGlobalAgentPlan(item.id, { status: 'rejected', rejectedAt, rejectedReason: 'Rejected from Agent Hub' });
     updateTasksForRun(item.id, item.kind, {
-      status: 'skipped',
+      status: 'ignored',
       approvalStatus: 'rejected',
       resultSummary: language === 'zh' ? '人工已拒绝执行任务。' : 'Human rejected this execution task.',
       completedAt: rejectedAt
@@ -297,7 +297,7 @@ export function useAgentOperations({
     const linkedOpportunity = agentOpportunities.find(opportunity => opportunity.relatedRunId === item.id && opportunity.relatedRunType === item.kind);
     if (linkedOpportunity) {
       updateAgentOpportunity(linkedOpportunity.id, {
-        status: 'failed',
+        status: 'ignored',
         resultSummary: language === 'zh' ? '人工已拒绝机会任务派发。' : 'Human rejected this opportunity dispatch.',
         completedAt: new Date().toISOString()
       });
