@@ -2230,6 +2230,7 @@ async function startServer() {
 
   app.delete('/api/conversations/:id', authenticateToken, async (req: any, res) => {
     try {
+      const reason = String(req.body?.reason || '').trim();
       const currentRes = await pool.query(
         `SELECT * FROM communication_conversations WHERE id = $1 AND user_id = $2 LIMIT 1`,
         [req.params.id, req.user.uid]
@@ -2271,6 +2272,36 @@ async function startServer() {
       } else if (current.channel === 'live_chat') {
         await requestLiveChatSessionDelete(req.user.uid, current.source_id);
       }
+
+      const roleRes = await pool.query('SELECT role FROM users WHERE id = $1 LIMIT 1', [req.user.uid]);
+      await logAuditEvent({
+        ownerUserId: req.user.uid,
+        actorUserId: req.user.uid,
+        actorRole: normalizeRole(roleRes.rows[0]?.role),
+        action: current.channel === 'live_chat' ? 'conversation.delete.request' : 'conversation.delete',
+        risk: current.channel === 'live_chat' ? 'high' : 'medium',
+        targetType: 'conversation',
+        targetId: current.id,
+        targetLabel: current.title || current.contact_name || current.contact_address || current.source_id,
+        status: current.channel === 'live_chat' ? 'pending' : 'success',
+        reason,
+        changes: {
+          channel: current.channel,
+          previousStatus: current.status,
+          nextStatus: updated?.status,
+          deletedAt
+        },
+        affectedRecords: [
+          { type: 'conversation', id: current.id, action: current.channel === 'live_chat' ? 'delete_requested' : 'deleted' },
+          current.source_id ? { type: current.channel, id: current.source_id, action: current.channel === 'live_chat' ? 'delete_requested' : 'deleted' } : null,
+          current.client_id ? { type: 'client', id: current.client_id, action: 'related' } : null
+        ].filter(Boolean) as any[],
+        metadata: {
+          sourceId: current.source_id,
+          channel: current.channel,
+          unifiedConversation: true
+        }
+      });
 
       res.json({ success: true, conversation: updated });
     } catch (e: any) {
@@ -5966,14 +5997,35 @@ Return JSON only:
 
   app.delete('/api/whatsapp-hub/conversations/:id', authenticateToken, async (req: any, res) => {
     try {
+      const reason = String(req.body?.reason || '').trim();
       const result = await pool.query(
         `UPDATE whatsapp_conversations
          SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
          WHERE id = $1 AND user_id = $2
-         RETURNING id`,
+         RETURNING id, client_id, target_phone, chat_id, name`,
         [req.params.id, req.user.uid]
       );
       if (result.rows.length === 0) return res.status(404).json({ error: 'Conversation not found' });
+      const row = result.rows[0];
+      const roleRes = await pool.query('SELECT role FROM users WHERE id = $1 LIMIT 1', [req.user.uid]);
+      await logAuditEvent({
+        ownerUserId: req.user.uid,
+        actorUserId: req.user.uid,
+        actorRole: normalizeRole(roleRes.rows[0]?.role),
+        action: 'whatsapp_conversation.delete',
+        risk: 'medium',
+        targetType: 'whatsapp',
+        targetId: row.id,
+        targetLabel: row.name || row.target_phone || row.chat_id || row.id,
+        status: 'success',
+        reason,
+        changes: { deletedAt: new Date().toISOString(), targetPhone: row.target_phone, chatId: row.chat_id },
+        affectedRecords: [
+          { type: 'whatsapp', id: row.id, action: 'deleted' },
+          row.client_id ? { type: 'client', id: row.client_id, action: 'related' } : null
+        ].filter(Boolean) as any[],
+        metadata: { targetPhone: row.target_phone, chatId: row.chat_id }
+      });
       res.json({ success: true, deletedId: result.rows[0].id });
     } catch (e: any) {
       res.status(500).json({ error: e.message || 'Failed to delete WhatsApp conversation' });
