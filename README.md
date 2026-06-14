@@ -459,11 +459,12 @@ Recommended near-term roadmap:
 
 ### Phase 5: Governance, RAG, and Operator Experience
 
-- [ ] Add role-based permissions for agent tools, external messaging, destructive actions, and API tokens.
-- [ ] Add approval comments, approver identity, rollback metadata, and audit trails for sensitive actions.
+- [x] Add role-based permissions for agent tools, external messaging, destructive actions, and API tokens.
+- [x] Add approval comments, approver identity, rollback metadata, and audit trails for sensitive actions.
+- [x] Product, quote, and knowledge base create/update/delete actions write independent audit logs with actor, risk, affected records, and before/after or delete snapshots.
 - [x] Add RAG source metadata, source path, update time, folder import incrementality, deletion sync, client/global retrieval weighting, and citation visibility in AI outputs.
-- [ ] Add notification history, quiet hours, templates, and escalation rules for daily summaries and repeated agent failures.
-- [ ] Tie gamification rewards to real CRM outcomes and configurable point/EXP rules.
+- [x] Add notification history, quiet hours, templates, and escalation rules for daily summaries and repeated agent failures.
+- [x] Tie gamification rewards to real CRM outcomes and configurable point/EXP rules.
 - [x] Award configurable, idempotent points and EXP for real sales outcomes: quote sent, sample sent, negotiation started, and closed won.
 
 ## Lead Acquisition and Enrichment Channels
@@ -1361,15 +1362,16 @@ Agent Execution Policy 使用的 Global Orchestrator action type：
 
 ### 阶段 5：治理、RAG 与运营体验
 
-- [ ] 增加基于角色的权限，覆盖 Agent 工具、外发消息、破坏性操作和 API Token。
+- [x] 增加基于角色的权限，覆盖 Agent 工具、外发消息、破坏性操作和 API Token。
 - [x] API Token 管理接入 `api_token.manage` 角色权限，仅 superadmin/admin 可查看、生成和吊销网站/API Token。
 - [x] Agent 工具执行接入角色权限矩阵。Email/WhatsApp 外发、Live Chat 回复、报价、客户、Lead、产品、知识库和删除类工具都会按当前用户角色校验。
-- [ ] 敏感动作增加审批评论、审批人、回滚元数据和审计日志。
+- [x] 敏感动作增加审批评论、审批人、回滚元数据和审计日志。
 - [x] Agent Hub 审批中心支持批准/拒绝时填写审批原因，并写入任务、运行记录和后端执行状态。
 - [x] 沟通记录删除增加审计日志。统一会话删除和 WhatsApp 会话删除会记录操作者、渠道、关联客户、原因、影响记录和成功/待审状态。
+- [x] 产品、报价、知识库的创建、更新、删除都会写入独立审计日志，包含操作者、风险级别、影响记录，以及更新前后或删除快照。
 - [x] RAG 增加来源元数据、来源路径、更新时间、文件夹增量同步、删除同步、客户/全局检索权重和 AI 输出引用来源展示。
 - [x] 通知系统增加通知历史、免打扰时段、模板和连续失败升级规则；Bark/Webhook 投递日志支持重试和清理。
-- [ ] 将游戏化积分和 EXP 与真实 CRM 结果绑定，并支持可配置规则。
+- [x] 将游戏化积分和 EXP 与真实 CRM 结果绑定，并支持可配置规则。
 - [x] 已将报价发出、进入寄样、进入谈判、赢单等真实销售结果接入可配置且幂等的积分与 EXP 奖励。
 
 ## 获客与数据富集渠道

@@ -11694,6 +11694,18 @@ Return JSON only:
       );
       const pointsAdded = Math.max(0, await getGlobalSettingNumber('point_event_add_product', 3));
       await adjustUserPoints(req.user.uid, pointsAdded, 'Added product', 'add_product', id, { productId: id });
+      await logAuditEvent({
+        ownerUserId: req.user.uid,
+        actorUserId: req.user.uid,
+        actorRole: req.userRole,
+        action: 'product.create',
+        risk: 'medium',
+        targetType: 'product',
+        targetId: id,
+        targetLabel: name || sku || id,
+        changes: { created: { id, sku, name, description, salesPoints, imageUrl, bulkPrices, comments } },
+        affectedRecords: [{ type: 'product', id }]
+      });
       res.json({ ...result.rows[0], pointsAdded });
     } catch (e) {
       console.error(e); res.status(500).json({ error: 'Internal error' });
@@ -11712,9 +11724,25 @@ Return JSON only:
         }
       }
       if (updates.length > 0) {
+        const beforeRes = await pool.query('SELECT * FROM products WHERE id = $1 AND user_id = $2', [req.params.id, req.user.uid]);
+        const before = beforeRes.rows[0] || null;
         updates.push(`updated_at = CURRENT_TIMESTAMP`);
         values.push(req.params.id, req.user.uid);
-        await pool.query(`UPDATE products SET ${updates.join(', ')} WHERE id = $${idx++} AND user_id = $${idx}`, values);
+        const updateRes = await pool.query(`UPDATE products SET ${updates.join(', ')} WHERE id = $${idx++} AND user_id = $${idx} RETURNING *`, values);
+        if (updateRes.rowCount > 0) {
+          await logAuditEvent({
+            ownerUserId: req.user.uid,
+            actorUserId: req.user.uid,
+            actorRole: req.userRole,
+            action: 'product.update',
+            risk: 'medium',
+            targetType: 'product',
+            targetId: req.params.id,
+            targetLabel: updateRes.rows[0]?.name || updateRes.rows[0]?.sku || req.params.id,
+            changes: { before, updates: req.body, after: updateRes.rows[0] },
+            affectedRecords: [{ type: 'product', id: req.params.id }]
+          });
+        }
       }
       res.json({ success: true });
     } catch (e) {
@@ -11724,7 +11752,23 @@ Return JSON only:
 
   app.delete('/api/products/:id', authenticateToken, requirePermission('product.manage'), async (req: any, res) => {
     try {
-      await pool.query('DELETE FROM products WHERE id = $1 AND user_id = $2', [req.params.id, req.user.uid]);
+      const beforeRes = await pool.query('SELECT * FROM products WHERE id = $1 AND user_id = $2', [req.params.id, req.user.uid]);
+      const before = beforeRes.rows[0] || null;
+      const deleteRes = await pool.query('DELETE FROM products WHERE id = $1 AND user_id = $2', [req.params.id, req.user.uid]);
+      if (deleteRes.rowCount > 0) {
+        await logAuditEvent({
+          ownerUserId: req.user.uid,
+          actorUserId: req.user.uid,
+          actorRole: req.userRole,
+          action: 'product.delete',
+          risk: 'high',
+          targetType: 'product',
+          targetId: req.params.id,
+          targetLabel: before?.name || before?.sku || req.params.id,
+          changes: { deleted: before },
+          affectedRecords: [{ type: 'product', id: req.params.id }]
+        });
+      }
       res.json({ success: true });
     } catch (e) {
       console.error(e); res.status(500).json({ error: 'Internal error' });
@@ -11790,6 +11834,23 @@ Return JSON only:
           status
         });
       }
+      await logAuditEvent({
+        ownerUserId: req.user.uid,
+        actorUserId: req.user.uid,
+        actorRole: req.userRole,
+        action: 'quote.create',
+        risk: isQuoteSentStatus(status) ? 'high' : 'medium',
+        targetType: 'quote',
+        targetId: id,
+        targetLabel: quoteNumber || id,
+        changes: { created: { id, quoteNumber, clientId: clientId || null, leadId: leadId || null, currency: currency || 'USD', status, items, fees, comments } },
+        affectedRecords: [
+          { type: 'quote', id },
+          ...(clientId ? [{ type: 'client', id: clientId }] : []),
+          ...(leadId ? [{ type: 'lead', id: leadId }] : [])
+        ],
+        metadata: { pointsAdded: pointsAdded + (quoteSentReward?.skipped ? 0 : Number(quoteSentReward?.amount || 0)) }
+      });
       res.json({ ...result.rows[0], pointsAdded: pointsAdded + (quoteSentReward?.skipped ? 0 : Number(quoteSentReward?.amount || 0)), pointRewards: quoteSentReward ? [quoteSentReward] : [] });
     } catch (e) {
       console.error(e); res.status(500).json({ error: 'Internal error' });
@@ -11812,7 +11873,7 @@ Return JSON only:
       }
       if (updates.length > 0) {
         const existingQuote = await pool.query(
-          `SELECT status, client_id, lead_id FROM quotes WHERE id = $1 AND user_id = $2`,
+          `SELECT * FROM quotes WHERE id = $1 AND user_id = $2`,
           [req.params.id, req.user.uid]
         );
         if (existingQuote.rowCount === 0) return res.status(404).json({ error: 'Quote not found' });
@@ -11821,7 +11882,25 @@ Return JSON only:
         currentQuoteLeadId = leadId !== undefined ? leadId || null : existingQuote.rows[0].lead_id || null;
         updates.push(`updated_at = CURRENT_TIMESTAMP`);
         values.push(req.params.id, req.user.uid);
-        await pool.query(`UPDATE quotes SET ${updates.join(', ')} WHERE id = $${idx++} AND user_id = $${idx}`, values);
+        const updateRes = await pool.query(`UPDATE quotes SET ${updates.join(', ')} WHERE id = $${idx++} AND user_id = $${idx} RETURNING *`, values);
+        if (updateRes.rowCount > 0) {
+          await logAuditEvent({
+            ownerUserId: req.user.uid,
+            actorUserId: req.user.uid,
+            actorRole: req.userRole,
+            action: 'quote.update',
+            risk: status !== undefined || items !== undefined || fees !== undefined ? 'high' : 'medium',
+            targetType: 'quote',
+            targetId: req.params.id,
+            targetLabel: updateRes.rows[0]?.quote_number || req.params.id,
+            changes: { before: existingQuote.rows[0], updates: req.body, after: updateRes.rows[0] },
+            affectedRecords: [
+              { type: 'quote', id: req.params.id },
+              ...(currentQuoteClientId ? [{ type: 'client', id: currentQuoteClientId }] : []),
+              ...(currentQuoteLeadId ? [{ type: 'lead', id: currentQuoteLeadId }] : [])
+            ]
+          });
+        }
       }
       let quoteSentReward: any = null;
       if (status !== undefined && isQuoteSentStatus(status) && !isQuoteSentStatus(previousQuoteStatus)) {
@@ -11842,7 +11921,27 @@ Return JSON only:
 
   app.delete('/api/quotes/:id', authenticateToken, requirePermission('quote.delete'), async (req: any, res) => {
     try {
-      await pool.query('DELETE FROM quotes WHERE id = $1 AND user_id = $2', [req.params.id, req.user.uid]);
+      const beforeRes = await pool.query('SELECT * FROM quotes WHERE id = $1 AND user_id = $2', [req.params.id, req.user.uid]);
+      const before = beforeRes.rows[0] || null;
+      const deleteRes = await pool.query('DELETE FROM quotes WHERE id = $1 AND user_id = $2', [req.params.id, req.user.uid]);
+      if (deleteRes.rowCount > 0) {
+        await logAuditEvent({
+          ownerUserId: req.user.uid,
+          actorUserId: req.user.uid,
+          actorRole: req.userRole,
+          action: 'quote.delete',
+          risk: 'high',
+          targetType: 'quote',
+          targetId: req.params.id,
+          targetLabel: before?.quote_number || req.params.id,
+          changes: { deleted: before },
+          affectedRecords: [
+            { type: 'quote', id: req.params.id },
+            ...(before?.client_id ? [{ type: 'client', id: before.client_id }] : []),
+            ...(before?.lead_id ? [{ type: 'lead', id: before.lead_id }] : [])
+          ]
+        });
+      }
       res.json({ success: true });
     } catch (e) {
       console.error(e); res.status(500).json({ error: 'Internal error' });
@@ -14783,6 +14882,22 @@ No markdown wrappers, just valid JSON.`;
       const result = await pool.query(query, params);
       const pointsAdded = Math.max(0, await getGlobalSettingNumber('point_event_add_knowledge', 3));
       await adjustUserPoints(req.user.uid, pointsAdded, 'Added knowledge base item', 'add_knowledge', id, { knowledgeId: id, clientId: clientId || null });
+      await logAuditEvent({
+        ownerUserId: req.user.uid,
+        actorUserId: req.user.uid,
+        actorRole: req.userRole,
+        action: 'knowledge.create',
+        risk: clientId ? 'medium' : 'low',
+        targetType: 'knowledge',
+        targetId: id,
+        targetLabel: title || id,
+        changes: { created: { id, clientId: clientId || null, title, contentPreview: String(content || '').slice(0, 500) } },
+        affectedRecords: [
+          { type: 'knowledge', id },
+          ...(clientId ? [{ type: 'client', id: clientId }] : [])
+        ],
+        metadata: { hasEmbedding: !!embedding, pointsAdded }
+      });
       res.json({ success: true, data: result.rows[0], pointsAdded });
     } catch (e) {
       console.error(e);
@@ -14794,17 +14909,42 @@ No markdown wrappers, just valid JSON.`;
     try {
       const { title, content, llmConfig } = req.body;
       const embedding = await generateEmbedding(content, llmConfig);
+      const beforeRes = await pool.query('SELECT * FROM knowledge_base WHERE id = $1 AND user_id = $2', [req.params.id, req.user.uid]);
+      const before = beforeRes.rows[0] || null;
       
       let query, params;
       if (embedding) {
-        query = `UPDATE knowledge_base SET title = $1, content = $2, embedding = $3, source_hash = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $4 AND user_id = $5`;
+        query = `UPDATE knowledge_base SET title = $1, content = $2, embedding = $3, source_hash = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $4 AND user_id = $5 RETURNING *`;
         params = [title, content, formatVector(embedding), req.params.id, req.user.uid];
       } else {
-        query = `UPDATE knowledge_base SET title = $1, content = $2, embedding = NULL, source_hash = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $3 AND user_id = $4`;
+        query = `UPDATE knowledge_base SET title = $1, content = $2, embedding = NULL, source_hash = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $3 AND user_id = $4 RETURNING *`;
         params = [title, content, req.params.id, req.user.uid];
       }
       
-      await pool.query(query, params);
+      const updateRes = await pool.query(query, params);
+      if (updateRes.rowCount > 0) {
+        const updatedKnowledge: any = updateRes.rows[0];
+        await logAuditEvent({
+          ownerUserId: req.user.uid,
+          actorUserId: req.user.uid,
+          actorRole: req.userRole,
+          action: 'knowledge.update',
+          risk: 'medium',
+          targetType: 'knowledge',
+          targetId: req.params.id,
+          targetLabel: title || before?.title || req.params.id,
+          changes: {
+            before: before ? { ...before, content: String(before.content || '').slice(0, 500), embedding: before.embedding ? '[vector]' : null } : null,
+            updates: { title, contentPreview: String(content || '').slice(0, 500) },
+            after: { ...updatedKnowledge, content: String(updatedKnowledge?.content || '').slice(0, 500), embedding: updatedKnowledge?.embedding ? '[vector]' : null }
+          },
+          affectedRecords: [
+            { type: 'knowledge', id: req.params.id },
+            ...(updatedKnowledge?.client_id ? [{ type: 'client', id: updatedKnowledge.client_id }] : [])
+          ],
+          metadata: { hasEmbedding: !!embedding }
+        });
+      }
       res.json({ success: true });
     } catch (e) {
       console.error(e);
@@ -14814,7 +14954,29 @@ No markdown wrappers, just valid JSON.`;
 
   app.delete('/api/knowledge-base/:id', authenticateToken, requirePermission('knowledge.manage'), async (req: any, res) => {
     try {
-      await pool.query('DELETE FROM knowledge_base WHERE id = $1 AND user_id = $2', [req.params.id, req.user.uid]);
+      const beforeRes = await pool.query('SELECT * FROM knowledge_base WHERE id = $1 AND user_id = $2', [req.params.id, req.user.uid]);
+      const before = beforeRes.rows[0] || null;
+      const deleteRes = await pool.query('DELETE FROM knowledge_base WHERE id = $1 AND user_id = $2', [req.params.id, req.user.uid]);
+      if (deleteRes.rowCount > 0) {
+        await logAuditEvent({
+          ownerUserId: req.user.uid,
+          actorUserId: req.user.uid,
+          actorRole: req.userRole,
+          action: 'knowledge.delete',
+          risk: 'high',
+          targetType: 'knowledge',
+          targetId: req.params.id,
+          targetLabel: before?.title || req.params.id,
+          changes: {
+            deleted: before ? { ...before, content: String(before.content || '').slice(0, 1000), embedding: before.embedding ? '[vector]' : null } : null
+          },
+          affectedRecords: [
+            { type: 'knowledge', id: req.params.id },
+            ...(before?.client_id ? [{ type: 'client', id: before.client_id }] : [])
+          ],
+          metadata: { sourceType: before?.source_type || null, importState: before?.import_state || null }
+        });
+      }
       res.json({ success: true });
     } catch (e) {
       console.error(e);
