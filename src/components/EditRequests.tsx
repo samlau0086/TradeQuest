@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuthStore } from '../authStore';
-import { CheckCircle, XCircle, Search, AlertCircle, CheckSquare, Square } from 'lucide-react';
+import { CheckCircle, XCircle, AlertCircle, CheckSquare, Square, RotateCcw, History } from 'lucide-react';
 import { ClientEditRequest, useStore } from '../store';
 import { useTranslation } from '../lib/i18n';
 
@@ -11,17 +11,18 @@ export function EditRequests() {
   const [requests, setRequests] = useState<ClientEditRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [showHistory, setShowHistory] = useState(false);
 
   useEffect(() => {
     if (profile?.role === 'superadmin') {
       fetchRequests();
     }
-  }, [profile]);
+  }, [profile, showHistory]);
 
   const fetchRequests = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch('/api/admin/client-edit-requests', {
+      const res = await fetch(`/api/admin/client-edit-requests?status=${showHistory ? 'all' : 'pending'}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
@@ -45,12 +46,8 @@ export function EditRequests() {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
-        setRequests(prev => prev.filter(r => r.id !== id));
-        setSelectedIds(prev => {
-          const next = new Set(prev);
-          next.delete(id);
-          return next;
-        });
+        notify(action === 'approve' ? 'Request approved.' : 'Request rejected.', 'success');
+        await fetchRequests();
         useStore.getState().fetchEmails();
         useStore.getState().fetchDeals();
         await fetch('/api/clients', { headers: { 'Authorization': `Bearer ${token}` } })
@@ -61,6 +58,35 @@ export function EditRequests() {
       }
     } catch (e) {
       console.error(e);
+    } finally {
+      useStore.setState({ globalLoading: false });
+    }
+  };
+
+  const handleRollback = async (id: number) => {
+    if (!confirm('Roll back this approved action?')) return;
+    useStore.setState({ globalLoading: true });
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/admin/client-edit-requests/${id}/rollback`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        notify('Request rolled back.', 'success');
+        await fetchRequests();
+        useStore.getState().fetchEmails();
+        useStore.getState().fetchDeals();
+        await fetch('/api/clients', { headers: { 'Authorization': `Bearer ${token}` } })
+          .then(r => r.json())
+          .then(clients => useStore.setState({ clients }));
+      } else {
+        const data = await res.json().catch(() => ({}));
+        notify(data.error || 'Failed to roll back request.', 'error');
+      }
+    } catch (e) {
+      console.error(e);
+      notify('Failed to roll back request.', 'error');
     } finally {
       useStore.setState({ globalLoading: false });
     }
@@ -90,12 +116,7 @@ export function EditRequests() {
         }
       });
       
-      setRequests(prev => prev.filter(r => !successfulIds.has(r.id)));
-      setSelectedIds(prev => {
-        const next = new Set(prev);
-        successfulIds.forEach(id => next.delete(id));
-        return next;
-      });
+      await fetchRequests();
       
       useStore.getState().fetchEmails();
       useStore.getState().fetchDeals();
@@ -150,7 +171,15 @@ export function EditRequests() {
             <p className="text-slate-400 mt-1">{t('pendingEditDesc') || 'Changes to client records submitted by users that require your approval.'}</p>
           </div>
           
-          {requests.length > 0 && (
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowHistory(prev => !prev)}
+              className="flex items-center gap-2 px-3 py-2 rounded border border-slate-700 bg-slate-900 text-sm text-slate-300 hover:text-white hover:border-cyan-500/60"
+            >
+              <History className="w-4 h-4" />
+              {showHistory ? 'Pending Only' : 'Review History'}
+            </button>
+          {requests.length > 0 && !showHistory && (
             <div className="flex items-center gap-3">
               <span className="text-sm text-slate-400">{selectedIds.size} selected</span>
               <button 
@@ -169,6 +198,7 @@ export function EditRequests() {
               </button>
             </div>
           )}
+          </div>
         </div>
 
         {loading ? (
@@ -179,6 +209,7 @@ export function EditRequests() {
           </div>
         ) : (
           <div className="space-y-4">
+            {!showHistory && (
             <div className="flex items-center gap-3 px-1">
               <button onClick={toggleAll} className="flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors">
                 {selectedIds.size === requests.length && requests.length > 0 ? (
@@ -189,11 +220,14 @@ export function EditRequests() {
                 Select All
               </button>
             </div>
+            )}
             
             {requests.map(req => {
               const prev = typeof req.original_data === 'string' ? JSON.parse(req.original_data) : req.original_data;
               const next = typeof req.requested_data === 'string' ? JSON.parse(req.requested_data) : req.requested_data;
               const isSelected = selectedIds.has(req.id);
+              const canReview = req.status === 'pending';
+              const canRollback = req.status === 'approved' && !req.rolled_back_at;
 
               return (
                 <div key={req.id} className={`bg-slate-900 border rounded-lg p-5 transition-colors ${isSelected ? 'border-cyan-500/50 bg-slate-800/40' : 'border-slate-800'}`}>
@@ -225,14 +259,33 @@ export function EditRequests() {
                       </div>
                     </div>
                     <div className="flex gap-2">
+                      {canRollback && (
+                        <button onClick={() => handleRollback(req.id)} className="flex items-center gap-1 bg-amber-900/30 text-amber-300 hover:bg-amber-900/50 px-3 py-1.5 rounded text-sm font-medium transition-colors border border-amber-900/50">
+                          <RotateCcw className="w-4 h-4" /> Rollback
+                        </button>
+                      )}
+                      {canReview && (
+                        <>
                       <button onClick={() => handleAction(req.id, 'approve')} className="flex items-center gap-1 bg-green-900/30 text-green-400 hover:bg-green-900/50 hover:text-green-300 px-3 py-1.5 rounded text-sm font-medium transition-colors border border-green-900/50">
                         <CheckCircle className="w-4 h-4" /> {t('approve') || 'Approve'}
                       </button>
                       <button onClick={() => handleAction(req.id, 'reject')} className="flex items-center gap-1 bg-red-900/30 text-red-400 hover:bg-red-900/50 hover:text-red-300 px-3 py-1.5 rounded text-sm font-medium transition-colors border border-red-900/50">
                         <XCircle className="w-4 h-4" /> {t('reject') || 'Reject'}
                       </button>
+                        </>
+                      )}
                     </div>
                   </div>
+
+                  {req.status !== 'pending' && (
+                    <div className="ml-9 mb-4 rounded border border-slate-800 bg-slate-950/70 px-3 py-2 text-xs text-slate-400">
+                      Status: <span className="text-slate-200">{req.status}</span>
+                      {req.processor_name && <> · Processed by <span className="text-slate-200">{req.processor_name}</span></>}
+                      {req.processed_at && <> at {new Date(req.processed_at).toLocaleString()}</>}
+                      {req.rollbacker_name && <> · Rolled back by <span className="text-amber-200">{req.rollbacker_name}</span></>}
+                      {req.rolled_back_at && <> at {new Date(req.rolled_back_at).toLocaleString()}</>}
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-2 gap-4 ml-9">
                     <div className="bg-slate-950 p-4 rounded border border-slate-800">

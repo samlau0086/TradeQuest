@@ -732,10 +732,18 @@ export interface ClientEditRequest {
   user_id: string;
   original_data: any;
   requested_data: any;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'approved' | 'rejected' | 'rolled_back';
   created_at: string;
+  processed_by?: string;
+  processed_at?: string;
+  rolled_back_by?: string;
+  rolled_back_at?: string;
+  rollback_data?: any;
+  audit_metadata?: any;
   current_client_name?: string;
   requester_name?: string;
+  processor_name?: string;
+  rollbacker_name?: string;
 }
 
 export interface Log {
@@ -2091,7 +2099,7 @@ export const useStore = create<StoreState>((set, get) => ({
     const token = localStorage.getItem('token');
     if (!token || !sessionId) return;
     try {
-      const res = await fetch(`/api/live-chat/sessions/${sessionId}/messages`, {
+      const res = await fetch(`/api/live-chat/sessions/${sessionId}/messages?limit=200`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!res.ok) throw new Error('Failed to fetch live chat messages');

@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useStore, KnowledgeItem } from '../store';
 import { useAuthStore } from '../authStore';
-import { Book, Plus, Trash2, Edit2, Save, X, FileUp, Loader2, FolderDown } from 'lucide-react';
+import { Book, Plus, Trash2, Edit2, Save, X, FileUp, Loader2, FolderDown, Search } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 import { useTranslation } from '../lib/i18n';
@@ -18,14 +18,15 @@ export function KnowledgeBaseManager({ clientId = null }: { clientId?: string | 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [pagedKbs, setPagedKbs] = useState<KnowledgeItem[]>([]);
+  const [totalItems, setTotalItems] = useState(0);
+  const [search, setSearch] = useState('');
+  const [isPageLoading, setIsPageLoading] = useState(false);
   
-  const relevantKbs = knowledgeBase.filter(kb => kb.clientId === clientId);
-  const totalPages = Math.max(1, Math.ceil(relevantKbs.length / pageSize));
+  const relevantKbs = pagedKbs;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
   const currentPage = Math.min(page, totalPages);
-  const paginatedKbs = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return relevantKbs.slice(start, start + pageSize);
-  }, [currentPage, pageSize, relevantKbs]);
+  const paginatedKbs = relevantKbs;
   
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<Partial<KnowledgeItem>>({});
@@ -34,13 +35,43 @@ export function KnowledgeBaseManager({ clientId = null }: { clientId?: string | 
   const allPageSelected = pageIds.length > 0 && pageIds.every(id => selectedSet.has(id));
   const somePageSelected = pageIds.some(id => selectedSet.has(id));
 
-  useEffect(() => {
-    setPage(1);
-  }, [clientId, pageSize]);
+  const fetchKnowledgePage = useCallback(async () => {
+    if (!token) return;
+    setIsPageLoading(true);
+    try {
+      const params = new URLSearchParams({
+        paginated: 'true',
+        page: String(page),
+        pageSize: String(pageSize),
+        clientId: clientId || 'null'
+      });
+      if (search.trim()) params.set('search', search.trim());
+      const response = await fetch(`/api/knowledge-base?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Failed to fetch knowledge base');
+      setPagedKbs(Array.isArray(data.items) ? data.items : []);
+      setTotalItems(Number(data.total || 0));
+    } catch (error) {
+      console.error(error);
+      notify(language === 'zh' ? '加载知识库失败。' : 'Failed to load knowledge base.', 'error');
+    } finally {
+      setIsPageLoading(false);
+    }
+  }, [clientId, language, notify, page, pageSize, search, token]);
 
   useEffect(() => {
-    setSelectedIds(prev => prev.filter(id => relevantKbs.some(kb => kb.id === id)));
-  }, [relevantKbs]);
+    fetchKnowledgePage();
+  }, [fetchKnowledgePage]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [clientId, pageSize, search]);
+
+  useEffect(() => {
+    setSelectedIds(prev => prev.filter(id => pagedKbs.some(kb => kb.id === id)));
+  }, [pagedKbs]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -48,6 +79,7 @@ export function KnowledgeBaseManager({ clientId = null }: { clientId?: string | 
 
   const handleCreate = () => {
     addKnowledgeItem({ clientId, title: 'New Knowledge Topic', content: 'Enter the knowledge contents here...' });
+    window.setTimeout(fetchKnowledgePage, 500);
   };
 
   const toggleSelect = (id: string) => {
@@ -74,6 +106,7 @@ export function KnowledgeBaseManager({ clientId = null }: { clientId?: string | 
     selectedIds.forEach(id => deleteKnowledgeItem(id));
     setSelectedIds([]);
     setEditingId(null);
+    window.setTimeout(fetchKnowledgePage, 300);
     notify(
       language === 'zh' ? `已删除 ${selectedIds.length} 条知识库。` : `Deleted ${selectedIds.length} knowledge item(s).`,
       'success'
@@ -135,6 +168,7 @@ export function KnowledgeBaseManager({ clientId = null }: { clientId?: string | 
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Failed to import knowledge folder');
       fetchKnowledgeBase();
+      fetchKnowledgePage();
       notify(
         language === 'zh'
           ? `服务器文件夹同步完成：新增 ${data.imported || 0}，更新 ${data.updated || 0}，未变 ${data.unchanged || 0}，删除 ${data.deleted || 0}，跳过 ${data.skipped || 0}，失败 ${data.failed || 0}。${data.deleteSyncSkipped ? ' 删除同步因达到文件上限而跳过。' : ''}`
@@ -201,7 +235,27 @@ export function KnowledgeBaseManager({ clientId = null }: { clientId?: string | 
         </div>
       )}
 
-      {relevantKbs.length > 0 && (
+      <div className="flex flex-col gap-2 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+          <input
+            value={search}
+            onChange={event => setSearch(event.target.value)}
+            placeholder={language === 'zh' ? '搜索标题、内容或来源路径...' : 'Search title, content, or source path...'}
+            className="w-full rounded-lg border border-slate-700 bg-slate-950 py-2 pl-9 pr-3 text-sm text-slate-200 outline-none focus:border-cyan-500"
+          />
+        </div>
+        <button
+          onClick={fetchKnowledgePage}
+          disabled={isPageLoading}
+          className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+        >
+          {isPageLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+          {language === 'zh' ? '刷新' : 'Refresh'}
+        </button>
+      </div>
+
+      {totalItems > 0 && (
         <div className="flex flex-col gap-2 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-3">
             <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-300">

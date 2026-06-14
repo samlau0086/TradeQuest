@@ -69,10 +69,40 @@ const API_TOKEN_TEMPLATES = [
     permissions: ['live_chat.public', 'lead.capture']
   },
   {
+    id: 'customer_form_capture',
+    label: 'Customer Form Capture',
+    description: 'For embedded customer forms. Allows form submission, limited lead capture, and limited client creation.',
+    permissions: ['form.submit', 'lead.capture', 'client.create_limited']
+  },
+  {
     id: 'product_catalog_read',
     label: 'Product Catalog Read',
     description: 'For future public product or knowledge widgets with read-only public content access.',
     permissions: ['product.read', 'knowledge.public_read']
+  },
+  {
+    id: 'rag_public_read',
+    label: 'Public RAG Read',
+    description: 'Read-only access to public knowledge snippets for website-side assistance.',
+    permissions: ['knowledge.public_read']
+  },
+  {
+    id: 'webhook_ingest',
+    label: 'Webhook Ingest',
+    description: 'For trusted inbound webhooks that can ingest events and captured lead data.',
+    permissions: ['webhook.ingest', 'lead.capture']
+  },
+  {
+    id: 'whatsapp_widget',
+    label: 'WhatsApp Widget',
+    description: 'For lightweight website WhatsApp widgets with public send/read bridge permissions.',
+    permissions: ['whatsapp.public_send', 'whatsapp.public_read']
+  },
+  {
+    id: 'readonly_crm',
+    label: 'Read-only CRM',
+    description: 'Read-only CRM token for dashboards, BI, or low-risk integrations.',
+    permissions: ['client.read', 'lead.read', 'product.read', 'knowledge.public_read']
   }
 ];
 

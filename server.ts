@@ -1221,6 +1221,14 @@ async function initDB() {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
+      ALTER TABLE client_edit_requests ADD COLUMN IF NOT EXISTS processed_by VARCHAR(128) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE client_edit_requests ADD COLUMN IF NOT EXISTS processed_at TIMESTAMP WITH TIME ZONE;
+      ALTER TABLE client_edit_requests ADD COLUMN IF NOT EXISTS rolled_back_by VARCHAR(128) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE client_edit_requests ADD COLUMN IF NOT EXISTS rolled_back_at TIMESTAMP WITH TIME ZONE;
+      ALTER TABLE client_edit_requests ADD COLUMN IF NOT EXISTS rollback_data JSONB DEFAULT '{}'::jsonb;
+      ALTER TABLE client_edit_requests ADD COLUMN IF NOT EXISTS audit_metadata JSONB DEFAULT '{}'::jsonb;
+      CREATE INDEX IF NOT EXISTS idx_client_edit_requests_user_status
+      ON client_edit_requests (user_id, status, created_at DESC);
 
       CREATE EXTENSION IF NOT EXISTS vector;
 
@@ -5227,6 +5235,46 @@ Return JSON only:
     }
   });
 
+  app.get('/api/whatsapp-hub/stats', authenticateToken, async (req: any, res) => {
+    try {
+      const conversationValues: any[] = [req.user.uid];
+      const messageValues: any[] = [req.user.uid];
+      const conversationActorSql = await getWhatsAppActorSqlFilter(req.user.uid, 'actor_msg.hub_client_id', conversationValues);
+      const messageActorSql = await getWhatsAppActorSqlFilter(req.user.uid, 'hub_client_id', messageValues);
+      const conversationsRes = await pool.query(
+        `SELECT
+           COUNT(*)::int AS conversations,
+           COUNT(*) FILTER (WHERE client_id IS NULL)::int AS unlinked
+         FROM whatsapp_conversations c
+         WHERE c.user_id = $1
+           AND c.deleted_at IS NULL
+           ${conversationActorSql ? `AND EXISTS (
+             SELECT 1 FROM whatsapp_messages actor_msg
+             WHERE actor_msg.conversation_id = c.id
+               AND actor_msg.user_id = c.user_id
+               ${conversationActorSql.replace(/^AND\s+/i, 'AND ')}
+           )` : ''}`,
+        conversationValues
+      );
+      const messagesRes = await pool.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE direction = 'inbound')::int AS inbound,
+           COUNT(*) FILTER (WHERE direction = 'outbound')::int AS outbound
+         FROM whatsapp_messages
+         WHERE user_id = $1 ${messageActorSql}`,
+        messageValues
+      );
+      res.json({
+        conversations: Number(conversationsRes.rows[0]?.conversations || 0),
+        unlinked: Number(conversationsRes.rows[0]?.unlinked || 0),
+        inbound: Number(messagesRes.rows[0]?.inbound || 0),
+        outbound: Number(messagesRes.rows[0]?.outbound || 0)
+      });
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message || 'Failed to load WhatsApp stats' });
+    }
+  });
+
   app.put('/api/whatsapp-hub/messages/:id/translation', authenticateToken, async (req: any, res) => {
     try {
       const messageId = String(req.params.id || '').trim();
@@ -7734,8 +7782,14 @@ No markdown wrappers, just valid JSON.`;
     live_chat_agent: ['live_chat.public', 'live_chat.agent'],
     live_chat_public: ['live_chat.public'],
     website_lead_capture: ['live_chat.public', 'lead.capture'],
-    product_catalog_read: ['product.read', 'knowledge.public_read']
+    customer_form_capture: ['form.submit', 'lead.capture', 'client.create_limited'],
+    product_catalog_read: ['product.read', 'knowledge.public_read'],
+    rag_public_read: ['knowledge.public_read'],
+    webhook_ingest: ['webhook.ingest', 'lead.capture'],
+    whatsapp_widget: ['whatsapp.public_send', 'whatsapp.public_read'],
+    readonly_crm: ['client.read', 'lead.read', 'product.read', 'knowledge.public_read']
   };
+  const KNOWN_API_TOKEN_PERMISSIONS = new Set(Object.values(API_TOKEN_TEMPLATES).flat());
 
   const apiTokenToDto = (row: any) => ({
     id: row.id,
@@ -7792,7 +7846,7 @@ No markdown wrappers, just valid JSON.`;
       const template = String(req.body?.template || 'live_chat_agent');
       const templatePermissions = API_TOKEN_TEMPLATES[template] || API_TOKEN_TEMPLATES.live_chat_agent;
       const requestedPermissions = Array.isArray(req.body?.permissions)
-        ? req.body.permissions.map((permission: any) => String(permission)).filter(Boolean)
+        ? req.body.permissions.map((permission: any) => String(permission)).filter((permission: string) => KNOWN_API_TOKEN_PERMISSIONS.has(permission))
         : templatePermissions;
       const permissions = Array.from(new Set(requestedPermissions.length > 0 ? requestedPermissions : templatePermissions));
       const token = createApiTokenValue();
@@ -8552,14 +8606,22 @@ Return JSON only:
 
   app.get('/api/live-chat/sessions/:id/messages', authenticateToken, async (req: any, res) => {
     try {
+      const limit = Math.min(500, Math.max(1, Number(req.query.limit || 200) || 200));
+      const offset = Math.max(0, Number(req.query.offset || 0) || 0);
       const sessionRes = await pool.query(
         'SELECT id FROM live_chat_sessions WHERE id = $1 AND user_id = $2 LIMIT 1',
         [req.params.id, req.user.uid]
       );
       if (sessionRes.rows.length === 0) return res.status(404).json({ error: 'Session not found' });
       const messagesRes = await pool.query(
-        `SELECT * FROM live_chat_messages WHERE session_id = $1 AND user_id = $2 ORDER BY created_at ASC`,
-        [req.params.id, req.user.uid]
+        `SELECT * FROM (
+           SELECT * FROM live_chat_messages
+           WHERE session_id = $1 AND user_id = $2
+           ORDER BY created_at DESC
+           LIMIT $3 OFFSET $4
+         ) recent_messages
+         ORDER BY created_at ASC`,
+        [req.params.id, req.user.uid, limit, offset]
       );
       res.json(messagesRes.rows.map(liveChatMessageToDto));
     } catch (e: any) {
@@ -8939,6 +9001,37 @@ Return JSON only:
     }));
   };
 
+  const getAgentToolRisk = (tool: string, agentGuardrail?: string) => (
+    ['email.send', 'whatsapp.send', 'live_chat.reply', 'quote.create', 'email.delete', 'product.delete', 'knowledge.delete', 'client.delete', 'lead.delete'].includes(tool)
+      ? 'high'
+      : ['lead.acquire', 'lead.create', 'lead.update', 'client.update', 'product.update', 'email.schedule', 'quote.update', 'knowledge.create', 'knowledge.update'].includes(tool)
+        ? 'medium'
+        : (agentGuardrail === 'auto' ? 'low' : 'medium')
+  );
+
+  const getUserRoleForPermissions = async (userId: string) => {
+    const result = await pool.query('SELECT role FROM users WHERE id = $1 LIMIT 1', [userId]);
+    return String(result.rows[0]?.role || 'user');
+  };
+
+  const isAgentToolAllowedForRole = (role: string, tool: string) => {
+    if (role === 'superadmin') return true;
+    if (tool.endsWith('.delete')) return false;
+    if (['email.send', 'whatsapp.send', 'live_chat.reply', 'quote.create'].includes(tool)) return false;
+    if (tool.startsWith('admin.') || tool.startsWith('settings.') || tool.includes('api_token')) return false;
+    return true;
+  };
+
+  const assertAgentToolsAllowedForRole = (role: string, tools: string[]) => {
+    const denied = tools.filter(tool => !isAgentToolAllowedForRole(role, tool));
+    if (denied.length > 0) {
+      const error: any = new Error(`Agent tool permission denied for role ${role}: ${denied.join(', ')}`);
+      error.deniedTools = denied;
+      error.role = role;
+      throw error;
+    }
+  };
+
   const getAgentToolImpact = (tool: string) => {
     if (['email.send', 'whatsapp.send', 'live_chat.reply'].includes(tool)) return 'send';
     if (tool.endsWith('.create') || ['lead.acquire', 'email.draft', 'quote.create'].includes(tool)) return 'create';
@@ -9014,6 +9107,32 @@ Return JSON only:
     if (!agent) throw new Error('Agent configuration not found');
 
     const tools = Array.isArray(agent.tools) ? agent.tools : [];
+    const actorRole = await getUserRoleForPermissions(userId);
+    try {
+      assertAgentToolsAllowedForRole(actorRole, tools);
+    } catch (permissionError: any) {
+      const deniedTools = Array.isArray(permissionError.deniedTools) ? permissionError.deniedTools : [];
+      const resultText = isZh
+        ? `角色权限拒绝：${actorRole} 不允许执行 ${deniedTools.join(', ')}。`
+        : `Role permission denied: ${actorRole} cannot execute ${deniedTools.join(', ')}.`;
+      run.status = 'failed';
+      run.completedAt = new Date().toISOString();
+      run.steps = (run.steps || []).map((step: any) => ({
+        ...step,
+        status: deniedTools.includes(step.tool) ? 'failed' : 'skipped',
+        result: resultText,
+        error: deniedTools.includes(step.tool) ? resultText : undefined,
+        resultMeta: {
+          impact: getAgentToolImpact(step.tool),
+          landed: false,
+          readOnly: false,
+          label: isZh ? '角色权限拒绝' : 'Role denied',
+          evidence: [`role:${actorRole}`, ...deniedTools.map((tool: string) => `denied:${tool}`)],
+          summary: resultText
+        }
+      }));
+      throw permissionError;
+    }
     if (tools.includes('lead.acquire')) {
       return executeLeadAcquisitionAgentRun(userId, settings, run, agent);
     }
@@ -12855,16 +12974,40 @@ No markdown wrappers, just valid JSON.`;
   });
 
   // Admin APIs for Edit Requests
+  const parseJsonField = (value: any, fallback: any = {}) => {
+    if (value === null || value === undefined) return fallback;
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return fallback;
+      }
+    }
+    return value;
+  };
+
+  const buildClientEditAuditMetadata = (action: string, userId: string, extra: Record<string, any> = {}) => ({
+    action,
+    actorId: userId,
+    actedAt: new Date().toISOString(),
+    ...extra
+  });
+
   app.get('/api/admin/client-edit-requests', authenticateToken, requireSuperadmin, async (req: any, res) => {
     try {
+      const status = String(req.query.status || 'pending');
+      const includeHistory = status === 'all';
       const result = await pool.query(`
-        SELECT r.*, c.name as current_client_name, u.display_name as requester_name
+        SELECT r.*, c.name as current_client_name, u.display_name as requester_name, p.display_name as processor_name, rb.display_name as rollbacker_name
         FROM client_edit_requests r
         LEFT JOIN clients c ON r.client_id = c.id
         JOIN users u ON r.user_id = u.id
-        WHERE r.status = 'pending'
+        LEFT JOIN users p ON r.processed_by = p.id
+        LEFT JOIN users rb ON r.rolled_back_by = rb.id
+        WHERE ($1::boolean = TRUE OR r.status = $2)
         ORDER BY r.created_at DESC
-      `);
+        LIMIT 300
+      `, [includeHistory, status]);
       res.json(result.rows);
     } catch(e) {
       console.error(e);
@@ -12881,9 +13024,24 @@ No markdown wrappers, just valid JSON.`;
 
        if (editReq.status !== 'pending') return res.status(400).json({ error: 'Not pending' });
 
-       await pool.query(`UPDATE client_edit_requests SET status = 'approved', updated_at = CURRENT_TIMESTAMP WHERE id = $1`, [requestId]);
-
-       const updates = typeof editReq.requested_data === 'string' ? JSON.parse(editReq.requested_data) : editReq.requested_data;
+       const updates = parseJsonField(editReq.requested_data);
+       const originalData = parseJsonField(editReq.original_data);
+       await pool.query(
+         `UPDATE client_edit_requests
+          SET status = 'approved',
+              processed_by = $2,
+              processed_at = CURRENT_TIMESTAMP,
+              rollback_data = $3,
+              audit_metadata = COALESCE(audit_metadata, '{}'::jsonb) || $4::jsonb,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = $1`,
+         [
+           requestId,
+           req.user.uid,
+           JSON.stringify(originalData),
+           JSON.stringify(buildClientEditAuditMetadata('approved', req.user.uid, { requestedAction: updates.action || 'client_update' }))
+         ]
+       );
        
        if (updates.action === 'delete_email') {
          await pool.query(`INSERT INTO deleted_emails (id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [updates.email_id, editReq.user_id]);
@@ -12916,7 +13074,7 @@ No markdown wrappers, just valid JSON.`;
 
        if (updates.action === 'delete_client_comment') {
          const commentId = String(updates.comment_id || '');
-         const clientData = typeof editReq.original_data === 'string' ? JSON.parse(editReq.original_data) : editReq.original_data;
+         const clientData = originalData;
          const currentRes = await pool.query(`SELECT comments FROM clients WHERE id = $1 AND user_id = $2`, [editReq.client_id, editReq.user_id]);
          const currentComments = currentRes.rows[0]?.comments || clientData.comments || [];
          await pool.query(
@@ -12981,10 +13139,19 @@ No markdown wrappers, just valid JSON.`;
        const reqRes = await pool.query(`SELECT client_id, user_id, requested_data FROM client_edit_requests WHERE id = $1`, [requestId]);
        if (reqRes.rows.length === 0) return res.status(404).json({ error: 'Request not found' });
        
-       await pool.query(`UPDATE client_edit_requests SET status = 'rejected', updated_at = CURRENT_TIMESTAMP WHERE id = $1`, [requestId]);
+       await pool.query(
+         `UPDATE client_edit_requests
+          SET status = 'rejected',
+              processed_by = $2,
+              processed_at = CURRENT_TIMESTAMP,
+              audit_metadata = COALESCE(audit_metadata, '{}'::jsonb) || $3::jsonb,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = $1`,
+         [requestId, req.user.uid, JSON.stringify(buildClientEditAuditMetadata('rejected', req.user.uid))]
+       );
        
        const editReq = reqRes.rows[0];
-       const updates = typeof editReq.requested_data === 'string' ? JSON.parse(editReq.requested_data) : editReq.requested_data;
+       const updates = parseJsonField(editReq.requested_data);
 
        if (updates.action === 'delete_email') {
          await pool.query(`UPDATE emails SET pending_delete = FALSE WHERE id = $1`, [updates.email_id]);
@@ -13033,6 +13200,124 @@ No markdown wrappers, just valid JSON.`;
      } catch(e) {
        console.error(e);
        res.status(500).json({ error: 'Failed' });
+     }
+  });
+
+  app.post('/api/admin/client-edit-requests/:requestId/rollback', authenticateToken, requireSuperadmin, async (req: any, res) => {
+     try {
+       const { requestId } = req.params;
+       const reqRes = await pool.query(`SELECT * FROM client_edit_requests WHERE id = $1`, [requestId]);
+       if (reqRes.rows.length === 0) return res.status(404).json({ error: 'Request not found' });
+       const editReq = reqRes.rows[0];
+       if (editReq.status !== 'approved') return res.status(400).json({ error: 'Only approved requests can be rolled back' });
+       if (editReq.rolled_back_at) return res.status(400).json({ error: 'Request already rolled back' });
+
+       const updates = parseJsonField(editReq.requested_data);
+       const rollbackData = parseJsonField(editReq.rollback_data, parseJsonField(editReq.original_data));
+       const action = String(updates.action || 'client_update');
+
+       if (action === 'delete_email') {
+         if (!rollbackData?.id) return res.status(400).json({ error: 'Rollback data is missing the email snapshot' });
+         await pool.query(
+           `INSERT INTO emails (
+              id, user_id, client_id, sender, sender_name, recipient, cc, bcc, subject, body, date, read, type,
+              tags, comments, scheduled_at, attachments, inbox_config_id, outbox_config_id, sender_ip, sender_country, sender_geo, pending_delete
+            )
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,FALSE)
+            ON CONFLICT (id) DO UPDATE SET pending_delete = FALSE`,
+           [
+             rollbackData.id, rollbackData.user_id, rollbackData.client_id, rollbackData.sender, rollbackData.sender_name,
+             rollbackData.recipient, rollbackData.cc, rollbackData.bcc, rollbackData.subject, rollbackData.body,
+             rollbackData.date, rollbackData.read ?? false, rollbackData.type || 'inbox',
+             JSON.stringify(rollbackData.tags || []), JSON.stringify(rollbackData.comments || []),
+             rollbackData.scheduled_at, JSON.stringify(rollbackData.attachments || []), rollbackData.inbox_config_id,
+             rollbackData.outbox_config_id, rollbackData.sender_ip, rollbackData.sender_country,
+             JSON.stringify(rollbackData.sender_geo || null)
+           ]
+         );
+         await pool.query(`DELETE FROM deleted_emails WHERE id = $1 AND user_id = $2`, [rollbackData.id, rollbackData.user_id || editReq.user_id]);
+       } else if (action === 'delete_deal') {
+         if (!rollbackData?.id) return res.status(400).json({ error: 'Rollback data is missing the lead snapshot' });
+         await pool.query(
+           `INSERT INTO deals (
+              id, user_id, client_id, name, value, status, contact_info, comments, product_ids,
+              lead_score, lead_summary, lead_next_step, lead_scoring_signature, lead_scoring_analyzed_at,
+              source_type, source_id, source_label, lead_notes, pending_delete, created_at, updated_at
+            )
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,FALSE,$19,CURRENT_TIMESTAMP)
+            ON CONFLICT (id) DO UPDATE SET pending_delete = FALSE, updated_at = CURRENT_TIMESTAMP`,
+           [
+             rollbackData.id, rollbackData.user_id, rollbackData.client_id, rollbackData.name, rollbackData.value || 0,
+             rollbackData.status || 'Leads', JSON.stringify(rollbackData.contact_info || {}),
+             JSON.stringify(rollbackData.comments || []), JSON.stringify(rollbackData.product_ids || []),
+             rollbackData.lead_score, rollbackData.lead_summary, rollbackData.lead_next_step,
+             rollbackData.lead_scoring_signature, rollbackData.lead_scoring_analyzed_at,
+             rollbackData.source_type, rollbackData.source_id, rollbackData.source_label, rollbackData.lead_notes,
+             rollbackData.created_at || new Date().toISOString()
+           ]
+         );
+       } else if (action === 'delete_client_comment') {
+         await pool.query(
+           `UPDATE clients
+            SET comments = $3, pending_edit_request = FALSE, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1 AND user_id = $2`,
+           [editReq.client_id, editReq.user_id, JSON.stringify(rollbackData.comments || [])]
+         );
+       } else if (action === 'delete_deal_comment') {
+         const dealId = String(updates.deal_id || '');
+         if (!dealId) return res.status(400).json({ error: 'Lead id is required for rollback' });
+         await pool.query(
+           `UPDATE deals
+            SET comments = $3, pending_edit_request = FALSE, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1 AND user_id = $2`,
+           [dealId, editReq.user_id, JSON.stringify(rollbackData.comments || [])]
+         );
+       } else if (action === 'delete_live_chat_session') {
+         return res.status(400).json({ error: 'Live Chat session deletion cannot be rolled back after related message rows are removed' });
+       } else {
+         const restoreFields: Record<string, any> = {
+           name: rollbackData.name,
+           company: rollbackData.company,
+           country: rollbackData.country,
+           status: rollbackData.status,
+           address: rollbackData.address,
+           state: rollbackData.state,
+           city: rollbackData.city,
+           tags: JSON.stringify(rollbackData.tags || []),
+           last_contact: rollbackData.last_contact,
+           is_dormant: rollbackData.is_dormant ?? false,
+           contact_methods: JSON.stringify(rollbackData.contact_methods || rollbackData.contactMethods || []),
+           contacts: JSON.stringify(rollbackData.contacts || []),
+           primary_contact_id: rollbackData.primary_contact_id || rollbackData.primaryContactId || null,
+           comments: JSON.stringify(rollbackData.comments || []),
+           preferred_language: rollbackData.preferred_language || rollbackData.preferredLanguage || null,
+           preferred_time_range: rollbackData.preferred_time_range || rollbackData.preferredTimeRange || null,
+           agent_workflow_id: rollbackData.agent_workflow_id || rollbackData.agentWorkflowId || null,
+           pending_edit_request: false
+         };
+         const keys = Object.keys(restoreFields);
+         const setClauses = keys.map((key, index) => `${key} = $${index + 3}`);
+         await pool.query(
+           `UPDATE clients SET ${setClauses.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND user_id = $2`,
+           [editReq.client_id, editReq.user_id, ...keys.map(key => restoreFields[key])]
+         );
+       }
+
+       await pool.query(
+         `UPDATE client_edit_requests
+          SET status = 'rolled_back',
+              rolled_back_by = $2,
+              rolled_back_at = CURRENT_TIMESTAMP,
+              audit_metadata = COALESCE(audit_metadata, '{}'::jsonb) || $3::jsonb,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = $1`,
+         [requestId, req.user.uid, JSON.stringify(buildClientEditAuditMetadata('rolled_back', req.user.uid, { requestedAction: action }))]
+       );
+
+       res.json({ success: true });
+     } catch(e) {
+       console.error(e);
+       res.status(500).json({ error: 'Failed to roll back request' });
      }
   });
 
@@ -13446,8 +13731,37 @@ No markdown wrappers, just valid JSON.`;
 
   app.get('/api/knowledge-base', authenticateToken, async (req: any, res) => {
     try {
-      const result = await pool.query('SELECT * FROM knowledge_base WHERE user_id = $1 ORDER BY created_at DESC', [req.user.uid]);
-      res.json(result.rows.map(row => ({
+      const page = Math.max(1, Number(req.query.page || 1) || 1);
+      const limit = Math.min(200, Math.max(1, Number(req.query.limit || req.query.pageSize || 200) || 200));
+      const offset = (page - 1) * limit;
+      const paginated = String(req.query.paginated || '').toLowerCase() === 'true' || req.query.page !== undefined || req.query.limit !== undefined || req.query.pageSize !== undefined;
+      const clientIdQuery = req.query.clientId;
+      const hasClientFilter = clientIdQuery !== undefined;
+      const clientId = clientIdQuery === 'null' || clientIdQuery === '' ? null : String(clientIdQuery || '');
+      const search = String(req.query.search || '').trim();
+      const whereClauses = ['user_id = $1'];
+      const params: any[] = [req.user.uid];
+      let idx = 2;
+      if (hasClientFilter) {
+        if (clientId === null) {
+          whereClauses.push('client_id IS NULL');
+        } else {
+          whereClauses.push(`client_id = $${idx}`);
+          params.push(clientId);
+          idx++;
+        }
+      }
+      if (search) {
+        whereClauses.push(`(title ILIKE $${idx} OR content ILIKE $${idx} OR COALESCE(source_path, '') ILIKE $${idx})`);
+        params.push(`%${search}%`);
+        idx++;
+      }
+      const whereSql = whereClauses.join(' AND ');
+      const result = await pool.query(
+        `SELECT * FROM knowledge_base WHERE ${whereSql} ORDER BY updated_at DESC, created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+        [...params, limit, offset]
+      );
+      const rows = result.rows.map(row => ({
         id: row.id,
         clientId: row.client_id,
         title: row.title,
@@ -13460,7 +13774,20 @@ No markdown wrappers, just valid JSON.`;
         metadata: row.metadata || {},
         createdAt: row.created_at,
         updatedAt: row.updated_at
-      })));
+      }));
+      if (!paginated) {
+        res.json(rows);
+        return;
+      }
+      const countResult = await pool.query(`SELECT COUNT(*)::int AS total FROM knowledge_base WHERE ${whereSql}`, params);
+      const total = Number(countResult.rows[0]?.total || 0);
+      res.json({
+        items: rows,
+        total,
+        page,
+        pageSize: limit,
+        totalPages: Math.max(1, Math.ceil(total / limit))
+      });
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: 'Failed to fetch knowledge base' });

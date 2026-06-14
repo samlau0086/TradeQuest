@@ -22,5 +22,22 @@ export default defineConfig(({mode}) => {
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined;
+            if (id.includes('react') || id.includes('scheduler')) return 'vendor-react';
+            if (id.includes('zustand')) return 'vendor-state';
+            if (id.includes('lucide-react') || id.includes('motion') || id.includes('framer-motion')) return 'vendor-ui';
+            if (id.includes('react-simple-maps') || id.includes('d3-') || id.includes('topojson')) return 'vendor-maps';
+            if (id.includes('jspdf') || id.includes('html2canvas') || id.includes('dompurify') || id.includes('papaparse')) return 'vendor-docs';
+            if (id.includes('socket.io-client') || id.includes('engine.io-client')) return 'vendor-realtime';
+            return 'vendor';
+          },
+        },
+      },
+      chunkSizeWarningLimit: 900,
+    },
   };
 });

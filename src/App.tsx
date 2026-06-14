@@ -1,33 +1,43 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { AgentHubAgent, useStore } from './store';
 import { useAuthStore } from './authStore';
 import { Sidebar } from './components/Sidebar';
 import { TopBar, MagicCommand } from './components/TopBar';
-import { ClientDetails } from './components/ClientDetails';
-import { Inbox } from './components/Inbox';
-import { LiveChat } from './components/LiveChat';
-import { CustomerForms } from './components/CustomerForms';
-import { Dashboard } from './components/Dashboard';
-import { ActionableClients } from './components/ActionableClients';
-import { Settings } from './components/Settings';
-import { ClientLeadHub } from './components/ClientLeadHub';
-import { PipelineList } from './components/PipelineList';
-import { EditRequests } from './components/EditRequests';
-import { KnowledgeBaseManager } from './components/KnowledgeBaseManager';
 import { AuthPage } from './components/AuthPage';
 import { ResetPasswordPage } from './components/ResetPasswordPage';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle, useDefaultLayout } from 'react-resizable-panels';
 import { Loader2 } from 'lucide-react';
 import { translateLiteral, useTranslation } from './lib/i18n';
 
-import { ProductQuoteHub } from './components/ProductQuoteHub';
-import { MediaLibrary } from './components/MediaLibrary';
 import { NotificationCenter } from './components/NotificationCenter';
-import { AgentHub } from './components/AgentHub';
 import { getViewForPath, syncViewToUrl } from './lib/viewRoutes';
 import { getCustomerOutputLanguage } from './lib/language';
 import { buildLeadScoringSignature, hasLeadScoringResult } from './lib/leadScoring';
 import { buildAgentInputSignature } from './lib/agentIdempotency';
+
+const ClientDetails = lazy(() => import('./components/ClientDetails').then(module => ({ default: module.ClientDetails })));
+const Inbox = lazy(() => import('./components/Inbox').then(module => ({ default: module.Inbox })));
+const LiveChat = lazy(() => import('./components/LiveChat').then(module => ({ default: module.LiveChat })));
+const CustomerForms = lazy(() => import('./components/CustomerForms').then(module => ({ default: module.CustomerForms })));
+const Dashboard = lazy(() => import('./components/Dashboard').then(module => ({ default: module.Dashboard })));
+const ActionableClients = lazy(() => import('./components/ActionableClients').then(module => ({ default: module.ActionableClients })));
+const Settings = lazy(() => import('./components/Settings').then(module => ({ default: module.Settings })));
+const ClientLeadHub = lazy(() => import('./components/ClientLeadHub').then(module => ({ default: module.ClientLeadHub })));
+const PipelineList = lazy(() => import('./components/PipelineList').then(module => ({ default: module.PipelineList })));
+const EditRequests = lazy(() => import('./components/EditRequests').then(module => ({ default: module.EditRequests })));
+const KnowledgeBaseManager = lazy(() => import('./components/KnowledgeBaseManager').then(module => ({ default: module.KnowledgeBaseManager })));
+const ProductQuoteHub = lazy(() => import('./components/ProductQuoteHub').then(module => ({ default: module.ProductQuoteHub })));
+const MediaLibrary = lazy(() => import('./components/MediaLibrary').then(module => ({ default: module.MediaLibrary })));
+const AgentHub = lazy(() => import('./components/AgentHub').then(module => ({ default: module.AgentHub })));
+
+function PageLoader() {
+  return (
+    <div className="flex flex-1 items-center justify-center bg-slate-950 text-slate-400">
+      <Loader2 className="mr-2 h-5 w-5 animate-spin text-cyan-500" />
+      Loading...
+    </div>
+  );
+}
 
 function getAgentScheduleIntervalMs(agent: AgentHubAgent) {
   const value = Math.max(1, Number(agent.scheduleIntervalValue || agent.scheduleIntervalMinutes || 1));
@@ -451,28 +461,34 @@ export default function App() {
         <Panel id="main-content" className="flex-1 flex flex-col relative overflow-hidden">
           <TopBar />
           
-          {view === 'kanban' ? <ClientLeadHub initialTab="kanban" /> : 
-           view === 'list' ? <PipelineList /> :
-           view === 'products' ? <ProductQuoteHub initialTab="products" /> :
-           view === 'quotes' ? <ProductQuoteHub initialTab="quotes" /> :
-           view === 'agent-hub' ? <AgentHub /> :
-           view === 'clients' ? <ClientLeadHub initialTab="clients" /> :
-           view === 'public-pool' ? <ClientLeadHub initialTab="public-pool" /> :
-           view === 'edit-requests' ? <EditRequests /> :
-           view === 'inbox' ? <Inbox /> : 
-           view === 'live-chat' ? <LiveChat /> :
-           view === 'customer-forms' ? <CustomerForms /> :
-           view === 'settings' ? <Settings /> : 
-           view === 'knowledge-base' ? <div className="flex-1 bg-slate-900 border-t border-slate-800 p-6 overflow-y-auto"><div className="w-full text-white"><KnowledgeBaseManager /></div></div> :
-           view === 'media-library' ? <MediaLibrary /> :
-           view === 'user-management' ? <Settings initialTab="users" /> :
-           (view === 'dormant' || view === 'leads' || view === 'followups') ? <ActionableClients /> : 
-           <Dashboard />}
+          <Suspense fallback={<PageLoader />}>
+            {view === 'kanban' ? <ClientLeadHub initialTab="kanban" /> :
+             view === 'list' ? <PipelineList /> :
+             view === 'products' ? <ProductQuoteHub initialTab="products" /> :
+             view === 'quotes' ? <ProductQuoteHub initialTab="quotes" /> :
+             view === 'agent-hub' ? <AgentHub /> :
+             view === 'clients' ? <ClientLeadHub initialTab="clients" /> :
+             view === 'public-pool' ? <ClientLeadHub initialTab="public-pool" /> :
+             view === 'edit-requests' ? <EditRequests /> :
+             view === 'inbox' ? <Inbox /> :
+             view === 'live-chat' ? <LiveChat /> :
+             view === 'customer-forms' ? <CustomerForms /> :
+             view === 'settings' ? <Settings /> :
+             view === 'knowledge-base' ? <div className="flex-1 bg-slate-900 border-t border-slate-800 p-6 overflow-y-auto"><div className="w-full text-white"><KnowledgeBaseManager /></div></div> :
+             view === 'media-library' ? <MediaLibrary /> :
+             view === 'user-management' ? <Settings initialTab="users" /> :
+             (view === 'dormant' || view === 'leads' || view === 'followups') ? <ActionableClients /> :
+             <Dashboard />}
+          </Suspense>
         </Panel>
         
       </PanelGroup>
 
-      {selectedClientId && <ClientDetails />}
+      {selectedClientId && (
+        <Suspense fallback={null}>
+          <ClientDetails />
+        </Suspense>
+      )}
 
       {globalLoading && (
         <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-sm z-[9999] flex flex-col items-center justify-center text-slate-200">

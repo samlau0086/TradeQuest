@@ -470,20 +470,15 @@ export function Dashboard() {
     };
     const loadWhatsAppStats = async () => {
       try {
-        const [conversationsRes, messagesRes] = await Promise.all([
-          fetch('/api/whatsapp-hub/conversations', { headers: { Authorization: `Bearer ${token}` } }),
-          fetch('/api/whatsapp-hub/messages?limit=500', { headers: { Authorization: `Bearer ${token}` } })
-        ]);
-        const conversationsData = await conversationsRes.json().catch(() => ({}));
-        const messagesData = await messagesRes.json().catch(() => ({}));
+        const statsRes = await fetch('/api/whatsapp-hub/stats', { headers: { Authorization: `Bearer ${token}` } });
+        const statsData = await statsRes.json().catch(() => ({}));
+        if (!statsRes.ok) throw new Error(statsData.error || 'Failed to load WhatsApp stats');
         if (cancelled) return;
-        const conversations = Array.isArray(conversationsData.conversations) ? conversationsData.conversations : [];
-        const messages = Array.isArray(messagesData.messages) ? messagesData.messages : [];
         setWhatsAppLoad({
-          conversations: conversations.length,
-          inbound: messages.filter((message: any) => message.direction === 'inbound').length,
-          outbound: messages.filter((message: any) => message.direction === 'outbound').length,
-          unlinked: conversations.filter((conversation: any) => !conversation.clientId).length
+          conversations: Number(statsData.conversations || 0),
+          inbound: Number(statsData.inbound || 0),
+          outbound: Number(statsData.outbound || 0),
+          unlinked: Number(statsData.unlinked || 0)
         });
       } catch {
         if (!cancelled) setWhatsAppLoad({ conversations: 0, inbound: 0, outbound: 0, unlinked: 0 });
