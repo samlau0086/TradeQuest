@@ -129,6 +129,7 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
   
   const { profile, token } = useAuthStore();
   const isSuperadmin = profile?.role === 'superadmin';
+  const canManageApiTokens = profile?.role === 'superadmin' || profile?.role === 'admin';
   
   const [globalSettings, setGlobalSettings] = useState<Record<string, any>>({});
   const [savingGlobal, setSavingGlobal] = useState(false);
@@ -145,7 +146,7 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
   }, [isSuperadmin, token]);
 
   const fetchApiTokens = async () => {
-    if (!token) return;
+    if (!token || !canManageApiTokens) return;
     setLoadingApiTokens(true);
     try {
       const res = await fetch('/api/api-tokens', {
@@ -163,7 +164,7 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
 
   useEffect(() => {
     fetchApiTokens();
-  }, [token]);
+  }, [token, canManageApiTokens]);
 
   const handleCreateApiToken = async () => {
     if (!token) return;
@@ -745,6 +746,9 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
   };
 
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
+  useEffect(() => {
+    if (activeTab === 'api' && !canManageApiTokens) setActiveTab('profile');
+  }, [activeTab, canManageApiTokens]);
 
   useEffect(() => {
     if (activeTab !== 'ai') return;
@@ -801,12 +805,14 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
             >
               AI & Integrations
             </button>
-            <button
-              onClick={() => setActiveTab('api')}
-              className={cn("px-4 py-2 text-sm font-medium rounded-lg transition-all", activeTab === 'api' ? "bg-indigo-600 text-white shadow-lg" : "text-slate-400 hover:text-white hover:bg-slate-700/50")}
-            >
-              API Tokens
-            </button>
+            {canManageApiTokens && (
+              <button
+                onClick={() => setActiveTab('api')}
+                className={cn("px-4 py-2 text-sm font-medium rounded-lg transition-all", activeTab === 'api' ? "bg-indigo-600 text-white shadow-lg" : "text-slate-400 hover:text-white hover:bg-slate-700/50")}
+              >
+                API Tokens
+              </button>
+            )}
             {isSuperadmin && (
               <button
                 onClick={() => setActiveTab('gamification')}
@@ -1915,7 +1921,7 @@ export function Settings({ initialTab = 'profile' }: { initialTab?: SettingsTab 
         </div>
         )}
 
-        {activeTab === 'api' && (
+        {activeTab === 'api' && canManageApiTokens && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
             <section className="bg-slate-900 border border-slate-800 rounded-xl p-5 md:p-6 shadow-sm">
               <div className="flex items-start justify-between gap-4 mb-6">

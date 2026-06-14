@@ -41,6 +41,7 @@ const ROLE_PERMISSION_MATRIX: Record<CrmRole, string[]> = {
   admin: [
     'audit.read',
     'approval.review',
+    'api_token.manage',
     'agent.manage',
     'agent.execute',
     'client.read',
@@ -8290,7 +8291,7 @@ No markdown wrappers, just valid JSON.`;
     return { ...row, permissions };
   };
 
-  app.get('/api/api-tokens', authenticateToken, async (req: any, res) => {
+  app.get('/api/api-tokens', authenticateToken, requirePermission('api_token.manage'), async (req: any, res) => {
     try {
       const result = await pool.query(
         `SELECT * FROM api_tokens
@@ -8305,7 +8306,7 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
-  app.post('/api/api-tokens', authenticateToken, async (req: any, res) => {
+  app.post('/api/api-tokens', authenticateToken, requirePermission('api_token.manage'), async (req: any, res) => {
     try {
       const name = String(req.body?.name || '').trim() || 'Website API Token';
       const template = String(req.body?.template || 'live_chat_agent');
@@ -8329,7 +8330,7 @@ No markdown wrappers, just valid JSON.`;
     }
   });
 
-  app.delete('/api/api-tokens/:id', authenticateToken, async (req: any, res) => {
+  app.delete('/api/api-tokens/:id', authenticateToken, requirePermission('api_token.manage'), async (req: any, res) => {
     try {
       const result = await pool.query(
         `UPDATE api_tokens
