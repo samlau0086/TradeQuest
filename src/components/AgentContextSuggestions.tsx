@@ -15,7 +15,7 @@ interface SuggestionOption {
 }
 
 interface AgentContextSuggestionsProps {
-  channel: 'email' | 'whatsapp';
+  channel: 'email' | 'whatsapp' | 'live_chat';
   subject?: string;
   body?: string;
   additionalContext?: string;
@@ -31,6 +31,8 @@ interface AgentContextSuggestionsProps {
   hasKnowledge?: boolean;
   hasCustomerMessage?: boolean;
   onDraftReply: () => void | Promise<void>;
+  draftReplyLabel?: string;
+  draftReplyDescription?: string;
   onAddComment?: () => void | Promise<void>;
   onCreateLead?: () => void | Promise<void>;
   onAddToKnowledge?: () => void | Promise<void>;
@@ -95,6 +97,8 @@ export function AgentContextSuggestions({
   hasKnowledge,
   hasCustomerMessage,
   onDraftReply,
+  draftReplyLabel,
+  draftReplyDescription,
   onAddComment,
   onCreateLead,
   onAddToKnowledge,
@@ -130,7 +134,7 @@ export function AgentContextSuggestions({
   const [followUpDraftNote, setFollowUpDraftNote] = useState('');
   const panelRef = useRef<HTMLElement | null>(null);
   const agent = useMemo(() => {
-    const preferredId = channel === 'whatsapp' ? 'whatsapp_agent' : 'follow_up_agent';
+    const preferredId = channel === 'whatsapp' ? 'whatsapp_agent' : channel === 'live_chat' ? 'live_chat_agent' : 'follow_up_agent';
     return agentHubAgents.find(item => item.id === preferredId)
       || agentHubAgents.find(item => item.tools.some(tool => tool.startsWith(channel) || tool.includes('send')));
   }, [agentHubAgents, channel]);
@@ -335,6 +339,8 @@ ${additionalContext || 'N/A'}`,
 
   const label = (zh: string, en: string) => language === 'zh' ? zh : en;
   const deleteLabel = channel === 'email' ? label('删除邮件', 'Delete Email') : label('删除对话', 'Delete Conversation');
+  const draftLabel = draftReplyLabel || t('Draft AI Reply');
+  const draftDescription = draftReplyDescription || t('Generate a reply using the current message, client context, and RAG.');
   const options: SuggestionOption[] = [];
 
   if (spamLike && onDeleteItem) {
@@ -351,10 +357,10 @@ ${additionalContext || 'N/A'}`,
   if (!spamLike) {
     options.push({
       id: 'draft_reply',
-      label: t('Draft AI Reply'),
-      description: t('Generate a reply using the current message, client context, and RAG.'),
+      label: draftLabel,
+      description: draftDescription,
       icon: <Sparkles className="w-4 h-4" />,
-      onClick: () => recordOption('draft_reply', t('Draft AI Reply'), onDraftReply)
+      onClick: () => recordOption('draft_reply', draftLabel, onDraftReply)
     });
   }
 

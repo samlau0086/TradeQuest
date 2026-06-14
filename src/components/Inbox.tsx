@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { useStore, EmailMessage } from '../store';
+import { useStore, EmailMessage, LiveChatMessage, LiveChatSession } from '../store';
 import { useAuthStore } from '../authStore';
 import { Mail, MailOpen, Send, Reply, Trash2, ArrowLeft, RefreshCw, PenLine, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, MessageCircle, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2, MoreHorizontal, Star, Clock, Activity, Eye, MousePointerClick, Radar, Timer, Bold, Italic, List, Link2, Image as ImageIcon } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -512,7 +512,7 @@ function getInboxFilterForEmail(email: EmailMessage): 'inbox' | 'sent' | 'schedu
 }
 
 export function Inbox() {
-  const { emails, markEmailRead, clients, logs, deals, knowledgeBase, products, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail, notify, language, llmConfigs, activeLLMId, llmMappings, inboxFollowUpFilterRequest, setView, fetchEmails, fetchLiveChatSessions } = useStore();
+  const { emails, markEmailRead, clients, logs, deals, knowledgeBase, products, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail, notify, language, llmConfigs, activeLLMId, llmMappings, inboxFollowUpFilterRequest, setView, fetchEmails, fetchLiveChatSessions, fetchLiveChatMessages, sendLiveChatOperatorMessage, updateLiveChatSession, runLiveChatAgent, connectLiveChatSocket, joinLiveChatSocketSession, liveChatSessions, liveChatMessages, liveChatSocketStatus } = useStore();
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'inbox-layout' });
   const currentUser = useAuthStore(state => state.profile);
   const [filter, setFilter] = useState<'inbox' | 'sent' | 'scheduled' | 'drafts'>('inbox');
@@ -559,6 +559,11 @@ export function Inbox() {
   const [isTelegramMessagesLoading, setIsTelegramMessagesLoading] = useState(false);
   const [telegramReply, setTelegramReply] = useState('');
   const [isSendingTelegramReply, setIsSendingTelegramReply] = useState(false);
+  const [selectedLiveChatConversation, setSelectedLiveChatConversation] = useState<UnifiedCommunicationConversation | null>(null);
+  const [liveChatReply, setLiveChatReply] = useState('');
+  const [isSendingLiveChatReply, setIsSendingLiveChatReply] = useState(false);
+  const [isRunningLiveChatAgent, setIsRunningLiveChatAgent] = useState(false);
+  const liveChatEndRef = useRef<HTMLDivElement | null>(null);
   const [isStartingWhatsApp, setIsStartingWhatsApp] = useState(false);
   const [newWhatsAppPhone, setNewWhatsAppPhone] = useState('');
   const [showWhatsAppContactPicker, setShowWhatsAppContactPicker] = useState(false);
@@ -662,6 +667,35 @@ export function Inbox() {
   useEffect(() => {
     void loadWhatsAppConversations();
   }, []);
+
+  useEffect(() => {
+    void connectLiveChatSocket();
+  }, [connectLiveChatSocket]);
+
+  useEffect(() => {
+    if (!selectedLiveChatConversation) return;
+    const sessionId = selectedLiveChatConversation.source_id;
+    joinLiveChatSocketSession(sessionId);
+    void fetchLiveChatMessages(sessionId);
+    if (!selectedLiveChatConversation.read) {
+      void patchUnifiedConversation(selectedLiveChatConversation, { read: true })
+        .then(() => refreshUnifiedConversationData())
+        .catch(() => undefined);
+    }
+    const interval = window.setInterval(
+      () => void fetchLiveChatMessages(sessionId),
+      liveChatSocketStatus === 'connected' ? 45000 : 8000
+    );
+    return () => window.clearInterval(interval);
+  }, [selectedLiveChatConversation?.id, selectedLiveChatConversation?.source_id, selectedLiveChatConversation?.read, fetchLiveChatMessages, joinLiveChatSocketSession, liveChatSocketStatus]);
+
+  useEffect(() => {
+    if (!selectedLiveChatConversation) return;
+    const frame = window.requestAnimationFrame(() => {
+      liveChatEndRef.current?.scrollIntoView({ block: 'end' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedLiveChatConversation?.id, liveChatMessages[selectedLiveChatConversation?.source_id || '']?.length]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -1284,6 +1318,18 @@ export function Inbox() {
       || matchWhatsAppClient(activeWhatsAppConversation?.targetPhone || selectedWhatsAppPhone)
       || null
     : null;
+  const activeLiveChatSession = selectedLiveChatConversation
+    ? liveChatSessions.find(session => session.id === selectedLiveChatConversation.source_id) || null
+    : null;
+  const activeLiveChatMessages = selectedLiveChatConversation
+    ? (liveChatMessages[selectedLiveChatConversation.source_id] || [])
+    : [];
+  const visibleLiveChatMessages = activeLiveChatMessages.filter(message => message.role !== 'system').slice(-200);
+  const activeLiveChatClient = activeLiveChatSession?.clientId || selectedLiveChatConversation?.client_id
+    ? clients.find(client => client.id === (activeLiveChatSession?.clientId || selectedLiveChatConversation?.client_id)) || null
+    : null;
+  const activeLiveChatVisitorInfo = activeLiveChatSession?.metadata?.visitorInfo || selectedLiveChatConversation?.metadata?.visitorInfo || {};
+  const latestLiveChatVisitorMessage = [...visibleLiveChatMessages].reverse().find(message => message.role === 'visitor') || null;
   const activeUnifiedConversation = useMemo(() => {
     if (selectedEmail) {
       return unifiedConversationSource.find(conversation => conversation.channel === 'email' && conversation.source_id === selectedEmail.id)
@@ -1299,8 +1345,16 @@ export function Inbox() {
         )
       )) || (activeWhatsAppConversation ? whatsappToUnifiedConversation(activeWhatsAppConversation) : null);
     }
+    if (selectedTelegramConversation) {
+      return unifiedConversationSource.find(conversation => conversation.channel === 'telegram' && conversation.source_id === selectedTelegramConversation.source_id)
+        || selectedTelegramConversation;
+    }
+    if (selectedLiveChatConversation) {
+      return unifiedConversationSource.find(conversation => conversation.channel === 'live_chat' && conversation.source_id === selectedLiveChatConversation.source_id)
+        || selectedLiveChatConversation;
+    }
     return null;
-  }, [activeWhatsAppConversation, selectedEmail, selectedWhatsAppPhone, unifiedConversationSource]);
+  }, [activeWhatsAppConversation, selectedEmail, selectedWhatsAppPhone, selectedTelegramConversation, selectedLiveChatConversation, unifiedConversationSource]);
   const activeWhatsAppFollowUp = getWhatsAppFollowUp(activeWhatsAppConversation);
   const activeFollowUpAt = activeUnifiedConversation?.todo_at || selectedEmail?.todoAt || activeWhatsAppFollowUp?.dueAt || null;
   const activeFollowUpNote = activeUnifiedConversation?.todo_note || selectedEmail?.todoNote || activeWhatsAppFollowUp?.note || null;
@@ -1393,6 +1447,9 @@ export function Inbox() {
     setIsStartingWhatsApp(false);
     setSelectedWhatsAppPhone(null);
     setSelectedWhatsAppClientId(null);
+    setSelectedTelegramConversation(null);
+    setTelegramMessages([]);
+    setSelectedLiveChatConversation(null);
     selectEmail(id);
     const conversation = findEmailUnifiedConversation(id);
     if (conversation && !conversation.metadata?.localFallback) {
@@ -1407,6 +1464,7 @@ export function Inbox() {
     setIsStartingWhatsApp(false);
     setSelectedTelegramConversation(null);
     setTelegramMessages([]);
+    setSelectedLiveChatConversation(null);
     selectEmail(null);
     setSelectedWhatsAppPhone(conversation.targetPhone);
     setSelectedWhatsAppClientId(conversation.clientId || null);
@@ -1453,20 +1511,23 @@ export function Inbox() {
       selectEmail(null);
       setSelectedWhatsAppPhone(null);
       setSelectedWhatsAppClientId(null);
+      setSelectedLiveChatConversation(null);
       setSelectedTelegramConversation(conversation);
       setTelegramReply('');
       void loadTelegramMessages(conversation);
       return;
     }
-    sessionStorage.setItem(LIVE_CHAT_SELECTED_SESSION_KEY, conversation.source_id);
     selectEmail(null);
     setSelectedWhatsAppPhone(null);
     setSelectedWhatsAppClientId(null);
     setSelectedTelegramConversation(null);
     setTelegramMessages([]);
+    setSelectedLiveChatConversation(conversation);
+    setLiveChatReply('');
     setIsComposing(false);
     setIsStartingWhatsApp(false);
-    setView('live-chat');
+    void fetchLiveChatMessages(conversation.source_id);
+    void fetchLiveChatSessions();
   };
 
   const sendTelegramReply = async () => {
@@ -1525,6 +1586,61 @@ export function Inbox() {
       );
     } catch (error) {
       notify(error instanceof Error ? error.message : 'Failed to update Telegram takeover mode.', 'error');
+    }
+  };
+
+  const sendLiveChatReply = async () => {
+    if (!selectedLiveChatConversation || !liveChatReply.trim()) return;
+    setIsSendingLiveChatReply(true);
+    try {
+      await sendLiveChatOperatorMessage(selectedLiveChatConversation.source_id, liveChatReply.trim());
+      setLiveChatReply('');
+      await refreshUnifiedConversationData();
+      notify(language === 'zh' ? 'Live Chat 消息已发送。' : 'Live Chat message sent.', 'success');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Failed to send Live Chat message.', 'error');
+    } finally {
+      setIsSendingLiveChatReply(false);
+    }
+  };
+
+  const toggleLiveChatHumanTakeover = async () => {
+    if (!selectedLiveChatConversation) return;
+    const current = activeLiveChatSession?.humanTakeover ?? selectedLiveChatConversation.metadata?.humanTakeover;
+    const nextHumanTakeover = !current;
+    try {
+      await updateLiveChatSession(selectedLiveChatConversation.source_id, { humanTakeover: nextHumanTakeover } as Partial<LiveChatSession>);
+      setSelectedLiveChatConversation(prev => prev ? {
+        ...prev,
+        metadata: {
+          ...(prev.metadata || {}),
+          humanTakeover: nextHumanTakeover
+        }
+      } : prev);
+      await refreshUnifiedConversationData();
+      notify(
+        nextHumanTakeover
+          ? (language === 'zh' ? '已开启人工接管，Live Chat Agent 将暂停自动回复。' : 'Human takeover enabled. Live Chat Agent auto-reply is paused.')
+          : (language === 'zh' ? '已交还给 Agent，新访客消息可自动回复。' : 'Handed back to Agent. New visitor messages can trigger auto-replies.'),
+        'success'
+      );
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Failed to update Live Chat takeover mode.', 'error');
+    }
+  };
+
+  const runSelectedLiveChatAgent = async () => {
+    if (!selectedLiveChatConversation) return;
+    setIsRunningLiveChatAgent(true);
+    try {
+      await runLiveChatAgent(selectedLiveChatConversation.source_id);
+      await fetchLiveChatMessages(selectedLiveChatConversation.source_id);
+      await refreshUnifiedConversationData();
+      notify(language === 'zh' ? 'Live Chat Agent 已运行。' : 'Live Chat Agent ran successfully.', 'success');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Failed to run Live Chat Agent.', 'error');
+    } finally {
+      setIsRunningLiveChatAgent(false);
     }
   };
 
@@ -1691,30 +1807,30 @@ export function Inbox() {
   return (
     <PanelGroup id="inbox-layout" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged} orientation="horizontal" className="flex-1 overflow-hidden bg-slate-900 border-t border-slate-800">
       {/* Sidebar List */}
-      <Panel id="inbox-list" defaultSize={320} minSize={250} maxSize={500} className={cn("flex flex-col transition-transform relative z-10", (selectedEmailId || selectedWhatsAppPhone || isStartingWhatsApp) && "hidden md:flex")}>
+      <Panel id="inbox-list" defaultSize={320} minSize={250} maxSize={500} className={cn("flex flex-col transition-transform relative z-10", (selectedEmailId || selectedWhatsAppPhone || selectedTelegramConversation || selectedLiveChatConversation || isStartingWhatsApp) && "hidden md:flex")}>
         <div className="p-4 border-b border-slate-800 flex flex-col gap-3 bg-slate-900">
           <div className="flex justify-between items-center bg-slate-900">
             <div className="flex bg-slate-800/50 rounded-lg p-1 border border-slate-700/50">
               <button 
-                onClick={() => { selectEmail(null); setFilter('inbox'); }}
+                onClick={() => { selectEmail(null); setSelectedWhatsAppPhone(null); setSelectedTelegramConversation(null); setSelectedLiveChatConversation(null); setFilter('inbox'); }}
                 className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors", filter === 'inbox' ? "bg-slate-700 text-white" : "text-slate-400 hover:text-slate-200")}
               >
                 Inbox
               </button>
               <button 
-                onClick={() => { selectEmail(null); setFilter('sent'); }}
+                onClick={() => { selectEmail(null); setSelectedWhatsAppPhone(null); setSelectedTelegramConversation(null); setSelectedLiveChatConversation(null); setFilter('sent'); }}
                 className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors", filter === 'sent' ? "bg-slate-700 text-white" : "text-slate-400 hover:text-slate-200")}
               >
                 Sent
               </button>
               <button 
-                onClick={() => { selectEmail(null); setFilter('scheduled'); }}
+                onClick={() => { selectEmail(null); setSelectedWhatsAppPhone(null); setSelectedTelegramConversation(null); setSelectedLiveChatConversation(null); setFilter('scheduled'); }}
                 className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors", filter === 'scheduled' ? "bg-slate-700 text-white" : "text-slate-400 hover:text-slate-200")}
               >
                 Scheduled
               </button>
               <button 
-                onClick={() => { selectEmail(null); setFilter('drafts'); }}
+                onClick={() => { selectEmail(null); setSelectedWhatsAppPhone(null); setSelectedTelegramConversation(null); setSelectedLiveChatConversation(null); setFilter('drafts'); }}
                 className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors", filter === 'drafts' ? "bg-slate-700 text-white" : "text-slate-400 hover:text-slate-200")}
               >
                 Drafts
@@ -1730,14 +1846,14 @@ export function Inbox() {
                 <RefreshCw className={cn("w-4 h-4", isSyncing && "animate-spin")} />
               </button>
               <button 
-                onClick={() => { setComposeDefaults(null); setIsComposing(true); setIsStartingWhatsApp(false); setSelectedWhatsAppPhone(null); selectEmail(null); }}
+                onClick={() => { setComposeDefaults(null); setIsComposing(true); setIsStartingWhatsApp(false); setSelectedWhatsAppPhone(null); setSelectedTelegramConversation(null); setSelectedLiveChatConversation(null); selectEmail(null); }}
                 className="p-1.5 bg-cyan-600 text-white rounded-md hover:bg-cyan-500 transition-colors shadow-lg shadow-cyan-600/20"
                 title="Compose Email"
               >
                 <Edit3 className="w-4 h-4" />
               </button>
               <button
-                onClick={() => { setIsStartingWhatsApp(true); setIsComposing(false); setSelectedWhatsAppPhone(null); setSelectedWhatsAppClientId(null); selectEmail(null); }}
+                onClick={() => { setIsStartingWhatsApp(true); setIsComposing(false); setSelectedWhatsAppPhone(null); setSelectedWhatsAppClientId(null); setSelectedTelegramConversation(null); setSelectedLiveChatConversation(null); selectEmail(null); }}
                 className="p-1.5 bg-green-600 text-white rounded-md hover:bg-green-500 transition-colors shadow-lg shadow-green-600/20"
                 title="New WhatsApp Message"
               >
@@ -1772,6 +1888,9 @@ export function Inbox() {
                     if (option.value !== 'telegram') {
                       setSelectedTelegramConversation(null);
                       setTelegramMessages([]);
+                    }
+                    if (option.value !== 'live_chat') {
+                      setSelectedLiveChatConversation(null);
                     }
                   }}
                   className={cn(
@@ -2000,7 +2119,9 @@ export function Inbox() {
                 ? selectedWhatsAppPhone === (conversation.metadata?.targetPhone || conversation.contact_address || conversation.source_id)
                 : isTelegram
                   ? selectedTelegramConversation?.id === conversation.id
-                  : false;
+                  : isLiveChat
+                    ? selectedLiveChatConversation?.id === conversation.id
+                    : false;
             const email = isEmail ? emails.find(item => item.id === conversation.source_id) : null;
             const whatsappConversation = isWhatsApp ? mapUnifiedWhatsAppConversation(conversation) : null;
             const client = conversation.client_id ? clients.find(c => c.id === conversation.client_id) : null;
@@ -2030,7 +2151,7 @@ export function Inbox() {
                 onClick={() => handleSelectUnifiedConversation(conversation)}
                 className={cn(
                   "cursor-pointer border-b border-slate-800/50 p-4 transition-colors flex gap-3 group relative",
-                  isSelected ? (isWhatsApp ? "bg-green-950/20" : isTelegram ? "bg-sky-950/20" : "bg-cyan-950/20") : "hover:bg-slate-800/30",
+                  isSelected ? (isWhatsApp ? "bg-green-950/20" : isLiveChat ? "bg-violet-950/20" : isTelegram ? "bg-sky-950/20" : "bg-cyan-950/20") : "hover:bg-slate-800/30",
                   isEmail && !conversation.read && filter === 'inbox' && "bg-slate-800/40"
                 )}
               >
@@ -2493,7 +2614,7 @@ export function Inbox() {
       <PanelResizeHandle className="w-1 bg-slate-800 hover:bg-cyan-500 cursor-col-resize transition-colors hidden md:block" />
 
       {/* Reading Pane / Compose Pane */}
-      <Panel id="inbox-content" className={cn("flex flex-col bg-slate-950/50 relative", !selectedEmailId && !selectedWhatsAppPhone && !isComposing && !isStartingWhatsApp && "hidden md:flex")}>
+      <Panel id="inbox-content" className={cn("flex flex-col bg-slate-950/50 relative", !selectedEmailId && !selectedWhatsAppPhone && !selectedTelegramConversation && !selectedLiveChatConversation && !isComposing && !isStartingWhatsApp && "hidden md:flex")}>
         {isComposing ? (
           <ComposeEmail onClose={() => setIsComposing(false)} initialRecipient={composeDefaults?.recipient} initialSubject={composeDefaults?.subject} initialBody={composeDefaults?.initialBody} originalEmailBody={composeDefaults?.originalEmailBody} draftId={composeDefaults?.draftId} replyToEmailId={composeDefaults?.replyToEmailId} initialOutboxId={composeDefaults?.initialOutboxId} />
         ) : isStartingWhatsApp ? (
@@ -2729,6 +2850,199 @@ export function Inbox() {
                 {language === 'zh'
                   ? '发送使用 Settings -> Telegram Bot 中配置的 Bot Token。AI 自动回复和人工接管控制将在下一步接入。'
                   : 'Sending uses the Bot Token configured in Settings -> Telegram Bot. Human takeover pauses Telegram Agent auto-replies.'}
+              </div>
+            </div>
+          </div>
+        ) : selectedLiveChatConversation ? (
+          <div className="flex-1 flex flex-col min-h-0">
+            <ConversationDetailHeader
+              language={language}
+              channel="live_chat"
+              title={activeLiveChatClient?.name || selectedLiveChatConversation.client_name || selectedLiveChatConversation.title || activeLiveChatSession?.visitorName || 'Live Chat'}
+              subtitle={activeLiveChatSession?.visitorEmail || activeLiveChatSession?.visitorPhone || selectedLiveChatConversation.contact_address || activeLiveChatSession?.pageUrl || ''}
+              clientId={activeLiveChatClient?.id || selectedLiveChatConversation.client_id}
+              clientName={activeLiveChatClient?.name || selectedLiveChatConversation.client_name}
+              tags={activeUnifiedConversation?.tags || activeLiveChatSession?.tags || selectedLiveChatConversation.tags || []}
+              ownerId={activeUnifiedConversation?.owner_id}
+              stage={activeUnifiedConversation?.stage}
+              currentUser={currentUser}
+              onBack={() => setSelectedLiveChatConversation(null)}
+              onClientClick={() => {
+                const id = activeLiveChatClient?.id || selectedLiveChatConversation.client_id;
+                if (id) selectClient(id);
+              }}
+              onOwnerChange={activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback ? (ownerId) => {
+                updateConversationOwnerStage(activeUnifiedConversation, { ownerId });
+              } : undefined}
+              onStageChange={activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback ? (stage) => {
+                updateConversationOwnerStage(activeUnifiedConversation, { stage });
+              } : undefined}
+              onDelete={() => {
+                setConfirmDialog({
+                  message: 'Are you sure you want to delete this Live Chat conversation? It may require approval before records are removed.',
+                  onConfirm: async () => {
+                    await deleteUnifiedConversation(selectedLiveChatConversation);
+                    setSelectedLiveChatConversation(null);
+                    await refreshUnifiedConversationData();
+                    setConfirmDialog(null);
+                  }
+                });
+              }}
+              actions={(
+                <>
+                  <button
+                    type="button"
+                    onClick={toggleLiveChatHumanTakeover}
+                    className={cn(
+                      "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-colors",
+                      (activeLiveChatSession?.humanTakeover ?? selectedLiveChatConversation.metadata?.humanTakeover)
+                        ? "border-amber-500/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20"
+                        : "border-violet-500/40 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20"
+                    )}
+                  >
+                    {(activeLiveChatSession?.humanTakeover ?? selectedLiveChatConversation.metadata?.humanTakeover) ? <User className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
+                    {(activeLiveChatSession?.humanTakeover ?? selectedLiveChatConversation.metadata?.humanTakeover)
+                      ? (language === 'zh' ? '人工接管' : 'Human Takeover')
+                      : (language === 'zh' ? 'Agent 自动' : 'Agent Auto')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={runSelectedLiveChatAgent}
+                    disabled={isRunningLiveChatAgent}
+                    className="inline-flex items-center gap-2 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs font-bold text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-60"
+                  >
+                    {isRunningLiveChatAgent ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                    {language === 'zh' ? '运行 Agent' : 'Run Agent'}
+                  </button>
+                </>
+              )}
+              meta={(
+                <>
+                  {activeLiveChatSession?.visitorEmail && <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">email: {activeLiveChatSession.visitorEmail}</span>}
+                  {activeLiveChatSession?.visitorPhone && <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">phone: {activeLiveChatSession.visitorPhone}</span>}
+                  {activeLiveChatSession?.pageUrl && <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70 truncate max-w-[360px]">page: {activeLiveChatSession.pageUrl}</span>}
+                  {activeLiveChatVisitorInfo.ip && <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">IP: {activeLiveChatVisitorInfo.ip}</span>}
+                  {activeLiveChatVisitorInfo.browserName && <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">{[activeLiveChatVisitorInfo.browserName, activeLiveChatVisitorInfo.browserVersion].filter(Boolean).join(' ')}</span>}
+                  {activeLiveChatVisitorInfo.os && <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">{activeLiveChatVisitorInfo.os}</span>}
+                </>
+              )}
+            />
+            <ConversationFollowUpStrip
+              language={language}
+              dueAt={activeFollowUpAt}
+              note={activeFollowUpNote}
+              onSet={(dueAt, note) => updateActiveConversationFollowUp(dueAt, note, 'open')}
+              onClear={() => updateActiveConversationFollowUp(null, null, 'canceled')}
+              onComplete={() => updateActiveConversationFollowUp(null, null, 'completed')}
+            />
+            <div className="flex-1 overflow-y-auto bg-slate-950/50 p-6 space-y-4">
+              {activeLiveChatClient && (activeLiveChatClient.agentSummary || activeLiveChatClient.leadSummary || activeLiveChatClient.agentNextStep || activeLiveChatClient.leadNextStep) && (
+                <div className="rounded-xl border border-blue-500/20 bg-blue-950/20 p-4 text-sm text-slate-200">
+                  {(activeLiveChatClient.agentSummary || activeLiveChatClient.leadSummary) && (
+                    <div className="mb-2">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-blue-300">AI Customer Summary</div>
+                      <div className="mt-1 leading-relaxed">{activeLiveChatClient.agentSummary || activeLiveChatClient.leadSummary}</div>
+                    </div>
+                  )}
+                  {(activeLiveChatClient.agentNextStep || activeLiveChatClient.leadNextStep) && (
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">Best Next Step</div>
+                      <div className="mt-1 leading-relaxed">{activeLiveChatClient.agentNextStep || activeLiveChatClient.leadNextStep}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {visibleLiveChatMessages.length === 0 ? (
+                <div className="py-16 text-center text-sm text-slate-500 italic">No Live Chat messages saved yet.</div>
+              ) : visibleLiveChatMessages.map((message: LiveChatMessage) => {
+                const outbound = message.role === 'operator' || message.role === 'agent';
+                return (
+                  <div key={message.id} className={cn("flex", outbound ? "justify-end" : "justify-start")}>
+                    <div className={cn(
+                      "max-w-[78%] rounded-2xl border px-4 py-3 text-sm shadow-sm",
+                      outbound
+                        ? "border-violet-500/30 bg-violet-600/20 text-violet-50"
+                        : "border-slate-800 bg-slate-900 text-slate-100"
+                    )}>
+                      <div className="mb-1 flex items-center gap-2 text-[10px] uppercase tracking-wide text-slate-500">
+                        <span>{message.senderName || (outbound ? 'Operator' : 'Visitor')}</span>
+                        <span>{message.role}</span>
+                      </div>
+                      <div className="whitespace-pre-wrap leading-relaxed">{message.body}</div>
+                      <div className="mt-2 text-[10px] text-slate-500">
+                        {message.createdAt ? new Date(message.createdAt).toLocaleString() : ''}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              <AgentContextSuggestions
+                channel="live_chat"
+                cacheKey={`live_chat:${selectedLiveChatConversation.source_id}`}
+                clientId={activeLiveChatClient?.id || selectedLiveChatConversation.client_id}
+                clientName={activeLiveChatClient?.name || selectedLiveChatConversation.client_name}
+                subject={selectedLiveChatConversation.title || 'Live Chat conversation'}
+                body={latestLiveChatVisitorMessage?.body || selectedLiveChatConversation.last_message_preview || ''}
+                additionalContext={[
+                  activeLiveChatSession?.visitorEmail ? `Visitor email: ${activeLiveChatSession.visitorEmail}` : '',
+                  activeLiveChatSession?.visitorPhone ? `Visitor phone: ${activeLiveChatSession.visitorPhone}` : '',
+                  activeLiveChatSession?.pageUrl ? `Page URL: ${activeLiveChatSession.pageUrl}` : '',
+                  activeLiveChatClient?.agentSummary ? `AI summary: ${activeLiveChatClient.agentSummary}` : '',
+                  activeLiveChatClient?.agentNextStep ? `Best next step: ${activeLiveChatClient.agentNextStep}` : ''
+                ].filter(Boolean).join('\n')}
+                hasClient={!!(activeLiveChatClient?.id || selectedLiveChatConversation.client_id)}
+                hasCustomerMessage={!!latestLiveChatVisitorMessage}
+                draftReplyLabel={language === 'zh' ? '运行 Agent 回复' : 'Run Agent Reply'}
+                draftReplyDescription={language === 'zh' ? '使用客户资料、聊天记录、产品和 RAG 上下文生成并发送 Live Chat 回复。' : 'Generate and send a Live Chat reply using customer, conversation, product, and RAG context.'}
+                onDraftReply={runSelectedLiveChatAgent}
+                onAddComment={async () => appendActiveConversationComment(`Live Chat note: ${latestLiveChatVisitorMessage?.body || selectedLiveChatConversation.title || 'Follow up this visitor'}`)}
+                followUpAt={activeFollowUpAt}
+                followUpNote={activeFollowUpNote}
+                onSetFollowUp={(dueAt, note) => updateActiveConversationFollowUp(dueAt, note || `Follow up Live Chat: ${selectedLiveChatConversation.title || selectedLiveChatConversation.contact_address || selectedLiveChatConversation.source_id}`, 'open')}
+                onClearFollowUp={() => updateActiveConversationFollowUp(null, null, 'canceled')}
+                onCompleteFollowUp={() => updateActiveConversationFollowUp(null, null, 'completed')}
+                onDeleteItem={() => {
+                  setConfirmDialog({
+                    message: 'Are you sure you want to delete this Live Chat conversation? It may require approval before records are removed.',
+                    onConfirm: async () => {
+                      await deleteUnifiedConversation(selectedLiveChatConversation);
+                      setSelectedLiveChatConversation(null);
+                      await refreshUnifiedConversationData();
+                      setConfirmDialog(null);
+                    }
+                  });
+                }}
+              />
+              <div ref={liveChatEndRef} />
+            </div>
+            <div className="border-t border-slate-800 bg-slate-900/80 p-4">
+              <div className="flex items-end gap-3">
+                <textarea
+                  value={liveChatReply}
+                  onChange={event => setLiveChatReply(event.target.value)}
+                  onKeyDown={event => {
+                    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                      event.preventDefault();
+                      void sendLiveChatReply();
+                    }
+                  }}
+                  placeholder={language === 'zh' ? '输入 Live Chat 回复，Ctrl+Enter 发送...' : 'Write a Live Chat reply, Ctrl+Enter to send...'}
+                  className="min-h-[76px] flex-1 resize-none rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-violet-500"
+                />
+                <button
+                  type="button"
+                  onClick={sendLiveChatReply}
+                  disabled={isSendingLiveChatReply || !liveChatReply.trim()}
+                  className="inline-flex h-10 items-center gap-2 rounded-lg bg-violet-600 px-4 text-sm font-bold text-white hover:bg-violet-500 disabled:bg-slate-800 disabled:text-slate-500"
+                >
+                  {isSendingLiveChatReply ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  {language === 'zh' ? '发送' : 'Send'}
+                </button>
+              </div>
+              <div className="mt-2 text-[11px] text-slate-500">
+                {language === 'zh'
+                  ? '人工接管会暂停后台 Live Chat Agent 自动回复；交还给 Agent 后，新访客消息可自动触发。'
+                  : 'Human takeover pauses background Live Chat Agent replies. Hand back to Agent to let new visitor messages trigger automation.'}
               </div>
             </div>
           </div>
