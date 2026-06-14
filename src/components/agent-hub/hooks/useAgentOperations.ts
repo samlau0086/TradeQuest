@@ -188,6 +188,12 @@ export function useAgentOperations({
       .forEach(task => updateAgentTask(task.id, updates));
   };
 
+  const reviewReasonSuffix = (reason?: string) => {
+    const normalized = String(reason || '').trim();
+    if (!normalized) return '';
+    return language === 'zh' ? ` 审批原因：${normalized}` : ` Review reason: ${normalized}`;
+  };
+
   const dispatchTask = async (task: AgentTask) => {
     setDispatchingOpportunityId(task.id);
     const queuedAt = new Date().toISOString();
@@ -231,8 +237,9 @@ export function useAgentOperations({
     }
   };
 
-  const approveItem = async (item: AgentHubPendingItem) => {
+  const approveItem = async (item: AgentHubPendingItem, reason?: string) => {
     const approvedAt = new Date().toISOString();
+    const reasonNote = reviewReasonSuffix(reason);
     if (item.kind === 'harness') updateAgentHarnessRun(item.id, { status: 'running', approvedAt });
     if (item.kind === 'global') updateGlobalAgentPlan(item.id, { status: 'approved', approvedAt });
     updateTasksForRun(item.id, item.kind, {
@@ -240,22 +247,23 @@ export function useAgentOperations({
       approvalStatus: 'approved',
       queuedAt: approvedAt,
       startedAt: item.kind === 'harness' ? approvedAt : undefined,
-      resultSummary: language === 'zh' ? '人工已批准，正在进入执行流程。' : 'Approved by a human and entering execution.'
+      resultSummary: `${language === 'zh' ? '人工已批准，正在进入执行流程。' : 'Approved by a human and entering execution.'}${reasonNote}`
     });
     const linkedRecord = agentRunRecords.find(record => record.relatedRunId === item.id && record.relatedRunType === item.kind);
     if (linkedRecord) {
       updateAgentRunRecord(linkedRecord.id, {
         status: item.kind === 'harness' ? 'running' : 'approved',
-        actualResult: item.kind === 'harness'
+        actualResult: `${item.kind === 'harness'
           ? (language === 'zh' ? '人工已批准计划运行，正在执行配置的工具。' : 'Human approved the planned agent run. Executing configured tools now.')
-          : (language === 'zh' ? '人工已批准计划运行。' : 'Human approved the planned agent run.')
+          : (language === 'zh' ? '人工已批准计划运行。' : 'Human approved the planned agent run.')}${reasonNote}`
       });
     }
     if (item.kind !== 'harness') return;
     try {
       const response = await fetch(`/api/agent-hub/harness-runs/${item.id}/execute`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ reviewReason: String(reason || '').trim() })
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Failed to execute Agent Hub run');
@@ -284,21 +292,23 @@ export function useAgentOperations({
     }
   };
 
-  const rejectItem = (item: AgentHubPendingItem) => {
+  const rejectItem = (item: AgentHubPendingItem, reason?: string) => {
     const rejectedAt = new Date().toISOString();
-    if (item.kind === 'harness') updateAgentHarnessRun(item.id, { status: 'rejected', rejectedAt, rejectedReason: 'Rejected from Agent Hub' });
-    if (item.kind === 'global') updateGlobalAgentPlan(item.id, { status: 'rejected', rejectedAt, rejectedReason: 'Rejected from Agent Hub' });
+    const rejectedReason = String(reason || '').trim() || (language === 'zh' ? '由 Agent Hub 人工拒绝。' : 'Rejected from Agent Hub.');
+    const reasonNote = reviewReasonSuffix(rejectedReason);
+    if (item.kind === 'harness') updateAgentHarnessRun(item.id, { status: 'rejected', rejectedAt, rejectedReason });
+    if (item.kind === 'global') updateGlobalAgentPlan(item.id, { status: 'rejected', rejectedAt, rejectedReason });
     updateTasksForRun(item.id, item.kind, {
       status: 'ignored',
       approvalStatus: 'rejected',
-      resultSummary: language === 'zh' ? '人工已拒绝执行任务。' : 'Human rejected this execution task.',
+      resultSummary: `${language === 'zh' ? '人工已拒绝执行任务。' : 'Human rejected this execution task.'}${reasonNote}`,
       completedAt: rejectedAt
     });
     const linkedOpportunity = agentOpportunities.find(opportunity => opportunity.relatedRunId === item.id && opportunity.relatedRunType === item.kind);
     if (linkedOpportunity) {
       updateAgentOpportunity(linkedOpportunity.id, {
         status: 'ignored',
-        resultSummary: language === 'zh' ? '人工已拒绝机会任务派发。' : 'Human rejected this opportunity dispatch.',
+        resultSummary: `${language === 'zh' ? '人工已拒绝机会任务派发。' : 'Human rejected this opportunity dispatch.'}${reasonNote}`,
         completedAt: new Date().toISOString()
       });
     }
@@ -306,7 +316,7 @@ export function useAgentOperations({
     if (linkedRecord) {
       updateAgentRunRecord(linkedRecord.id, {
         status: 'rejected',
-        actualResult: language === 'zh' ? '人工已拒绝计划运行。' : 'Human rejected the planned agent run.',
+        actualResult: `${language === 'zh' ? '人工已拒绝计划运行。' : 'Human rejected the planned agent run.'}${reasonNote}`,
         completedAt: new Date().toISOString()
       });
     }

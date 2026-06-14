@@ -10776,6 +10776,7 @@ Return JSON only:
 
   app.post('/api/agent-hub/harness-runs/:runId/execute', authenticateToken, async (req: any, res) => {
     const { runId } = req.params;
+    const reviewReason = String(req.body?.reviewReason || '').trim();
     const executionLockKey = `${req.user.uid}:${runId}`;
     if (activeHarnessExecutions.has(executionLockKey)) {
       return res.status(409).json({ error: 'This agent run is already executing.' });
@@ -10792,17 +10793,21 @@ Return JSON only:
         return res.status(409).json({ error: settings.language === 'zh' ? '该智能体运行已在执行或已完成。' : 'This agent run is already running or completed.' });
       }
       const startedAt = new Date().toISOString();
+      const reviewReasonSuffix = reviewReason
+        ? (settings.language === 'zh' ? ` 审批原因：${reviewReason}` : ` Review reason: ${reviewReason}`)
+        : '';
       settings.agentHarnessRuns = (settings.agentHarnessRuns || []).map((run: any) => run.id === runId ? {
         ...run,
         status: 'running',
         approvedAt: run.approvedAt || startedAt,
+        approvalReason: reviewReason || run.approvalReason,
         updatedAt: startedAt,
         steps: (run.steps || []).map((step: any) => ({ ...step, status: 'running', error: undefined }))
       } : run);
       settings.agentRunRecords = (settings.agentRunRecords || []).map((record: any) => record.relatedRunId === runId && record.relatedRunType === 'harness' ? {
         ...record,
         status: 'running',
-        actualResult: settings.language === 'zh' ? '人工已批准该智能体运行，正在执行配置的工具。' : 'Human approved the planned agent run. Executing configured tools now.',
+        actualResult: `${settings.language === 'zh' ? '人工已批准该智能体运行，正在执行配置的工具。' : 'Human approved the planned agent run. Executing configured tools now.'}${reviewReasonSuffix}`,
         updatedAt: startedAt
       } : record);
       syncAgentTasksByRun(settings, runId, 'harness', {
@@ -10813,7 +10818,7 @@ Return JSON only:
         approvedAt: startedAt,
         executedBy: 'system',
         executedAt: startedAt,
-        resultSummary: settings.language === 'zh' ? '人工已批准，执行引擎正在运行。' : 'Approved by a human; the execution engine is running.'
+        resultSummary: `${settings.language === 'zh' ? '人工已批准，执行引擎正在运行。' : 'Approved by a human; the execution engine is running.'}${reviewReasonSuffix}`
       });
 
       const result = await executeAgentHubHarnessRun(req.user.uid, settings, runId);

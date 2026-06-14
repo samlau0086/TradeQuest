@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Bot, CheckCircle2, ClipboardCheck, Cpu, ShieldCheck, XCircle } from 'lucide-react';
 import {
   AgentExecutionPolicy,
@@ -22,8 +22,8 @@ interface ApprovalCenterPanelProps {
   pendingItems: PendingApprovalItem[];
   agentExecutionPolicy: AgentExecutionPolicy;
   t: (key: string) => string;
-  onApprove: (item: PendingApprovalItem) => void | Promise<void>;
-  onReject: (item: PendingApprovalItem) => void;
+  onApprove: (item: PendingApprovalItem, reason?: string) => void | Promise<void>;
+  onReject: (item: PendingApprovalItem, reason?: string) => void;
   onTabChange: (tab: AgentHubTab) => void;
   onUpdatePolicy: (actionType: GlobalAgentActionType, updates: Partial<AgentExecutionPolicyRule>) => void;
 }
@@ -39,6 +39,22 @@ export function ApprovalCenterPanel({
   onUpdatePolicy
 }: ApprovalCenterPanelProps) {
   const isZh = language === 'zh';
+  const [reviewDialog, setReviewDialog] = useState<{
+    item: PendingApprovalItem;
+    action: 'approve' | 'reject';
+    reason: string;
+  } | null>(null);
+
+  const submitReview = async () => {
+    if (!reviewDialog) return;
+    const reason = reviewDialog.reason.trim();
+    if (reviewDialog.action === 'approve') {
+      await onApprove(reviewDialog.item, reason);
+    } else {
+      onReject(reviewDialog.item, reason);
+    }
+    setReviewDialog(null);
+  };
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
@@ -67,10 +83,10 @@ export function ApprovalCenterPanel({
               </div>
               <div className="mt-4 bg-black border border-neutral-800 rounded-md p-4 text-sm text-slate-300 whitespace-pre-wrap">{item.body}</div>
               <div className="mt-4 flex justify-end gap-3">
-                <button onClick={() => onReject(item)} className="px-4 py-2 text-red-300 hover:bg-red-500/10 rounded-md text-sm font-bold flex items-center gap-2">
+                <button onClick={() => setReviewDialog({ item, action: 'reject', reason: '' })} className="px-4 py-2 text-red-300 hover:bg-red-500/10 rounded-md text-sm font-bold flex items-center gap-2">
                   <XCircle className="w-4 h-4" /> {t('Reject')}
                 </button>
-                <button onClick={() => void onApprove(item)} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-md text-white text-sm font-bold flex items-center gap-2">
+                <button onClick={() => setReviewDialog({ item, action: 'approve', reason: '' })} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-md text-white text-sm font-bold flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4" /> {t('Approve')}
                 </button>
               </div>
@@ -135,6 +151,64 @@ export function ApprovalCenterPanel({
           })}
         </div>
       </section>
+      {reviewDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-lg rounded-xl border border-slate-700 bg-slate-950 shadow-2xl">
+            <div className="border-b border-slate-800 p-5">
+              <h3 className="text-lg font-bold text-white">
+                {reviewDialog.action === 'approve'
+                  ? (isZh ? '批准并执行' : 'Approve and Execute')
+                  : (isZh ? '拒绝执行' : 'Reject Execution')}
+              </h3>
+              <p className="mt-1 text-sm text-slate-400">
+                {isZh
+                  ? '填写原因会写入任务与运行记录，方便之后审计和复盘。'
+                  : 'The reason will be written into task and run history for audit and review.'}
+              </p>
+            </div>
+            <div className="space-y-4 p-5">
+              <div className="rounded-lg border border-slate-800 bg-black p-3">
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-500">{reviewDialog.item.agent}</div>
+                <div className="mt-1 text-sm font-semibold text-slate-100">{reviewDialog.item.title}</div>
+              </div>
+              <label className="block">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                  {isZh ? '审批原因' : 'Review Reason'}
+                </span>
+                <textarea
+                  value={reviewDialog.reason}
+                  onChange={event => setReviewDialog({ ...reviewDialog, reason: event.target.value })}
+                  rows={4}
+                  placeholder={isZh ? '例如：内容风险可控，允许按计划执行。' : 'e.g. Risk reviewed; approved to execute as planned.'}
+                  className="mt-2 w-full resize-none rounded-lg border border-slate-700 bg-slate-900 p-3 text-sm text-slate-100 outline-none transition-colors focus:border-blue-500"
+                />
+              </label>
+            </div>
+            <div className="flex justify-end gap-3 border-t border-slate-800 p-5">
+              <button
+                type="button"
+                onClick={() => setReviewDialog(null)}
+                className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-bold text-slate-300 transition-colors hover:bg-slate-800"
+              >
+                {isZh ? '取消' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void submitReview()}
+                className={`rounded-lg px-4 py-2 text-sm font-bold text-white transition-colors ${
+                  reviewDialog.action === 'approve'
+                    ? 'bg-emerald-600 hover:bg-emerald-500'
+                    : 'bg-red-600 hover:bg-red-500'
+                }`}
+              >
+                {reviewDialog.action === 'approve'
+                  ? (isZh ? '确认批准' : 'Confirm Approval')
+                  : (isZh ? '确认拒绝' : 'Confirm Rejection')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
