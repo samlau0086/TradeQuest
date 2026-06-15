@@ -17,6 +17,7 @@ export { LiveChatCustomerInsightCard, LiveChatEvidencePanel } from './LiveChatCo
 export { LiveChatHeaderActions, LiveChatHeaderMeta } from './LiveChatHeaderControls';
 export { StartWhatsAppConversationPane } from './StartWhatsAppConversationPane';
 export { TelegramHeaderActions, TelegramHeaderMeta } from './TelegramHeaderControls';
+export { WhatsAppConversationPane } from './WhatsAppConversationPane';
 export { useActiveConversationComments } from './useActiveConversationComments';
 export { useActiveConversationContext } from './useActiveConversationContext';
 export { useConversationFollowUp } from './useConversationFollowUp';

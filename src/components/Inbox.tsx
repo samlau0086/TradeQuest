@@ -6,7 +6,6 @@ import { cn } from '../lib/utils';
 import { ClientFormModal } from './ClientFormModal';
 import { UploadAttachmentModal } from './UploadAttachmentModal';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle, useDefaultLayout } from 'react-resizable-panels';
-import { WhatsAppChatModal } from './WhatsAppChatModal';
 import {
   ConversationDetailHeader,
   ConversationFollowUpStrip,
@@ -30,6 +29,7 @@ import {
   TelegramAgentSuggestionsPanel,
   TelegramHeaderActions,
   TelegramHeaderMeta,
+  WhatsAppConversationPane,
   useActiveConversationComments,
   useActiveConversationContext,
   useConversationFollowUp,
@@ -1285,57 +1285,36 @@ ${bodyText}`,
             />
           </div>
         ) : selectedWhatsAppPhone ? (
-          <div className="flex-1 flex flex-col min-h-0">
-            {activeWhatsAppConversation && (
-              <ConversationDetailHeader
-                language={language}
-                channel="whatsapp"
-                title={activeWhatsAppClient?.name || activeWhatsAppConversation.clientName || activeWhatsAppConversation.targetPhone}
-                subtitle={activeWhatsAppConversation.contactPhone || activeWhatsAppConversation.targetPhone}
-                clientId={activeWhatsAppClient?.id || activeWhatsAppConversation.clientId}
-                clientName={activeWhatsAppClient?.name || activeWhatsAppConversation.clientName}
-                tags={activeUnifiedConversation?.tags || activeWhatsAppConversation.tags || []}
-                ownerId={activeUnifiedConversation?.owner_id}
-                stage={activeUnifiedConversation?.stage}
-                currentUser={currentUser}
-                onBack={() => { setSelectedWhatsAppPhone(null); setSelectedWhatsAppClientId(null); }}
-                onClientClick={() => {
-                  const id = activeWhatsAppClient?.id || activeWhatsAppConversation.clientId;
-                  if (id) selectClient(id);
-                }}
-                onOwnerChange={activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback ? (ownerId) => {
-                  updateConversationOwnerStage(activeUnifiedConversation, { ownerId });
-                } : undefined}
-                onStageChange={activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback ? (stage) => {
-                  updateConversationOwnerStage(activeUnifiedConversation, { stage });
-                } : undefined}
-                onDelete={() => handleDeleteWhatsAppConversation(activeWhatsAppConversation)}
-                meta={activeWhatsAppConversation.rawChatId && activeWhatsAppConversation.rawChatId !== activeWhatsAppConversation.targetPhone ? (
-                  <span>{activeWhatsAppConversation.rawChatId} -&gt; {activeWhatsAppConversation.targetPhone}</span>
-                ) : undefined}
-              />
-            )}
-            <ConversationFollowUpStrip
-              language={language}
-              dueAt={activeFollowUpAt}
-              note={activeFollowUpNote}
-              onSet={(dueAt, note) => updateActiveConversationFollowUp(dueAt, note, 'open')}
-              onClear={() => updateActiveConversationFollowUp(null, null, 'canceled')}
-              onComplete={() => updateActiveConversationFollowUp(null, null, 'completed')}
-            />
-            <WhatsAppChatModal
-              key={activeWhatsAppConversation?.id || selectedWhatsAppPhone}
-              embedded
-              phone={selectedWhatsAppPhone}
-              client={activeWhatsAppClient}
-              conversation={activeWhatsAppConversation}
-              onClose={() => {
-                setSelectedWhatsAppPhone(null);
-                setSelectedWhatsAppClientId(null);
-                loadWhatsAppConversations();
-              }}
-            />
-          </div>
+          <WhatsAppConversationPane
+            language={language}
+            selectedWhatsAppPhone={selectedWhatsAppPhone}
+            activeWhatsAppConversation={activeWhatsAppConversation}
+            activeWhatsAppClient={activeWhatsAppClient}
+            activeUnifiedConversation={activeUnifiedConversation}
+            currentUser={currentUser}
+            activeFollowUpAt={activeFollowUpAt}
+            activeFollowUpNote={activeFollowUpNote}
+            onBack={() => { setSelectedWhatsAppPhone(null); setSelectedWhatsAppClientId(null); }}
+            onClientClick={() => {
+              const id = activeWhatsAppClient?.id || activeWhatsAppConversation?.clientId;
+              if (id) selectClient(id);
+            }}
+            onOwnerChange={activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback ? (ownerId) => {
+              updateConversationOwnerStage(activeUnifiedConversation, { ownerId });
+            } : undefined}
+            onStageChange={activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback ? (stage) => {
+              updateConversationOwnerStage(activeUnifiedConversation, { stage });
+            } : undefined}
+            onDeleteConversation={handleDeleteWhatsAppConversation}
+            onSetFollowUp={(dueAt, note) => updateActiveConversationFollowUp(dueAt, note, 'open')}
+            onClearFollowUp={() => updateActiveConversationFollowUp(null, null, 'canceled')}
+            onCompleteFollowUp={() => updateActiveConversationFollowUp(null, null, 'completed')}
+            onCloseChat={() => {
+              setSelectedWhatsAppPhone(null);
+              setSelectedWhatsAppClientId(null);
+              loadWhatsAppConversations();
+            }}
+          />
         ) : selectedEmail ? (
           <EmailConversationPane
             language={language}
