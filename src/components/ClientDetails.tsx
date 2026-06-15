@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { useStore, ContactMethod, Comment } from '../store';
+import React, { useState } from 'react';
+import { useStore, ContactMethod } from '../store';
 import { useAuthStore } from '../authStore';
 import { cn } from '../lib/utils';
 import { ClientFormModal } from './ClientFormModal';
@@ -22,6 +22,7 @@ import { ClientTeamCommentsPanel } from './ClientTeamCommentsPanel';
 import { ClientWorkroomPanel } from './ClientWorkroomPanel';
 import { KnowledgeBaseManager } from './KnowledgeBaseManager';
 import { buildLeadScoringSignature } from '../lib/leadScoring';
+import { useClientComments } from '../hooks/useClientComments';
 
 const INBOX_OPEN_REQUEST_KEY = 'tradequest:inbox-open-request:v1';
 
@@ -45,7 +46,7 @@ const internalTextMatchesSystemLanguage = (value: string | undefined | null, lan
 };
 
 export function ClientDetails() {
-  const { clients, deals, quotes, selectedClientId, selectedDealId, selectClient, selectDeal, updateClientStatus, updateDeal, deleteClient, editClient, addComment, addReply, deleteLog, llmConfigs, activeLLMId, llmMappings, setView, selectEmail, logs, emails, incrementAgentHubTaskCount, notify, language, currencyRates, knowledgeBase, agentTasks, liveChatSessions } = useStore();
+  const { clients, deals, quotes, selectedClientId, selectedDealId, selectClient, selectDeal, updateClientStatus, updateDeal, deleteClient, deleteLog, llmConfigs, activeLLMId, llmMappings, setView, selectEmail, logs, emails, incrementAgentHubTaskCount, notify, language, currencyRates, knowledgeBase, agentTasks, liveChatSessions } = useStore();
   
   const getLLMConfig = (module: string) => {
     const id = llmMappings[module] || activeLLMId;
@@ -70,10 +71,6 @@ export function ClientDetails() {
   const [composeRecipient, setComposeRecipient] = useState('');
   const [composeInitialBody, setComposeInitialBody] = useState('');
 
-  const [commentText, setCommentText] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const reconciledPendingCommentDeletesRef = useRef<Set<string>>(new Set());
-
   const [confirmDeleteTarget, setConfirmDeleteTarget] = useState(false);
   const [eventView, setEventView] = useState<'timeline' | 'list' | 'growth'>('timeline');
   const [timelineExpanded, setTimelineExpanded] = useState(false);
@@ -89,7 +86,15 @@ export function ClientDetails() {
     ? deals.find(deal => deal.id === selectedDealId && (!selectedClientId || deal.clientId === selectedClientId))
     : undefined;
   const leadRecord = selectedDeal || null;
-  const leadComments = leadRecord ? (leadRecord.comments || []) : (client?.comments || []);
+  const {
+    comments: leadComments,
+    commentText,
+    setCommentText,
+    fileInputRef,
+    handleAddComment,
+    handleAddReply,
+    handleRequestCommentDelete,
+  } = useClientComments({ client, leadRecord });
   const leadLogs = logs.filter(log => {
     if (!client || log.clientId !== client.id) return false;
     if (!leadRecord) return true;
@@ -129,19 +134,6 @@ export function ClientDetails() {
   const nextStepText = leadRecord
     ? leadRecord.leadNextStep
     : (client?.agentNextStep || client?.leadNextStep);
-
-  useEffect(() => {
-    if (!client) return;
-    const pendingIds = collectPendingDeleteCommentIds(leadComments);
-    pendingIds.forEach(commentId => {
-      const key = `${leadRecord ? 'lead' : 'client'}:${leadRecord?.id || client.id}:${commentId}`;
-      if (reconciledPendingCommentDeletesRef.current.has(key)) return;
-      reconciledPendingCommentDeletesRef.current.add(key);
-      submitCommentDeleteApprovalRequest(commentId).catch(error => {
-        console.warn('Failed to reconcile pending comment delete request', error);
-      });
-    });
-  }, [client?.id, leadRecord?.id, leadComments]);
 
   if (!client) return null;
   const displayContacts = (client.contacts && client.contacts.length > 0)
@@ -418,132 +410,6 @@ export function ClientDetails() {
     }
   };
 
-  const handleAddComment = () => {
-    if (!commentText.trim()) return;
-    
-    // Determine if attachments exist based on file input files.
-    const attachments = fileInputRef.current?.files && fileInputRef.current.files.length > 0 
-      ? Array.from(fileInputRef.current.files).map(f => ({
-          id: `file${Date.now()}`,
-          name: f.name,
-          type: (f.type.includes('image') ? 'image' : 'document') as 'image' | 'document' | 'other',
-          url: URL.createObjectURL(f)
-        })) 
-      : undefined;
-
-    if (leadRecord) {
-      const newComment: Comment = {
-        id: `cmt${Date.now()}`,
-        author: useStore.getState().userTitle,
-        content: commentText,
-        createdAt: new Date().toISOString(),
-        attachments,
-        replies: []
-      };
-      updateDeal(leadRecord.id, { comments: [...(leadRecord.comments || []), newComment] });
-    } else {
-      addComment(client.id, commentText, attachments);
-    }
-    setCommentText('');
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const handleAddLeadReply = (commentId: string, content: string, attachments?: any[]) => {
-    if (!leadRecord) {
-      addReply(client.id, commentId, content, attachments);
-      return;
-    }
-    const addReplyRecursive = (comments: Comment[]): Comment[] => comments.map(comment => {
-      if (comment.id === commentId) {
-        return {
-          ...comment,
-          replies: [
-            ...(comment.replies || []),
-            {
-              id: `rep${Date.now()}`,
-              author: useStore.getState().userTitle,
-              content,
-              createdAt: new Date().toISOString(),
-              attachments,
-              replies: []
-            }
-          ]
-        };
-      }
-      return comment.replies?.length
-        ? { ...comment, replies: addReplyRecursive(comment.replies) }
-        : comment;
-    });
-    updateDeal(leadRecord.id, { comments: addReplyRecursive(leadRecord.comments || []) });
-  };
-
-  const markCommentPendingDelete = (comments: Comment[], commentId: string): Comment[] => comments.map(comment => {
-    if (comment.id === commentId) {
-      return { ...comment, pendingDelete: true, pendingDeleteRequestedAt: new Date().toISOString() };
-    }
-    return comment.replies?.length
-      ? { ...comment, replies: markCommentPendingDelete(comment.replies, commentId) }
-      : comment;
-  });
-
-  const collectPendingDeleteCommentIds = (comments: Comment[]): string[] => {
-    const ids: string[] = [];
-    const walk = (items: Comment[]) => {
-      items.forEach(comment => {
-        if (comment.pendingDelete) ids.push(comment.id);
-        if (comment.replies?.length) walk(comment.replies);
-      });
-    };
-    walk(comments);
-    return ids;
-  };
-
-  const submitCommentDeleteApprovalRequest = async (commentId: string) => {
-    const token = useAuthStore.getState().token || localStorage.getItem('token');
-    if (!token) throw new Error('Authentication is required.');
-    const payload = leadRecord
-      ? { action: 'delete_deal_comment', deal_id: leadRecord.id, comment_id: commentId, lead_name: leadRecord.name }
-      : { action: 'delete_client_comment', comment_id: commentId };
-    const response = await fetch(`/api/clients/${client.id}/edit-requests`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify(payload)
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || 'Failed to create approval request.');
-    return data;
-  };
-
-  const handleRequestCommentDelete = async (commentId: string) => {
-    try {
-      if (leadRecord) {
-        const previousComments = leadRecord.comments || [];
-        const nextComments = markCommentPendingDelete(leadRecord.comments || [], commentId);
-        updateDeal(leadRecord.id, { comments: nextComments });
-        try {
-          await submitCommentDeleteApprovalRequest(commentId);
-        } catch (error) {
-          updateDeal(leadRecord.id, { comments: previousComments });
-          throw error;
-        }
-      } else {
-        const previousComments = client.comments || [];
-        const nextComments = markCommentPendingDelete(client.comments || [], commentId);
-        editClient(client.id, { comments: nextComments });
-        try {
-          await submitCommentDeleteApprovalRequest(commentId);
-        } catch (error) {
-          editClient(client.id, { comments: previousComments });
-          throw error;
-        }
-      }
-      notify(useStore.getState().language === 'zh' ? '评论删除请求已提交，等待审批。' : 'Comment delete request submitted for approval.', 'success');
-    } catch (error) {
-      console.error(error);
-      notify(useStore.getState().language === 'zh' ? '提交评论删除请求失败。' : 'Failed to request comment deletion.', 'error');
-    }
-  };
-
   const visibleAiData = aiData || existingAnalysisResult();
 
   return (
@@ -676,7 +542,7 @@ export function ClientDetails() {
           fileInputRef={fileInputRef}
           onCommentTextChange={setCommentText}
           onSubmitComment={handleAddComment}
-          onReply={handleAddLeadReply}
+          onReply={handleAddReply}
           onDelete={handleRequestCommentDelete}
         />
 
