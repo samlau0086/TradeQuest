@@ -487,7 +487,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 
 - [-] Gradually split oversized page components before changing major layouts. `Inbox.tsx` is being reduced through smaller hooks and UI components.
 - [x] Extract Inbox conversation list item, sidebar controls, bulk actions panel, dialogs, message list, reply composer, internal notes, follow-up strip, and channel detail header pieces.
-- [x] Extract Inbox data/action hooks for sync, unified conversation actions, bulk actions, navigation actions, selection state, selected email context, follow-up state, comments, and Telegram/Live Chat reply actions.
+- [x] Extract Inbox data/action hooks for sync, unified conversation actions, bulk actions, navigation actions, selection state, selected email context, active conversation context, follow-up state, comments, and Telegram/Live Chat reply actions.
 - [ ] Continue reducing `Inbox.tsx` toward a page orchestration layer before replacing its layout.
 - [ ] Apply the same gradual extraction pattern to other large record/detail pages before major redesign.
 
@@ -543,7 +543,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 
 - [-] 在大改布局前，先逐步拆分超大页面组件。`Inbox.tsx` 正在通过小组件和 hooks 持续瘦身。
 - [x] 已拆出 Inbox 的会话列表项、侧栏控制、批量操作面板、弹窗、消息列表、回复框、内部备注、待跟进条和渠道详情头部等组件。
-- [x] 已拆出 Inbox 的同步、统一会话动作、批量动作、导航动作、选择状态、选中邮件上下文、待跟进、评论、Telegram/Live Chat 回复等 hooks。
+- [x] 已拆出 Inbox 的同步、统一会话动作、批量动作、导航动作、选择状态、选中邮件上下文、活跃会话上下文、待跟进、评论、Telegram/Live Chat 回复等 hooks。
 - [ ] 继续把 `Inbox.tsx` 收敛为页面编排层，再替换整体布局。
 - [ ] 对其他大型详情页/记录页使用同样的渐进式抽组件方式。
 
