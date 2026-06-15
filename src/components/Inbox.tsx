@@ -3,18 +3,14 @@ import { useStore, EmailMessage } from '../store';
 import { useAuthStore } from '../authStore';
 import { Mail } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { UploadAttachmentModal } from './UploadAttachmentModal';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle, useDefaultLayout } from 'react-resizable-panels';
 import {
   CONVERSATION_STAGES,
   ComposeEmail,
   EmailConversationPane,
-  EmailTagDialog,
-  EmailTodoDialog,
-  InboxConfirmDialog,
+  InboxAuxiliaryDialogs,
   InboxContactLinkingModals,
   InboxConversationSidebar,
-  InboxNotificationDialog,
   LiveChatConversationPane,
   StartWhatsAppConversationPane,
   TelegramConversationPane,
@@ -991,50 +987,30 @@ export function Inbox() {
         selectClient={selectClient}
       />
 
-      {confirmDialog && (
-        <InboxConfirmDialog
-          message={confirmDialog.message}
-          onConfirm={confirmDialog.onConfirm}
-          onCancel={() => setConfirmDialog(null)}
-        />
-      )}
-
-      {alertDialog && (
-        <InboxNotificationDialog
-          message={alertDialog}
-          onClose={() => setAlertDialog(null)}
-        />
-      )}
-
-      {showCommentAttachmentModal && (
-        <UploadAttachmentModal 
-          onClose={() => setShowCommentAttachmentModal(false)}
-          onUpload={(files) => {
-            setCommentAttachments(prev => [...prev, ...files]);
-            setShowCommentAttachmentModal(false);
-          }}
-        />
-      )}
-
-      {tagModalEmail && (
-        <EmailTagDialog
-          tagInput={tagInput}
-          onTagInputChange={setTagInput}
-          onSubmit={submitTag}
-          onClose={() => setTagModalEmail(null)}
-        />
-      )}
-
-      {todoModalEmail && (
-        <EmailTodoDialog
-          todoAt={todoAt}
-          todoNote={todoNote}
-          onTodoAtChange={setTodoAt}
-          onTodoNoteChange={setTodoNote}
-          onSubmit={submitTodo}
-          onClose={() => setTodoModalEmail(null)}
-        />
-      )}
+      <InboxAuxiliaryDialogs
+        confirmDialog={confirmDialog}
+        alertDialog={alertDialog}
+        showCommentAttachmentModal={showCommentAttachmentModal}
+        tagModalEmail={tagModalEmail}
+        tagInput={tagInput}
+        todoModalEmail={todoModalEmail}
+        todoAt={todoAt}
+        todoNote={todoNote}
+        onCloseConfirm={() => setConfirmDialog(null)}
+        onCloseAlert={() => setAlertDialog(null)}
+        onCloseAttachment={() => setShowCommentAttachmentModal(false)}
+        onUploadAttachments={(files) => {
+          setCommentAttachments(prev => [...prev, ...files]);
+          setShowCommentAttachmentModal(false);
+        }}
+        onTagInputChange={setTagInput}
+        onSubmitTag={submitTag}
+        onCloseTag={() => setTagModalEmail(null)}
+        onTodoAtChange={setTodoAt}
+        onTodoNoteChange={setTodoNote}
+        onSubmitTodo={submitTodo}
+        onCloseTodo={() => setTodoModalEmail(null)}
+      />
 
     </PanelGroup>
   );
