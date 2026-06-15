@@ -15,6 +15,7 @@ export { LiveChatCustomerInsightCard, LiveChatEvidencePanel } from './LiveChatCo
 export { LiveChatHeaderActions, LiveChatHeaderMeta } from './LiveChatHeaderControls';
 export { StartWhatsAppConversationPane } from './StartWhatsAppConversationPane';
 export { TelegramHeaderActions, TelegramHeaderMeta } from './TelegramHeaderControls';
+export { useActiveConversationComments } from './useActiveConversationComments';
 export {
   EmailRichTextEditor,
   emailHtmlHasContent,
