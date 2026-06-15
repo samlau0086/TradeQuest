@@ -9,6 +9,7 @@ export { ConversationReplyComposer } from './ConversationReplyComposer';
 export { EmailConversationPane } from './EmailConversationPane';
 export { EmailAgentSuggestionsPanel, EmailAttachmentsPanel, EmailBodyPanel, EmailCommentsPanel, EmailHeaderActions, EmailHeaderMeta, EmailTrackingPanel } from './EmailDetailPanels';
 export { InboxBulkActionsPanel } from './InboxBulkActionsPanel';
+export { InboxContactLinkingModals } from './InboxContactLinkingModals';
 export { InboxConversationSidebar } from './InboxConversationSidebar';
 export { InboxConversationListItem } from './InboxConversationListItem';
 export { EmailTagDialog, EmailTodoDialog, InboxConfirmDialog, InboxNotificationDialog } from './InboxDialogs';

@@ -1,9 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useStore, EmailMessage, LiveChatSession } from '../store';
+import { useStore, EmailMessage } from '../store';
 import { useAuthStore } from '../authStore';
 import { Mail } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { ClientFormModal } from './ClientFormModal';
 import { UploadAttachmentModal } from './UploadAttachmentModal';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle, useDefaultLayout } from 'react-resizable-panels';
 import {
@@ -13,6 +12,7 @@ import {
   EmailTagDialog,
   EmailTodoDialog,
   InboxConfirmDialog,
+  InboxContactLinkingModals,
   InboxConversationSidebar,
   InboxNotificationDialog,
   LiveChatConversationPane,
@@ -42,7 +42,6 @@ import type {
   InboxWhatsAppConversation,
   UnifiedCommunicationConversation,
 } from './inbox-ui';
-import { AddContactToClientModal } from './AddContactToClientModal';
 
 export function Inbox() {
   const { emails, markEmailRead, clients, logs, deals, knowledgeBase, products, addEmail, addLog, addClient, editClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail, notify, language, llmConfigs, activeLLMId, llmMappings, inboxFollowUpFilterRequest, fetchEmails, fetchLiveChatSessions, fetchLiveChatMessages, sendLiveChatOperatorMessage, updateLiveChatSession, runLiveChatAgent, connectLiveChatSocket, joinLiveChatSocketSession, liveChatSessions, liveChatMessages, liveChatSocketStatus } = useStore();
@@ -966,96 +965,31 @@ export function Inbox() {
         )}
       </Panel>
 
-      {isCreatingLead && (selectedEmail || selectedLiveChatConversation || selectedTelegramConversation) && (
-        <ClientFormModal
-          onClose={() => setIsCreatingLead(false)}
-          initialData={{
-            name: selectedEmail
-              ? (filter === 'inbox' ? (selectedEmail.senderName || selectedEmail.sender.split('@')[0]) : (selectedEmail.recipient.split('@')[0]))
-              : selectedTelegramConversation
-                ? activeTelegramDisplayName
-              : activeLiveChatDisplayName,
-            company: 'Unknown',
-            country: 'Unknown',
-            status: 'Leads',
-            tags: selectedLiveChatConversation ? ['live-chat'] : selectedTelegramConversation ? ['telegram'] : [],
-            sourceType: selectedLiveChatConversation ? 'live_chat' : selectedTelegramConversation ? 'telegram' : 'email',
-            sourceId: selectedLiveChatConversation?.source_id || selectedTelegramConversation?.source_id || selectedEmail?.id,
-            sourceLabel: selectedLiveChatConversation ? `Live Chat: ${activeLiveChatDisplayName}` : selectedTelegramConversation ? `Telegram: ${activeTelegramDisplayName}` : selectedEmail?.subject,
-            contactMethods: selectedEmail
-              ? [{ type: 'email', value: filter === 'inbox' ? selectedEmail.sender : selectedEmail.recipient }]
-              : selectedTelegramConversation
-                ? (activeTelegramContactMethod ? [activeTelegramContactMethod] : [])
-              : (activeLiveChatContactMethod ? [activeLiveChatContactMethod] : [])
-          }}
-          onSave={async (newClientId) => {
-            if (activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback) {
-              await patchUnifiedConversation(activeUnifiedConversation, { clientId: newClientId });
-            }
-            if (selectedTelegramConversation) {
-              const res = await fetch(`/api/telegram/conversations/${encodeURIComponent(selectedTelegramConversation.source_id)}`, {
-                method: 'PATCH',
-                headers: {
-                  'Content-Type': 'application/json',
-                  Authorization: `Bearer ${localStorage.getItem('token')}`
-                },
-                body: JSON.stringify({ clientId: newClientId })
-              });
-              if (!res.ok) {
-                const data = await res.json().catch(() => ({}));
-                throw new Error(data.error || 'Failed to link Telegram conversation');
-              }
-              setSelectedTelegramConversation(prev => prev ? { ...prev, client_id: newClientId } : prev);
-              await refreshUnifiedConversationData();
-            } else if (selectedLiveChatConversation) {
-              await updateLiveChatSession(selectedLiveChatConversation.source_id, { clientId: newClientId } as Partial<LiveChatSession>);
-              setSelectedLiveChatConversation(prev => prev ? { ...prev, client_id: newClientId } : prev);
-              await fetchLiveChatSessions();
-              await refreshUnifiedConversationData();
-            } else if (selectedEmail) {
-              editEmail(selectedEmail.id, { clientId: newClientId });
-            }
-            selectClient(newClientId);
-          }}
-        />
-      )}
-
-      {isAddingContactToClient && activeLinkableContactMethod && (
-        <AddContactToClientModal
-          contactMethod={activeLinkableContactMethod}
-          displayName={activeLinkableDisplayName}
-          onClose={() => setIsAddingContactToClient(false)}
-          onLinked={async (clientId) => {
-            if (activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback) {
-              await patchUnifiedConversation(activeUnifiedConversation, { clientId });
-            }
-            if (selectedTelegramConversation) {
-              const res = await fetch(`/api/telegram/conversations/${encodeURIComponent(selectedTelegramConversation.source_id)}`, {
-                method: 'PATCH',
-                headers: {
-                  'Content-Type': 'application/json',
-                  Authorization: `Bearer ${localStorage.getItem('token')}`
-                },
-                body: JSON.stringify({ clientId })
-              });
-              if (!res.ok) {
-                const data = await res.json().catch(() => ({}));
-                throw new Error(data.error || 'Failed to link Telegram conversation');
-              }
-              setSelectedTelegramConversation(prev => prev ? { ...prev, client_id: clientId } : prev);
-              await refreshUnifiedConversationData();
-            } else if (selectedLiveChatConversation) {
-              await updateLiveChatSession(selectedLiveChatConversation.source_id, { clientId } as Partial<LiveChatSession>);
-              setSelectedLiveChatConversation(prev => prev ? { ...prev, client_id: clientId } : prev);
-              await fetchLiveChatSessions();
-              await refreshUnifiedConversationData();
-            } else if (selectedEmail) {
-              editEmail(selectedEmail.id, { clientId });
-            }
-            selectClient(clientId);
-          }}
-        />
-      )}
+      <InboxContactLinkingModals
+        isCreatingLead={isCreatingLead}
+        isAddingContactToClient={isAddingContactToClient}
+        filter={filter}
+        selectedEmail={selectedEmail}
+        selectedTelegramConversation={selectedTelegramConversation}
+        selectedLiveChatConversation={selectedLiveChatConversation}
+        activeTelegramDisplayName={activeTelegramDisplayName}
+        activeLiveChatDisplayName={activeLiveChatDisplayName}
+        activeTelegramContactMethod={activeTelegramContactMethod}
+        activeLiveChatContactMethod={activeLiveChatContactMethod}
+        activeLinkableContactMethod={activeLinkableContactMethod}
+        activeLinkableDisplayName={activeLinkableDisplayName}
+        activeUnifiedConversation={activeUnifiedConversation}
+        onCloseCreateLead={() => setIsCreatingLead(false)}
+        onCloseAddToExistingClient={() => setIsAddingContactToClient(false)}
+        patchUnifiedConversation={patchUnifiedConversation}
+        setSelectedTelegramConversation={setSelectedTelegramConversation}
+        setSelectedLiveChatConversation={setSelectedLiveChatConversation}
+        updateLiveChatSession={updateLiveChatSession}
+        fetchLiveChatSessions={fetchLiveChatSessions}
+        refreshUnifiedConversationData={refreshUnifiedConversationData}
+        editEmail={editEmail}
+        selectClient={selectClient}
+      />
 
       {confirmDialog && (
         <InboxConfirmDialog
