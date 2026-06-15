@@ -26,9 +26,7 @@ import {
   LiveChatHeaderActions,
   LiveChatHeaderMeta,
   StartWhatsAppConversationPane,
-  TelegramAgentSuggestionsPanel,
-  TelegramHeaderActions,
-  TelegramHeaderMeta,
+  TelegramConversationPane,
   WhatsAppConversationPane,
   useActiveConversationComments,
   useActiveConversationContext,
@@ -959,174 +957,98 @@ ${bodyText}`,
             }}
           />
         ) : selectedTelegramConversation ? (
-          <div className="flex-1 flex flex-col min-h-0">
-            <ConversationDetailHeader
-              language={language}
-              channel="telegram"
-              title={selectedTelegramConversation.client_name || selectedTelegramConversation.title || selectedTelegramConversation.contact_name || selectedTelegramConversation.contact_address || 'Telegram'}
-              subtitle={selectedTelegramConversation.contact_address || selectedTelegramConversation.metadata?.telegramChatId || ''}
-              clientId={activeTelegramClient?.id || selectedTelegramConversation.client_id}
-              clientName={activeTelegramClient?.name || selectedTelegramConversation.client_name}
-              tags={activeTelegramClient?.tags || selectedTelegramConversation.tags || []}
-              ownerId={selectedTelegramConversation.owner_id}
-              stage={selectedTelegramConversation.stage}
-              currentUser={currentUser}
-              onBack={() => { setSelectedTelegramConversation(null); setTelegramMessages([]); }}
-              onClientClick={() => {
-                const id = activeTelegramClient?.id || selectedTelegramConversation.client_id;
-                if (id) selectClient(id);
-              }}
-              onOwnerChange={(ownerId) => {
-                updateConversationOwnerStage(selectedTelegramConversation, { ownerId });
-                setSelectedTelegramConversation(prev => prev ? { ...prev, owner_id: ownerId || undefined } : prev);
-              }}
-              onStageChange={(stage) => {
-                updateConversationOwnerStage(selectedTelegramConversation, { stage });
-                setSelectedTelegramConversation(prev => prev ? { ...prev, stage: stage || undefined } : prev);
-              }}
-              onDelete={() => {
-                setConfirmDialog({
-                  message: 'Are you sure you want to delete this Telegram conversation from CRM?',
-                  onConfirm: async () => {
-                    await deleteUnifiedConversation(selectedTelegramConversation);
-                    setSelectedTelegramConversation(null);
-                    setTelegramMessages([]);
-                    await refreshUnifiedConversationData();
-                    setConfirmDialog(null);
-                  }
-                });
-              }}
-              actions={(
-                <TelegramHeaderActions
-                  language={language}
-                  humanTakeover={selectedTelegramConversation.metadata?.humanTakeover}
-                  onToggleHumanTakeover={toggleTelegramHumanTakeover}
-                />
-              )}
-              meta={(
-                <TelegramHeaderMeta
-                  language={language}
-                  isLinked={!!(activeTelegramClient || selectedTelegramConversation.client_id)}
-                  hasContactMethod={!!activeTelegramContactMethod}
-                  translateEnabled={activeTelegramTranslateEnabled}
-                  humanTakeover={selectedTelegramConversation.metadata?.humanTakeover}
-                  chatId={selectedTelegramConversation.metadata?.telegramChatId}
-                  userId={selectedTelegramConversation.metadata?.telegramUserId}
-                  onToggleTranslate={() => setConversationAutoTranslateEnabled('telegram', selectedTelegramConversation.id, !activeTelegramTranslateEnabled)}
-                  onCreateLead={handleCreateLead}
-                  onAddToExistingClient={() => setIsAddingContactToClient(true)}
-                />
-              )}
-            />
-            <ConversationFollowUpStrip
-              language={language}
-              dueAt={selectedTelegramConversation.todo_at || null}
-              note={selectedTelegramConversation.todo_note || null}
-              onSet={async (dueAt, note) => {
-                const patched = await patchUnifiedConversation(selectedTelegramConversation, { todoAt: dueAt, todoNote: note });
-                setSelectedTelegramConversation(patched);
-                await refreshUnifiedConversationData();
-              }}
-              onClear={async () => {
-                const patched = await patchUnifiedConversation(selectedTelegramConversation, { todoAt: null, todoNote: null });
-                setSelectedTelegramConversation(patched);
-                await refreshUnifiedConversationData();
-              }}
-              onComplete={async () => {
-                const patched = await patchUnifiedConversation(selectedTelegramConversation, { todoAt: null, todoNote: null, status: 'completed' });
-                setSelectedTelegramConversation(patched);
-                await refreshUnifiedConversationData();
-              }}
-            />
-            <div className="flex-1 overflow-y-auto bg-slate-950/50 p-6 space-y-4">
-              <ConversationMessageList
-                channel="telegram"
-                language={language}
-                messages={telegramMessages}
-                isLoading={isTelegramMessagesLoading}
-                translateEnabled={activeTelegramTranslateEnabled}
-                translations={activeTelegramTranslations}
-                translatingIds={translatingConversationMessageIds}
-              />
-              <TelegramAgentSuggestionsPanel
-                language={language}
-                cacheKey={activeTelegramAgentContext.cacheKey}
-                conversationId={selectedTelegramConversation.id}
-                clientId={activeTelegramClient?.id || selectedTelegramConversation.client_id}
-                clientName={activeTelegramClient?.name || selectedTelegramConversation.client_name}
-                persistedInsight={selectedTelegramConversation.agent_context_analysis_key === activeTelegramAgentContext.cacheKey ? selectedTelegramConversation.agent_context_analysis : undefined}
-                persistedInsightKey={selectedTelegramConversation.agent_context_analysis_key}
-                subject={selectedTelegramConversation.title || activeTelegramDisplayName || 'Telegram conversation'}
-                body={activeTelegramAgentContext.body}
-                additionalContext={activeTelegramAgentContext.additionalContext}
-                hasClient={!!(activeTelegramClient?.id || selectedTelegramConversation.client_id)}
-                hasKnowledge={!!activeTelegramClient}
-                hasCustomerMessage={activeTelegramAgentContext.hasCustomerMessage}
-                onDraftReply={draftTelegramReply}
-                onAddComment={async () => appendActiveConversationComment(`Telegram note: ${activeTelegramAgentContext.latestInbound?.body || selectedTelegramConversation.title || 'Follow up this Telegram conversation'}`)}
-                onCreateLead={!activeTelegramClient && !selectedTelegramConversation.client_id ? handleCreateLead : undefined}
-                followUpAt={activeFollowUpAt}
-                followUpNote={activeFollowUpNote}
-                onSetFollowUp={(dueAt, note) => updateActiveConversationFollowUp(dueAt, note || `Follow up Telegram conversation with ${activeTelegramDisplayName}.`, 'open')}
-                onClearFollowUp={() => updateActiveConversationFollowUp(null, null, 'canceled')}
-                onCompleteFollowUp={() => updateActiveConversationFollowUp(null, null, 'completed')}
-                onSaveAnalysis={async (key, insight) => {
-                  const patched = await patchUnifiedConversation(selectedTelegramConversation, {
-                    agentContextAnalysis: insight,
-                    agentContextAnalysisKey: key
-                  });
-                  setSelectedTelegramConversation(prev => prev ? {
-                    ...prev,
-                    agent_context_analysis: patched.agent_context_analysis || insight,
-                    agent_context_analysis_key: patched.agent_context_analysis_key || key
-                  } : prev);
-                  applyUnifiedConversationUpdate(selectedTelegramConversation, {
-                    agent_context_analysis: patched.agent_context_analysis || insight,
-                    agent_context_analysis_key: patched.agent_context_analysis_key || key
-                  });
-                }}
-                onDeleteItem={() => {
-                  setConfirmDialog({
-                    message: 'Are you sure you want to delete this Telegram conversation from CRM?',
-                    onConfirm: async () => {
-                      await deleteUnifiedConversation(selectedTelegramConversation);
-                      setSelectedTelegramConversation(null);
-                      setTelegramMessages([]);
-                      await refreshUnifiedConversationData();
-                      setConfirmDialog(null);
-                    }
-                  });
-                }}
-              />
-              <ConversationInternalNotesPanel
-                language={language}
-                comments={activeConversationComments}
-                commentText={commentText}
-                accent="sky"
-                isLinked={!!activeTelegramClient}
-                linkedDescription={language === 'zh' ? '已关联客户：备注保存到客户资料。' : 'Linked client: notes are saved to the customer profile.'}
-                unlinkedDescription={language === 'zh' ? '未关联客户：备注暂存到当前 Telegram 会话。' : 'Unlinked Telegram user: notes are saved to this conversation.'}
-                onCommentTextChange={setCommentText}
-                onReply={(commentId, content, attachments) => void replyActiveConversationComment(commentId, content, attachments)}
-                onSubmit={() => {
-                  if (!commentText.trim()) return;
-                  void appendActiveConversationComment(commentText.trim()).then(() => setCommentText(''));
-                }}
-              />
-            </div>
-            <ConversationReplyComposer
-              language={language}
-              value={telegramReply}
-              isSending={isSendingTelegramReply}
-              accent="sky"
-              placeholder={language === 'zh' ? '输入 Telegram 回复，Ctrl+Enter 发送...' : 'Write a Telegram reply, Ctrl+Enter to send...'}
-              helperText={language === 'zh'
-                ? '发送使用 Settings -> Telegram Bot 中配置的 Bot Token。人工接管会暂停 Telegram Agent 自动回复。'
-                : 'Sending uses the Bot Token configured in Settings -> Telegram Bot. Human takeover pauses Telegram Agent auto-replies.'}
-              onChange={setTelegramReply}
-              onSend={sendTelegramReply}
-            />
-          </div>
+          <TelegramConversationPane
+            language={language}
+            selectedTelegramConversation={selectedTelegramConversation}
+            activeTelegramClient={activeTelegramClient}
+            activeTelegramContactMethod={activeTelegramContactMethod}
+            activeTelegramDisplayName={activeTelegramDisplayName}
+            activeTelegramTranslateEnabled={activeTelegramTranslateEnabled}
+            activeTelegramTranslations={activeTelegramTranslations}
+            activeTelegramAgentContext={activeTelegramAgentContext}
+            currentUser={currentUser}
+            telegramMessages={telegramMessages}
+            isTelegramMessagesLoading={isTelegramMessagesLoading}
+            translatingConversationMessageIds={translatingConversationMessageIds}
+            activeConversationComments={activeConversationComments}
+            commentText={commentText}
+            telegramReply={telegramReply}
+            isSendingTelegramReply={isSendingTelegramReply}
+            activeFollowUpAt={activeFollowUpAt}
+            activeFollowUpNote={activeFollowUpNote}
+            onBack={() => { setSelectedTelegramConversation(null); setTelegramMessages([]); }}
+            onClientClick={() => {
+              const id = activeTelegramClient?.id || selectedTelegramConversation.client_id;
+              if (id) selectClient(id);
+            }}
+            onOwnerChange={(ownerId) => {
+              updateConversationOwnerStage(selectedTelegramConversation, { ownerId });
+              setSelectedTelegramConversation(prev => prev ? { ...prev, owner_id: ownerId || undefined } : prev);
+            }}
+            onStageChange={(stage) => {
+              updateConversationOwnerStage(selectedTelegramConversation, { stage });
+              setSelectedTelegramConversation(prev => prev ? { ...prev, stage: stage || undefined } : prev);
+            }}
+            onDeleteConversation={() => {
+              setConfirmDialog({
+                message: 'Are you sure you want to delete this Telegram conversation from CRM?',
+                onConfirm: async () => {
+                  await deleteUnifiedConversation(selectedTelegramConversation);
+                  setSelectedTelegramConversation(null);
+                  setTelegramMessages([]);
+                  await refreshUnifiedConversationData();
+                  setConfirmDialog(null);
+                }
+              });
+            }}
+            onToggleHumanTakeover={toggleTelegramHumanTakeover}
+            onToggleTranslate={() => setConversationAutoTranslateEnabled('telegram', selectedTelegramConversation.id, !activeTelegramTranslateEnabled)}
+            onCreateLead={!activeTelegramClient && !selectedTelegramConversation.client_id ? handleCreateLead : undefined}
+            onAddToExistingClient={() => setIsAddingContactToClient(true)}
+            onSetConversationFollowUp={async (dueAt, note) => {
+              const patched = await patchUnifiedConversation(selectedTelegramConversation, { todoAt: dueAt, todoNote: note });
+              setSelectedTelegramConversation(patched);
+              await refreshUnifiedConversationData();
+            }}
+            onClearConversationFollowUp={async () => {
+              const patched = await patchUnifiedConversation(selectedTelegramConversation, { todoAt: null, todoNote: null });
+              setSelectedTelegramConversation(patched);
+              await refreshUnifiedConversationData();
+            }}
+            onCompleteConversationFollowUp={async () => {
+              const patched = await patchUnifiedConversation(selectedTelegramConversation, { todoAt: null, todoNote: null, status: 'completed' });
+              setSelectedTelegramConversation(patched);
+              await refreshUnifiedConversationData();
+            }}
+            onDraftReply={draftTelegramReply}
+            onAddSuggestionComment={async () => appendActiveConversationComment(`Telegram note: ${activeTelegramAgentContext.latestInbound?.body || selectedTelegramConversation.title || 'Follow up this Telegram conversation'}`)}
+            onSetAgentFollowUp={(dueAt, note) => updateActiveConversationFollowUp(dueAt, note || `Follow up Telegram conversation with ${activeTelegramDisplayName}.`, 'open')}
+            onClearAgentFollowUp={() => updateActiveConversationFollowUp(null, null, 'canceled')}
+            onCompleteAgentFollowUp={() => updateActiveConversationFollowUp(null, null, 'completed')}
+            onSaveAnalysis={async (key, insight) => {
+              const patched = await patchUnifiedConversation(selectedTelegramConversation, {
+                agentContextAnalysis: insight,
+                agentContextAnalysisKey: key
+              });
+              setSelectedTelegramConversation(prev => prev ? {
+                ...prev,
+                agent_context_analysis: patched.agent_context_analysis || insight,
+                agent_context_analysis_key: patched.agent_context_analysis_key || key
+              } : prev);
+              applyUnifiedConversationUpdate(selectedTelegramConversation, {
+                agent_context_analysis: patched.agent_context_analysis || insight,
+                agent_context_analysis_key: patched.agent_context_analysis_key || key
+              });
+            }}
+            onCommentTextChange={setCommentText}
+            onReplyComment={(commentId, content, attachments) => void replyActiveConversationComment(commentId, content, attachments)}
+            onSubmitComment={() => {
+              if (!commentText.trim()) return;
+              void appendActiveConversationComment(commentText.trim()).then(() => setCommentText(''));
+            }}
+            onTelegramReplyChange={setTelegramReply}
+            onSendTelegramReply={sendTelegramReply}
+          />
         ) : selectedLiveChatConversation ? (
           <div className="flex-1 flex flex-col min-h-0">
             <ConversationDetailHeader
@@ -1260,8 +1182,8 @@ ${bodyText}`,
                 commentText={commentText}
                 accent="violet"
                 isLinked={!!activeLiveChatClient}
-                linkedDescription={language === 'zh' ? '已关联客户：备注保存到客户资料。' : 'Linked client: notes are saved to the customer profile.'}
-                unlinkedDescription={language === 'zh' ? '未关联客户：备注暂存到当前会话。' : 'Unlinked visitor: notes are saved to this conversation.'}
+                linkedDescription="Linked client: notes are saved to the customer profile."
+                unlinkedDescription="Unlinked visitor: notes are saved to this conversation."
                 onCommentTextChange={setCommentText}
                 onReply={(commentId, content, attachments) => void replyActiveConversationComment(commentId, content, attachments)}
                 onSubmit={() => {
@@ -1276,10 +1198,8 @@ ${bodyText}`,
               value={liveChatReply}
               isSending={isSendingLiveChatReply}
               accent="violet"
-              placeholder={language === 'zh' ? '输入 Live Chat 回复，Ctrl+Enter 发送...' : 'Write a Live Chat reply, Ctrl+Enter to send...'}
-              helperText={language === 'zh'
-                ? '人工接管会暂停后台 Live Chat Agent 自动回复；交还给 Agent 后，新访客消息可自动触发。'
-                : 'Human takeover pauses background Live Chat Agent replies. Hand back to Agent to let new visitor messages trigger automation.'}
+              placeholder="Write a Live Chat reply, Ctrl+Enter to send..."
+              helperText="Human takeover pauses background Live Chat Agent replies. Hand back to Agent to let new visitor messages trigger automation."
               onChange={setLiveChatReply}
               onSend={sendLiveChatReply}
             />

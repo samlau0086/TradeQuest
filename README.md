@@ -489,6 +489,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] Extract Inbox conversation sidebar, conversation list item, sidebar controls, bulk actions panel, dialogs, message list, reply composer, internal notes, follow-up strip, and channel detail header pieces.
 - [x] Extract Inbox Email conversation pane so the right-side reading experience can be redesigned independently.
 - [x] Extract Inbox WhatsApp conversation pane so WhatsApp header, follow-up, and embedded chat can evolve independently.
+- [x] Extract Inbox Telegram conversation pane so Telegram header, messages, AI suggestions, notes, and reply composer can evolve independently.
 - [x] Extract Inbox data/action hooks for sync, unified conversation actions, conversation list data, sidebar actions, bulk actions, navigation actions, selection state, selected email context, active conversation context, follow-up state, comments, and Telegram/Live Chat reply actions.
 - [ ] Continue reducing `Inbox.tsx` toward a page orchestration layer before replacing its layout.
 - [ ] Apply the same gradual extraction pattern to other large record/detail pages before major redesign.

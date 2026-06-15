@@ -16,6 +16,7 @@ export { InboxSidebarControls } from './InboxSidebarControls';
 export { LiveChatCustomerInsightCard, LiveChatEvidencePanel } from './LiveChatContextWidgets';
 export { LiveChatHeaderActions, LiveChatHeaderMeta } from './LiveChatHeaderControls';
 export { StartWhatsAppConversationPane } from './StartWhatsAppConversationPane';
+export { TelegramConversationPane } from './TelegramConversationPane';
 export { TelegramHeaderActions, TelegramHeaderMeta } from './TelegramHeaderControls';
 export { WhatsAppConversationPane } from './WhatsAppConversationPane';
 export { useActiveConversationComments } from './useActiveConversationComments';
