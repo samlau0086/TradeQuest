@@ -1,27 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useStore, ClientStatus, Client, ContactMethod, Comment } from '../store';
 import { useAuthStore } from '../authStore';
-import { X, Thermometer, Flame, Snowflake, Sparkles, Send, Loader2, Workflow, History, Mail, MessageCircle, Phone, Edit, Trash2, Paperclip, MessageSquare, Settings, Globe2, ArrowLeft, Building2, MapPin, BadgeDollarSign, Tag, Clock3, CheckCircle2, FileText, Maximize2 } from 'lucide-react';
+import { X, Thermometer, Flame, Snowflake, Sparkles, Send, Loader2, Workflow, History, Mail, Edit, Trash2, Paperclip, MessageSquare, Settings, ArrowLeft, Building2, MapPin, BadgeDollarSign, Tag, Clock3, CheckCircle2, FileText } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ClientFormModal } from './ClientFormModal';
-
-const CONTACT_ICONS = {
-  email: Mail,
-  whatsapp: MessageCircle,
-  messenger: MessageCircle,
-  telegram: Send,
-  phone: Phone,
-  wechat: MessageSquare,
-  website: Globe2,
-};
 
 import { User } from 'lucide-react';
 
 import { CommentItem } from './CommentItem';
+import { ClientContactsWidget } from './ClientContactsWidget';
+import { ClientEmailComposeOverlay } from './ClientEmailComposeOverlay';
 import { KnowledgeBaseManager } from './KnowledgeBaseManager';
 import { WorkflowConfigModal } from './WorkflowConfigModal';
 import { LocalTime } from './LocalTime';
-import { ComposeEmail } from './Inbox';
 import { WhatsAppChatModal } from './WhatsAppChatModal';
 import { getCustomerOutputLanguage } from '../lib/language';
 import { buildLeadScoringSignature } from '../lib/leadScoring';
@@ -46,12 +37,6 @@ const internalTextMatchesSystemLanguage = (value: string | undefined | null, lan
   const text = String(value || '').trim();
   if (!text) return true;
   return language === 'zh' ? hasCjkText(text) : !hasCjkText(text);
-};
-
-const contactInitials = (name: string | undefined | null) => {
-  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-  return (parts[0]?.slice(0, 2) || 'C').toUpperCase();
 };
 
 function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { method: ContactMethod, client: Client, onClose: () => void, onOpenEmailCompose?: (email: string) => void }) {
@@ -1529,81 +1514,24 @@ export function ClientDetails() {
               </div>
 
               {/* Contacts */}
-              {displayContacts.length > 0 && (
-                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
-                  <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2">
-                    Contacts
-                  </h3>
-                  <div className="space-y-3">
-                    {displayContacts.map((contact) => (
-                      <div key={contact.id} className="bg-slate-900/50 border border-slate-800 rounded-xl p-3">
-                        <div className="flex items-center justify-between gap-2 mb-2">
-                          <div className="flex min-w-0 items-center gap-3">
-                            <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-700 bg-slate-800 text-xs font-bold uppercase text-slate-400">
-                              {contact.avatarUrl ? (
-                                <img
-                                  src={contact.avatarUrl}
-                                  alt={contact.name || client.name}
-                                  className="h-full w-full object-cover"
-                                  onError={(event) => { event.currentTarget.style.display = 'none'; }}
-                                />
-                              ) : (
-                                <span>{contactInitials(contact.name || client.name)}</span>
-                              )}
-                            </div>
-                            <div className="min-w-0">
-                            <div className="text-sm font-bold text-slate-200 flex items-center gap-2">
-                              {contact.name || client.name}
-                              {contact.isPrimary && <span className="text-[10px] uppercase px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">Key</span>}
-                            </div>
-                            {contact.title && <div className="text-[11px] text-slate-500 mt-0.5">{contact.title}</div>}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          {(contact.contactMethods || []).map((cm, idx) => {
-                            const Icon = CONTACT_ICONS[cm.type] || Mail;
-                            const expandKey = `${contact.id}_${idx}`;
-                            const isExpanded = expandedContactIdx === expandKey;
-                            return (
-                              <div key={expandKey} className="bg-slate-800/50 border border-slate-700/50 rounded-lg overflow-hidden transition-all">
-                                <button
-                                  onClick={() => setExpandedContactIdx(isExpanded ? null : expandKey)}
-                                  className="w-full flex items-center justify-between p-2 hover:bg-slate-800 transition-colors"
-                                >
-                                  <div className="flex items-center gap-3 min-w-0">
-                                    <div className={cn("p-1.5 rounded-md shrink-0", cm.type === 'whatsapp' ? 'bg-green-500/20 text-green-400' : 'bg-slate-700 text-slate-300')}>
-                                      <Icon className="w-4 h-4" />
-                                    </div>
-                                    <span className="text-sm text-slate-300 font-medium truncate">{cm.value}</span>
-                                  </div>
-                                  <span className="text-xs font-medium text-cyan-400 shrink-0 ml-2">
-                                    {isExpanded ? 'Close' : cm.type === 'whatsapp' ? 'Chat' : 'Action'}
-                                  </span>
-                                </button>
-                                {isExpanded && (
-                                  <div className="px-2 pb-2">
-                                    <ContactActionBox
-                                      method={cm}
-                                      client={client}
-                                      onClose={() => setExpandedContactIdx(null)}
-                                      onOpenEmailCompose={(email) => {
-                                        setComposeRecipient(email);
-                                        setShowEmailCompose(true);
-                                        setExpandedContactIdx(null);
-                                      }}
-                                    />
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <ClientContactsWidget
+                client={client}
+                contacts={displayContacts}
+                expandedContactIdx={expandedContactIdx}
+                onExpandedContactChange={setExpandedContactIdx}
+                renderContactAction={(method, closeContactAction) => (
+                  <ContactActionBox
+                    method={method}
+                    client={client}
+                    onClose={closeContactAction}
+                    onOpenEmailCompose={(email) => {
+                      setComposeRecipient(email);
+                      setShowEmailCompose(true);
+                      closeContactAction();
+                    }}
+                  />
+                )}
+              />
 
               {/* AI Auto Agent */}
               <div className="bg-gradient-to-br from-indigo-950/20 to-slate-900 border border-indigo-900/50 rounded-xl p-4 relative overflow-hidden">
@@ -1762,26 +1690,17 @@ export function ClientDetails() {
 
       {/* Gmail-style sticky Compose block in corner */}
       {showEmailCompose && (
-        <div className="fixed inset-0 md:inset-auto md:bottom-0 md:right-8 w-full md:max-w-[550px] h-[100dvh] md:h-[600px] shadow-2xl z-50 md:rounded-t-xl overflow-hidden md:border-t md:border-l md:border-r border-slate-700 bg-slate-900 flex flex-col">
-          <button
-            type="button"
-            onClick={openEmailComposeInInbox}
-            className="absolute right-12 top-2 z-10 rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-cyan-300"
-            title={language === 'zh' ? '在收件箱中打开' : 'Open in inbox'}
-          >
-            <Maximize2 className="h-4 w-4" />
-          </button>
-          <ComposeEmail 
-            onClose={() => {
-              setShowEmailCompose(false);
-              setComposeInitialBody('');
-            }}
-            initialRecipient={composeRecipient} 
-            initialSubject={leadRecord ? `Follow up: ${leadRecord.name}` : `Follow up from ${client.company || client.name}`}
-            initialBody={composeInitialBody}
-            className="rounded-none border-none shadow-none h-full"
-          />
-        </div>
+        <ClientEmailComposeOverlay
+          language={language}
+          recipient={composeRecipient}
+          subject={leadRecord ? `Follow up: ${leadRecord.name}` : `Follow up from ${client.company || client.name}`}
+          initialBody={composeInitialBody}
+          onOpenInInbox={openEmailComposeInInbox}
+          onClose={() => {
+            setShowEmailCompose(false);
+            setComposeInitialBody('');
+          }}
+        />
       )}
     </div>
   );
