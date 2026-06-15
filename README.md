@@ -913,7 +913,8 @@ Content-Type: application/json
 - Team outbound messages are included only as background context. They are explicitly separated from inbound customer messages and must not be interpreted as customer intent.
 - Email and WhatsApp keep channel-native Agent Context analysis persistence. Live Chat and Telegram store their Agent Context analysis on the shared `communication_conversations` record, so cached analysis survives navigation and refresh.
 - The backend exposes `GET /api/agent-context?conversationId=<communication_conversation_id>` as the shared Context Service. Inbox Agent Context panels prefer this server context and fall back to the local frontend builder when a unified conversation id is not available.
-- Unattended Live Chat and Telegram customer service agents also consume the shared Context Service before drafting a reply, so backend automation uses the same customer summary, best next step, cross-channel history, product context, and RAG evidence shown in Inbox.
+- Unattended Live Chat, Telegram, WhatsApp Customer Service, and Email Draft agents also consume the shared Context Service before drafting a reply, so backend automation uses the same customer summary, best next step, cross-channel history, product context, and RAG evidence shown in Inbox.
+- Internal AI outputs such as AI Radar summaries, customer intelligence, lead summaries, and recommended next steps are normalized to the system language before being saved. Changing the system language also invalidates stale analysis signatures so old-language results can be regenerated.
 - Live Chat conversations are embedded directly in the unified Inbox reading pane. Operators can read/reply, toggle human takeover, run the Live Chat Agent, set follow-ups, delete/request review, and use Agent Context & Suggestions without leaving Inbox. The standalone Live Chat Desk remains the seat-management and monitoring view.
 - Live Chat tags and internal notes use the linked customer as the primary destination when a customer is attached. Unlinked visitor conversations keep tags and notes on the conversation until they are linked or converted.
 - Inbox Live Chat shows visitor context evidence such as page URL, IP, browser, OS, language, timezone, local time, and message timing. The same evidence plus recent transcript, customer tags, and recent customer notes is passed into Agent Context & Suggestions so recommendations are easier to audit.
@@ -941,7 +942,9 @@ Content-Type: application/json
 - 后端提供 `GET /api/agent-context?conversationId=<communication_conversation_id>` 作为统一 Context Service。收件箱里的智能体上下文面板会优先使用服务端上下文；当缺少统一会话 ID 时，才回退到前端本地构建器。
 - Telegram 会话在统一收件箱中也会显示智能体上下文与建议；运营人员可以基于同一套客户/RAG/产品/跨渠道上下文起草 Telegram 回复，草稿不会自动发送。
 
-补充：无人值守的 Live Chat 和 Telegram 客服 Agent 在起草回复前也会读取统一 Context Service，因此后台自动化会使用与收件箱一致的客户摘要、最佳下一步、跨渠道历史、产品上下文和 RAG 证据。
+补充：无人值守的 Live Chat、Telegram、WhatsApp Customer Service 和 Email Draft Agent 在起草回复前也会读取统一 Context Service，因此后台自动化会使用与收件箱一致的客户摘要、最佳下一步、跨渠道历史、产品上下文和 RAG 证据。
+
+补充：AI Radar 摘要、客户级情报、Lead 摘要和推荐下一步等对内 AI 输出，会在保存前归一为系统语言；系统语言变化也会使旧分析签名失效，从而允许重新生成对应语言的结果。
 
 ## Deployment
 

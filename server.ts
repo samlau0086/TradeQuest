@@ -696,7 +696,7 @@ function parseSignatureArray(value: any) {
   return Array.isArray(parsed) ? parsed : [];
 }
 
-function buildServerLeadAnalysisSignature(client: any, deals: any[] = [], emails: any[] = [], logs: any[] = []) {
+function buildServerLeadAnalysisSignature(client: any, deals: any[] = [], emails: any[] = [], logs: any[] = [], systemLanguage?: string) {
   const filteredLogs = logs
     .filter((log: any) => {
       const metadata = parseSignatureJson(log.metadata, {});
@@ -752,7 +752,8 @@ function buildServerLeadAnalysisSignature(client: any, deals: any[] = [], emails
     },
     deals: normalizedDeals,
     emails: normalizedEmails,
-    logs: filteredLogs
+    logs: filteredLogs,
+    systemLanguage: getSystemLanguageName(systemLanguage)
   });
 }
 
@@ -2136,6 +2137,30 @@ async function callAI(prompt: string, llmConfig: any, isJson: boolean = false) {
   return response.text;
 }
 
+const hasCjkText = (text: string) => /[\u3400-\u9fff]/.test(text || '');
+
+async function ensureInternalOutputLanguage(text: any, systemLanguage: string | undefined, llmConfig: any, label: string = 'internal CRM field') {
+  const value = String(text || '').trim();
+  if (!value) return value;
+  const targetLanguage = getSystemLanguageName(systemLanguage);
+  if (targetLanguage === 'Chinese' && hasCjkText(value)) return value;
+  if (targetLanguage === 'English' && !hasCjkText(value)) return value;
+
+  try {
+    const translated = await callAI(`Translate this ${label} for an internal CRM user.
+Target language: ${targetLanguage}.
+Keep the business meaning, names, numbers, product names, quote IDs, and CRM terms accurate.
+Return only the translated text. No markdown, no quotes.
+
+Text:
+${value}`, llmConfig, false);
+    return String(translated || '').trim() || value;
+  } catch (error) {
+    console.warn('Failed to normalize internal output language', { label, targetLanguage, error });
+    return value;
+  }
+}
+
 async function startServer() {
   const app = express();
   const httpServer = customRequire("http").createServer(app);
@@ -2505,180 +2530,6 @@ async function startServer() {
         llmId: String(req.query.llmId || '').trim() || undefined
       });
       return res.json({ context: built.context });
-
-      const conversationRes = await pool.query(
-        `SELECT c.*, cl.name AS client_name, cl.company AS client_company, cl.country AS client_country,
-                cl.status AS client_status, cl.tags AS client_tags, cl.comments AS client_comments,
-                cl.contact_methods AS client_contact_methods, cl.contacts AS client_contacts,
-                cl.preferred_language, cl.agent_summary, cl.agent_next_step,
-                cl.lead_summary, cl.lead_next_step, cl.lead_score, cl.updated_at AS client_updated_at
-         FROM communication_conversations c
-         LEFT JOIN clients cl ON cl.id = c.client_id
-         WHERE c.id = $1 AND c.user_id = $2
-         LIMIT 1`,
-        [conversationId, req.user.uid]
-      );
-      const conversation = conversationRes.rows[0];
-      if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
-
-      const messagesRes = await pool.query(
-        `SELECT id, channel, direction, sender, recipient, body, message_type, payload, source_created_at, created_at
-         FROM communication_messages
-         WHERE conversation_id = $1 AND user_id = $2
-         ORDER BY COALESCE(source_created_at, created_at) ASC
-         LIMIT 120`,
-        [conversation.id, req.user.uid]
-      );
-      const messages = messagesRes.rows;
-      const inboundMessages = messages.filter((message: any) => message.direction === 'inbound' && String(message.body || '').trim());
-      const outboundMessages = messages.filter((message: any) => message.direction === 'outbound' && String(message.body || '').trim());
-      const latestInbound = inboundMessages[inboundMessages.length - 1] || null;
-
-      const clientId = conversation.client_id || null;
-      const emailsRes = clientId
-        ? await pool.query(
-          `SELECT id, type, sender, recipient, subject, body, date
-           FROM emails
-           WHERE user_id = $1 AND client_id = $2
-           ORDER BY date DESC
-           LIMIT 8`,
-          [req.user.uid, clientId]
-        )
-        : { rows: [] as any[] };
-      const logsRes = clientId
-        ? await pool.query(
-          `SELECT id, date, content, type
-           FROM logs
-           WHERE client_id = $1
-           ORDER BY date DESC
-           LIMIT 12`,
-          [clientId]
-        )
-        : { rows: [] as any[] };
-      const dealsRes = clientId
-        ? await pool.query(
-          `SELECT id, name, status, value, lead_score, lead_summary, lead_next_step, updated_at
-           FROM deals
-           WHERE user_id = $1 AND client_id = $2
-           ORDER BY updated_at DESC
-           LIMIT 8`,
-          [req.user.uid, clientId]
-        )
-        : { rows: [] as any[] };
-      const productsRes = await pool.query(
-        `SELECT id, sku, name, description, sales_points, updated_at
-         FROM products
-         WHERE user_id = $1
-         ORDER BY updated_at DESC
-         LIMIT 12`,
-        [req.user.uid]
-      );
-
-      const ragQuery = [
-        latestInbound?.body,
-        conversation.title,
-        conversation.subject,
-        conversation.client_name,
-        conversation.client_company,
-        conversation.agent_summary,
-        conversation.agent_next_step
-      ].filter(Boolean).join('\n').slice(0, 2000);
-      const llmId = String(req.query.llmId || '').trim();
-      let llmConfig: any = null;
-      if (llmId) {
-        const userSettings = await pool.query('SELECT settings FROM users WHERE id = $1 LIMIT 1', [req.user.uid]);
-        const settings = typeof userSettings.rows[0]?.settings === 'string' ? JSON.parse(userSettings.rows[0]?.settings || '{}') : (userSettings.rows[0]?.settings || {});
-        llmConfig = (settings.llmConfigs || []).find((config: any) => config.id === llmId) || null;
-      }
-      const kbRes = await searchKnowledgeBase(req.user.uid, clientId, ragQuery || conversation.last_message_preview || conversation.title || '', llmConfig, 8)
-        .catch(() => ({ rows: [] as any[] }));
-      const knowledgeEvidence = (kbRes.rows || []).map((row: any) => ({
-        id: row.id,
-        title: row.title,
-        scope: row.client_id ? 'client' : 'global',
-        source: row.source_path || row.source_type || row.source || 'knowledge_base',
-        sourceType: row.source_type || row.sourceType || 'knowledge_base',
-        confidence: typeof row.relevanceScore === 'number' ? row.relevanceScore : (typeof row.relevance_score === 'number' ? row.relevance_score : undefined),
-        excerpt: normalizeCommunicationBody(row.content || '', 260)
-      }));
-
-      const formatMessageLine = (message: any) => {
-        const when = message.source_created_at || message.created_at ? new Date(message.source_created_at || message.created_at).toISOString() : '';
-        return `${message.direction}${when ? ` (${when})` : ''}: ${normalizeCommunicationBody(message.body || '', 700)}`;
-      };
-      const body = inboundMessages.length > 0
-        ? [
-          'Customer inbound messages. Use only these messages to infer customer intent:',
-          ...inboundMessages.slice(-8).map(formatMessageLine),
-          '',
-          'Our outbound/team messages. Use as background only; never infer customer intent from these:',
-          ...outboundMessages.slice(-8).map(formatMessageLine)
-        ].join('\n')
-        : [
-          'NO_INBOUND_CUSTOMER_MESSAGES',
-          `No inbound customer message is available in this ${conversation.channel} conversation.`,
-          'Our outbound/team messages are background only and must not be treated as customer intent:',
-          ...outboundMessages.slice(-8).map(formatMessageLine)
-        ].join('\n');
-
-      const additionalContext = [
-        `Channel: ${conversation.channel}`,
-        `Subject/contact: ${conversation.subject || conversation.title || conversation.contact_address || 'N/A'}`,
-        clientId
-          ? `Client profile: ${[conversation.client_name, conversation.client_company, conversation.client_country].filter(Boolean).join(' · ') || clientId}`
-          : `Unlinked contact: ${conversation.contact_name || conversation.contact_address || 'N/A'}`,
-        clientId ? `Preferred language: ${conversation.preferred_language || 'N/A'}` : '',
-        clientId ? `AI customer summary: ${conversation.agent_summary || conversation.lead_summary || 'N/A'}` : '',
-        clientId ? `Best next action: ${conversation.agent_next_step || conversation.lead_next_step || 'N/A'}` : '',
-        clientId ? `Lead score: ${conversation.lead_score ?? 'N/A'}` : '',
-        clientId ? `Tags: ${parseJsonArray(conversation.client_tags).join(', ') || 'N/A'}` : '',
-        clientId ? `Recent internal comments: ${parseJsonArray(conversation.client_comments).slice(-6).map((comment: any) => comment.content).filter(Boolean).join(' | ') || 'N/A'}` : '',
-        logsRes.rows.length ? `Recent CRM activity: ${logsRes.rows.map((log: any) => `${log.date}: ${log.content}`).join(' | ')}` : 'Recent CRM activity: N/A',
-        emailsRes.rows.length ? `Cross-channel email history: ${emailsRes.rows.map((email: any) => `${email.type} ${email.date}: ${email.subject} - ${normalizeCommunicationBody(email.body || '', 260)}`).join(' | ')}` : 'Cross-channel email history: N/A',
-        dealsRes.rows.length ? `Related leads/deals: ${dealsRes.rows.map((deal: any) => `${deal.name} (${deal.status}) score ${deal.lead_score ?? 'N/A'} summary: ${deal.lead_summary || 'N/A'} next: ${deal.lead_next_step || 'N/A'}`).join(' | ')}` : 'Related leads/deals: N/A',
-        knowledgeEvidence.length ? `Relevant knowledge snippets: ${knowledgeEvidence.map((item: any) => `${item.scope}:${item.title}: ${item.excerpt}`).join(' | ')}` : 'Relevant knowledge snippets: N/A',
-        productsRes.rows.length ? `Product context: ${productsRes.rows.map((product: any) => `${product.name}${product.sku ? ` (${product.sku})` : ''}: ${normalizeCommunicationBody(product.sales_points || product.description || '', 420)}`).join(' | ')}` : 'Product context: N/A'
-      ].filter(Boolean).join('\n');
-
-      const signatureParts = [
-        conversation.id,
-        latestInbound?.id || 'no-inbound',
-        conversation.updated_at,
-        conversation.client_updated_at,
-        kbRes.rows?.[0]?.updated_at || '',
-        productsRes.rows?.[0]?.updated_at || ''
-      ];
-      const signature = nodeCrypto.createHash('sha1').update(signatureParts.join('|')).digest('hex');
-      const cacheKey = latestInbound
-        ? `${conversation.channel}:${conversation.id}:inbound:${latestInbound.id}:${signature}`
-        : `${conversation.channel}:${conversation.id}:no-inbound:${signature}`;
-
-      res.json({
-        context: {
-          cacheKey,
-          body,
-          additionalContext,
-          hasCustomerMessage: inboundMessages.length > 0,
-          latestInboundMessageId: latestInbound?.id || null,
-          signature,
-          knowledgeEvidence,
-          evidence: {
-            conversationId: conversation.id,
-            channel: conversation.channel,
-            sourceId: conversation.source_id,
-            clientId,
-            messageCount: messages.length,
-            inboundCount: inboundMessages.length,
-            outboundCount: outboundMessages.length,
-            latestInboundMessageId: latestInbound?.id || null,
-            knowledgeCount: knowledgeEvidence.length,
-            productCount: productsRes.rows.length,
-            emailHistoryCount: emailsRes.rows.length,
-            logCount: logsRes.rows.length,
-            dealCount: dealsRes.rows.length
-          }
-        }
-      });
     } catch (e: any) {
       console.error('Failed to build agent context', e);
       res.status(e.status || 500).json({ error: e.message || 'Failed to build agent context' });
@@ -3383,6 +3234,9 @@ No markdown wrappers, just valid JSON.`;
       parsed.leadScore = Number(parsed.leadScore ?? parsed.temperature ?? 0);
       parsed.leadSummary = parsed.leadSummary || parsed.summary || fallbackSummary || 'Lead profile requires more interaction data.';
       parsed.leadNextStep = parsed.leadNextStep || parsed.nextStep || 'Review the lead profile and choose the next follow-up action.';
+      parsed.leadSummary = await ensureInternalOutputLanguage(parsed.leadSummary, systemLanguage, llmConfig, 'lead or customer summary');
+      parsed.leadNextStep = await ensureInternalOutputLanguage(parsed.leadNextStep, systemLanguage, llmConfig, 'recommended next step');
+      parsed.summary = await ensureInternalOutputLanguage(parsed.summary || parsed.leadSummary, systemLanguage, llmConfig, 'interaction summary');
       res.json(parsed);
     } catch (e) {
       console.error(e);
@@ -5447,7 +5301,7 @@ No markdown wrappers, just valid JSON.`;
     };
     await pool.query('UPDATE users SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [JSON.stringify(settings), userId]);
 
-    const llmId = settings.llmMappings?.whatsapp_drafting || settings.llmMappings?.drafting || settings.llmMappings?.agent_harness || settings.activeLLMId;
+    const llmId = settings.llmMappings?.whatsapp_customer_service_agent || settings.llmMappings?.whatsapp_drafting || settings.llmMappings?.drafting || settings.llmMappings?.agent_harness || settings.activeLLMId;
     const llmConfig = llmId ? (settings.llmConfigs || []).find((config: any) => config.id === llmId) : null;
     if (!llmConfig) {
       processed[inbound.messageId] = { status: 'skipped_no_model', at: new Date().toISOString() };
@@ -5503,6 +5357,28 @@ No markdown wrappers, just valid JSON.`;
       country: client?.country
     });
     const recentMessages = waRes.rows.reverse().map((message: any) => `${message.direction}: ${message.body}`).join('\n');
+    const unifiedConversationId = await findUnifiedConversationId(userId, 'whatsapp', inbound.conversationId);
+    const sharedAgentContext = unifiedConversationId
+      ? await buildAgentContextForConversation(userId, unifiedConversationId, { llmId }).catch(error => {
+          console.warn('WhatsApp Customer Service Agent shared context failed', { userId, conversationId: inbound.conversationId, unifiedConversationId, error });
+          return null;
+        })
+      : null;
+    const legacyRagSnippets = kbRes.rows.map((item: any) => ({
+      title: item.title,
+      scope: item.scope || (item.client_id ? 'client' : 'global'),
+      source: item.source || item.source_path || item.source_type || 'knowledge_base',
+      score: item.relevanceScore || item.relevance_score || null,
+      content: String(item.content || '').slice(0, 900)
+    }));
+    const sharedRagSnippets = (sharedAgentContext?.context.knowledgeEvidence || []).map((item: any) => ({
+      title: item.title,
+      scope: item.scope,
+      source: item.source,
+      score: item.confidence ?? null,
+      content: String(item.excerpt || '').slice(0, 900)
+    }));
+    const customerSafeRagSnippets = sharedRagSnippets.length ? sharedRagSnippets : legacyRagSnippets;
     const prompt = `You are WhatsApp Customer Service Agent for a foreign trade CRM.
 
 Generate the next WhatsApp customer-service reply.
@@ -5537,6 +5413,12 @@ ${client ? JSON.stringify({
 Recent WhatsApp conversation:
 ${recentMessages || 'N/A'}
 
+Shared cross-channel Agent Context:
+${sharedAgentContext ? `${sharedAgentContext.context.body}\n\n${sharedAgentContext.context.additionalContext}` : 'No unified conversation context available.'}
+
+Shared context evidence:
+${sharedAgentContext ? JSON.stringify(sharedAgentContext.context.evidence, null, 2) : 'No evidence available.'}
+
 Related leads/deals:
 ${JSON.stringify(dealsRes.rows)}
 
@@ -5547,7 +5429,7 @@ Recent emails:
 ${JSON.stringify(emailsRes.rows.map((email: any) => ({ ...email, body: String(email.body || '').replace(/<[^>]+>/g, ' ').slice(0, 500) })))}
 
 Knowledge/RAG:
-${JSON.stringify(kbRes.rows.map((item: any) => ({ title: item.title, scope: item.scope || (item.client_id ? 'client' : 'global'), source: item.source || item.source_path || item.source_type || 'knowledge_base', score: item.relevanceScore || item.relevance_score || null, content: String(item.content || '').slice(0, 900) })))}
+${JSON.stringify(customerSafeRagSnippets)}
 
 Products:
 ${JSON.stringify(productsRes.rows.map((product: any) => ({
@@ -7240,8 +7122,10 @@ No markdown wrappers, just valid JSON.`;
           const aiResponse = await callAI(prompt, null, true);
           const parsed = JSON.parse(aiResponse || '{}');
           
-          const newSummary = parsed.newSummary || client.agent_summary;
-          const nextStep = parsed.suggestedNextStep || 'Needs follow up.';
+          let newSummary = parsed.newSummary || client.agent_summary;
+          let nextStep = parsed.suggestedNextStep || 'Needs follow up.';
+          newSummary = await ensureInternalOutputLanguage(newSummary, userSettings.language, null, 'customer intelligence summary');
+          nextStep = await ensureInternalOutputLanguage(nextStep, userSettings.language, null, 'recommended next step');
           const draftEmail = parsed.draftEmail || '';
           const draftWhatsApp = parsed.draftWhatsApp || '';
           const scheduledAt = parsed.scheduledAt || new Date().toISOString();
@@ -11518,7 +11402,7 @@ Return JSON only:
       throw new Error('Agent has no executable tools configured');
     }
 
-    const llmId = settings.llmMappings?.agent_harness || settings.llmMappings?.drafting || settings.activeLLMId;
+    const llmId = settings.llmMappings?.email_draft_agent || settings.llmMappings?.drafting || settings.llmMappings?.agent_harness || settings.activeLLMId;
     const llmConfig = llmId ? (settings.llmConfigs || []).find((config: any) => config.id === llmId) : null;
     const nowIso = new Date().toISOString();
     const outbox = (settings.outboxConfigs || [])[0] || {};
@@ -14092,6 +13976,13 @@ Return JSON only:
     const kbRes = (tools.includes('knowledge.search') || tools.includes('knowledge.read'))
       ? await searchKnowledgeBase(userId, client.id, `${sourceEmail.subject || ''} ${sourceEmail.body || ''}`.slice(0, 1200), llmConfig, 8).catch(() => ({ rows: [] as any[] }))
       : { rows: [] };
+    const unifiedConversationId = await findUnifiedConversationId(userId, 'email', sourceEmail.id);
+    const sharedAgentContext = unifiedConversationId
+      ? await buildAgentContextForConversation(userId, unifiedConversationId, { llmId }).catch(error => {
+          console.warn('Email Draft Agent shared context failed', { userId, emailId: sourceEmail.id, unifiedConversationId, error });
+          return null;
+        })
+      : null;
     const outboundLanguage = getCustomerOutputLanguage({
       lastCommunicationText: sourceEmail.body,
       preferredLanguage: client.preferred_language,
@@ -14134,11 +14025,19 @@ ${JSON.stringify({
 Recent email history:
 ${JSON.stringify(relatedEmailsRes.rows, null, 2)}
 
+Shared cross-channel Agent Context:
+${sharedAgentContext ? `${sharedAgentContext.context.body}\n\n${sharedAgentContext.context.additionalContext}` : 'No unified conversation context available.'}
+
+Shared context evidence:
+${sharedAgentContext ? JSON.stringify(sharedAgentContext.context.evidence, null, 2) : 'No evidence available.'}
+
 Products:
 ${JSON.stringify(productsRes.rows, null, 2)}
 
 Knowledge:
-${formatKnowledgeRowsForPrompt(kbRes.rows || [])}
+${sharedAgentContext?.context.knowledgeEvidence?.length
+  ? JSON.stringify(sharedAgentContext.context.knowledgeEvidence, null, 2)
+  : formatKnowledgeRowsForPrompt(kbRes.rows || [])}
 
 Rules:
 ${buildLanguagePolicy({ systemLanguage: settings.language, customerLanguage: outboundLanguage })}
@@ -14207,7 +14106,9 @@ Return JSON only:
         executed: true,
         status: step.status || 'completed',
         resultText: step.result || resultText,
-        evidence: step.tool === 'email.draft' ? [`draft:${draftId}`, `recipient:${sourceEmail.sender}`] : [`client:${client.id}`, `email:${sourceEmail.id}`],
+        evidence: step.tool === 'email.draft'
+          ? [`draft:${draftId}`, `recipient:${sourceEmail.sender}`, ...(sharedAgentContext ? [`context:${sharedAgentContext.context.cacheKey}`] : [])]
+          : [`client:${client.id}`, `email:${sourceEmail.id}`, ...(sharedAgentContext ? [`context:${sharedAgentContext.context.cacheKey}`] : [])],
         isZh
       })
     }));
@@ -14263,7 +14164,7 @@ Return JSON only:
           ? await searchKnowledgeBase(userId, client.id, `${agent.name} ${objective} ${client.company || client.name || ''}`, llmConfig, 8).catch(() => ({ rows: [] as any[] }))
           : { rows: [] };
         const primaryDeal = dealsRes.rows[0];
-        const analysisSignature = buildServerLeadAnalysisSignature(client, dealsRes.rows, emailsRes.rows, logsRes.rows);
+        const analysisSignature = buildServerLeadAnalysisSignature(client, dealsRes.rows, emailsRes.rows, logsRes.rows, settings.language);
         const writesLeadAnalysis = !!primaryDeal && (tools.includes('lead.score') || tools.includes('lead.update') || tools.includes('lead.analyze'));
         const writesClientAnalysis = tools.includes('client.summarize') || tools.includes('client.update') || tools.includes('next_step.recommend');
         const existingSignature = writesLeadAnalysis ? primaryDeal?.lead_scoring_signature : client.lead_scoring_signature;
@@ -14334,9 +14235,9 @@ Return JSON only:
 }`;
         const parsed = stripAgentJson(await callAI(prompt, llmConfig, true));
         const score = Number(parsed.score ?? client.lead_score ?? 0);
-        const summary = String(parsed.summary || '').trim();
-        const nextStep = String(parsed.nextStep || '').trim();
-        const comment = String(parsed.comment || summary || nextStep || '').trim();
+        const summary = await ensureInternalOutputLanguage(String(parsed.summary || '').trim(), settings.language, llmConfig, 'client or lead summary');
+        const nextStep = await ensureInternalOutputLanguage(String(parsed.nextStep || '').trim(), settings.language, llmConfig, 'recommended next step');
+        const comment = await ensureInternalOutputLanguage(String(parsed.comment || summary || nextStep || '').trim(), settings.language, llmConfig, 'internal comment');
 
         if ((tools.includes('lead.score') || tools.includes('lead.update') || tools.includes('lead.analyze')) && primaryDeal) {
           await pool.query(
@@ -15327,8 +15228,10 @@ No markdown wrappers, just valid JSON.`;
       const aiResponse = await callAI(prompt, llmConfig, true);
       const parsed = JSON.parse(aiResponse || '{}');
       
-      const newSummary = parsed.newSummary || client.agent_summary;
-      const nextStep = parsed.suggestedNextStep || 'Needs follow up.';
+      let newSummary = parsed.newSummary || client.agent_summary;
+      let nextStep = parsed.suggestedNextStep || 'Needs follow up.';
+      newSummary = await ensureInternalOutputLanguage(newSummary, systemLanguage, llmConfig, 'customer intelligence summary');
+      nextStep = await ensureInternalOutputLanguage(nextStep, systemLanguage, llmConfig, 'recommended next step');
       const draftEmail = parsed.draftEmail || '';
       
       // Update the client

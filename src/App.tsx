@@ -88,12 +88,15 @@ async function executeLeadScoringAgentRun(agent: AgentHubAgent) {
     const relatedLead = state.deals
       .filter(deal => deal.clientId === client.id)
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0] || null;
-    const signature = buildLeadScoringSignature(client, state.logs, state.emails, {
+    const signature = `${buildLeadScoringSignature(client, state.logs, state.emails, {
       lead: relatedLead,
       workflows: state.agentWorkflows,
       now: nowIso
-    });
-    if (hasLeadScoringResult(client) && (client.leadScoringSignature === signature || !client.leadScoringSignature)) {
+    })}:lang:${state.language}`;
+    const textMatchesSystemLanguage = state.language === 'zh'
+      ? /[\u3400-\u9fff]/.test(`${client.leadSummary || ''} ${client.leadNextStep || ''} ${client.agentSummary || ''} ${client.agentNextStep || ''}`)
+      : !/[\u3400-\u9fff]/.test(`${client.leadSummary || ''} ${client.leadNextStep || ''} ${client.agentSummary || ''} ${client.agentNextStep || ''}`);
+    if (hasLeadScoringResult(client) && textMatchesSystemLanguage && (client.leadScoringSignature === signature || !client.leadScoringSignature)) {
       skipped += 1;
       if (!client.leadScoringSignature) {
         state.editClient(client.id, {
@@ -154,8 +157,8 @@ async function executeLeadScoringAgentRun(agent: AgentHubAgent) {
       if (!res.ok) throw new Error(data.error || 'Lead scoring failed');
       const score = Number(data.leadScore ?? data.temperature ?? 0);
       const fallbackSummary = [client.company || client.name, client.country, client.status, client.tags?.length ? `Tags: ${client.tags.join(', ')}` : ''].filter(Boolean).join(' / ');
-      const leadSummary = data.leadSummary || data.summary || fallbackSummary || 'Lead profile requires more interaction data.';
-      const leadNextStep = data.leadNextStep || data.nextStep || client.agentNextStep || 'Review the lead profile and choose the next follow-up action.';
+      const leadSummary = data.leadSummary || data.summary || fallbackSummary || (state.language === 'zh' ? '线索资料还需要更多互动数据。' : 'Lead profile requires more interaction data.');
+      const leadNextStep = data.leadNextStep || data.nextStep || client.agentNextStep || (state.language === 'zh' ? '检查线索资料并选择下一步跟进动作。' : 'Review the lead profile and choose the next follow-up action.');
       state.editClient(client.id, {
         leadScore: score,
         leadScoringSignature: signature,

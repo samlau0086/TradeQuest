@@ -33,6 +33,14 @@ const shortText = (value: string | undefined | null, max = 120) => {
   return text.length > max ? `${text.slice(0, max - 1)}...` : text;
 };
 
+const hasCjkText = (value: string | undefined | null) => /[\u3400-\u9fff]/.test(value || '');
+
+const internalTextMatchesSystemLanguage = (value: string | undefined | null, language: string) => {
+  const text = String(value || '').trim();
+  if (!text) return true;
+  return language === 'zh' ? hasCjkText(text) : !hasCjkText(text);
+};
+
 function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { method: ContactMethod, client: Client, onClose: () => void, onOpenEmailCompose?: (email: string) => void }) {
   const [purpose, setPurpose] = useState('');
   const [draft, setDraft] = useState('');
@@ -575,18 +583,19 @@ export function ClientDetails() {
   const primaryNextStep = leadNextStepText || clientNextStepText || '检查最近互动、确认采购背景，然后选择下一步跟进动作。';
   const primarySummary = leadSummaryText || clientSummaryText || '暂未生成AI摘要，可运行AI Radar或等待Signal Scanner分析此客户/Lead。';
   const contactMethodCount = displayContacts.reduce((sum, contact) => sum + (contact.contactMethods || []).length, 0);
-  const buildCurrentAnalysisSignature = () => buildLeadScoringSignature(client, leadRecord ? leadLogs : logs, emails, {
+  const buildCurrentAnalysisSignature = () => `${buildLeadScoringSignature(client, leadRecord ? leadLogs : logs, emails, {
     lead: leadRecord || deals
       .filter(deal => deal.clientId === client.id)
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0] || null,
     workflows: useStore.getState().agentWorkflows,
     now: new Date()
-  });
+  })}:lang:${language}`;
   const existingAnalysisResult = () => {
     const score = leadRecord ? leadRecord.leadScore : client.leadScore;
     const summary = leadRecord ? leadRecord.leadSummary : (client.agentSummary || client.leadSummary);
     const nextStep = leadRecord ? leadRecord.leadNextStep : (client.agentNextStep || client.leadNextStep);
     if (score === undefined || !summary || !nextStep) return null;
+    if (!internalTextMatchesSystemLanguage(summary, language) || !internalTextMatchesSystemLanguage(nextStep, language)) return null;
     return {
       sentiment: Number(score) >= 70 ? 'HOT' : Number(score) >= 35 ? 'WARM' : 'COLD',
       temperature: Number(score) || 0,
@@ -681,8 +690,8 @@ export function ClientDetails() {
         leadRecord?.status || client.status,
         client.tags?.length ? `Tags: ${client.tags.join(', ')}` : ''
       ].filter(Boolean).join(' / ');
-      const analyzedLeadSummary = data.leadSummary || data.summary || fallbackSummary || 'Lead profile requires more interaction data.';
-      const analyzedLeadNextStep = data.leadNextStep || data.nextStep || (leadRecord ? leadRecord.leadNextStep : client.agentNextStep) || 'Review the lead profile and choose the next follow-up action.';
+      const analyzedLeadSummary = data.leadSummary || data.summary || fallbackSummary || (language === 'zh' ? '线索资料还需要更多互动数据。' : 'Lead profile requires more interaction data.');
+      const analyzedLeadNextStep = data.leadNextStep || data.nextStep || (leadRecord ? leadRecord.leadNextStep : client.agentNextStep) || (language === 'zh' ? '检查线索资料并选择下一步跟进动作。' : 'Review the lead profile and choose the next follow-up action.');
       const normalizedData = { ...data, leadScore: score, leadSummary: analyzedLeadSummary, leadNextStep: analyzedLeadNextStep };
       setAiData(normalizedData);
       if (leadRecord) {
