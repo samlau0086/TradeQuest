@@ -44,6 +44,7 @@ import {
   useConversationReplyActions,
   useEmailQuickActions,
   useInboxBulkActions,
+  useInboxConversationList,
   useInboxNavigationActions,
   useInboxSelection,
   useInboxSync,
@@ -52,16 +53,12 @@ import {
   CONVERSATION_AUTO_TRANSLATE_KEY,
   conversationAutoTranslateId,
   conversationTranslationBucketId,
-  emailToUnifiedConversation,
   WHATSAPP_CONVERSATION_POLL_MS,
   WHATSAPP_FOLLOW_UP_MARKER,
-  hasOpenWhatsAppFollowUp,
   mapUnifiedWhatsAppConversation,
-  normalizeTagSearchTerm,
   readCachedConversationTranslations,
   readConversationAutoTranslateConfig,
   simpleHash,
-  whatsappToUnifiedConversation,
   writeCachedConversationTranslations,
 } from './inbox-ui';
 import type {
@@ -71,19 +68,6 @@ import type {
   UnifiedCommunicationConversation,
 } from './inbox-ui';
 import { AddContactToClientModal } from './AddContactToClientModal';
-
-interface WhatsAppContactOption {
-  key: string;
-  clientId: string;
-  clientName: string;
-  clientCompany?: string;
-  contactName: string;
-  contactTitle?: string;
-  phone: string;
-  label: string;
-  searchText: string;
-}
-
 
 export function Inbox() {
   const { emails, markEmailRead, clients, logs, deals, knowledgeBase, products, addEmail, addLog, addClient, editClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail, notify, language, llmConfigs, activeLLMId, llmMappings, inboxFollowUpFilterRequest, fetchEmails, fetchLiveChatSessions, fetchLiveChatMessages, sendLiveChatOperatorMessage, updateLiveChatSession, runLiveChatAgent, connectLiveChatSocket, joinLiveChatSocketSession, liveChatSessions, liveChatMessages, liveChatSocketStatus } = useStore();
@@ -420,115 +404,26 @@ ${bodyText}`,
     };
   }, [search]);
 
-  const filteredEmails = channelFilter === 'whatsapp' || channelFilter === 'live_chat' || channelFilter === 'telegram' ? [] : emails.filter(e => {
-    // Support both new ('inbox'/'sent') and legacy ('inbound'/'outbound') types
-    const typeMatch = (filter === 'inbox' && (e.type === 'inbox' || e.type === 'inbound')) ||
-                      (filter === 'sent' && (e.type === 'sent' || e.type === 'outbound')) ||
-                      (filter === 'scheduled' && e.type === 'scheduled') ||
-                      (filter === 'drafts' && e.type === 'draft');
-    
-    if (!typeMatch) return false;
-    if (e.pendingDelete) return false;
-    if (followUpOnly && !e.todoAt) return false;
-    
-    const termsToMatch = [...searchTags];
-    if (search.trim()) {
-      termsToMatch.push(...search.trim().toLowerCase().split(/\s+/));
-    }
-    
-    if (termsToMatch.length > 0) {
-      for (const t of termsToMatch) {
-        const lowerT = t.toLowerCase();
-        if (t.startsWith('#')) {
-          const normalizedTag = normalizeTagSearchTerm(t);
-          if (!e.tags || !e.tags.some(tag => normalizeTagSearchTerm(tag) === normalizedTag)) {
-            return false;
-          }
-        } else {
-          // Regular text search
-          if (!e.subject.toLowerCase().includes(lowerT) && !e.body.toLowerCase().includes(lowerT)) {
-             return false;
-          }
-        }
-      }
-    }
-    return true;
+  const {
+    unifiedConversationSource,
+    unifiedConversationList,
+    visibleFollowUpCount,
+    visibleWhatsAppContactOptions,
+  } = useInboxConversationList({
+    filter,
+    channelFilter,
+    search,
+    searchTags,
+    followUpOnly,
+    emails,
+    clients,
+    whatsappConversations,
+    unifiedConversations,
+    newWhatsAppPhone,
+    showWhatsAppContactPicker,
   });
 
-  const filteredWhatsAppConversations = filter === 'inbox' && channelFilter !== 'email' && channelFilter !== 'live_chat' && channelFilter !== 'telegram'
-    ? whatsappConversations.filter(conversation => {
-        if (followUpOnly && !hasOpenWhatsAppFollowUp(conversation)) return false;
-        const termsToMatch = [...searchTags];
-        if (search.trim()) {
-          termsToMatch.push(...search.trim().toLowerCase().split(/\s+/));
-        }
-        if (termsToMatch.length === 0) return true;
-        const haystack = [
-          conversation.targetPhone,
-          conversation.clientName || '',
-          conversation.clientCompany || '',
-          conversation.lastBody || '',
-          ...(conversation.tags || [])
-        ].join(' ').toLowerCase();
-        return termsToMatch.every(term => {
-          const normalized = term.toLowerCase();
-          return normalized.startsWith('#')
-            ? (conversation.tags || []).some(tag => normalizeTagSearchTerm(tag) === normalizeTagSearchTerm(normalized))
-            : haystack.includes(normalized);
-        });
-      })
-    : [];
-  const unifiedFallbackConversations = useMemo(() => ([
-    ...emails.map(emailToUnifiedConversation),
-    ...whatsappConversations.map(whatsappToUnifiedConversation)
-  ]), [emails, whatsappConversations]);
-  const unifiedConversationSource = unifiedConversations.length > 0 ? unifiedConversations : unifiedFallbackConversations;
-  const isUnifiedConversationInCurrentMailbox = (conversation: UnifiedCommunicationConversation) => {
-    if (channelFilter !== 'all' && conversation.channel !== channelFilter) return false;
-    const emailType = String(conversation.metadata?.emailType || conversation.status || '').toLowerCase();
-    if (conversation.channel === 'email') {
-      if (filter === 'inbox') return conversation.direction !== 'outbound' && !['draft', 'scheduled'].includes(emailType);
-      if (filter === 'sent') return conversation.direction === 'outbound' && !['draft', 'scheduled'].includes(emailType);
-      if (filter === 'scheduled') return emailType === 'scheduled' || conversation.status === 'scheduled';
-      if (filter === 'drafts') return emailType === 'draft' || conversation.status === 'draft';
-      return true;
-    }
-    return filter === 'inbox';
-  };
-  const hasUnifiedOpenFollowUp = (conversation: UnifiedCommunicationConversation) => {
-    if (conversation.todo_at) return true;
-    if (conversation.channel !== 'whatsapp') return false;
-    return hasOpenWhatsAppFollowUp(mapUnifiedWhatsAppConversation(conversation));
-  };
-  const unifiedConversationList = useMemo(() => {
-    const termsToMatch = [...searchTags];
-    if (search.trim()) termsToMatch.push(...search.trim().toLowerCase().split(/\s+/));
-    return unifiedConversationSource
-      .filter(conversation => {
-        if (!isUnifiedConversationInCurrentMailbox(conversation)) return false;
-        if (followUpOnly && !hasUnifiedOpenFollowUp(conversation)) return false;
-        if (termsToMatch.length === 0) return true;
-        const haystack = [
-          conversation.title || '',
-          conversation.subject || '',
-          conversation.contact_name || '',
-          conversation.contact_address || '',
-          conversation.client_name || '',
-          conversation.client_company || '',
-          conversation.last_message_preview || '',
-          ...(conversation.tags || [])
-        ].join(' ').toLowerCase();
-        return termsToMatch.every(term => {
-          const normalized = term.toLowerCase();
-          return normalized.startsWith('#')
-            ? (conversation.tags || []).some(tag => normalizeTagSearchTerm(tag) === normalizeTagSearchTerm(normalized))
-            : haystack.includes(normalized);
-        });
-      })
-      .sort((a, b) => new Date(b.last_message_at || 0).getTime() - new Date(a.last_message_at || 0).getTime());
-  }, [unifiedConversationSource, channelFilter, filter, followUpOnly, search, searchTags]);
-  const visibleFollowUpCount = unifiedConversationSource.filter(hasUnifiedOpenFollowUp).length;
-
+  /*
   const whatsappContactOptions = useMemo<WhatsAppContactOption[]>(() => {
     const options: WhatsAppContactOption[] = [];
     clients.forEach(client => {
@@ -577,7 +472,9 @@ ${bodyText}`,
         .filter(option => !whatsappMentionQuery || option.searchText.includes(whatsappMentionQuery))
         .slice(0, 8)
     : [];
+  */
 
+  /*
   const emailConversationGroups = useMemo(() => {
     const stripHtml = (value: string) => value.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
     const findClientForEmail = (email: EmailMessage) => {
@@ -630,6 +527,7 @@ ${bodyText}`,
       preview: stripHtml(group.latest.body || '').slice(0, 140)
     }));
   }, [filteredEmails, clients]);
+  */
 
   const {
     selectedIds,
