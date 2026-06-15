@@ -3,7 +3,10 @@ export { ComposeEmail } from './ComposeEmail';
 export { ConversationDetailHeader } from './ConversationDetailHeader';
 export { ConversationFollowUpStrip } from './ConversationFollowUpStrip';
 export { InboxBulkActionsPanel } from './InboxBulkActionsPanel';
+export { InboxConversationListItem } from './InboxConversationListItem';
+export { EmailTagDialog, EmailTodoDialog, InboxConfirmDialog, InboxNotificationDialog } from './InboxDialogs';
 export { InboxSidebarControls } from './InboxSidebarControls';
+export { StartWhatsAppConversationPane } from './StartWhatsAppConversationPane';
 export {
   EmailRichTextEditor,
   emailHtmlHasContent,

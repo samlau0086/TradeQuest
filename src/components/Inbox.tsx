@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { ContactMethod, useStore, EmailMessage, LiveChatMessage, LiveChatSession } from '../store';
 import { useAuthStore } from '../authStore';
-import { Mail, MailOpen, Send, Reply, Trash2, ArrowLeft, PenLine, User, Sparkles, Loader2, Tag, CalendarClock, UserPlus, MessageSquare, MessageCircle, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2, MoreHorizontal, Star, Clock, Eye, MousePointerClick, Radar, Timer, Languages } from 'lucide-react';
+import { Mail, Send, Reply, PenLine, User, Sparkles, Loader2, UserPlus, MessageSquare, Paperclip, X, Database, CheckCircle2, Clock, Eye, MousePointerClick, Radar, Languages } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { CommentItem } from './CommentItem';
 import { ClientFormModal } from './ClientFormModal';
@@ -14,8 +14,14 @@ import {
   ConversationFollowUpStrip,
   CONVERSATION_STAGES,
   ComposeEmail,
+  EmailTagDialog,
+  EmailTodoDialog,
   InboxBulkActionsPanel,
+  InboxConfirmDialog,
+  InboxConversationListItem,
+  InboxNotificationDialog,
   InboxSidebarControls,
+  StartWhatsAppConversationPane,
   CONVERSATION_AUTO_TRANSLATE_KEY,
   INBOX_OPEN_REQUEST_KEY,
   WHATSAPP_CONVERSATION_POLL_MS,
@@ -1978,488 +1984,26 @@ ${activeTelegramAgentContext.additionalContext}`,
             const email = isEmail ? emails.find(item => item.id === conversation.source_id) : null;
             const whatsappConversation = isWhatsApp ? mapUnifiedWhatsAppConversation(conversation) : null;
             const client = conversation.client_id ? clients.find(c => c.id === conversation.client_id) : null;
-            const Icon = isWhatsApp ? MessageCircle : isLiveChat ? MessageSquare : isTelegram ? Send : (conversation.read ? MailOpen : Mail);
-            const iconColor = isWhatsApp ? 'text-green-400' : isLiveChat ? 'text-violet-300' : isTelegram ? 'text-sky-300' : conversation.read ? 'text-slate-500' : 'text-cyan-400';
-            const iconBg = isWhatsApp ? 'bg-green-950/50 border-green-900/60' : isLiveChat ? 'bg-violet-950/50 border-violet-900/60' : isTelegram ? 'bg-sky-950/50 border-sky-900/60' : 'bg-cyan-950/50 border-cyan-900/60';
-            const channelLabel = isWhatsApp
-              ? `WhatsApp ${conversation.direction === 'outbound' ? 'sent' : 'inbox'}`
-              : isLiveChat
-                ? `Live Chat ${conversation.status || 'open'}`
-                : isTelegram
-                  ? `Telegram ${conversation.status || 'open'}`
-                : email?.type === 'draft'
-                  ? 'Draft'
-                  : email?.type === 'scheduled'
-                    ? 'Scheduled Email'
-                    : conversation.direction === 'outbound'
-                      ? 'Email sent'
-                      : 'Email inbox';
-            const title = isEmail
-              ? (filter === 'inbox' ? (email?.senderName || conversation.contact_name || conversation.contact_address || 'Email') : (conversation.contact_address || conversation.contact_name || 'Email'))
-              : client?.name || conversation.client_name || conversation.title || conversation.contact_name || conversation.contact_address || (isWhatsApp ? 'WhatsApp' : isTelegram ? 'Telegram' : 'Live Chat');
-            const subtitle = isEmail ? (conversation.subject || conversation.title || '(No Subject)') : (conversation.contact_address || conversation.client_company || '');
             return (
-              <div
+              <InboxConversationListItem
                 key={`${conversation.channel}_${conversation.source_id}`}
-                onClick={() => handleSelectUnifiedConversation(conversation)}
-                className={cn(
-                  "cursor-pointer border-b border-slate-800/50 p-4 transition-colors flex gap-3 group relative",
-                  isSelected ? (isWhatsApp ? "bg-green-950/20" : isLiveChat ? "bg-violet-950/20" : isTelegram ? "bg-sky-950/20" : "bg-cyan-950/20") : "hover:bg-slate-800/30",
-                  isEmail && !conversation.read && filter === 'inbox' && "bg-slate-800/40"
-                )}
-              >
-                <div
-                  className={cn("pt-0.5 transition-opacity", selectedConversationIds.has(conversation.id) ? "opacity-100" : "opacity-0 group-hover:opacity-100")}
-                  onClick={(e) => toggleUnifiedSelection(e, conversation)}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedConversationIds.has(conversation.id)}
-                    onChange={() => {}}
-                    className={cn("rounded border-slate-700 bg-slate-800 focus:ring-cyan-500", isWhatsApp ? "text-green-500" : isLiveChat ? "text-violet-500" : isTelegram ? "text-sky-500" : "text-cyan-500")}
-                  />
-                </div>
-                {false && (isEmail || isWhatsApp) && (
-                  <div
-                    className={cn("pt-0.5 transition-opacity", (isEmail ? selectedIds.has(conversation.source_id) : selectedWhatsAppIds.has(conversation.source_id)) ? "opacity-100" : "opacity-0 group-hover:opacity-100")}
-                    onClick={(e) => isEmail ? toggleSelection(e, conversation.source_id) : toggleWhatsAppSelection(e, conversation.source_id)}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isEmail ? selectedIds.has(conversation.source_id) : selectedWhatsAppIds.has(conversation.source_id)}
-                      onChange={() => {}}
-                      className={cn("rounded border-slate-700 bg-slate-800 focus:ring-cyan-500", isWhatsApp ? "text-green-500" : "text-cyan-500")}
-                    />
-                  </div>
-                )}
-                <div className="pt-0.5 flex-shrink-0">
-                  <div className={cn("w-7 h-7 rounded-full border flex items-center justify-center", iconBg)}>
-                    <Icon className={cn("w-4 h-4", iconColor)} />
-                  </div>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-1 gap-2">
-                    <span className={cn("text-sm font-bold truncate", isEmail && !conversation.read && filter === 'inbox' ? "text-white" : "text-slate-200")}>
-                      {title}
-                    </span>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <span className="text-[10px] text-slate-500">
-                        {conversation.last_message_at ? new Date(conversation.last_message_at).toLocaleDateString() : channelLabel}
-                      </span>
-                      {(conversation.is_important || (conversation.tags || []).includes('important')) && (
-                        <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-                      )}
-                      {isWhatsApp && whatsappConversation && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteWhatsAppConversation(whatsappConversation);
-                          }}
-                          className="opacity-0 group-hover:opacity-100 p-1 rounded text-slate-500 hover:text-red-300 hover:bg-red-500/10 transition-opacity"
-                          title="Delete WhatsApp conversation"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <div className={cn(
-                    "text-[10px] font-bold uppercase mb-1",
-                    isWhatsApp ? 'text-green-400' : isLiveChat ? 'text-violet-300' : isTelegram ? 'text-sky-300' : 'text-cyan-400'
-                  )}>
-                    {channelLabel}
-                  </div>
-                  {subtitle && (
-                    <div className={cn("text-xs font-medium mb-1 truncate", isEmail && !conversation.read && filter === 'inbox' ? "text-slate-200" : "text-slate-400")}>
-                      {subtitle}
-                    </div>
-                  )}
-                  {conversation.last_message_preview && (
-                    <div className="text-xs text-slate-500 line-clamp-2">
-                      {conversation.last_message_preview}
-                    </div>
-                  )}
-                  {conversation.tags && conversation.tags.length > 0 && (
-                    <div className="flex gap-1 mt-2 overflow-x-auto scrollbar-hide">
-                      {conversation.tags.slice(0, 4).map(t => (
-                        <span key={t} className={cn(
-                          "text-[9px] bg-slate-800 px-1.5 py-0.5 rounded-full whitespace-nowrap",
-                          isWhatsApp ? 'text-green-300' : isLiveChat ? 'text-violet-200' : isTelegram ? 'text-sky-200' : 'text-slate-400'
-                        )}>
-                          {t}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  <div className="mt-3 grid grid-cols-2 gap-2" onClick={event => event.stopPropagation()}>
-                    <select
-                      value={conversation.owner_id || ''}
-                      onChange={event => updateConversationOwnerStage(conversation, { ownerId: event.target.value || null })}
-                      className="min-w-0 rounded border border-slate-800 bg-slate-950 px-2 py-1 text-[10px] font-bold text-slate-400 outline-none hover:border-slate-700 focus:border-blue-500"
-                      title={language === 'zh' ? '负责人' : 'Owner'}
-                    >
-                      <option value="">{language === 'zh' ? '未分配' : 'Unassigned'}</option>
-                      {currentUser && (
-                        <option value={currentUser.id}>{language === 'zh' ? '我负责' : 'Owner: Me'}</option>
-                      )}
-                    </select>
-                    <select
-                      value={conversation.stage || ''}
-                      onChange={event => updateConversationOwnerStage(conversation, { stage: event.target.value || null })}
-                      className="min-w-0 rounded border border-slate-800 bg-slate-950 px-2 py-1 text-[10px] font-bold text-slate-400 outline-none hover:border-slate-700 focus:border-purple-500"
-                      title={language === 'zh' ? '阶段' : 'Stage'}
-                    >
-                      <option value="">{language === 'zh' ? '未设阶段' : 'No stage'}</option>
-                      {CONVERSATION_STAGES.map(stage => <option key={stage} value={stage}>{stage}</option>)}
-                    </select>
-                  </div>
-                </div>
-              </div>
+                language={language}
+                conversation={conversation}
+                email={email}
+                clientName={client?.name}
+                filter={filter}
+                isSelected={isSelected}
+                isChecked={selectedConversationIds.has(conversation.id)}
+                currentUser={currentUser}
+                whatsappConversation={whatsappConversation}
+                onSelect={() => handleSelectUnifiedConversation(conversation)}
+                onToggleSelection={(event) => toggleUnifiedSelection(event, conversation)}
+                onDeleteWhatsApp={whatsappConversation ? () => handleDeleteWhatsAppConversation(whatsappConversation) : undefined}
+                onOwnerStageChange={(updates) => updateConversationOwnerStage(conversation, updates)}
+              />
             );
           })}
-          {false && ([] as UnifiedCommunicationConversation[]).map(conversation => {
-            const client = conversation.client_id ? clients.find(c => c.id === conversation.client_id) : null;
-            return (
-              <div
-                key={`lc_${conversation.id}`}
-                onClick={() => {
-                  selectEmail(null);
-                  setSelectedWhatsAppPhone(null);
-                  setSelectedWhatsAppClientId(null);
-                  setSelectedLiveChatConversation(conversation);
-                }}
-                className="cursor-pointer border-b border-slate-800/50 p-4 transition-colors flex gap-3 group relative hover:bg-slate-800/30"
-              >
-                <div className="pt-0.5 flex-shrink-0">
-                  <div className="w-7 h-7 rounded-full bg-violet-950/50 border border-violet-900/60 flex items-center justify-center">
-                    <MessageSquare className="w-4 h-4 text-violet-300" />
-                  </div>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-1 gap-2">
-                    <span className="text-sm font-bold truncate text-slate-200">
-                      {client?.name || conversation.client_name || conversation.title || conversation.contact_name || 'Live Chat'}
-                    </span>
-                    <span className="text-[10px] text-slate-500 shrink-0">
-                      {conversation.last_message_at ? new Date(conversation.last_message_at).toLocaleDateString() : 'Live Chat'}
-                    </span>
-                  </div>
-                  <div className="text-[10px] text-violet-300 font-bold uppercase mb-1">
-                    Live Chat {conversation.status || 'open'}
-                  </div>
-                  {(conversation.contact_address || conversation.client_company) && (
-                    <div className="mb-1 truncate text-[10px] text-slate-600">
-                      {[conversation.contact_address, conversation.client_company].filter(Boolean).join(' · ')}
-                    </div>
-                  )}
-                  <div className="text-xs font-medium mb-1 truncate text-slate-400">
-                    {conversation.last_message_preview || 'Open live chat conversation'}
-                  </div>
-                  {conversation.tags && conversation.tags.length > 0 && (
-                    <div className="flex gap-1 mb-1 overflow-x-auto scrollbar-hide">
-                      {conversation.tags.slice(0, 4).map(t => (
-                        <span key={t} className="text-[9px] bg-slate-800 text-violet-200 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                          {t}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-          {false && filteredWhatsAppConversations.map(conversation => {
-            const displayPhone = conversation.contactPhone || conversation.targetPhone;
-            const rawChatId = conversation.rawChatId || (/@(?:lid|c\.us|g\.us)$/i.test(conversation.targetPhone) ? conversation.targetPhone : '');
-            const client = conversation.clientId ? clients.find(c => c.id === conversation.clientId) : matchWhatsAppClient(displayPhone);
-            return (
-              <div
-                key={`wa_${conversation.id}`}
-                onClick={() => handleSelectWhatsApp(conversation)}
-                className={cn("cursor-pointer border-b border-slate-800/50 p-4 transition-colors flex gap-3 group relative",
-                  selectedWhatsAppPhone === conversation.targetPhone ? "bg-green-950/20" : "hover:bg-slate-800/30"
-                )}
-              >
-                <div
-                  className={cn("pt-0.5 transition-opacity", selectedWhatsAppIds.has(conversation.id) ? "opacity-100" : "opacity-0 group-hover:opacity-100")}
-                  onClick={(e) => toggleWhatsAppSelection(e, conversation.id)}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedWhatsAppIds.has(conversation.id)}
-                    onChange={() => {}}
-                    className="rounded border-slate-700 bg-slate-800 text-green-500 focus:ring-green-500"
-                  />
-                </div>
-                <div className="pt-0.5 flex-shrink-0">
-                  <div className="w-7 h-7 rounded-full bg-green-950/50 border border-green-900/60 flex items-center justify-center">
-                    <MessageCircle className="w-4 h-4 text-green-400" />
-                  </div>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-1 gap-2">
-                    <span className="text-sm font-bold truncate text-slate-200">
-                      {client?.name || conversation.clientName || displayPhone}
-                    </span>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <span className="text-[10px] text-slate-500">
-                        {conversation.lastMessageAt ? new Date(conversation.lastMessageAt).toLocaleDateString() : 'WhatsApp'}
-                      </span>
-                      {(conversation.tags || []).includes('important') && (
-                        <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-                      )}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteWhatsAppConversation(conversation);
-                        }}
-                        className="opacity-0 group-hover:opacity-100 p-1 rounded text-slate-500 hover:text-red-300 hover:bg-red-500/10 transition-opacity"
-                        title="Delete WhatsApp conversation"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="text-[10px] text-green-400 font-bold uppercase mb-1">
-                    WhatsApp {conversation.lastDirection === 'outbound' ? 'sent' : 'inbox'}
-                  </div>
-                  {rawChatId && (
-                    <div className="mb-1 truncate text-[10px] text-slate-600" title={rawChatId}>
-                      {conversation.contactPhone ? `${conversation.contactPhone} (${rawChatId} -> ${conversation.contactPhone})` : rawChatId}
-                    </div>
-                  )}
-                  <div className="text-xs font-medium mb-1 truncate text-slate-400">
-                    {conversation.lastBody || 'Media message'}
-                  </div>
-                  {conversation.tags && conversation.tags.length > 0 && (
-                    <div className="flex gap-1 mb-1 overflow-x-auto scrollbar-hide">
-                      {conversation.tags.slice(0, 4).map(t => (
-                        <span key={t} className="text-[9px] bg-slate-800 text-green-300 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                          {t}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-          {false && channelFilter !== 'whatsapp' && emailListMode === 'conversation' && emailConversationGroups.map(group => {
-            const groupIds = group.emails.map(email => email.id);
-            const groupSelected = groupIds.length > 0 && groupIds.every(id => selectedIds.has(id));
-            const groupIndeterminate = groupIds.some(id => selectedIds.has(id)) && !groupSelected;
-            return (
-              <div
-                key={group.key}
-                onClick={() => handleSelect(group.latest.id)}
-                className={cn("cursor-pointer border-b border-slate-800/50 p-4 transition-colors group relative",
-                  selectedEmailId && groupIds.includes(selectedEmailId) ? "bg-cyan-950/20" : "hover:bg-slate-800/30",
-                  group.unreadCount > 0 && filter === 'inbox' && "bg-slate-800/40"
-                )}
-              >
-                <div className="flex gap-3">
-                  <div
-                    className={cn("pt-0.5 transition-opacity", groupSelected || groupIndeterminate ? "opacity-100" : "opacity-0 group-hover:opacity-100")}
-                    onClick={(e) => toggleGroupSelection(e, groupIds)}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={groupSelected}
-                      ref={input => {
-                        if (input) input.indeterminate = groupIndeterminate;
-                      }}
-                      onChange={() => {}}
-                      className="rounded border-slate-700 bg-slate-800 text-cyan-500 focus:ring-cyan-500"
-                    />
-                  </div>
-                  <div className="pt-0.5 flex-shrink-0">
-                    <div className="w-7 h-7 rounded-full bg-cyan-950/50 border border-cyan-900/60 flex items-center justify-center">
-                      {group.unreadCount > 0 ? (
-                        <Mail className="w-4 h-4 text-cyan-400" />
-                      ) : (
-                        <MailOpen className="w-4 h-4 text-slate-500" />
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2 mb-1">
-                      <div className="min-w-0">
-                        <div className={cn("text-sm font-bold truncate", group.unreadCount > 0 ? "text-white" : "text-slate-200")}>{group.title}</div>
-                        {group.subtitle && <div className="text-[10px] text-slate-500 truncate">{group.subtitle}</div>}
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        {group.unreadCount > 0 && (
-                          <span className="rounded-full bg-cyan-500/20 border border-cyan-500/30 px-2 py-0.5 text-[10px] font-bold text-cyan-300">
-                            {group.unreadCount}
-                          </span>
-                        )}
-                        <span className="text-[10px] text-slate-500">{new Date(group.latest.date).toLocaleDateString()}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 text-[10px] text-slate-500 mb-1">
-                      <span>{group.emails.length} email{group.emails.length === 1 ? '' : 's'}</span>
-                      <span>·</span>
-                      <span>{group.latest.type === 'draft' ? 'Draft' : group.latest.type === 'scheduled' ? 'Scheduled' : group.latest.type === 'sent' || group.latest.type === 'outbound' ? 'Latest sent' : 'Latest inbox'}</span>
-                    </div>
-                    <div className="text-xs font-medium mb-2 truncate text-slate-300">{group.latest.subject}</div>
-                    {group.preview && <div className="text-xs text-slate-500 line-clamp-2">{group.preview}</div>}
-                    {group.emails.length > 1 && (
-                      <div className="mt-3 space-y-1">
-                        {group.emails.slice(1, 4).map(email => (
-                          <button
-                            key={email.id}
-                            onClick={(e) => { e.stopPropagation(); handleSelect(email.id); }}
-                            className="w-full flex items-center justify-between gap-2 rounded bg-slate-950/60 border border-slate-800 px-2 py-1 text-left hover:border-slate-700"
-                          >
-                            <span className={cn("min-w-0 truncate text-[11px]", !email.read && (email.type === 'inbox' || email.type === 'inbound') ? "text-slate-100 font-bold" : "text-slate-400")}>{email.subject || '(No Subject)'}</span>
-                            <span className="shrink-0 text-[9px] text-slate-600">{new Date(email.date).toLocaleDateString()}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-          {false && channelFilter !== 'whatsapp' && emailListMode === 'list' && filteredEmails.map(email => (
-            <div 
-              key={email.id}
-              onClick={() => handleSelect(email.id)}
-              className={cn("cursor-pointer border-b border-slate-800/50 p-4 transition-colors flex gap-3 group relative", 
-                selectedEmailId === email.id ? "bg-cyan-950/20" : "hover:bg-slate-800/30",
-                !email.read && filter === 'inbox' && "bg-slate-800/40"
-              )}
-            >
-              <div 
-                className={cn("pt-0.5 transition-opacity", selectedIds.has(email.id) ? "opacity-100" : "opacity-0 group-hover:opacity-100")} 
-                onClick={(e) => toggleSelection(e, email.id)}
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedIds.has(email.id)}
-                  onChange={() => {}}
-                  className="rounded border-slate-700 bg-slate-800 text-cyan-500 focus:ring-cyan-500"
-                />
-              </div>
-              <div className="pt-0.5 flex-shrink-0" title={email.read ? "Read email" : "Unread email"}>
-                {email.read ? (
-                  <MailOpen className="w-4 h-4 text-slate-500" />
-                ) : (
-                  <Mail className="w-4 h-4 text-cyan-400" />
-                )}
-              </div>
-              <div 
-                className={cn("pt-0.5 cursor-pointer transition-opacity flex-shrink-0", email.isImportant ? "opacity-100" : "opacity-0 group-hover:opacity-100")}
-                onClick={(e) => { e.stopPropagation(); toggleImportant(email); }}
-                title={email.isImportant ? "Unmark Important" : "Mark Important"}
-              >
-                <Star className={cn("w-4 h-4", email.isImportant ? "text-yellow-500 fill-yellow-500" : "text-slate-500 hover:text-slate-300")} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-1 relative">
-                  <span className={cn("text-sm font-bold truncate pr-2 flex items-center gap-1", !email.read && filter === 'inbox' ? "text-white" : "text-slate-300")}>
-                    {filter === 'inbox' ? (email.senderName || email.sender) : (filter === 'drafts' ? `Draft: ${email.recipient || '(No Recipient)'}` : email.recipient)}
-                  </span>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {((email.type === 'sent' || email.type === 'scheduled' || email.type === 'outbound') && (email.body?.includes('/api/track/open/') || email.enableTracking)) && (
-                      <div className="relative group/track flex items-center">
-                        <Radar 
-                          className={cn("w-3.5 h-3.5 cursor-pointer", email.trackingEvents && email.trackingEvents.length > 0 ? "text-emerald-400" : "text-slate-500")} 
-                        />
-                        <div className="absolute right-0 top-full mt-2 w-52 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-[999] p-2 opacity-0 invisible group-hover/track:opacity-100 group-hover/track:visible transition-all text-xs cursor-default" onClick={e => e.stopPropagation()}>
-                          <div className="font-bold text-slate-300 mb-2 border-b border-slate-700 pb-1">Tracking Activity</div>
-                          <div className="space-y-2 max-h-48 overflow-y-auto pr-1 scrollbar-thin">
-                            {(!email.trackingEvents || email.trackingEvents.length === 0) ? (
-                              <div className="text-slate-500 py-2 text-center">No tracking events yet</div>
-                            ) : (
-                              email.trackingEvents.map((evt: any, i: number) => (
-                                <div key={i} className="flex gap-2 text-left">
-                                  <div className="mt-0.5">{evt.type === 'open' ? <Eye className="w-3 h-3 text-cyan-400" /> : <MousePointerClick className="w-3 h-3 text-fuchsia-400" />}</div>
-                                  <div className="min-w-0 flex-1">
-                                    <div className="text-white capitalize">{evt.type} {evt.type === 'click' && evt.url && <a href={evt.url} target="_blank" rel="noopener noreferrer" className="text-fuchsia-400 underline ml-1 truncate max-w-[120px] inline-block align-bottom px-1">{evt.url}</a>}</div>
-                                    <div className="text-slate-500 text-[10px] truncate">{new Date(evt.created_at).toLocaleString()}</div>
-                                    {evt.location && <div className="text-slate-400 text-[10px] truncate">{evt.location.city ? `${evt.location.city}, ` : ''}{evt.location.region ? `${evt.location.region}, ` : ''}{evt.location.country}</div>}
-                                    <div className="text-slate-600 text-[9px] truncate" title={evt.ip_address}>{evt.ip_address}</div>
-                                  </div>
-                                </div>
-                              ))
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    {(email.type === 'scheduled' && email.scheduledAt) && (
-                      <div className="relative flex items-center" title={`将在 ${new Date(email.scheduledAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' })} 发送`}>
-                        <Timer 
-                          className="w-3.5 h-3.5 text-amber-500" 
-                        />
-                      </div>
-                    )}
-                    <span className="text-[10px] text-slate-500">
-                      {email.type === 'scheduled' && email.scheduledAt ? `Sched: ${new Date(email.scheduledAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'})}` : new Date(email.date).toLocaleDateString()}
-                    </span>
-                    <div className={cn("relative transition-opacity", activeMenu === email.id ? "opacity-100" : "opacity-0 group-hover:opacity-100 hidden md:block")}>
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === email.id ? null : email.id); }}
-                        className="p-0.5 hover:bg-slate-700 rounded text-slate-400 hover:text-white"
-                      >
-                        <MoreHorizontal className="w-4 h-4" />
-                      </button>
-                      {activeMenu === email.id && (
-                        <div className="absolute right-0 top-6 w-36 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 overflow-hidden" onClick={e => e.stopPropagation()}>
-                          <button onClick={() => { setTagModalEmail(email.id); setActiveMenu(null); }} className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-700 hover:text-white flex items-center gap-2">
-                            <Tag className="w-3 h-3" /> Add Tag
-                          </button>
-                          <button onClick={() => toggleImportant(email)} className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-700 hover:text-white flex items-center gap-2">
-                            <Star className="w-3 h-3" /> {email.isImportant ? 'Unmark Important' : 'Mark Important'}
-                          </button>
-                          <button onClick={() => { setTodoModalEmail(email.id); setActiveMenu(null); }} className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-slate-700 hover:text-white flex items-center gap-2">
-                            <Clock className="w-3 h-3" /> Add to Todo
-                          </button>
-                          <div className="border-t border-slate-700 my-1"></div>
-                          <button onClick={(e) => {
-                            e.stopPropagation();
-                            setActiveMenu(null);
-                            setConfirmDialog({
-                              message: 'Are you sure you want to delete this email? Emails associated with a client will be soft-deleted pending admin review.',
-                              onConfirm: async () => {
-                                const conversation = findEmailUnifiedConversation(email.id);
-                                if (selectedEmailId === email.id) selectEmail(null);
-                                if (conversation && !conversation.metadata?.localFallback) {
-                                  await deleteUnifiedConversation(conversation);
-                                  await refreshUnifiedConversationData();
-                                } else {
-                                  await useStore.getState().deleteEmails([email.id]);
-                                }
-                                setConfirmDialog(null);
-                              }
-                            });
-                          }} className="w-full text-left px-3 py-2 text-xs text-red-400 hover:bg-red-900/30 hover:text-red-300 flex items-center gap-2">
-                            <Trash2 className="w-3 h-3" /> Delete
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div className={cn("text-xs font-medium mb-1 truncate", !email.read && filter === 'inbox' ? "text-slate-200" : "text-slate-400")}>
-                  {email.subject}
-                </div>
-                {email.tags && email.tags.length > 0 && (
-                  <div className="flex gap-1 mb-1 overflow-x-auto scrollbar-hide">
-                    {email.tags.map(t => (
-                      <span key={t} className="text-[9px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                        {t}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
+
         </div>
       </Panel>
 
@@ -2470,91 +2014,24 @@ ${activeTelegramAgentContext.additionalContext}`,
         {isComposing ? (
           <ComposeEmail onClose={() => setIsComposing(false)} initialRecipient={composeDefaults?.recipient} initialSubject={composeDefaults?.subject} initialBody={composeDefaults?.initialBody} originalEmailBody={composeDefaults?.originalEmailBody} draftId={composeDefaults?.draftId} replyToEmailId={composeDefaults?.replyToEmailId} initialOutboxId={composeDefaults?.initialOutboxId} />
         ) : isStartingWhatsApp ? (
-          <div className="flex-1 flex flex-col bg-slate-950/50">
-            <div className="p-4 border-b border-slate-800 flex items-center gap-3 bg-slate-900/80">
-              <button onClick={() => setIsStartingWhatsApp(false)} className="md:hidden p-2 -ml-2 text-slate-400 hover:text-white">
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-              <div className="w-10 h-10 rounded-full bg-green-950/50 border border-green-900/60 flex items-center justify-center">
-                <MessageCircle className="w-5 h-5 text-green-400" />
-              </div>
-              <div>
-                <div className="font-bold text-white text-sm">New WhatsApp Message</div>
-                <div className="text-[10px] text-slate-500">Start a WhatsApp conversation from Inbox</div>
-              </div>
-            </div>
-            <div className="flex-1 flex items-center justify-center p-6">
-              <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-                <div className="relative">
-                  <label className="text-xs font-bold text-slate-500 uppercase">Phone Number or @Contact</label>
-                  <input
-                    value={newWhatsAppPhone}
-                    onChange={e => {
-                      const value = e.target.value;
-                      setNewWhatsAppPhone(value);
-                      if (value.includes('@')) setShowWhatsAppContactPicker(true);
-                      if (selectedWhatsAppClientId && value.replace(/[^0-9]/g, '') !== newWhatsAppPhone.replace(/[^0-9]/g, '')) {
-                        setSelectedWhatsAppClientId(null);
-                      }
-                    }}
-                    onFocus={() => setShowWhatsAppContactPicker(newWhatsAppPhone.includes('@'))}
-                    onKeyDown={e => { if (e.key === 'Enter') startNewWhatsApp(); }}
-                    placeholder="+1 555 000 0000 or @customer"
-                    className="mt-2 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 outline-none focus:border-green-500"
-                    autoFocus
-                  />
-                  <div className="mt-2 text-[11px] text-slate-500">
-                    Type <span className="text-green-300">@</span> to choose a saved customer/contact WhatsApp number.
-                  </div>
-                  {visibleWhatsAppContactOptions.length > 0 && (
-                    <div className="absolute z-30 left-0 right-0 top-full mt-2 max-h-72 overflow-y-auto rounded-xl border border-slate-700 bg-slate-950 shadow-2xl">
-                      {visibleWhatsAppContactOptions.map(option => (
-                        <button
-                          key={option.key}
-                          type="button"
-                          onClick={() => selectWhatsAppContactOption(option)}
-                          className="w-full text-left px-3 py-2.5 hover:bg-green-500/10 border-b border-slate-800 last:border-b-0"
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="text-sm font-bold text-slate-200 truncate">
-                                {option.contactName}
-                                {option.contactName !== option.clientName && (
-                                  <span className="ml-2 text-xs font-normal text-slate-500">({option.clientName})</span>
-                                )}
-                              </div>
-                              <div className="text-[11px] text-slate-500 truncate">
-                                {[option.contactTitle, option.clientCompany].filter(Boolean).join(' · ') || option.clientName}
-                              </div>
-                            </div>
-                            <div className="shrink-0 text-xs text-green-300 font-mono">{option.phone}</div>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {newWhatsAppPhone.includes('@') && visibleWhatsAppContactOptions.length === 0 && (
-                    <div className="absolute z-30 left-0 right-0 top-full mt-2 rounded-xl border border-slate-800 bg-slate-950 px-3 py-3 text-xs text-slate-500 shadow-2xl">
-                      No saved WhatsApp contacts matched.
-                    </div>
-                  )}
-                </div>
-                <div className="flex justify-end gap-2">
-                  <button onClick={() => { setIsStartingWhatsApp(false); setShowWhatsAppContactPicker(false); }} className="px-4 py-2 text-sm text-slate-400 hover:text-white">
-                    Cancel
-                  </button>
-                  <button
-                    onClick={startNewWhatsApp}
-                    disabled={!newWhatsAppPhone.replace(/[^0-9]/g, '')}
-                    className="px-4 py-2 bg-green-600 hover:bg-green-500 disabled:bg-slate-800 disabled:text-slate-500 rounded-lg text-sm font-bold text-white flex items-center gap-2"
-                  >
-                    <MessageCircle className="w-4 h-4" />
-                    Start Chat
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+          <StartWhatsAppConversationPane
+            phone={newWhatsAppPhone}
+            contactOptions={visibleWhatsAppContactOptions}
+            onPhoneChange={(value) => {
+              setNewWhatsAppPhone(value);
+              if (value.includes('@')) setShowWhatsAppContactPicker(true);
+              if (selectedWhatsAppClientId && value.replace(/[^0-9]/g, '') !== newWhatsAppPhone.replace(/[^0-9]/g, '')) {
+                setSelectedWhatsAppClientId(null);
+              }
+            }}
+            onPhoneFocus={() => setShowWhatsAppContactPicker(newWhatsAppPhone.includes('@'))}
+            onSelectContact={selectWhatsAppContactOption}
+            onStart={startNewWhatsApp}
+            onCancel={() => {
+              setIsStartingWhatsApp(false);
+              setShowWhatsAppContactPicker(false);
+            }}
+          />
         ) : selectedTelegramConversation ? (
           <div className="flex-1 flex flex-col min-h-0">
             <ConversationDetailHeader
@@ -3619,43 +3096,18 @@ ${activeTelegramAgentContext.additionalContext}`,
       )}
 
       {confirmDialog && (
-        <div className="fixed inset-0 bg-black/50 z-[60] flex flex-col items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 max-w-sm w-full shadow-2xl">
-            <h3 className="text-lg font-bold text-white mb-4">Confirm Action</h3>
-            <p className="text-slate-300 text-sm mb-6">{confirmDialog.message}</p>
-            <div className="flex justify-end gap-3">
-              <button 
-                onClick={() => setConfirmDialog(null)} 
-                className="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={confirmDialog.onConfirm}
-                className="px-4 py-2 text-sm bg-red-600 text-white hover:bg-red-500 rounded transition-colors shadow shadow-red-600/20"
-              >
-                Confirm
-              </button>
-            </div>
-          </div>
-        </div>
+        <InboxConfirmDialog
+          message={confirmDialog.message}
+          onConfirm={confirmDialog.onConfirm}
+          onCancel={() => setConfirmDialog(null)}
+        />
       )}
 
       {alertDialog && (
-        <div className="fixed inset-0 bg-black/50 z-[60] flex flex-col items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 max-w-sm w-full shadow-2xl">
-            <h3 className="text-lg font-bold text-cyan-400 mb-4">Notification</h3>
-            <p className="text-slate-300 text-sm mb-6">{alertDialog}</p>
-            <div className="flex justify-end">
-              <button 
-                onClick={() => setAlertDialog(null)}
-                className="px-4 py-2 text-sm bg-cyan-600 text-white hover:bg-cyan-500 rounded transition-colors shadow shadow-cyan-600/20"
-              >
-                OK
-              </button>
-            </div>
-          </div>
-        </div>
+        <InboxNotificationDialog
+          message={alertDialog}
+          onClose={() => setAlertDialog(null)}
+        />
       )}
 
       {showCommentAttachmentModal && (
@@ -3669,50 +3121,23 @@ ${activeTelegramAgentContext.additionalContext}`,
       )}
 
       {tagModalEmail && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex flex-col items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 max-w-sm w-full">
-            <h3 className="text-lg font-bold text-white mb-4">Add Tag</h3>
-            <input 
-              type="text" 
-              value={tagInput}
-              onChange={e => setTagInput(e.target.value)}
-              placeholder="e.g. VIP, Urgent"
-              className="w-full bg-slate-800 border-slate-700 text-white rounded p-2 mb-4"
-              autoFocus
-              onKeyDown={e => { if(e.key === 'Enter') submitTag(); else if(e.key === 'Escape') setTagModalEmail(null) }}
-            />
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setTagModalEmail(null)} className="px-4 py-2 text-slate-400 hover:text-white">Cancel</button>
-              <button onClick={submitTag} disabled={!tagInput.trim()} className="px-4 py-2 bg-cyan-600 text-white rounded-md disabled:opacity-50">Add</button>
-            </div>
-          </div>
-        </div>
+        <EmailTagDialog
+          tagInput={tagInput}
+          onTagInputChange={setTagInput}
+          onSubmit={submitTag}
+          onClose={() => setTagModalEmail(null)}
+        />
       )}
 
       {todoModalEmail && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex flex-col items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 max-w-md w-full">
-            <h3 className="text-lg font-bold text-white mb-4">Add Email to Todo</h3>
-            <label className="text-xs text-slate-400 block mb-1">Due Date & Time</label>
-            <input 
-              type="datetime-local" 
-              value={todoAt}
-              onChange={e => setTodoAt(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 text-white rounded p-2 mb-4"
-            />
-            <label className="text-xs text-slate-400 block mb-1">Note (Optional)</label>
-            <textarea 
-              value={todoNote}
-              onChange={e => setTodoNote(e.target.value)}
-              placeholder="E.g. Follow up with a proposal..."
-              className="w-full bg-slate-800 border border-slate-700 text-white rounded p-2 mb-4 min-h-[80px]"
-            />
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setTodoModalEmail(null)} className="px-4 py-2 text-slate-400 hover:text-white">Cancel</button>
-              <button onClick={submitTodo} disabled={!todoAt} className="px-4 py-2 bg-cyan-600 text-white rounded-md disabled:opacity-50">Save</button>
-            </div>
-          </div>
-        </div>
+        <EmailTodoDialog
+          todoAt={todoAt}
+          todoNote={todoNote}
+          onTodoAtChange={setTodoAt}
+          onTodoNoteChange={setTodoNote}
+          onSubmit={submitTodo}
+          onClose={() => setTodoModalEmail(null)}
+        />
       )}
 
     </PanelGroup>
