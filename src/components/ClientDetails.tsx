@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useStore, ClientStatus, Client, ContactMethod, Comment } from '../store';
 import { useAuthStore } from '../authStore';
 import { X, Thermometer, Flame, Snowflake, Sparkles, Send, Loader2, Workflow, History, Mail, MessageCircle, Phone, Edit, Trash2, Paperclip, MessageSquare, Settings, Globe2, ArrowLeft, Building2, MapPin, BadgeDollarSign, Tag, Clock3, CheckCircle2, FileText, Maximize2 } from 'lucide-react';
@@ -471,6 +471,7 @@ export function ClientDetails() {
 
   const [commentText, setCommentText] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const reconciledPendingCommentDeletesRef = useRef<Set<string>>(new Set());
 
   const [confirmDeleteTarget, setConfirmDeleteTarget] = useState(false);
   const [eventView, setEventView] = useState<'timeline' | 'list' | 'growth'>('timeline');
@@ -521,6 +522,19 @@ export function ClientDetails() {
   const nextStepText = leadRecord
     ? leadRecord.leadNextStep
     : (client?.agentNextStep || client?.leadNextStep);
+
+  useEffect(() => {
+    if (!client) return;
+    const pendingIds = collectPendingDeleteCommentIds(leadComments);
+    pendingIds.forEach(commentId => {
+      const key = `${leadRecord ? 'lead' : 'client'}:${leadRecord?.id || client.id}:${commentId}`;
+      if (reconciledPendingCommentDeletesRef.current.has(key)) return;
+      reconciledPendingCommentDeletesRef.current.add(key);
+      submitCommentDeleteApprovalRequest(commentId).catch(error => {
+        console.warn('Failed to reconcile pending comment delete request', error);
+      });
+    });
+  }, [client?.id, leadRecord?.id, leadComments]);
 
   if (!client) return null;
   const displayContacts = (client.contacts && client.contacts.length > 0)
@@ -860,26 +874,56 @@ export function ClientDetails() {
       : comment;
   });
 
-  const handleRequestCommentDelete = async (commentId: string) => {
+  const collectPendingDeleteCommentIds = (comments: Comment[]): string[] => {
+    const ids: string[] = [];
+    const walk = (items: Comment[]) => {
+      items.forEach(comment => {
+        if (comment.pendingDelete) ids.push(comment.id);
+        if (comment.replies?.length) walk(comment.replies);
+      });
+    };
+    walk(comments);
+    return ids;
+  };
+
+  const submitCommentDeleteApprovalRequest = async (commentId: string) => {
     const token = useAuthStore.getState().token || localStorage.getItem('token');
-    if (!token) return;
+    if (!token) throw new Error('Authentication is required.');
+    const payload = leadRecord
+      ? { action: 'delete_deal_comment', deal_id: leadRecord.id, comment_id: commentId, lead_name: leadRecord.name }
+      : { action: 'delete_client_comment', comment_id: commentId };
+    const response = await fetch(`/api/clients/${client.id}/edit-requests`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify(payload)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Failed to create approval request.');
+    return data;
+  };
+
+  const handleRequestCommentDelete = async (commentId: string) => {
     try {
       if (leadRecord) {
+        const previousComments = leadRecord.comments || [];
         const nextComments = markCommentPendingDelete(leadRecord.comments || [], commentId);
         updateDeal(leadRecord.id, { comments: nextComments });
-        await fetch(`/api/clients/${client.id}/edit-requests`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ action: 'delete_deal_comment', deal_id: leadRecord.id, comment_id: commentId, lead_name: leadRecord.name })
-        });
+        try {
+          await submitCommentDeleteApprovalRequest(commentId);
+        } catch (error) {
+          updateDeal(leadRecord.id, { comments: previousComments });
+          throw error;
+        }
       } else {
+        const previousComments = client.comments || [];
         const nextComments = markCommentPendingDelete(client.comments || [], commentId);
         editClient(client.id, { comments: nextComments });
-        await fetch(`/api/clients/${client.id}/edit-requests`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ action: 'delete_client_comment', comment_id: commentId })
-        });
+        try {
+          await submitCommentDeleteApprovalRequest(commentId);
+        } catch (error) {
+          editClient(client.id, { comments: previousComments });
+          throw error;
+        }
       }
       notify(useStore.getState().language === 'zh' ? '评论删除请求已提交，等待审批。' : 'Comment delete request submitted for approval.', 'success');
     } catch (error) {

@@ -238,6 +238,22 @@ export function useAgentOperations({
   };
 
   const approveItem = async (item: AgentHubPendingItem, reason?: string) => {
+    if (item.kind === 'client_edit') {
+      try {
+        const response = await fetch(`/api/admin/client-edit-requests/${encodeURIComponent(item.id)}/approve`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ reason: String(reason || '').trim() })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Failed to approve request');
+        notify(language === 'zh' ? '审核已通过。' : 'Approval request approved.', 'success');
+        return;
+      } catch (error) {
+        notify(error instanceof Error ? error.message : (language === 'zh' ? '审核通过失败。' : 'Failed to approve request.'), 'error');
+        return;
+      }
+    }
     const approvedAt = new Date().toISOString();
     const reasonNote = reviewReasonSuffix(reason);
     if (item.kind === 'harness') updateAgentHarnessRun(item.id, { status: 'running', approvedAt });
@@ -293,6 +309,22 @@ export function useAgentOperations({
   };
 
   const rejectItem = (item: AgentHubPendingItem, reason?: string) => {
+    if (item.kind === 'client_edit') {
+      fetch(`/api/admin/client-edit-requests/${encodeURIComponent(item.id)}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ reason: String(reason || '').trim() })
+      })
+        .then(async response => {
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.error || 'Failed to reject request');
+          notify(language === 'zh' ? '审核已拒绝。' : 'Approval request rejected.', 'success');
+        })
+        .catch(error => {
+          notify(error instanceof Error ? error.message : (language === 'zh' ? '审核拒绝失败。' : 'Failed to reject request.'), 'error');
+        });
+      return;
+    }
     const rejectedAt = new Date().toISOString();
     const rejectedReason = String(reason || '').trim() || (language === 'zh' ? '由 Agent Hub 人工拒绝。' : 'Rejected from Agent Hub.');
     const reasonNote = reviewReasonSuffix(rejectedReason);

@@ -71,7 +71,7 @@ export function agentFixSuggestions(text: string, language?: string) {
 }
 
 export interface AgentHubPendingItem {
-  kind: 'harness' | 'global';
+  kind: 'harness' | 'global' | 'client_edit';
   id: string;
   title: string;
   agent: string;

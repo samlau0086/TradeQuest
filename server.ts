@@ -15497,6 +15497,35 @@ No markdown wrappers, just valid JSON.`;
       if (clientRes.rows.length === 0) return res.status(404).json({ error: 'Client not found' });
       const client = clientRes.rows[0];
 
+      const action = String(requestedData?.action || 'client_update');
+      const commentId = requestedData?.comment_id ? String(requestedData.comment_id) : '';
+      const dealId = requestedData?.deal_id ? String(requestedData.deal_id) : '';
+      if (['delete_client_comment', 'delete_deal_comment'].includes(action) && commentId) {
+        const values: any[] = [req.user.uid, id, action, commentId];
+        let where = `
+          user_id = $1
+          AND client_id = $2
+          AND status = 'pending'
+          AND requested_data->>'action' = $3
+          AND requested_data->>'comment_id' = $4
+        `;
+        if (action === 'delete_deal_comment' && dealId) {
+          values.push(dealId);
+          where += ` AND requested_data->>'deal_id' = $${values.length}`;
+        }
+        const existingRequest = await pool.query(
+          `SELECT id FROM client_edit_requests WHERE ${where} LIMIT 1`,
+          values
+        );
+        if (existingRequest.rows.length > 0) {
+          await pool.query(`UPDATE clients SET pending_edit_request = TRUE WHERE id = $1 AND user_id = $2`, [id, req.user.uid]);
+          if (action === 'delete_deal_comment' && dealId) {
+            await pool.query(`UPDATE deals SET pending_edit_request = TRUE WHERE id = $1 AND user_id = $2`, [dealId, req.user.uid]);
+          }
+          return res.json({ success: true, duplicate: true, requestId: existingRequest.rows[0].id });
+        }
+      }
+
       await pool.query(
         `INSERT INTO client_edit_requests (client_id, user_id, original_data, requested_data) VALUES ($1, $2, $3, $4)`,
         [id, req.user.uid, JSON.stringify(client), JSON.stringify(requestedData)]

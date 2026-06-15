@@ -6,24 +6,15 @@ import {
   GLOBAL_AGENT_ACTION_TYPES,
   GlobalAgentActionType
 } from '../../store';
-import { ACTION_LABELS, AgentHubTab } from './shared';
-
-type PendingApprovalItem = {
-  kind: 'harness' | 'global';
-  id: string;
-  title: string;
-  agent: string;
-  body: string;
-  createdAt: string;
-};
+import { ACTION_LABELS, AgentHubPendingItem, AgentHubTab } from './shared';
 
 interface ApprovalCenterPanelProps {
   language: string;
-  pendingItems: PendingApprovalItem[];
+  pendingItems: AgentHubPendingItem[];
   agentExecutionPolicy: AgentExecutionPolicy;
   t: (key: string) => string;
-  onApprove: (item: PendingApprovalItem, reason?: string) => void | Promise<void>;
-  onReject: (item: PendingApprovalItem, reason?: string) => void;
+  onApprove: (item: AgentHubPendingItem, reason?: string) => void | Promise<void>;
+  onReject: (item: AgentHubPendingItem, reason?: string) => void;
   onTabChange: (tab: AgentHubTab) => void;
   onUpdatePolicy: (actionType: GlobalAgentActionType, updates: Partial<AgentExecutionPolicyRule>) => void;
 }
@@ -40,7 +31,7 @@ export function ApprovalCenterPanel({
 }: ApprovalCenterPanelProps) {
   const isZh = language === 'zh';
   const [reviewDialog, setReviewDialog] = useState<{
-    item: PendingApprovalItem;
+    item: AgentHubPendingItem;
     action: 'approve' | 'reject';
     reason: string;
   } | null>(null);

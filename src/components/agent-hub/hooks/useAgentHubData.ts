@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AgentHubAgent, AgentTask, useStore } from '../../../store';
 import { AgentConfigValue } from '../AgentConfigPanel';
 import { AgentTraceRun } from '../ExecutionLogsPanel';
@@ -34,6 +34,33 @@ const isLegacySignalScannerPendingTrace = (run: any) => (
   run.steps?.[0]?.status === 'pending'
 );
 
+const clientEditApprovalTitle = (request: any, language: string) => {
+  const action = request.requested_data?.action || request.requestedData?.action || 'client_update';
+  const isZh = language === 'zh';
+  if (action === 'delete_client_comment') return isZh ? '删除客户 Team Comment' : 'Delete client team comment';
+  if (action === 'delete_deal_comment') return isZh ? '删除 Lead Team Comment' : 'Delete lead team comment';
+  if (action === 'delete_live_chat_session') return isZh ? '删除 Live Chat 对话' : 'Delete Live Chat conversation';
+  if (action === 'delete_email') return isZh ? '删除邮件' : 'Delete email';
+  if (action === 'delete_deal') return isZh ? '删除 Lead' : 'Delete lead';
+  return isZh ? '客户资料修改审核' : 'Client profile change';
+};
+
+const clientEditApprovalBody = (request: any, language: string) => {
+  const action = request.requested_data?.action || request.requestedData?.action || 'client_update';
+  const requested = request.requested_data || request.requestedData || {};
+  const isZh = language === 'zh';
+  const lines = [
+    isZh ? `动作：${clientEditApprovalTitle(request, language)}` : `Action: ${clientEditApprovalTitle(request, language)}`,
+    isZh ? `客户：${request.current_client_name || request.client_id}` : `Client: ${request.current_client_name || request.client_id}`,
+    requested.comment_id ? (isZh ? `评论 ID：${requested.comment_id}` : `Comment ID: ${requested.comment_id}`) : '',
+    requested.deal_id ? (isZh ? `Lead ID：${requested.deal_id}` : `Lead ID: ${requested.deal_id}`) : '',
+    requested.live_chat_session_id ? (isZh ? `Live Chat：${requested.live_chat_session_id}` : `Live Chat: ${requested.live_chat_session_id}`) : '',
+    '',
+    JSON.stringify({ action, requested }, null, 2)
+  ].filter(Boolean);
+  return lines.join('\n');
+};
+
 export function useAgentHubData({
   language,
   agentQueueFilter,
@@ -47,6 +74,28 @@ export function useAgentHubData({
     agentOpportunities,
     agentTasks
   } = useStore();
+  const [clientEditRequests, setClientEditRequests] = useState<any[]>([]);
+
+  const fetchClientEditRequests = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const response = await fetch('/api/admin/client-edit-requests?status=pending', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!response.ok) return;
+      const data = await response.json().catch(() => []);
+      setClientEditRequests(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.warn('Failed to load client edit approval requests', error);
+    }
+  };
+
+  useEffect(() => {
+    void fetchClientEditRequests();
+    const interval = window.setInterval(() => void fetchClientEditRequests(), 15000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   const pendingItems = useMemo<AgentHubPendingItem[]>(() => [
     ...agentHarnessRuns
@@ -59,6 +108,16 @@ export function useAgentHubData({
         body: run.objective,
         createdAt: run.createdAt
       })),
+    ...clientEditRequests
+      .filter(request => request.status === 'pending')
+      .map(request => ({
+        kind: 'client_edit' as const,
+        id: request.id,
+        title: clientEditApprovalTitle(request, language),
+        agent: language === 'zh' ? '数据审核' : 'Data Approval',
+        body: clientEditApprovalBody(request, language),
+        createdAt: request.created_at || request.createdAt || new Date().toISOString()
+      })),
     ...globalAgentPlans
       .filter(plan => plan.status === 'pending_review')
       .map(plan => ({
@@ -69,7 +128,7 @@ export function useAgentHubData({
         body: plan.objective,
         createdAt: plan.createdAt
       }))
-  ], [agentHarnessRuns, globalAgentPlans, language]);
+  ], [agentHarnessRuns, clientEditRequests, globalAgentPlans, language]);
 
   const runLogs = useMemo<AgentTraceRun[]>(() => [
     ...agentHarnessRuns

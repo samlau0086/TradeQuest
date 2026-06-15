@@ -2,11 +2,7 @@ import React from 'react';
 import { Bot, CheckCircle2, MessageSquare, RefreshCw, Send, Trash2, XCircle } from 'lucide-react';
 import { AgentHubAgent, AgentHubChatMessage, Client } from '../../store';
 import { cn } from '../../lib/utils';
-
-type PendingApprovalItem = {
-  kind: 'harness' | 'global';
-  id: string;
-};
+import { AgentHubPendingItem } from './shared';
 
 interface AgentConsolePanelProps {
   language: string;
@@ -14,7 +10,7 @@ interface AgentConsolePanelProps {
   activeChatAgent: AgentHubAgent | null;
   chatRunningAgentId: string | null;
   visibleChatMessages: AgentHubChatMessage[];
-  pendingItems: PendingApprovalItem[];
+  pendingItems: AgentHubPendingItem[];
   clients: Client[];
   chatInput: string;
   chatSending: boolean;
