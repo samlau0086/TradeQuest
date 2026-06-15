@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useStore, Client, ContactMethod, Comment } from '../store';
 import { useAuthStore } from '../authStore';
-import { X, Flame, Sparkles, Send, Loader2, Mail, Edit, Trash2, Settings, ArrowLeft, Building2, MapPin } from 'lucide-react';
+import { X, Flame, Sparkles, Send, Loader2, Mail, Settings } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ClientFormModal } from './ClientFormModal';
 
@@ -9,6 +9,8 @@ import { User } from 'lucide-react';
 
 import { ClientAiRadarCard } from './ClientAiRadarCard';
 import { ClientContactsWidget } from './ClientContactsWidget';
+import { ClientDeleteConfirmDialog } from './ClientDeleteConfirmDialog';
+import { ClientDetailsHeader } from './ClientDetailsHeader';
 import { ClientConversationNotesWidget } from './ClientConversationNotesWidget';
 import { ClientEmailComposeOverlay } from './ClientEmailComposeOverlay';
 import { ClientEventPanel } from './ClientEventPanel';
@@ -19,7 +21,6 @@ import { ClientTeamCommentsPanel } from './ClientTeamCommentsPanel';
 import { ClientWorkroomPanel } from './ClientWorkroomPanel';
 import { KnowledgeBaseManager } from './KnowledgeBaseManager';
 import { WorkflowConfigModal } from './WorkflowConfigModal';
-import { LocalTime } from './LocalTime';
 import { WhatsAppChatModal } from './WhatsAppChatModal';
 import { getCustomerOutputLanguage } from '../lib/language';
 import { buildLeadScoringSignature } from '../lib/leadScoring';
@@ -944,40 +945,13 @@ export function ClientDetails() {
 
   return (
     <div className="fixed inset-0 z-50 bg-[#05070b] text-slate-100 overflow-hidden pointer-events-auto">
-      {/* Header */}
-      <div className="px-5 py-5 lg:px-8 border-b border-slate-900/80 bg-black/40">
-        <div className="mx-auto max-w-[1800px] flex items-start justify-between gap-4">
-          <div className="flex items-start gap-4 min-w-0">
-            <button onClick={closeDetails} className="mt-1 p-2 rounded-lg border border-slate-800 bg-slate-950/80 text-slate-400 hover:text-white hover:border-slate-600 transition-colors">
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <div className="min-w-0">
-              <div className="flex items-center gap-3 flex-wrap">
-                <h2 className="text-2xl font-bold text-white truncate">{leadRecord?.name || client.name}</h2>
-                <span className="text-[11px] font-bold px-2.5 py-1 rounded bg-purple-500/20 text-purple-200 border border-purple-500/30">
-                  {leadRecord ? 'Lead' : 'Client'}
-                </span>
-                <span className="text-[11px] font-bold px-2.5 py-1 rounded bg-cyan-500/10 text-cyan-200 border border-cyan-500/20">
-                  {leadRecord?.status || client.status}
-                </span>
-              </div>
-              <div className="mt-2 flex items-center gap-4 text-xs text-slate-500 flex-wrap">
-                <span className="inline-flex items-center gap-1.5"><Building2 className="w-3.5 h-3.5" />{client.company || 'No company'}</span>
-                <span className="inline-flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" />{[client.city, client.state, client.country].filter(Boolean).join(', ') || 'No location'}</span>
-                <LocalTime country={client.country} />
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button onClick={() => setShowEditModal(true)} className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800 hover:text-white transition-colors">
-              <Edit className="w-4 h-4" /> Edit Info
-            </button>
-            <button onClick={() => setConfirmDeleteTarget(true)} className="p-2.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-red-500/10 transition-colors">
-              <Trash2 className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      </div>
+      <ClientDetailsHeader
+        client={client}
+        leadRecord={leadRecord}
+        onClose={closeDetails}
+        onEdit={() => setShowEditModal(true)}
+        onDelete={() => setConfirmDeleteTarget(true)}
+      />
 
       <div className="h-[calc(100dvh-93px)] overflow-y-auto px-5 py-6 lg:px-8">
         <div className="mx-auto max-w-[1800px] space-y-6">
@@ -1110,16 +1084,13 @@ export function ClientDetails() {
       {agentSettingsOpen && <AgentSettingsModal client={client} onClose={() => setAgentSettingsOpen(false)} />}
 
       {confirmDeleteTarget && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-xl max-w-sm w-full">
-            <h3 className="text-lg font-bold text-white mb-2">Delete Client & Leads?</h3>
-            <p className="text-slate-400 mb-6 text-sm">Are you sure you want to delete this client? All associated leads and data will be lost. This cannot be undone.</p>
-            <div className="flex justify-end gap-3">
-              <button onClick={() => setConfirmDeleteTarget(false)} className="px-4 py-2 text-slate-300 hover:text-white transition-colors">Cancel</button>
-              <button onClick={() => { deleteClient(client.id); setConfirmDeleteTarget(false); }} className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg shadow font-medium transition-colors">Delete Client</button>
-            </div>
-          </div>
-        </div>
+        <ClientDeleteConfirmDialog
+          onCancel={() => setConfirmDeleteTarget(false)}
+          onConfirm={() => {
+            deleteClient(client.id);
+            setConfirmDeleteTarget(false);
+          }}
+        />
       )}
 
       {/* Gmail-style sticky Compose block in corner */}
