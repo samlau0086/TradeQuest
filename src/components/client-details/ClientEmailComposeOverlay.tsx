@@ -1,6 +1,6 @@
 import React from 'react';
 import { Maximize2 } from 'lucide-react';
-import { ComposeEmail } from './Inbox';
+import { ComposeEmail } from '../Inbox';
 
 interface ClientEmailComposeOverlayProps {
   language: string;

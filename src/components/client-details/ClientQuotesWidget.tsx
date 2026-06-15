@@ -1,7 +1,7 @@
 import React from 'react';
 import { FileText } from 'lucide-react';
-import { Deal, Quote } from '../store';
-import { formatCurrency } from '../lib/currency';
+import { Deal, Quote } from '../../store';
+import { formatCurrency } from '../../lib/currency';
 
 interface ClientQuotesWidgetProps {
   quotes: Quote[];

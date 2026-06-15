@@ -1,6 +1,6 @@
 import React from 'react';
 import { Clock3, History, Mail, Snowflake, Trash2 } from 'lucide-react';
-import { Log } from '../store';
+import { Log } from '../../store';
 
 type ClientEventView = 'timeline' | 'list' | 'growth';
 

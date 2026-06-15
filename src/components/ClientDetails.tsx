@@ -1,29 +1,26 @@
 import React, { useState } from 'react';
 import { useStore } from '../store';
 import { useAuthStore } from '../authStore';
-import { cn } from '../lib/utils';
 import { ClientFormModal } from './ClientFormModal';
 
-import { User } from 'lucide-react';
-
-import { ClientAgentSettingsModal } from './ClientAgentSettingsModal';
-import { ClientAiRadarCard } from './ClientAiRadarCard';
-import { ClientContactActionBox } from './ClientContactActionBox';
-import { ClientContactsWidget } from './ClientContactsWidget';
-import { ClientDeleteConfirmDialog } from './ClientDeleteConfirmDialog';
-import { ClientDetailsHeader } from './ClientDetailsHeader';
-import { ClientConversationNotesWidget } from './ClientConversationNotesWidget';
-import { ClientEmailComposeOverlay } from './ClientEmailComposeOverlay';
-import { ClientEventPanel } from './ClientEventPanel';
-import { ClientFollowUpAgentWidget } from './ClientFollowUpAgentWidget';
-import { ClientProfileSidebarWidgets } from './ClientProfileSidebarWidgets';
-import { ClientQuotesWidget } from './ClientQuotesWidget';
-import { ClientTeamCommentsPanel } from './ClientTeamCommentsPanel';
-import { ClientWorkroomPanel } from './ClientWorkroomPanel';
+import {
+  ClientAgentSettingsModal,
+  ClientAiRadarCard,
+  ClientContactActionBox,
+  ClientContactsWidget,
+  ClientConversationNotesWidget,
+  ClientDeleteConfirmDialog,
+  ClientDetailsHeader,
+  ClientEmailComposeOverlay,
+  ClientEventPanel,
+  ClientFollowUpAgentWidget,
+  ClientProfileSidebarWidgets,
+  ClientQuotesWidget,
+  ClientTeamCommentsPanel,
+  ClientWorkroomPanel,
+} from './client-details';
 import { KnowledgeBaseManager } from './KnowledgeBaseManager';
-import { useClientAiAnalysis } from '../hooks/useClientAiAnalysis';
-import { useClientComments } from '../hooks/useClientComments';
-import { useClientDetailsData } from '../hooks/useClientDetailsData';
+import { useClientAiAnalysis, useClientComments, useClientDetailsData } from '../hooks/client-details';
 
 const INBOX_OPEN_REQUEST_KEY = 'tradequest:inbox-open-request:v1';
 

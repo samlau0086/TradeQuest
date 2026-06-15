@@ -1,6 +1,6 @@
 import React from 'react';
 import { Loader2, Send, Sparkles, Thermometer } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn } from '../../lib/utils';
 
 export interface ClientAiRadarData {
   sentiment: string;

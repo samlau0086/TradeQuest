@@ -1,7 +1,7 @@
 import React from 'react';
 import { Globe2, Mail, MessageCircle, Phone, Send } from 'lucide-react';
-import { Client, ClientContact, ContactMethod } from '../store';
-import { cn } from '../lib/utils';
+import { Client, ClientContact, ContactMethod } from '../../store';
+import { cn } from '../../lib/utils';
 
 const CONTACT_ICONS = {
   email: Mail,

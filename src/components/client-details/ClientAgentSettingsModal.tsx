@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { Settings } from 'lucide-react';
-import { Client, useStore } from '../store';
-import { cn } from '../lib/utils';
-import { getCustomerOutputLanguage } from '../lib/language';
-import { WorkflowConfigModal } from './WorkflowConfigModal';
+import { Client, useStore } from '../../store';
+import { cn } from '../../lib/utils';
+import { getCustomerOutputLanguage } from '../../lib/language';
+import { WorkflowConfigModal } from '../WorkflowConfigModal';
 
 interface ClientAgentSettingsModalProps {
   client: Client;

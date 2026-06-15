@@ -1,6 +1,6 @@
 import React from 'react';
 import { BadgeDollarSign, Building2, FileText, MapPin, MessageSquare, Workflow } from 'lucide-react';
-import { Client, ClientStatus, Deal } from '../store';
+import { Client, ClientStatus, Deal } from '../../store';
 
 interface ClientProfileSidebarWidgetsProps {
   client: Client;

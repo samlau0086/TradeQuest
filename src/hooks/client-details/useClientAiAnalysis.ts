@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useAuthStore } from '../authStore';
-import { Client, ClientContact, ContactMethod, Deal, Log, useStore } from '../store';
-import { buildLeadScoringSignature } from '../lib/leadScoring';
+import { useAuthStore } from '../../authStore';
+import { Client, ClientContact, ContactMethod, Deal, Log, useStore } from '../../store';
+import { buildLeadScoringSignature } from '../../lib/leadScoring';
 
 export interface ClientAiAnalysisData {
   sentiment: string;

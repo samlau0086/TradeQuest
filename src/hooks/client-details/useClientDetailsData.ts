@@ -1,4 +1,4 @@
-import { Client, Deal, EmailMessage, Log, useStore } from '../store';
+import { Client, Deal, EmailMessage, Log, useStore } from '../../store';
 
 interface UseClientDetailsDataArgs {
   client?: Client | null;

@@ -1,7 +1,7 @@
 import React from 'react';
 import { MessageSquare, Paperclip, Send } from 'lucide-react';
-import { Attachment, Comment } from '../store';
-import { CommentItem } from './CommentItem';
+import { Attachment, Comment } from '../../store';
+import { CommentItem } from '../CommentItem';
 
 interface ClientTeamCommentsPanelProps {
   comments: Comment[];

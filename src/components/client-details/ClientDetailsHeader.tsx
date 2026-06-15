@@ -1,7 +1,7 @@
 import React from 'react';
 import { ArrowLeft, Building2, Edit, MapPin, Trash2 } from 'lucide-react';
-import { Client, Deal } from '../store';
-import { LocalTime } from './LocalTime';
+import { Client, Deal } from '../../store';
+import { LocalTime } from '../LocalTime';
 
 interface ClientDetailsHeaderProps {
   client: Client;

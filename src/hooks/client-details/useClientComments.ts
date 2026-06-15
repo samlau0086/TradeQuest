@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { useAuthStore } from '../authStore';
-import { Attachment, Client, Comment, Deal, useStore } from '../store';
+import { useAuthStore } from '../../authStore';
+import { Attachment, Client, Comment, Deal, useStore } from '../../store';
 
 interface UseClientCommentsArgs {
   client?: Client | null;

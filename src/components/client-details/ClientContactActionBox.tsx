@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { Loader2, Mail, Send, Sparkles } from 'lucide-react';
-import { useAuthStore } from '../authStore';
-import { Client, ContactMethod, useStore } from '../store';
-import { getCustomerOutputLanguage } from '../lib/language';
-import { WhatsAppChatModal } from './WhatsAppChatModal';
+import { useAuthStore } from '../../authStore';
+import { Client, ContactMethod, useStore } from '../../store';
+import { getCustomerOutputLanguage } from '../../lib/language';
+import { WhatsAppChatModal } from '../WhatsAppChatModal';
 
 const INBOX_OPEN_REQUEST_KEY = 'tradequest:inbox-open-request:v1';
 
