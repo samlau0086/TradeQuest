@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useStore, ClientStatus, Client, ContactMethod, Comment } from '../store';
 import { useAuthStore } from '../authStore';
-import { X, Flame, Snowflake, Sparkles, Send, Loader2, Workflow, History, Mail, Edit, Trash2, Paperclip, MessageSquare, Settings, ArrowLeft, Building2, MapPin, BadgeDollarSign, Tag, Clock3, FileText } from 'lucide-react';
+import { X, Flame, Sparkles, Send, Loader2, Workflow, Mail, Edit, Trash2, Paperclip, MessageSquare, Settings, ArrowLeft, Building2, MapPin, BadgeDollarSign, Tag, FileText } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ClientFormModal } from './ClientFormModal';
 
@@ -11,6 +11,7 @@ import { CommentItem } from './CommentItem';
 import { ClientAiRadarCard } from './ClientAiRadarCard';
 import { ClientContactsWidget } from './ClientContactsWidget';
 import { ClientEmailComposeOverlay } from './ClientEmailComposeOverlay';
+import { ClientEventPanel } from './ClientEventPanel';
 import { ClientQuotesWidget } from './ClientQuotesWidget';
 import { ClientWorkroomPanel } from './ClientWorkroomPanel';
 import { KnowledgeBaseManager } from './KnowledgeBaseManager';
@@ -509,6 +510,12 @@ export function ClientDetails() {
     selectClient(null);
     setView('quotes');
   };
+  const openEmailInInbox = (emailId: string | null | undefined) => {
+    selectEmail(emailId || null);
+    selectDeal(null);
+    selectClient(null);
+    setView('inbox');
+  };
   const summaryText = leadRecord
     ? leadRecord.leadSummary
     : (client?.agentSummary || client?.leadSummary);
@@ -574,12 +581,7 @@ export function ClientDetails() {
       title: email.subject || '(No subject)',
       body: shortText(email.body, 110),
       date: email.date,
-      action: () => {
-        selectEmail(email.id);
-        selectDeal(null);
-        selectClient(null);
-        setView('inbox');
-      }
+      action: () => openEmailInInbox(email.id)
     })),
     ...sortedLeadLogs.slice(0, 6).map(log => ({
       id: `log_${log.id}`,
@@ -587,12 +589,7 @@ export function ClientDetails() {
       title: log.content,
       body: '',
       date: log.date,
-      action: log.relatedEmailId ? () => {
-        selectEmail(log.relatedEmailId || null);
-        selectDeal(null);
-        selectClient(null);
-        setView('inbox');
-      } : undefined
+      action: log.relatedEmailId ? () => openEmailInInbox(log.relatedEmailId) : undefined
     })),
     ...clientLiveChatSessions.slice(0, 4).map(session => ({
       id: `live_${session.id}`,
@@ -611,12 +608,7 @@ export function ClientDetails() {
       id: `todo_${email.id}`,
       label: email.todoNote || email.subject || '待跟进邮件',
       meta: email.todoAt ? new Date(email.todoAt).toLocaleString() : '未设置时间',
-      onClick: () => {
-        selectEmail(email.id);
-        selectDeal(null);
-        selectClient(null);
-        setView('inbox');
-      }
+      onClick: () => openEmailInInbox(email.id)
     })),
     ...relatedAgentTasks.slice(0, 3).map(task => ({
       id: `task_${task.id}`,
@@ -1005,180 +997,29 @@ export function ClientDetails() {
                 ragItems={clientKnowledge}
                 channelHighlights={channelHighlights.map(({ action, ...item }) => ({ ...item, onClick: action }))}
                 onRefreshAiRecommendation={() => handleAnalyze(true)}
-                onOpenCommunication={() => {
-                  const email = relatedEmails[0];
-                  if (email) selectEmail(email.id);
-                  selectDeal(null);
-                  selectClient(null);
-                  setView('inbox');
-                }}
+                onOpenCommunication={() => openEmailInInbox(relatedEmails[0]?.id)}
                 onOpenAgentHub={() => setView('agent-hub')}
                 onOpenKnowledgeBase={() => setView('knowledge-base')}
               />
 
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
-                <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
-                  <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
-                    <History className="w-4 h-4" /> Event Timeline
-                  </h3>
-                  <div className="flex items-center gap-3">
-                    <div className="inline-flex rounded-lg border border-slate-800 bg-slate-900 p-1">
-                      <button
-                        type="button"
-                        onClick={() => setEventView('timeline')}
-                        className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${eventView === 'timeline' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-                      >
-                        Event Timeline
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEventView('list')}
-                        className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${eventView === 'list' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-                      >
-                        Event List
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEventView('growth')}
-                        className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${eventView === 'growth' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-                      >
-                        Growth Logs
-                      </button>
-                    </div>
-                    <span className="text-xs text-slate-500">{sortedLeadLogs.length} events</span>
-                  </div>
-                </div>
-
-                {eventView === 'timeline' ? (
-                  <div className="relative pl-6">
-                    <div className="absolute bottom-2 left-[9px] top-2 w-px bg-slate-800" />
-                    <div className="space-y-4">
-                      {visibleTimelineLogs.map((log, index) => (
-                        <div key={log.id} className="relative">
-                          <div className={`absolute -left-[23px] top-1.5 flex h-5 w-5 items-center justify-center rounded-full border ${index === 0 ? 'border-cyan-400 bg-cyan-500/20' : 'border-slate-700 bg-slate-950'}`}>
-                            <div className={`h-2 w-2 rounded-full ${index === 0 ? 'bg-cyan-300' : 'bg-slate-500'}`} />
-                          </div>
-                          <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
-                            <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                              <Clock3 className="h-3.5 w-3.5" />
-                              <span>{new Date(log.date).toLocaleString()}</span>
-                              {log.type && (
-                                <span className="rounded border border-slate-700 bg-slate-950 px-1.5 py-0.5 uppercase tracking-wide text-slate-400">
-                                  {log.type}
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-sm text-slate-200 leading-relaxed">{log.content}</p>
-                          </div>
-                        </div>
-                      ))}
-                      {sortedLeadLogs.length === 0 && (
-                        <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-6 text-center text-sm text-slate-500">
-                          No timeline events yet.
-                        </div>
-                      )}
-                      {sortedLeadLogs.length > 10 && (
-                        <button
-                          type="button"
-                          onClick={() => setTimelineExpanded(prev => !prev)}
-                          className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs font-bold text-cyan-300 transition-colors hover:bg-cyan-500/20"
-                        >
-                          {timelineExpanded ? 'Show less' : `Expand to more (${sortedLeadLogs.length - 10})`}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ) : eventView === 'list' ? (
-                  <div className="grid gap-3 md:grid-cols-2">
-                    {visibleEventListLogs.map(log => (
-                      <div key={log.id} className="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
-                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 mb-2">
-                          <Clock3 className="w-3.5 h-3.5" />
-                          {new Date(log.date).toLocaleString()}
-                          {log.type && (
-                            <span className="rounded border border-slate-700 bg-slate-950 px-1.5 py-0.5 uppercase tracking-wide text-slate-400">
-                              {log.type}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-sm text-slate-200 leading-relaxed">{log.content}</p>
-                      </div>
-                    ))}
-                    {sortedLeadLogs.length === 0 && (
-                      <div className="md:col-span-2 rounded-lg border border-slate-800 bg-slate-900/50 p-6 text-center text-sm text-slate-500">
-                        No events yet.
-                      </div>
-                    )}
-                    {sortedLeadLogs.length > 20 && (
-                      <button
-                        type="button"
-                        onClick={() => setEventListExpanded(prev => !prev)}
-                        className="md:col-span-2 w-max rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs font-bold text-cyan-300 transition-colors hover:bg-cyan-500/20"
-                      >
-                        {eventListExpanded ? 'Show less' : `Expand to more (${sortedLeadLogs.length - 20})`}
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {visibleGrowthLogs.map(log => (
-                      <div key={log.id} className="group rounded-lg border border-slate-800 bg-slate-900/70 p-4">
-                        <div className="mb-2 flex items-start justify-between gap-3">
-                          <time className="text-[11px] font-medium text-slate-500">
-                            {new Date(log.date).toLocaleDateString()} {new Date(log.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </time>
-                          <button
-                            type="button"
-                            onClick={() => deleteLog(log.id)}
-                            title="Delete"
-                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-slate-500 hover:text-red-300 hover:bg-red-500/10"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                        <div className="text-xs text-slate-300">
-                          {log.relatedEmailId ? (
-                            <button
-                              onClick={() => {
-                                selectEmail(log.relatedEmailId || null);
-                                selectDeal(null);
-                                selectClient(null);
-                                setView('inbox');
-                              }}
-                              className="text-cyan-400 hover:text-cyan-300 hover:underline flex items-center gap-1 text-left"
-                            >
-                              <Mail className="w-3 h-3 shrink-0" />
-                              <span>{log.content}</span>
-                            </button>
-                          ) : (
-                            log.content
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                    {client.isDormant && (
-                      <div className="rounded-lg border border-orange-500/30 bg-orange-950/20 p-4 text-xs font-bold text-orange-400">
-                        <Snowflake className="mr-2 inline h-3.5 w-3.5" />
-                        Status changed to Dormant
-                      </div>
-                    )}
-                    {growthLogs.length === 0 && !client.isDormant && (
-                      <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-6 text-center text-sm text-slate-500">
-                        No growth logs yet.
-                      </div>
-                    )}
-                    {growthLogs.length > 10 && (
-                      <button
-                        type="button"
-                        onClick={() => setGrowthLogsExpanded(prev => !prev)}
-                        className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs font-bold text-cyan-300 transition-colors hover:bg-cyan-500/20"
-                      >
-                        {growthLogsExpanded ? 'Show less' : `Expand to more (${growthLogs.length - 10})`}
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
+              <ClientEventPanel
+                eventView={eventView}
+                onEventViewChange={setEventView}
+                sortedLogs={sortedLeadLogs}
+                visibleTimelineLogs={visibleTimelineLogs}
+                visibleEventListLogs={visibleEventListLogs}
+                visibleGrowthLogs={visibleGrowthLogs}
+                growthLogs={growthLogs}
+                isDormant={!!client.isDormant}
+                timelineExpanded={timelineExpanded}
+                eventListExpanded={eventListExpanded}
+                growthLogsExpanded={growthLogsExpanded}
+                onToggleTimelineExpanded={() => setTimelineExpanded(prev => !prev)}
+                onToggleEventListExpanded={() => setEventListExpanded(prev => !prev)}
+                onToggleGrowthLogsExpanded={() => setGrowthLogsExpanded(prev => !prev)}
+                onDeleteGrowthLog={deleteLog}
+                onOpenEmail={openEmailInInbox}
+              />
             </div>
 
             <div className="space-y-6 min-w-0">
