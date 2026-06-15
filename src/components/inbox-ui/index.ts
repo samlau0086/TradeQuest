@@ -11,6 +11,7 @@ export { EmailAgentSuggestionsPanel, EmailAttachmentsPanel, EmailBodyPanel, Emai
 export { InboxAuxiliaryDialogs } from './InboxAuxiliaryDialogs';
 export { InboxBulkActionsPanel } from './InboxBulkActionsPanel';
 export { InboxContactLinkingModals } from './InboxContactLinkingModals';
+export { InboxContentPanel } from './InboxContentPanel';
 export { InboxConversationSidebar } from './InboxConversationSidebar';
 export { InboxConversationListItem } from './InboxConversationListItem';
 export { EmailTagDialog, EmailTodoDialog, InboxConfirmDialog, InboxNotificationDialog } from './InboxDialogs';

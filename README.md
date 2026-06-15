@@ -496,6 +496,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] Extract Inbox Live Chat socket/session side effects into a shared hook and remove obsolete commented conversation-list code.
 - [x] Extract Inbox create-lead and add-to-existing-client modal orchestration into a shared contact-linking component.
 - [x] Extract Inbox auxiliary dialogs for confirmation, notification, attachment upload, tags, and follow-up scheduling.
+- [x] Extract Inbox right-side content panel so compose, WhatsApp start, Email, WhatsApp, Live Chat, Telegram, and empty states are isolated from the page shell.
 - [ ] Continue reducing `Inbox.tsx` toward a page orchestration layer before replacing its layout.
 - [ ] Apply the same gradual extraction pattern to other large record/detail pages before major redesign.
 
@@ -557,6 +558,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] 已拆出 Live Chat socket/会话副作用，并清理旧的注释版会话列表死代码。
 - [x] 已拆出创建 Lead 和添加到已有客户的弹窗编排逻辑，统一放入联系人关联组件。
 - [x] 已拆出确认、通知、附件上传、标签和待办设置等辅助弹窗。
+- [x] 已拆出 Inbox 右侧内容面板，将写邮件、发起 WhatsApp、Email、WhatsApp、Live Chat、Telegram 和空状态从页面壳层中隔离。
 - [ ] 继续把 `Inbox.tsx` 收敛为页面编排层，再替换整体布局。
 - [ ] 对其他大型详情页/记录页使用同样的渐进式抽组件方式。
 
