@@ -92,6 +92,7 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
     if (sourceContacts.length > 0) {
       const normalizedSource = sourceContacts.map((contact, index) => ({
         ...contact,
+        avatarUrl: contact.avatarUrl || '',
         id: contact.id || `contact_${Date.now()}_${index}`
       }));
       const primaryId = existingClient?.primaryContactId || initialData?.primaryContactId || normalizedSource.find(contact => contact.isPrimary)?.id || normalizedSource[0]?.id;
@@ -109,6 +110,7 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
       id: existingClient?.primaryContactId || initialData?.primaryContactId || `contact_${Date.now()}`,
       name: existingClient?.name || initialData?.name || '',
       title: '',
+      avatarUrl: '',
       isPrimary: true,
       contactMethods: existingClient?.contactMethods || initialData?.contactMethods || [{ type: 'email', value: '' }]
     }];
@@ -200,6 +202,7 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
       ...contact,
       id: contact.id || `contact_${Date.now()}_${index}`,
       name: (contact.isPrimary ? name : contact.name).trim(),
+      avatarUrl: (contact.avatarUrl || '').trim(),
       isPrimary: !!contact.isPrimary,
       contactMethods: (contact.contactMethods || []).filter(cm => cm.value.trim() !== '')
     })).filter(contact => contact.name || contact.contactMethods.length > 0);
@@ -278,7 +281,7 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
   const isMethodLocked = (index: number) => !!existingClient && index < (existingClient.contactMethods?.length || 0) && !isApplyMode;
 
   const addContact = () => {
-    setContacts(prev => [...prev, { id: `contact_${Date.now()}`, name: '', title: '', contactMethods: [{ type: 'email', value: '' }] }]);
+    setContacts(prev => [...prev, { id: `contact_${Date.now()}`, name: '', title: '', avatarUrl: '', contactMethods: [{ type: 'email', value: '' }] }]);
   };
 
   const updateContact = (contactId: string, updates: Partial<ClientContact>) => {
@@ -695,7 +698,19 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
             <p className="text-[11px] text-slate-500">The client name is linked to the key contact. Each contact can have multiple contact methods.</p>
             {contacts.map((contact) => (
               <div key={contact.id} className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 space-y-3">
-                <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
+                <div className="grid grid-cols-[44px_1fr_1fr_auto] gap-2 items-center">
+                  <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-slate-700 bg-slate-900 text-xs font-bold uppercase text-slate-400">
+                    {(contact.avatarUrl || '').trim() ? (
+                      <img
+                        src={(contact.avatarUrl || '').trim()}
+                        alt={contact.name || name || 'Contact'}
+                        className="h-full w-full object-cover"
+                        onError={(event) => { event.currentTarget.style.display = 'none'; }}
+                      />
+                    ) : (
+                      <span>{(contact.isPrimary ? name : contact.name || 'C').trim().slice(0, 1) || 'C'}</span>
+                    )}
+                  </div>
                   <input
                     disabled={contact.isPrimary || (!isApplyMode && !!existingClient)}
                     value={contact.isPrimary ? name : contact.name}
@@ -729,6 +744,14 @@ export function ClientFormModal({ onClose, clientId, initialData, onSave, isPubl
                     )}
                   </div>
                 </div>
+
+                <input
+                  disabled={!isApplyMode && !!existingClient}
+                  value={contact.avatarUrl || ''}
+                  onChange={e => updateContact(contact.id, { avatarUrl: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 disabled:opacity-60"
+                  placeholder={language === 'zh' ? '头像 URL（可选）' : 'Avatar URL (optional)'}
+                />
 
                 <div className="space-y-2">
                   {(contact.contactMethods || []).map((cm, idx) => (

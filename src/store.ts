@@ -79,6 +79,7 @@ export interface ClientContact {
   name: string;
   title?: string;
   department?: string;
+  avatarUrl?: string;
   isPrimary?: boolean;
   contactMethods: ContactMethod[];
   notes?: string;

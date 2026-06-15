@@ -48,6 +48,12 @@ const internalTextMatchesSystemLanguage = (value: string | undefined | null, lan
   return language === 'zh' ? hasCjkText(text) : !hasCjkText(text);
 };
 
+const contactInitials = (name: string | undefined | null) => {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+  return (parts[0]?.slice(0, 2) || 'C').toUpperCase();
+};
+
 function ContactActionBox({ method, client, onClose, onOpenEmailCompose }: { method: ContactMethod, client: Client, onClose: () => void, onOpenEmailCompose?: (email: string) => void }) {
   const [purpose, setPurpose] = useState('');
   const [draft, setDraft] = useState('');
@@ -543,6 +549,7 @@ export function ClientDetails() {
         id: client.primaryContactId || 'primary',
         name: client.name,
         title: 'Key Contact',
+        avatarUrl: undefined,
         isPrimary: true,
         contactMethods: client.contactMethods || []
       }];
@@ -1522,7 +1529,7 @@ export function ClientDetails() {
               </div>
 
               {/* Contacts */}
-              {displayContacts.some(contact => (contact.contactMethods || []).length > 0) && (
+              {displayContacts.length > 0 && (
                 <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
                   <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2">
                     Contacts
@@ -1531,12 +1538,26 @@ export function ClientDetails() {
                     {displayContacts.map((contact) => (
                       <div key={contact.id} className="bg-slate-900/50 border border-slate-800 rounded-xl p-3">
                         <div className="flex items-center justify-between gap-2 mb-2">
-                          <div>
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-700 bg-slate-800 text-xs font-bold uppercase text-slate-400">
+                              {contact.avatarUrl ? (
+                                <img
+                                  src={contact.avatarUrl}
+                                  alt={contact.name || client.name}
+                                  className="h-full w-full object-cover"
+                                  onError={(event) => { event.currentTarget.style.display = 'none'; }}
+                                />
+                              ) : (
+                                <span>{contactInitials(contact.name || client.name)}</span>
+                              )}
+                            </div>
+                            <div className="min-w-0">
                             <div className="text-sm font-bold text-slate-200 flex items-center gap-2">
                               {contact.name || client.name}
                               {contact.isPrimary && <span className="text-[10px] uppercase px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">Key</span>}
                             </div>
                             {contact.title && <div className="text-[11px] text-slate-500 mt-0.5">{contact.title}</div>}
+                            </div>
                           </div>
                         </div>
                         <div className="space-y-2">
