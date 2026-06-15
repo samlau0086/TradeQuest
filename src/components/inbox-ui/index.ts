@@ -17,7 +17,9 @@ export { StartWhatsAppConversationPane } from './StartWhatsAppConversationPane';
 export { TelegramHeaderActions, TelegramHeaderMeta } from './TelegramHeaderControls';
 export { useActiveConversationComments } from './useActiveConversationComments';
 export { useConversationFollowUp } from './useConversationFollowUp';
+export { useConversationReplyActions } from './useConversationReplyActions';
 export { useInboxBulkActions } from './useInboxBulkActions';
+export { useInboxSync } from './useInboxSync';
 export { useUnifiedConversationActions } from './useUnifiedConversationActions';
 export {
   EmailRichTextEditor,

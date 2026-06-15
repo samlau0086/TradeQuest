@@ -40,7 +40,9 @@ import {
   TelegramHeaderMeta,
   useActiveConversationComments,
   useConversationFollowUp,
+  useConversationReplyActions,
   useInboxBulkActions,
+  useInboxSync,
   useUnifiedConversationActions,
   CONVERSATION_AUTO_TRANSLATE_KEY,
   INBOX_OPEN_REQUEST_KEY,
@@ -57,7 +59,6 @@ import {
   mapUnifiedWhatsAppConversation,
   normalizeTagSearchTerm,
   readCachedConversationTranslations,
-  readCachedWhatsAppConversations,
   readConversationAutoTranslateConfig,
   simpleHash,
   whatsappToUnifiedConversation,
@@ -105,10 +106,6 @@ export function Inbox() {
   const [isAddingContactToClient, setIsAddingContactToClient] = useState(false);
   const [addingToRag, setAddingToRag] = useState(false);
   const [addedToRagId, setAddedToRagId] = useState<string | null>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const syncInFlightRef = useRef(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectedWhatsAppIds, setSelectedWhatsAppIds] = useState<Set<string>>(new Set());
   const [selectedConversationIds, setSelectedConversationIds] = useState<Set<string>>(new Set());
@@ -125,28 +122,39 @@ export function Inbox() {
   const [tagModalEmail, setTagModalEmail] = useState<string | null>(null);
   const [tagInput, setTagInput] = useState('');
   const [unifiedConversations, setUnifiedConversations] = useState<UnifiedCommunicationConversation[]>([]);
-  const [isUnifiedConversationLoading, setIsUnifiedConversationLoading] = useState(false);
-  const [whatsappConversations, setWhatsappConversations] = useState<InboxWhatsAppConversation[]>(() => readCachedWhatsAppConversations());
   const [selectedWhatsAppPhone, setSelectedWhatsAppPhone] = useState<string | null>(null);
   const [selectedWhatsAppClientId, setSelectedWhatsAppClientId] = useState<string | null>(null);
   const [selectedTelegramConversation, setSelectedTelegramConversation] = useState<UnifiedCommunicationConversation | null>(null);
   const [telegramMessages, setTelegramMessages] = useState<any[]>([]);
-  const [isTelegramMessagesLoading, setIsTelegramMessagesLoading] = useState(false);
-  const [telegramReply, setTelegramReply] = useState('');
-  const [isSendingTelegramReply, setIsSendingTelegramReply] = useState(false);
   const [selectedLiveChatConversation, setSelectedLiveChatConversation] = useState<UnifiedCommunicationConversation | null>(null);
-  const [liveChatReply, setLiveChatReply] = useState('');
-  const [isSendingLiveChatReply, setIsSendingLiveChatReply] = useState(false);
-  const [isRunningLiveChatAgent, setIsRunningLiveChatAgent] = useState(false);
   const [conversationAutoTranslateConfig, setConversationAutoTranslateConfig] = useState<Record<string, boolean>>(() => readConversationAutoTranslateConfig());
   const [conversationTranslations, setConversationTranslations] = useState<Record<string, Record<string, ConversationMessageTranslation>>>({});
+  const {
+    isSyncing,
+    lastSyncAt,
+    syncError,
+    isUnifiedConversationLoading,
+    whatsappConversations,
+    setWhatsappConversations,
+    isWhatsAppBackgroundSyncing,
+    updateWhatsAppConversationState,
+    fetchUnifiedConversations,
+    syncWhatsAppConversations,
+    loadWhatsAppConversations,
+    handleSync,
+  } = useInboxSync({
+    search,
+    searchTags,
+    fetchEmails,
+    fetchLiveChatSessions,
+    notify,
+    setUnifiedConversations,
+  });
   const [translatingConversationMessageIds, setTranslatingConversationMessageIds] = useState<Set<string>>(new Set());
   const liveChatEndRef = useRef<HTMLDivElement | null>(null);
   const [isStartingWhatsApp, setIsStartingWhatsApp] = useState(false);
   const [newWhatsAppPhone, setNewWhatsAppPhone] = useState('');
   const [showWhatsAppContactPicker, setShowWhatsAppContactPicker] = useState(false);
-  const [isWhatsAppBackgroundSyncing, setIsWhatsAppBackgroundSyncing] = useState(false);
-  const whatsappSyncInFlightRef = useRef(false);
 
   const [confirmDialog, setConfirmDialog] = useState<{message: string, onConfirm: () => void} | null>(null);
   const [alertDialog, setAlertDialog] = useState<string | null>(null);
@@ -293,90 +301,6 @@ ${bodyText}`,
     document.addEventListener('click', closeMenu);
     return () => document.removeEventListener('click', closeMenu);
   }, []);
-
-  const updateWhatsAppConversationState = (conversations: InboxWhatsAppConversation[]) => {
-    setWhatsappConversations(conversations);
-    writeCachedWhatsAppConversations(conversations);
-  };
-
-  const fetchUnifiedConversations = async (activeSearch = search, activeTags = searchTags) => {
-    setIsUnifiedConversationLoading(true);
-    try {
-      const params = new URLSearchParams({ limit: '300' });
-      const textTerms = [
-        activeSearch.trim(),
-        ...activeTags.filter(tag => !tag.trim().startsWith('#')).map(tag => tag.trim())
-      ].filter(Boolean);
-      const tagTerms = activeTags
-        .filter(tag => tag.trim().startsWith('#'))
-        .map(normalizeTagSearchTerm)
-        .filter(Boolean);
-      if (textTerms.length > 0) params.set('search', textTerms.join(' '));
-      if (tagTerms.length > 0) params.set('tags', tagTerms.join(','));
-      const res = await fetch(`/api/conversations?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Failed to load unified conversations.');
-      const conversations = Array.isArray(data.conversations) ? data.conversations : [];
-      setUnifiedConversations(conversations);
-      const unifiedWhatsApp = conversations
-        .filter((conversation: UnifiedCommunicationConversation) => conversation.channel === 'whatsapp')
-        .map(mapUnifiedWhatsAppConversation);
-      if (unifiedWhatsApp.length > 0) updateWhatsAppConversationState(unifiedWhatsApp);
-      return conversations;
-    } catch (error) {
-      console.warn('Unified conversations unavailable in inbox', error);
-      return [];
-    } finally {
-      setIsUnifiedConversationLoading(false);
-    }
-  };
-
-  const fetchCachedWhatsAppConversations = async () => {
-    try {
-      const unified = await fetchUnifiedConversations();
-      const unifiedWhatsApp = unified
-        .filter((conversation: UnifiedCommunicationConversation) => conversation.channel === 'whatsapp')
-        .map(mapUnifiedWhatsAppConversation);
-      if (unifiedWhatsApp.length > 0) {
-        updateWhatsAppConversationState(unifiedWhatsApp);
-        return;
-      }
-      updateWhatsAppConversationState([]);
-    } catch (error) {
-      console.warn('WhatsApp conversations unavailable in unified inbox', error);
-    }
-  };
-
-  const syncWhatsAppConversations = async (activeSearch = search) => {
-    if (whatsappSyncInFlightRef.current) return;
-    whatsappSyncInFlightRef.current = true;
-    setIsWhatsAppBackgroundSyncing(true);
-    try {
-      const res = await fetch('/api/whatsapp-hub/sync', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({ limit: 500 })
-      });
-      if (res.ok) {
-        await fetchCachedWhatsAppConversations();
-      }
-    } catch (error) {
-      console.warn('WhatsApp background sync unavailable in unified inbox', error);
-    } finally {
-      setIsWhatsAppBackgroundSyncing(false);
-      whatsappSyncInFlightRef.current = false;
-    }
-  };
-
-  const loadWhatsAppConversations = async () => {
-    await fetchCachedWhatsAppConversations();
-    void syncWhatsAppConversations(search);
-  };
 
   useEffect(() => {
     void loadWhatsAppConversations();
@@ -805,55 +729,6 @@ ${bodyText}`,
     notify,
   });
 
-  const handleSync = async (options: { silent?: boolean } = {}) => {
-    if (syncInFlightRef.current) return;
-    const configs = useStore.getState().inboxConfigs;
-    if (!configs || configs.length === 0) {
-      if (!options.silent) notify("No Inbox configurations found. Please add one in Settings.", 'warning');
-      return;
-    }
-    
-    syncInFlightRef.current = true;
-    setIsSyncing(true);
-    setSyncError(null);
-    let totalSynced = 0;
-    let totalLinked = 0;
-    try {
-      const token = localStorage.getItem('token');
-      for (const config of configs) {
-        if (config.type !== 'imap' && config.type !== 'pop3') continue;
-        const res = await fetch('/api/sync-emails', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify(config)
-        });
-        if (res.ok) {
-          const data = await res.json();
-          totalSynced += data.count || 0;
-          totalLinked += data.linkedExistingEmails || 0;
-        } else if (!options.silent) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.error || 'Failed to sync emails.');
-        }
-      }
-      if (totalSynced > 0 || totalLinked > 0) {
-        useStore.getState().fetchEmails();
-      } else if (!options.silent) {
-        useStore.getState().fetchEmails();
-      }
-      loadWhatsAppConversations();
-      setLastSyncAt(new Date().toISOString());
-      if (!options.silent) notify(`Sync complete. Fetched ${totalSynced} new email(s), linked ${totalLinked} existing email(s).`, 'success');
-    } catch (e) {
-      console.error(e);
-      setSyncError(e instanceof Error ? e.message : 'Error syncing emails.');
-      if (!options.silent) notify(e instanceof Error ? e.message : 'Error syncing emails.', 'error');
-    } finally {
-      setIsSyncing(false);
-      syncInFlightRef.current = false;
-    }
-  };
-
   const toggleGroupSelection = (e: React.MouseEvent, ids: string[]) => {
     e.stopPropagation();
     const newSet = new Set(selectedIds);
@@ -1201,6 +1076,44 @@ ${bodyText}`,
     whatsappFollowUpMarker: WHATSAPP_FOLLOW_UP_MARKER,
   });
 
+  const {
+    telegramReply,
+    setTelegramReply,
+    isSendingTelegramReply,
+    isTelegramMessagesLoading,
+    loadTelegramMessages,
+    sendTelegramReply,
+    draftTelegramReply,
+    toggleTelegramHumanTakeover,
+    liveChatReply,
+    setLiveChatReply,
+    isSendingLiveChatReply,
+    sendLiveChatReply,
+    toggleLiveChatHumanTakeover,
+    isRunningLiveChatAgent,
+    runSelectedLiveChatAgent,
+  } = useConversationReplyActions({
+    language,
+    selectedTelegramConversation,
+    setSelectedTelegramConversation,
+    setTelegramMessages,
+    selectedLiveChatConversation,
+    setSelectedLiveChatConversation,
+    activeLiveChatSession,
+    activeTelegramClient,
+    activeTelegramAgentContext,
+    llmMappings,
+    activeLLMId,
+    llmConfigs,
+    sendLiveChatOperatorMessage,
+    updateLiveChatSession,
+    runLiveChatAgent,
+    fetchLiveChatMessages,
+    patchUnifiedConversation,
+    refreshUnifiedConversationData,
+    notify,
+  });
+
   const handleSelect = (id: string) => {
     setIsComposing(false);
     setIsStartingWhatsApp(false);
@@ -1227,6 +1140,46 @@ ${bodyText}`,
     selectEmail(null);
     setSelectedWhatsAppPhone(conversation.targetPhone);
     setSelectedWhatsAppClientId(conversation.clientId || null);
+  };
+
+  const handleSelectUnifiedConversation = (conversation: UnifiedCommunicationConversation) => {
+    if (conversation.channel === 'email') {
+      setSelectedTelegramConversation(null);
+      setTelegramMessages([]);
+      handleSelect(conversation.source_id);
+      return;
+    }
+    if (conversation.channel === 'whatsapp') {
+      setSelectedTelegramConversation(null);
+      setTelegramMessages([]);
+      const mapped = mapUnifiedWhatsAppConversation(conversation);
+      setWhatsappConversations(prev => prev.some(item => item.id === mapped.id) ? prev : [mapped, ...prev]);
+      handleSelectWhatsApp(mapped);
+      return;
+    }
+    if (conversation.channel === 'telegram') {
+      setIsComposing(false);
+      setIsStartingWhatsApp(false);
+      selectEmail(null);
+      setSelectedWhatsAppPhone(null);
+      setSelectedWhatsAppClientId(null);
+      setSelectedLiveChatConversation(null);
+      setSelectedTelegramConversation(conversation);
+      setTelegramReply('');
+      void loadTelegramMessages(conversation);
+      return;
+    }
+    selectEmail(null);
+    setSelectedWhatsAppPhone(null);
+    setSelectedWhatsAppClientId(null);
+    setSelectedTelegramConversation(null);
+    setTelegramMessages([]);
+    setSelectedLiveChatConversation(conversation);
+    setLiveChatReply('');
+    setIsComposing(false);
+    setIsStartingWhatsApp(false);
+    void fetchLiveChatMessages(conversation.source_id);
+    void fetchLiveChatSessions();
   };
 
   useEffect(() => {
@@ -1295,233 +1248,6 @@ ${bodyText}`,
       window.removeEventListener('tradequest:open-inbox-request', consumeOpenRequest);
     };
   }, [whatsappConversations, selectEmail]);
-
-  const loadTelegramMessages = async (conversation: UnifiedCommunicationConversation) => {
-    setIsTelegramMessagesLoading(true);
-    try {
-      const res = await fetch(`/api/conversations/${encodeURIComponent(conversation.id)}/messages`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to load Telegram messages');
-      setTelegramMessages(Array.isArray(data.messages) ? data.messages : []);
-      if (!conversation.read) {
-        await patchUnifiedConversation(conversation, { read: true });
-        await refreshUnifiedConversationData();
-      }
-    } catch (error) {
-      notify(error instanceof Error ? error.message : 'Failed to load Telegram messages.', 'error');
-    } finally {
-      setIsTelegramMessagesLoading(false);
-    }
-  };
-
-  const handleSelectUnifiedConversation = (conversation: UnifiedCommunicationConversation) => {
-    if (conversation.channel === 'email') {
-      setSelectedTelegramConversation(null);
-      setTelegramMessages([]);
-      handleSelect(conversation.source_id);
-      return;
-    }
-    if (conversation.channel === 'whatsapp') {
-      setSelectedTelegramConversation(null);
-      setTelegramMessages([]);
-      const mapped = mapUnifiedWhatsAppConversation(conversation);
-      setWhatsappConversations(prev => prev.some(item => item.id === mapped.id) ? prev : [mapped, ...prev]);
-      handleSelectWhatsApp(mapped);
-      return;
-    }
-    if (conversation.channel === 'telegram') {
-      setIsComposing(false);
-      setIsStartingWhatsApp(false);
-      selectEmail(null);
-      setSelectedWhatsAppPhone(null);
-      setSelectedWhatsAppClientId(null);
-      setSelectedLiveChatConversation(null);
-      setSelectedTelegramConversation(conversation);
-      setTelegramReply('');
-      void loadTelegramMessages(conversation);
-      return;
-    }
-    selectEmail(null);
-    setSelectedWhatsAppPhone(null);
-    setSelectedWhatsAppClientId(null);
-    setSelectedTelegramConversation(null);
-    setTelegramMessages([]);
-    setSelectedLiveChatConversation(conversation);
-    setLiveChatReply('');
-    setIsComposing(false);
-    setIsStartingWhatsApp(false);
-    void fetchLiveChatMessages(conversation.source_id);
-    void fetchLiveChatSessions();
-  };
-
-  const sendTelegramReply = async () => {
-    if (!selectedTelegramConversation || !telegramReply.trim()) return;
-    setIsSendingTelegramReply(true);
-    try {
-      const res = await fetch(`/api/telegram/conversations/${encodeURIComponent(selectedTelegramConversation.source_id)}/messages`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({ body: telegramReply.trim() })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Failed to send Telegram message');
-      setTelegramReply('');
-      await loadTelegramMessages(selectedTelegramConversation);
-      await refreshUnifiedConversationData();
-      notify(language === 'zh' ? 'Telegram 消息已发送。' : 'Telegram message sent.', 'success');
-    } catch (error) {
-      notify(error instanceof Error ? error.message : 'Failed to send Telegram message.', 'error');
-    } finally {
-      setIsSendingTelegramReply(false);
-    }
-  };
-
-  const draftTelegramReply = async () => {
-    if (!selectedTelegramConversation) return;
-    const llmId = llmMappings.telegram_customer_service_agent
-      || llmMappings.agent_context_suggestions
-      || llmMappings.drafting
-      || activeLLMId;
-    const llmConfig = llmId ? llmConfigs.find(config => config.id === llmId) : null;
-    if (!llmConfig) {
-      notify(language === 'zh' ? '请先在 AI & Integrations 配置 Telegram/上下文建议模型。' : 'Configure a Telegram/context suggestion AI model first.', 'warning');
-      return;
-    }
-    try {
-      const res = await fetch('/api/chat/magic', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          command: `Draft a concise Telegram customer-service reply. Do not send it. Return only the message body.
-
-Rules:
-- Reply only to inbound customer intent. Team outbound messages are background only.
-- Use the customer's preferred/likely language when available.
-- Use product, RAG, AI summary, best next step, and cross-channel history only when helpful.
-- If no inbound customer message exists, write a light, low-pressure follow-up instead of pretending the customer asked something.
-
-Current context:
-${activeTelegramAgentContext.body}
-
-Broader CRM context:
-${activeTelegramAgentContext.additionalContext}`,
-          context: {
-            channel: 'telegram',
-            clientId: activeTelegramClient?.id || selectedTelegramConversation.client_id || null,
-            conversationId: selectedTelegramConversation.source_id,
-            systemLanguage: language === 'zh' ? 'Chinese' : 'English'
-          },
-          llmConfig,
-          skipKnowledgeBase: false
-        })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Failed to draft Telegram reply');
-      const draft = String(data.result || '').replace(/```[\s\S]*?```/g, match => match.replace(/```(?:text|markdown)?/g, '').replace(/```/g, '')).trim();
-      if (!draft) throw new Error('AI returned an empty Telegram draft.');
-      setTelegramReply(draft);
-      notify(language === 'zh' ? 'Telegram 回复草稿已生成。' : 'Telegram reply draft generated.', 'success');
-    } catch (error) {
-      notify(error instanceof Error ? error.message : 'Failed to draft Telegram reply.', 'error');
-    }
-  };
-
-  const toggleTelegramHumanTakeover = async () => {
-    if (!selectedTelegramConversation) return;
-    const nextHumanTakeover = !selectedTelegramConversation.metadata?.humanTakeover;
-    try {
-      const res = await fetch(`/api/telegram/conversations/${encodeURIComponent(selectedTelegramConversation.source_id)}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({ humanTakeover: nextHumanTakeover })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Failed to update Telegram takeover mode');
-      setSelectedTelegramConversation(prev => prev ? {
-        ...prev,
-        metadata: {
-          ...(prev.metadata || {}),
-          humanTakeover: nextHumanTakeover,
-          priority: data.conversation?.priority ?? prev.metadata?.priority
-        }
-      } : prev);
-      await refreshUnifiedConversationData();
-      notify(
-        nextHumanTakeover
-          ? (language === 'zh' ? '已开启人工接管，Telegram Agent 将暂停自动回复。' : 'Human takeover enabled. Telegram Agent auto-reply is paused.')
-          : (language === 'zh' ? '已关闭人工接管，Telegram Agent 将在新入站消息后自动回复。' : 'Human takeover disabled. Telegram Agent can auto-reply to the next inbound message.'),
-        'success'
-      );
-    } catch (error) {
-      notify(error instanceof Error ? error.message : 'Failed to update Telegram takeover mode.', 'error');
-    }
-  };
-
-  const sendLiveChatReply = async () => {
-    if (!selectedLiveChatConversation || !liveChatReply.trim()) return;
-    setIsSendingLiveChatReply(true);
-    try {
-      await sendLiveChatOperatorMessage(selectedLiveChatConversation.source_id, liveChatReply.trim());
-      setLiveChatReply('');
-      await refreshUnifiedConversationData();
-      notify(language === 'zh' ? 'Live Chat 消息已发送。' : 'Live Chat message sent.', 'success');
-    } catch (error) {
-      notify(error instanceof Error ? error.message : 'Failed to send Live Chat message.', 'error');
-    } finally {
-      setIsSendingLiveChatReply(false);
-    }
-  };
-
-  const toggleLiveChatHumanTakeover = async () => {
-    if (!selectedLiveChatConversation) return;
-    const current = activeLiveChatSession?.humanTakeover ?? selectedLiveChatConversation.metadata?.humanTakeover;
-    const nextHumanTakeover = !current;
-    try {
-      await updateLiveChatSession(selectedLiveChatConversation.source_id, { humanTakeover: nextHumanTakeover } as Partial<LiveChatSession>);
-      setSelectedLiveChatConversation(prev => prev ? {
-        ...prev,
-        metadata: {
-          ...(prev.metadata || {}),
-          humanTakeover: nextHumanTakeover
-        }
-      } : prev);
-      await refreshUnifiedConversationData();
-      notify(
-        nextHumanTakeover
-          ? (language === 'zh' ? '已开启人工接管，Live Chat Agent 将暂停自动回复。' : 'Human takeover enabled. Live Chat Agent auto-reply is paused.')
-          : (language === 'zh' ? '已交还给 Agent，新访客消息可自动回复。' : 'Handed back to Agent. New visitor messages can trigger auto-replies.'),
-        'success'
-      );
-    } catch (error) {
-      notify(error instanceof Error ? error.message : 'Failed to update Live Chat takeover mode.', 'error');
-    }
-  };
-
-  const runSelectedLiveChatAgent = async () => {
-    if (!selectedLiveChatConversation) return;
-    setIsRunningLiveChatAgent(true);
-    try {
-      await runLiveChatAgent(selectedLiveChatConversation.source_id);
-      await fetchLiveChatMessages(selectedLiveChatConversation.source_id);
-      await refreshUnifiedConversationData();
-      notify(language === 'zh' ? 'Live Chat Agent 已运行。' : 'Live Chat Agent ran successfully.', 'success');
-    } catch (error) {
-      notify(error instanceof Error ? error.message : 'Failed to run Live Chat Agent.', 'error');
-    } finally {
-      setIsRunningLiveChatAgent(false);
-    }
-  };
 
   const handleDeleteWhatsAppConversation = (conversation: InboxWhatsAppConversation) => {
     setConfirmDialog({
