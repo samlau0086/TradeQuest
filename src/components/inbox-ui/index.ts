@@ -23,6 +23,7 @@ export { WhatsAppConversationPane } from './WhatsAppConversationPane';
 export { useActiveConversationComments } from './useActiveConversationComments';
 export { useActiveConversationContext } from './useActiveConversationContext';
 export { useConversationFollowUp } from './useConversationFollowUp';
+export { useConversationTranslations } from './useConversationTranslations';
 export { useConversationReplyActions } from './useConversationReplyActions';
 export { useEmailQuickActions } from './useEmailQuickActions';
 export { useInboxBulkActions } from './useInboxBulkActions';
