@@ -486,7 +486,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 ### Phase 0: Refactor Foundation
 
 - [-] Gradually split oversized page components before changing major layouts. `Inbox.tsx` is being reduced through smaller hooks and UI components.
-- [x] Extract Inbox conversation list item, sidebar controls, bulk actions panel, dialogs, message list, reply composer, internal notes, follow-up strip, and channel detail header pieces.
+- [x] Extract Inbox conversation sidebar, conversation list item, sidebar controls, bulk actions panel, dialogs, message list, reply composer, internal notes, follow-up strip, and channel detail header pieces.
 - [x] Extract Inbox data/action hooks for sync, unified conversation actions, conversation list data, bulk actions, navigation actions, selection state, selected email context, active conversation context, follow-up state, comments, and Telegram/Live Chat reply actions.
 - [ ] Continue reducing `Inbox.tsx` toward a page orchestration layer before replacing its layout.
 - [ ] Apply the same gradual extraction pattern to other large record/detail pages before major redesign.

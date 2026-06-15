@@ -23,12 +23,10 @@ import {
   EmailTrackingPanel,
   EmailTagDialog,
   EmailTodoDialog,
-  InboxBulkActionsPanel,
   InboxConfirmDialog,
   ConversationInternalNotesPanel,
-  InboxConversationListItem,
+  InboxConversationSidebar,
   InboxNotificationDialog,
-  InboxSidebarControls,
   LiveChatAgentSuggestionsPanel,
   LiveChatCustomerInsightCard,
   LiveChatEvidencePanel,
@@ -55,7 +53,6 @@ import {
   conversationTranslationBucketId,
   WHATSAPP_CONVERSATION_POLL_MS,
   WHATSAPP_FOLLOW_UP_MARKER,
-  mapUnifiedWhatsAppConversation,
   readCachedConversationTranslations,
   readConversationAutoTranslateConfig,
   simpleHash,
@@ -853,7 +850,7 @@ ${bodyText}`,
     <PanelGroup id="inbox-layout" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged} orientation="horizontal" className="flex-1 overflow-hidden bg-slate-900 border-t border-slate-800">
       {/* Sidebar List */}
       <Panel id="inbox-list" defaultSize={320} minSize={250} maxSize={500} className={cn("flex flex-col transition-transform relative z-10", (selectedEmailId || selectedWhatsAppPhone || selectedTelegramConversation || selectedLiveChatConversation || isStartingWhatsApp) && "hidden md:flex")}>
-        <InboxSidebarControls
+        <InboxConversationSidebar
           language={language}
           filter={filter}
           channelFilter={channelFilter}
@@ -862,11 +859,30 @@ ${bodyText}`,
           tagSuggestions={Array.from(new Set(emails.flatMap(e => e.tags || [])))}
           followUpOnly={followUpOnly}
           visibleFollowUpCount={visibleFollowUpCount}
-          totalConversations={unifiedConversationList.length}
+          unifiedConversationList={unifiedConversationList}
+          selectableVisibleCount={selectableVisibleCount}
+          totalVisibleCount={totalVisibleCount}
+          isUnifiedConversationLoading={isUnifiedConversationLoading}
           isSyncing={isSyncing}
           isWhatsAppBackgroundSyncing={isWhatsAppBackgroundSyncing}
           syncError={syncError}
           lastSyncAt={lastSyncAt}
+          selectedEmailId={selectedEmailId}
+          selectedWhatsAppPhone={selectedWhatsAppPhone}
+          selectedTelegramConversation={selectedTelegramConversation}
+          selectedLiveChatConversation={selectedLiveChatConversation}
+          selectedConversationIds={selectedConversationIds}
+          emails={emails}
+          clients={clients}
+          currentUser={currentUser}
+          selectedCount={selectedCount}
+          allVisibleSelected={allVisibleSelected}
+          someVisibleSelected={someVisibleSelected}
+          bulkTagInput={bulkTagInput}
+          bulkNoteInput={bulkNoteInput}
+          bulkOwnerId={bulkOwnerId}
+          bulkStage={bulkStage}
+          bulkFollowUpAt={bulkFollowUpAt}
           onFilterChange={(nextFilter) => {
             selectEmail(null);
             setSelectedWhatsAppPhone(null);
@@ -901,6 +917,24 @@ ${bodyText}`,
           }}
           onClearFollowUpOnly={() => setFollowUpOnly(false)}
           onSync={() => handleSync()}
+          onToggleSelectAll={toggleSelectAll}
+          onClearSelection={clearBulkSelection}
+          onBulkTagInputChange={setBulkTagInput}
+          onBulkNoteInputChange={setBulkNoteInput}
+          onBulkOwnerIdChange={setBulkOwnerId}
+          onBulkStageChange={setBulkStage}
+          onBulkFollowUpAtChange={setBulkFollowUpAt}
+          onAddTag={handleBulkAddTag}
+          onAddComment={handleBulkAddComment}
+          onAssignOwner={handleBulkAssignOwner}
+          onSetStage={handleBulkSetStage}
+          onSetFollowUp={handleBulkSetFollowUp}
+          onMarkImportant={handleBulkMarkImportant}
+          onDeleteSelected={handleDeleteSelected}
+          onSelectConversation={handleSelectUnifiedConversation}
+          onToggleConversationSelection={toggleUnifiedSelection}
+          onDeleteWhatsAppConversation={handleDeleteWhatsAppConversation}
+          onOwnerStageChange={updateConversationOwnerStage}
           onComposeEmail={() => {
             setComposeDefaults(null);
             setIsComposing(true);
@@ -920,79 +954,6 @@ ${bodyText}`,
             selectEmail(null);
           }}
         />
-
-        <div className="flex-1 overflow-y-auto scrollbar-thin pb-48">
-          {selectableVisibleCount > 0 && (
-            <InboxBulkActionsPanel
-              language={language}
-              selectedCount={selectedCount}
-              allVisibleSelected={allVisibleSelected}
-              someVisibleSelected={someVisibleSelected}
-              currentUser={currentUser}
-              bulkTagInput={bulkTagInput}
-              bulkNoteInput={bulkNoteInput}
-              bulkOwnerId={bulkOwnerId}
-              bulkStage={bulkStage}
-              bulkFollowUpAt={bulkFollowUpAt}
-              onToggleSelectAll={toggleSelectAll}
-              onClearSelection={clearBulkSelection}
-              onBulkTagInputChange={setBulkTagInput}
-              onBulkNoteInputChange={setBulkNoteInput}
-              onBulkOwnerIdChange={setBulkOwnerId}
-              onBulkStageChange={setBulkStage}
-              onBulkFollowUpAtChange={setBulkFollowUpAt}
-              onAddTag={handleBulkAddTag}
-              onAddComment={handleBulkAddComment}
-              onAssignOwner={handleBulkAssignOwner}
-              onSetStage={handleBulkSetStage}
-              onSetFollowUp={handleBulkSetFollowUp}
-              onMarkImportant={handleBulkMarkImportant}
-              onDeleteSelected={handleDeleteSelected}
-            />
-          )}
-          {totalVisibleCount === 0 && (
-            <div className="p-8 text-center text-sm text-slate-500 italic">
-              {isUnifiedConversationLoading ? 'Loading conversations...' : 'No conversations found.'}
-            </div>
-          )}
-          {unifiedConversationList.map(conversation => {
-            const isEmail = conversation.channel === 'email';
-            const isWhatsApp = conversation.channel === 'whatsapp';
-            const isLiveChat = conversation.channel === 'live_chat';
-            const isTelegram = conversation.channel === 'telegram';
-            const isSelected = isEmail
-              ? selectedEmailId === conversation.source_id
-              : isWhatsApp
-                ? selectedWhatsAppPhone === (conversation.metadata?.targetPhone || conversation.contact_address || conversation.source_id)
-                : isTelegram
-                  ? selectedTelegramConversation?.id === conversation.id
-                  : isLiveChat
-                    ? selectedLiveChatConversation?.id === conversation.id
-                    : false;
-            const email = isEmail ? emails.find(item => item.id === conversation.source_id) : null;
-            const whatsappConversation = isWhatsApp ? mapUnifiedWhatsAppConversation(conversation) : null;
-            const client = conversation.client_id ? clients.find(c => c.id === conversation.client_id) : null;
-            return (
-              <InboxConversationListItem
-                key={`${conversation.channel}_${conversation.source_id}`}
-                language={language}
-                conversation={conversation}
-                email={email}
-                clientName={client?.name}
-                filter={filter}
-                isSelected={isSelected}
-                isChecked={selectedConversationIds.has(conversation.id)}
-                currentUser={currentUser}
-                whatsappConversation={whatsappConversation}
-                onSelect={() => handleSelectUnifiedConversation(conversation)}
-                onToggleSelection={(event) => toggleUnifiedSelection(event, conversation)}
-                onDeleteWhatsApp={whatsappConversation ? () => handleDeleteWhatsAppConversation(whatsappConversation) : undefined}
-                onOwnerStageChange={(updates) => updateConversationOwnerStage(conversation, updates)}
-              />
-            );
-          })}
-
-        </div>
       </Panel>
 
       <PanelResizeHandle className="w-1 bg-slate-800 hover:bg-cyan-500 cursor-col-resize transition-colors hidden md:block" />
