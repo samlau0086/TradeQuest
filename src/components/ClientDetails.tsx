@@ -1,22 +1,23 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useStore, ClientStatus, Client, ContactMethod, Comment } from '../store';
 import { useAuthStore } from '../authStore';
-import { X, Thermometer, Flame, Snowflake, Sparkles, Send, Loader2, Workflow, History, Mail, Edit, Trash2, Paperclip, MessageSquare, Settings, ArrowLeft, Building2, MapPin, BadgeDollarSign, Tag, Clock3, CheckCircle2, FileText } from 'lucide-react';
+import { X, Flame, Snowflake, Sparkles, Send, Loader2, Workflow, History, Mail, Edit, Trash2, Paperclip, MessageSquare, Settings, ArrowLeft, Building2, MapPin, BadgeDollarSign, Tag, Clock3, CheckCircle2, FileText } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ClientFormModal } from './ClientFormModal';
 
 import { User } from 'lucide-react';
 
 import { CommentItem } from './CommentItem';
+import { ClientAiRadarCard } from './ClientAiRadarCard';
 import { ClientContactsWidget } from './ClientContactsWidget';
 import { ClientEmailComposeOverlay } from './ClientEmailComposeOverlay';
+import { ClientQuotesWidget } from './ClientQuotesWidget';
 import { KnowledgeBaseManager } from './KnowledgeBaseManager';
 import { WorkflowConfigModal } from './WorkflowConfigModal';
 import { LocalTime } from './LocalTime';
 import { WhatsAppChatModal } from './WhatsAppChatModal';
 import { getCustomerOutputLanguage } from '../lib/language';
 import { buildLeadScoringSignature } from '../lib/leadScoring';
-import { formatCurrency } from '../lib/currency';
 
 const INBOX_OPEN_REQUEST_KEY = 'tradequest:inbox-open-request:v1';
 
@@ -1385,133 +1386,23 @@ export function ClientDetails() {
                 </div>
               </div>
 
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
-                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
-                  <FileText className="w-4 h-4" /> Quotes
-                </h3>
-                <div className="space-y-2">
-                  {relatedQuotes.map(quote => {
-                    const subtotal = quote.items.reduce((sum, item) => sum + (item.total || item.quantity * item.unitPrice || 0), 0);
-                    const feesTotal = quote.fees.reduce((sum, fee) => sum + (fee.amount || 0), 0);
-                    return (
-                      <button
-                        key={quote.id}
-                        type="button"
-                        onClick={() => openQuote(quote.id)}
-                        className="w-full rounded-lg border border-slate-800 bg-slate-900/60 p-3 text-left transition-colors hover:border-indigo-500/50 hover:bg-slate-900"
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="font-mono text-sm font-bold text-slate-100">{quote.quoteNumber}</span>
-                          <span className="rounded border border-slate-700 bg-slate-950 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-400">
-                            {quote.status}
-                          </span>
-                        </div>
-                        <div className="mt-1 flex items-center justify-between gap-3 text-xs">
-                          <span className="text-slate-500">
-                            {quote.leadId && leadRecord ? leadRecord.name : (leadRecord ? 'Client quote' : 'Client quote')}
-                          </span>
-                          <span className="font-bold text-indigo-300">
-                            {formatCurrency(subtotal + feesTotal, quote.currency || 'USD', currencyRates)}
-                          </span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                  {relatedQuotes.length === 0 && (
-                    <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-500">
-                      {leadRecord ? 'No quotes linked to this lead yet.' : 'No quotes linked to this client yet.'}
-                    </div>
-                  )}
-                </div>
-              </div>
+              <ClientQuotesWidget
+                quotes={relatedQuotes}
+                leadRecord={leadRecord}
+                currencyRates={currencyRates}
+                onOpenQuote={openQuote}
+              />
 
-              {/* AI Radar */}
-              <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-2">
-                    <Thermometer className="w-4 h-4" /> AI Radar
-                  </h3>
-                  {!loading && (
-                    <button onClick={() => handleAnalyze(!!visibleAiData)} className="text-[10px] bg-cyan-900/40 text-cyan-400 hover:bg-cyan-900 px-2 py-1 rounded">
-                      {visibleAiData ? 'Refresh' : 'Analyze'}
-                    </button>
-                  )}
-                  {loading && <Loader2 className="w-3 h-3 text-cyan-400 animate-spin" />}
-                </div>
-
-                {visibleAiData ? (
-                  <div className="space-y-4 animate-in fade-in zoom-in duration-300">
-                    <div className="grid grid-cols-1 gap-3">
-                      <div className="bg-slate-900 rounded-lg p-3 border border-cyan-500/20">
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-[10px] text-cyan-400 font-bold uppercase">Lead Score</span>
-                          <span className="text-lg font-bold text-white">{Number(visibleAiData.leadScore ?? visibleAiData.temperature ?? 0)}/100</span>
-                        </div>
-                      </div>
-                      {(visibleAiData.leadSummary || summaryText) && (
-                        <div className="bg-slate-900 rounded-lg p-3 border border-slate-700">
-                          <span className="text-[10px] text-slate-500 font-bold uppercase">{leadRecord ? 'Lead Summary' : 'Customer Summary'}</span>
-                          <p className="text-xs text-slate-300 mt-1 leading-relaxed">{visibleAiData.leadSummary || summaryText}</p>
-                        </div>
-                      )}
-                      {(visibleAiData.leadNextStep || nextStepText) && (
-                        <div className="bg-cyan-950/30 rounded-lg p-3 border border-cyan-500/20">
-                          <span className="text-[10px] text-cyan-400 font-bold uppercase">Best Next Step</span>
-                          <p className="text-sm text-white mt-1 font-medium">{visibleAiData.leadNextStep || nextStepText}</p>
-                        </div>
-                      )}
-                    </div>
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-xs font-medium">
-                        <span className={visibleAiData.sentiment === 'COLD' ? 'text-blue-400' : 'text-slate-400'}>Cold</span>
-                        <span className={visibleAiData.sentiment === 'HOT' ? 'text-orange-400' : 'text-slate-400'}>Hot</span>
-                      </div>
-                      <div className="h-2 w-full bg-slate-900 rounded-full overflow-hidden flex">
-                        <div 
-                          className={cn("h-full rounded-full transition-all duration-1000", 
-                            visibleAiData.temperature > 70 ? "bg-orange-500 shadow-[0_0_10px_orange]" :
-                            visibleAiData.temperature > 30 ? "bg-amber-400" : "bg-blue-400"
-                          )}
-                          style={{ width: `${visibleAiData.temperature}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    {visibleAiData.icebreaker && <div className="bg-slate-900 rounded-lg p-3 relative">
-                      <Sparkles className="w-4 h-4 text-amber-400 absolute top-3 left-3" />
-                      <p className="text-xs text-slate-300 pl-6 leading-relaxed">
-                        <span className="font-bold text-slate-500 block mb-1">Generated Icebreaker:</span>
-                        "{visibleAiData.icebreaker}"
-                      </p>
-                      <div className="mt-2 flex justify-end">
-                        <button onClick={handleInsertIcebreaker} className="text-[10px] flex items-center gap-1 bg-cyan-600 text-white px-2 py-1 rounded hover:bg-cyan-500 transition-colors">
-                          <Send className="w-3 h-3" /> Insert
-                        </button>
-                      </div>
-                    </div>}
-
-                    <div>
-                      <span className="font-bold text-[10px] text-slate-500 block mb-1 uppercase">AI Intelligence</span>
-                      <p className="text-xs text-slate-400 leading-relaxed italic border-l-2 border-slate-700 pl-2">
-                        {visibleAiData.summary}
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-6 text-slate-500 text-sm">
-                    {leadScore !== undefined ? (
-                      <div className="space-y-3 text-left">
-                        <div className="flex items-center justify-between bg-slate-900 rounded-lg p-3 border border-cyan-500/20">
-                          <span className="text-[10px] text-cyan-400 font-bold uppercase">Lead Score</span>
-                          <span className="text-lg font-bold text-white">{leadScore}/100</span>
-                        </div>
-                        {summaryText && <p className="text-xs text-slate-300 leading-relaxed">{summaryText}</p>}
-                        {nextStepText && <p className="text-sm text-white font-medium">Next: {nextStepText}</p>}
-                      </div>
-                    ) : 'AI analysis requires target scan.'}
-                  </div>
-                )}
-              </div>
+              <ClientAiRadarCard
+                visibleAiData={visibleAiData}
+                loading={loading}
+                leadScore={leadScore}
+                summaryText={summaryText}
+                nextStepText={nextStepText}
+                hasLeadRecord={!!leadRecord}
+                onAnalyze={handleAnalyze}
+                onInsertIcebreaker={handleInsertIcebreaker}
+              />
 
               {/* Contacts */}
               <ClientContactsWidget
