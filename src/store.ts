@@ -51,6 +51,7 @@ export interface Deal {
   leadScore?: number;
   leadSummary?: string;
   leadNextStep?: string;
+  leadIcebreaker?: string;
   leadScoringSignature?: string;
   leadScoringAnalyzedAt?: string;
   sourceType?: string;
@@ -303,6 +304,7 @@ export interface Client {
   leadScore?: number;
   leadSummary?: string;
   leadNextStep?: string;
+  leadIcebreaker?: string;
   leadScoringSignature?: string;
   leadScoringAnalyzedAt?: string;
   agentWorkflowId?: string;

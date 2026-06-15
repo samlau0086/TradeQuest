@@ -1464,6 +1464,7 @@ async function initDB() {
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS lead_score INT;
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS lead_summary TEXT;
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS lead_next_step TEXT;
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS lead_icebreaker TEXT;
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS lead_scoring_signature TEXT;
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS lead_scoring_analyzed_at TIMESTAMP WITH TIME ZONE;
       ALTER TABLE clients ADD COLUMN IF NOT EXISTS agent_last_run TIMESTAMP WITH TIME ZONE;
@@ -1639,6 +1640,7 @@ async function initDB() {
       ALTER TABLE deals ADD COLUMN IF NOT EXISTS lead_score INTEGER;
       ALTER TABLE deals ADD COLUMN IF NOT EXISTS lead_summary TEXT;
       ALTER TABLE deals ADD COLUMN IF NOT EXISTS lead_next_step TEXT;
+      ALTER TABLE deals ADD COLUMN IF NOT EXISTS lead_icebreaker TEXT;
       ALTER TABLE deals ADD COLUMN IF NOT EXISTS lead_scoring_signature TEXT;
       ALTER TABLE deals ADD COLUMN IF NOT EXISTS lead_scoring_analyzed_at TIMESTAMP WITH TIME ZONE;
       ALTER TABLE deals ADD COLUMN IF NOT EXISTS pending_delete BOOLEAN DEFAULT FALSE;
@@ -13071,6 +13073,7 @@ Return JSON only:
         leadScore: row.lead_score,
         leadSummary: row.lead_summary,
         leadNextStep: row.lead_next_step,
+        leadIcebreaker: row.lead_icebreaker,
         leadScoringSignature: row.lead_scoring_signature,
         leadScoringAnalyzedAt: row.lead_scoring_analyzed_at,
         productIds: row.product_ids || [],
@@ -13090,11 +13093,11 @@ Return JSON only:
 
   app.post('/api/deals', authenticateToken, requirePermission('lead.create'), async (req: any, res) => {
     try {
-      const { id, clientId, name, value, status, contactInfo, comments, productIds, leadScore, leadSummary, leadNextStep, leadScoringSignature, leadScoringAnalyzedAt, sourceType, sourceId, sourceLabel, leadNotes } = req.body;
+      const { id, clientId, name, value, status, contactInfo, comments, productIds, leadScore, leadSummary, leadNextStep, leadIcebreaker, leadScoringSignature, leadScoringAnalyzedAt, sourceType, sourceId, sourceLabel, leadNotes } = req.body;
       const result = await pool.query(
-        `INSERT INTO deals (id, user_id, client_id, name, value, status, contact_info, comments, product_ids, lead_score, lead_summary, lead_next_step, lead_scoring_signature, lead_scoring_analyzed_at, source_type, source_id, source_label, lead_notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING *`,
-        [id, req.user.uid, clientId || null, name, value || 0, status || 'Leads', contactInfo || {}, comments || [], JSON.stringify(productIds || []), leadScore ?? null, leadSummary || null, leadNextStep || null, leadScoringSignature || null, leadScoringAnalyzedAt || null, sourceType || null, sourceId || null, sourceLabel || null, leadNotes || null]
+        `INSERT INTO deals (id, user_id, client_id, name, value, status, contact_info, comments, product_ids, lead_score, lead_summary, lead_next_step, lead_icebreaker, lead_scoring_signature, lead_scoring_analyzed_at, source_type, source_id, source_label, lead_notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING *`,
+        [id, req.user.uid, clientId || null, name, value || 0, status || 'Leads', contactInfo || {}, comments || [], JSON.stringify(productIds || []), leadScore ?? null, leadSummary || null, leadNextStep || null, leadIcebreaker || null, leadScoringSignature || null, leadScoringAnalyzedAt || null, sourceType || null, sourceId || null, sourceLabel || null, leadNotes || null]
       );
       await triggerAgentHubEvent(req.user.uid, 'lead_created', {
         leadId: id,
@@ -13115,7 +13118,7 @@ Return JSON only:
   app.patch('/api/deals/:id', authenticateToken, requirePermission('lead.update'), async (req: any, res) => {
     try {
       const { id } = req.params;
-      const { status, name, value, contactInfo, clientId, comments, productIds, leadScore, leadSummary, leadNextStep, leadScoringSignature, leadScoringAnalyzedAt, sourceType, sourceId, sourceLabel, leadNotes } = req.body;
+      const { status, name, value, contactInfo, clientId, comments, productIds, leadScore, leadSummary, leadNextStep, leadIcebreaker, leadScoringSignature, leadScoringAnalyzedAt, sourceType, sourceId, sourceLabel, leadNotes } = req.body;
       let previousStatusForReward: string | null = null;
       let updatedClientIdForReward: string | null = null;
       
@@ -13162,6 +13165,10 @@ Return JSON only:
       if (leadNextStep !== undefined) {
         updates.push(`lead_next_step = $${idx++}`);
         values.push(leadNextStep);
+      }
+      if (leadIcebreaker !== undefined) {
+        updates.push(`lead_icebreaker = $${idx++}`);
+        values.push(leadIcebreaker);
       }
       if (leadScoringSignature !== undefined) {
         updates.push(`lead_scoring_signature = $${idx++}`);
@@ -14962,6 +14969,7 @@ Return JSON only:
         leadScore: row.lead_score,
         leadSummary: row.lead_summary,
         leadNextStep: row.lead_next_step,
+        leadIcebreaker: row.lead_icebreaker,
         leadScoringSignature: row.lead_scoring_signature,
         leadScoringAnalyzedAt: row.lead_scoring_analyzed_at,
         agentWorkflowId: row.agent_workflow_id,
@@ -15005,6 +15013,7 @@ Return JSON only:
         leadScore: row.lead_score,
         leadSummary: row.lead_summary,
         leadNextStep: row.lead_next_step,
+        leadIcebreaker: row.lead_icebreaker,
         leadScoringSignature: row.lead_scoring_signature,
         leadScoringAnalyzedAt: row.lead_scoring_analyzed_at,
         agentWorkflowId: row.agent_workflow_id,
@@ -15205,7 +15214,7 @@ Return JSON only:
         agentEnabled: 'agent_enabled', agentMode: 'agent_mode',
         agentContext: 'agent_context', agentSummary: 'agent_summary',
         agentNextStep: 'agent_next_step',
-        leadScore: 'lead_score', leadSummary: 'lead_summary', leadNextStep: 'lead_next_step',
+        leadScore: 'lead_score', leadSummary: 'lead_summary', leadNextStep: 'lead_next_step', leadIcebreaker: 'lead_icebreaker',
         leadScoringSignature: 'lead_scoring_signature', leadScoringAnalyzedAt: 'lead_scoring_analyzed_at',
         agentWorkflowId: 'agent_workflow_id', preferredLanguage: 'preferred_language',
         productIds: 'product_ids',

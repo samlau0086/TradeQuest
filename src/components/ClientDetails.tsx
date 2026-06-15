@@ -453,6 +453,7 @@ export function ClientDetails() {
   const [expandedContactIdx, setExpandedContactIdx] = useState<string | null>(null);
   const [showEmailCompose, setShowEmailCompose] = useState(false);
   const [composeRecipient, setComposeRecipient] = useState('');
+  const [composeInitialBody, setComposeInitialBody] = useState('');
 
   const [commentText, setCommentText] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -594,17 +595,49 @@ export function ClientDetails() {
     const score = leadRecord ? leadRecord.leadScore : client.leadScore;
     const summary = leadRecord ? leadRecord.leadSummary : (client.agentSummary || client.leadSummary);
     const nextStep = leadRecord ? leadRecord.leadNextStep : (client.agentNextStep || client.leadNextStep);
+    const icebreaker = leadRecord ? leadRecord.leadIcebreaker : client.leadIcebreaker;
     if (score === undefined || !summary || !nextStep) return null;
     if (!internalTextMatchesSystemLanguage(summary, language) || !internalTextMatchesSystemLanguage(nextStep, language)) return null;
     return {
       sentiment: Number(score) >= 70 ? 'HOT' : Number(score) >= 35 ? 'WARM' : 'COLD',
       temperature: Number(score) || 0,
-      icebreaker: '',
+      icebreaker: icebreaker || '',
       summary,
       leadScore: Number(score) || 0,
       leadSummary: summary,
       leadNextStep: nextStep
     };
+  };
+
+  const findPreferredContactValue = (types: ContactMethod['type'][]) => {
+    const methods = [
+      ...(client.contactMethods || []),
+      ...displayContacts.flatMap(contact => contact.contactMethods || [])
+    ];
+    return methods.find(method => types.includes(method.type) && method.value)?.value || '';
+  };
+
+  const handleInsertIcebreaker = async () => {
+    const icebreaker = String((aiData || existingAnalysisResult())?.icebreaker || '').trim();
+    if (!icebreaker) {
+      notify(language === 'zh' ? '暂无可插入的破冰话术。' : 'No icebreaker is available to insert.', 'warning');
+      return;
+    }
+    const email = findPreferredContactValue(['email']);
+    if (email) {
+      setComposeRecipient(email);
+      setComposeInitialBody(icebreaker);
+      setShowEmailCompose(true);
+      notify(language === 'zh' ? '已插入到邮件草稿。' : 'Inserted into an email draft.', 'success');
+      return;
+    }
+    await navigator.clipboard.writeText(icebreaker).catch(() => undefined);
+    notify(
+      findPreferredContactValue(['whatsapp', 'phone'])
+        ? (language === 'zh' ? '客户没有邮箱，已复制话术，可粘贴到 WhatsApp。' : 'No email found. Copied the icebreaker for WhatsApp.')
+        : (language === 'zh' ? '未找到可用联系方式，已复制话术。' : 'No usable contact found. Copied the icebreaker.'),
+      'info'
+    );
   };
 
   const closeDetails = () => {
@@ -643,11 +676,11 @@ export function ClientDetails() {
     }
   };
 
-  const handleAnalyze = async () => {
+  const handleAnalyze = async (forceRefresh = false) => {
     const signature = buildCurrentAnalysisSignature();
     const existingResult = existingAnalysisResult();
     const previousSignature = leadRecord ? leadRecord.leadScoringSignature : client.leadScoringSignature;
-    if (existingResult && previousSignature === signature) {
+    if (!forceRefresh && existingResult && previousSignature === signature) {
       setAiData(existingResult);
       notify(
         language === 'zh'
@@ -692,13 +725,15 @@ export function ClientDetails() {
       ].filter(Boolean).join(' / ');
       const analyzedLeadSummary = data.leadSummary || data.summary || fallbackSummary || (language === 'zh' ? '线索资料还需要更多互动数据。' : 'Lead profile requires more interaction data.');
       const analyzedLeadNextStep = data.leadNextStep || data.nextStep || (leadRecord ? leadRecord.leadNextStep : client.agentNextStep) || (language === 'zh' ? '检查线索资料并选择下一步跟进动作。' : 'Review the lead profile and choose the next follow-up action.');
-      const normalizedData = { ...data, leadScore: score, leadSummary: analyzedLeadSummary, leadNextStep: analyzedLeadNextStep };
+      const analyzedIcebreaker = String(data.icebreaker || '').trim();
+      const normalizedData = { ...data, leadScore: score, leadSummary: analyzedLeadSummary, leadNextStep: analyzedLeadNextStep, icebreaker: analyzedIcebreaker };
       setAiData(normalizedData);
       if (leadRecord) {
         updateDeal(leadRecord.id, {
           leadScore: score,
           leadSummary: analyzedLeadSummary,
           leadNextStep: analyzedLeadNextStep,
+          leadIcebreaker: analyzedIcebreaker,
           leadScoringSignature: signature,
           leadScoringAnalyzedAt: new Date().toISOString()
         });
@@ -707,6 +742,7 @@ export function ClientDetails() {
           leadScore: score,
           agentSummary: analyzedLeadSummary,
           agentNextStep: analyzedLeadNextStep,
+          leadIcebreaker: analyzedIcebreaker,
           leadScoringSignature: signature,
           leadScoringAnalyzedAt: new Date().toISOString()
         });
@@ -824,6 +860,8 @@ export function ClientDetails() {
     }
   };
 
+  const visibleAiData = aiData || existingAnalysisResult();
+
   return (
     <div className="fixed inset-0 z-50 bg-[#05070b] text-slate-100 overflow-hidden pointer-events-auto">
       {/* Header */}
@@ -893,7 +931,7 @@ export function ClientDetails() {
                       <p className="mt-3 text-sm leading-relaxed text-slate-300">{primarySummary}</p>
                       <div className="mt-4 flex flex-wrap gap-2">
                         <button
-                          onClick={handleAnalyze}
+                          onClick={() => handleAnalyze(true)}
                           disabled={loading}
                           className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-300 transition-colors hover:bg-emerald-500/20 disabled:opacity-50"
                         >
@@ -1329,69 +1367,69 @@ export function ClientDetails() {
                   <h3 className="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-2">
                     <Thermometer className="w-4 h-4" /> AI Radar
                   </h3>
-                  {!aiData && !loading && (
-                    <button onClick={handleAnalyze} className="text-[10px] bg-cyan-900/40 text-cyan-400 hover:bg-cyan-900 px-2 py-1 rounded">
-                      Analyze
+                  {!loading && (
+                    <button onClick={() => handleAnalyze(!!visibleAiData)} className="text-[10px] bg-cyan-900/40 text-cyan-400 hover:bg-cyan-900 px-2 py-1 rounded">
+                      {visibleAiData ? 'Refresh' : 'Analyze'}
                     </button>
                   )}
                   {loading && <Loader2 className="w-3 h-3 text-cyan-400 animate-spin" />}
                 </div>
 
-                {aiData ? (
+                {visibleAiData ? (
                   <div className="space-y-4 animate-in fade-in zoom-in duration-300">
                     <div className="grid grid-cols-1 gap-3">
                       <div className="bg-slate-900 rounded-lg p-3 border border-cyan-500/20">
                         <div className="flex items-center justify-between gap-3">
                           <span className="text-[10px] text-cyan-400 font-bold uppercase">Lead Score</span>
-                          <span className="text-lg font-bold text-white">{Number(aiData.leadScore ?? aiData.temperature ?? 0)}/100</span>
+                          <span className="text-lg font-bold text-white">{Number(visibleAiData.leadScore ?? visibleAiData.temperature ?? 0)}/100</span>
                         </div>
                       </div>
-                      {(aiData.leadSummary || summaryText) && (
+                      {(visibleAiData.leadSummary || summaryText) && (
                         <div className="bg-slate-900 rounded-lg p-3 border border-slate-700">
                           <span className="text-[10px] text-slate-500 font-bold uppercase">{leadRecord ? 'Lead Summary' : 'Customer Summary'}</span>
-                          <p className="text-xs text-slate-300 mt-1 leading-relaxed">{aiData.leadSummary || summaryText}</p>
+                          <p className="text-xs text-slate-300 mt-1 leading-relaxed">{visibleAiData.leadSummary || summaryText}</p>
                         </div>
                       )}
-                      {(aiData.leadNextStep || nextStepText) && (
+                      {(visibleAiData.leadNextStep || nextStepText) && (
                         <div className="bg-cyan-950/30 rounded-lg p-3 border border-cyan-500/20">
                           <span className="text-[10px] text-cyan-400 font-bold uppercase">Best Next Step</span>
-                          <p className="text-sm text-white mt-1 font-medium">{aiData.leadNextStep || nextStepText}</p>
+                          <p className="text-sm text-white mt-1 font-medium">{visibleAiData.leadNextStep || nextStepText}</p>
                         </div>
                       )}
                     </div>
                     <div className="space-y-1">
                       <div className="flex justify-between text-xs font-medium">
-                        <span className={aiData.sentiment === 'COLD' ? 'text-blue-400' : 'text-slate-400'}>Cold</span>
-                        <span className={aiData.sentiment === 'HOT' ? 'text-orange-400' : 'text-slate-400'}>Hot</span>
+                        <span className={visibleAiData.sentiment === 'COLD' ? 'text-blue-400' : 'text-slate-400'}>Cold</span>
+                        <span className={visibleAiData.sentiment === 'HOT' ? 'text-orange-400' : 'text-slate-400'}>Hot</span>
                       </div>
                       <div className="h-2 w-full bg-slate-900 rounded-full overflow-hidden flex">
                         <div 
                           className={cn("h-full rounded-full transition-all duration-1000", 
-                            aiData.temperature > 70 ? "bg-orange-500 shadow-[0_0_10px_orange]" : 
-                            aiData.temperature > 30 ? "bg-amber-400" : "bg-blue-400"
+                            visibleAiData.temperature > 70 ? "bg-orange-500 shadow-[0_0_10px_orange]" :
+                            visibleAiData.temperature > 30 ? "bg-amber-400" : "bg-blue-400"
                           )}
-                          style={{ width: `${aiData.temperature}%` }}
+                          style={{ width: `${visibleAiData.temperature}%` }}
                         />
                       </div>
                     </div>
 
-                    <div className="bg-slate-900 rounded-lg p-3 relative">
+                    {visibleAiData.icebreaker && <div className="bg-slate-900 rounded-lg p-3 relative">
                       <Sparkles className="w-4 h-4 text-amber-400 absolute top-3 left-3" />
                       <p className="text-xs text-slate-300 pl-6 leading-relaxed">
                         <span className="font-bold text-slate-500 block mb-1">Generated Icebreaker:</span>
-                        "{aiData.icebreaker}"
+                        "{visibleAiData.icebreaker}"
                       </p>
                       <div className="mt-2 flex justify-end">
-                        <button className="text-[10px] flex items-center gap-1 bg-cyan-600 text-white px-2 py-1 rounded hover:bg-cyan-500 transition-colors">
+                        <button onClick={handleInsertIcebreaker} className="text-[10px] flex items-center gap-1 bg-cyan-600 text-white px-2 py-1 rounded hover:bg-cyan-500 transition-colors">
                           <Send className="w-3 h-3" /> Insert
                         </button>
                       </div>
-                    </div>
+                    </div>}
 
                     <div>
                       <span className="font-bold text-[10px] text-slate-500 block mb-1 uppercase">AI Intelligence</span>
                       <p className="text-xs text-slate-400 leading-relaxed italic border-l-2 border-slate-700 pl-2">
-                        {aiData.summary}
+                        {visibleAiData.summary}
                       </p>
                     </div>
                   </div>
@@ -1633,8 +1671,13 @@ export function ClientDetails() {
       {showEmailCompose && (
         <div className="fixed inset-0 md:inset-auto md:bottom-0 md:right-8 w-full md:max-w-[550px] h-[100dvh] md:h-[600px] shadow-2xl z-50 md:rounded-t-xl overflow-hidden md:border-t md:border-l md:border-r border-slate-700 bg-slate-900 flex flex-col">
           <ComposeEmail 
-            onClose={() => setShowEmailCompose(false)} 
+            onClose={() => {
+              setShowEmailCompose(false);
+              setComposeInitialBody('');
+            }}
             initialRecipient={composeRecipient} 
+            initialSubject={leadRecord ? `Follow up: ${leadRecord.name}` : `Follow up from ${client.company || client.name}`}
+            initialBody={composeInitialBody}
             className="rounded-none border-none shadow-none h-full"
           />
         </div>
