@@ -912,6 +912,8 @@ Content-Type: application/json
 - Team outbound messages are only background context. They should not be interpreted as customer intent.
 - Live Chat conversations are embedded directly in the unified Inbox reading pane. Operators can read/reply, toggle human takeover, run the Live Chat Agent, set follow-ups, delete/request review, and use Agent Context & Suggestions without leaving Inbox. The standalone Live Chat Desk remains the seat-management and monitoring view.
 - Live Chat tags and internal notes use the linked customer as the primary destination when a customer is attached. Unlinked visitor conversations keep tags and notes on the conversation until they are linked or converted.
+- Inbox Live Chat shows visitor context evidence such as page URL, IP, browser, OS, language, timezone, local time, and message timing. The same evidence plus recent transcript, customer tags, and recent customer notes is passed into Agent Context & Suggestions so recommendations are easier to audit.
+- Unified Inbox is now the primary Live Chat conversation surface. The standalone Live Chat page remains for seat monitoring and operational management, not as the default message-reading path.
 
 ### 中文
 

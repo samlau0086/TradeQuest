@@ -839,7 +839,6 @@ export function Inbox() {
       })
       .sort((a, b) => new Date(b.last_message_at || 0).getTime() - new Date(a.last_message_at || 0).getTime());
   }, [unifiedConversationSource, channelFilter, filter, followUpOnly, search, searchTags]);
-  const filteredLiveChatConversations: UnifiedCommunicationConversation[] = [];
   const visibleFollowUpCount = unifiedConversationSource.filter(hasUnifiedOpenFollowUp).length;
 
   const whatsappContactOptions = useMemo<WhatsAppContactOption[]>(() => {
@@ -1349,6 +1348,26 @@ export function Inbox() {
     : null;
   const activeLiveChatVisitorInfo = activeLiveChatSession?.metadata?.visitorInfo || selectedLiveChatConversation?.metadata?.visitorInfo || {};
   const latestLiveChatVisitorMessage = [...visibleLiveChatMessages].reverse().find(message => message.role === 'visitor') || null;
+  const activeLiveChatTranscriptContext = visibleLiveChatMessages
+    .slice(-12)
+    .map(message => `${message.role}: ${message.body}`)
+    .join('\n');
+  const activeLiveChatEvidenceItems = [
+    activeLiveChatSession?.pageUrl ? { label: language === 'zh' ? '访问页面' : 'Page URL', value: activeLiveChatSession.pageUrl } : null,
+    activeLiveChatVisitorInfo.ip ? { label: 'IP', value: activeLiveChatVisitorInfo.ip } : null,
+    activeLiveChatVisitorInfo.country ? { label: language === 'zh' ? '国家/地区' : 'Country', value: activeLiveChatVisitorInfo.country } : null,
+    [activeLiveChatVisitorInfo.browserName, activeLiveChatVisitorInfo.browserVersion].filter(Boolean).join(' ')
+      ? { label: language === 'zh' ? '浏览器' : 'Browser', value: [activeLiveChatVisitorInfo.browserName, activeLiveChatVisitorInfo.browserVersion].filter(Boolean).join(' ') }
+      : null,
+    activeLiveChatVisitorInfo.os ? { label: language === 'zh' ? '系统' : 'OS', value: activeLiveChatVisitorInfo.os } : null,
+    activeLiveChatVisitorInfo.language || activeLiveChatVisitorInfo.acceptLanguage
+      ? { label: language === 'zh' ? '语言' : 'Language', value: activeLiveChatVisitorInfo.language || activeLiveChatVisitorInfo.acceptLanguage }
+      : null,
+    activeLiveChatVisitorInfo.timezone ? { label: language === 'zh' ? '时区' : 'Timezone', value: activeLiveChatVisitorInfo.timezone } : null,
+    activeLiveChatVisitorInfo.localTime ? { label: language === 'zh' ? '当地时间' : 'Local time', value: activeLiveChatVisitorInfo.localTime } : null,
+    activeLiveChatSession?.createdAt ? { label: language === 'zh' ? '首次会话' : 'Session started', value: new Date(activeLiveChatSession.createdAt).toLocaleString() } : null,
+    activeLiveChatSession?.lastMessageAt ? { label: language === 'zh' ? '最近消息' : 'Last message', value: new Date(activeLiveChatSession.lastMessageAt).toLocaleString() } : null
+  ].filter(Boolean) as Array<{ label: string; value: string }>;
   const activeLiveChatContactMethod: ContactMethod | null = activeLiveChatSession?.visitorEmail
     ? { type: 'email', value: activeLiveChatSession.visitorEmail }
     : activeLiveChatSession?.visitorPhone
@@ -2330,7 +2349,7 @@ export function Inbox() {
               </div>
             );
           })}
-          {false && filteredLiveChatConversations.map(conversation => {
+          {false && ([] as UnifiedCommunicationConversation[]).map(conversation => {
             const client = conversation.client_id ? clients.find(c => c.id === conversation.client_id) : null;
             return (
               <div
@@ -3026,6 +3045,33 @@ export function Inbox() {
                   )}
                 </div>
               )}
+              {activeLiveChatEvidenceItems.length > 0 && (
+                <div className="rounded-xl border border-violet-500/20 bg-violet-950/10 p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-bold text-slate-200">
+                        {language === 'zh' ? '访客上下文证据' : 'Visitor Context Evidence'}
+                      </div>
+                      <div className="mt-1 text-[11px] text-slate-500">
+                        {language === 'zh'
+                          ? '这些信息会作为 Live Chat Agent 建议的上下文依据。'
+                          : 'These facts are used as context for Live Chat Agent suggestions.'}
+                      </div>
+                    </div>
+                    <span className="rounded border border-violet-500/30 bg-violet-500/10 px-2 py-1 text-[10px] font-bold uppercase text-violet-200">
+                      {activeLiveChatEvidenceItems.length} {language === 'zh' ? '项' : 'facts'}
+                    </span>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                    {activeLiveChatEvidenceItems.map(item => (
+                      <div key={`${item.label}:${item.value}`} className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
+                        <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{item.label}</div>
+                        <div className="mt-1 break-words text-xs text-slate-200">{item.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {visibleLiveChatMessages.length === 0 ? (
                 <div className="py-16 text-center text-sm text-slate-500 italic">No Live Chat messages saved yet.</div>
               ) : visibleLiveChatMessages.map((message: LiveChatMessage) => {
@@ -3061,8 +3107,12 @@ export function Inbox() {
                   activeLiveChatSession?.visitorEmail ? `Visitor email: ${activeLiveChatSession.visitorEmail}` : '',
                   activeLiveChatSession?.visitorPhone ? `Visitor phone: ${activeLiveChatSession.visitorPhone}` : '',
                   activeLiveChatSession?.pageUrl ? `Page URL: ${activeLiveChatSession.pageUrl}` : '',
+                  activeLiveChatEvidenceItems.length ? `Visitor evidence:\n${activeLiveChatEvidenceItems.map(item => `${item.label}: ${item.value}`).join('\n')}` : '',
+                  activeLiveChatTranscriptContext ? `Recent live chat transcript:\n${activeLiveChatTranscriptContext}` : '',
                   activeLiveChatClient?.agentSummary ? `AI summary: ${activeLiveChatClient.agentSummary}` : '',
-                  activeLiveChatClient?.agentNextStep ? `Best next step: ${activeLiveChatClient.agentNextStep}` : ''
+                  activeLiveChatClient?.agentNextStep ? `Best next step: ${activeLiveChatClient.agentNextStep}` : '',
+                  activeLiveChatClient?.tags?.length ? `Client tags: ${activeLiveChatClient.tags.join(', ')}` : '',
+                  activeLiveChatClient?.comments?.length ? `Recent client notes: ${activeLiveChatClient.comments.slice(-5).map(comment => comment.content).join(' | ')}` : ''
                 ].filter(Boolean).join('\n')}
                 hasClient={!!(activeLiveChatClient?.id || selectedLiveChatConversation.client_id)}
                 hasCustomerMessage={!!latestLiveChatVisitorMessage}
