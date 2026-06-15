@@ -18,7 +18,9 @@ export { TelegramHeaderActions, TelegramHeaderMeta } from './TelegramHeaderContr
 export { useActiveConversationComments } from './useActiveConversationComments';
 export { useConversationFollowUp } from './useConversationFollowUp';
 export { useConversationReplyActions } from './useConversationReplyActions';
+export { useEmailQuickActions } from './useEmailQuickActions';
 export { useInboxBulkActions } from './useInboxBulkActions';
+export { useInboxNavigationActions } from './useInboxNavigationActions';
 export { useInboxSync } from './useInboxSync';
 export { useUnifiedConversationActions } from './useUnifiedConversationActions';
 export {

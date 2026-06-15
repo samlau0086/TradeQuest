@@ -3,6 +3,7 @@ import { ArrowLeft, MessageCircle } from 'lucide-react';
 
 interface WhatsAppContactOptionView {
   key: string;
+  clientId: string;
   clientName: string;
   clientCompany?: string;
   contactName: string;
