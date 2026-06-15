@@ -3,12 +3,10 @@ import { ContactMethod, useStore, EmailMessage, LiveChatSession } from '../store
 import { useAuthStore } from '../authStore';
 import { Mail } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { CommentItem } from './CommentItem';
 import { ClientFormModal } from './ClientFormModal';
 import { UploadAttachmentModal } from './UploadAttachmentModal';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle, useDefaultLayout } from 'react-resizable-panels';
 import { WhatsAppChatModal } from './WhatsAppChatModal';
-import { AgentContextSuggestions } from './AgentContextSuggestions';
 import {
   ConversationDetailHeader,
   ConversationFollowUpStrip,
@@ -31,11 +29,13 @@ import {
   InboxConversationListItem,
   InboxNotificationDialog,
   InboxSidebarControls,
+  LiveChatAgentSuggestionsPanel,
   LiveChatCustomerInsightCard,
   LiveChatEvidencePanel,
   LiveChatHeaderActions,
   LiveChatHeaderMeta,
   StartWhatsAppConversationPane,
+  TelegramAgentSuggestionsPanel,
   TelegramHeaderActions,
   TelegramHeaderMeta,
   CONVERSATION_AUTO_TRANSLATE_KEY,
@@ -2138,10 +2138,10 @@ ${activeTelegramAgentContext.additionalContext}`,
                 translations={activeTelegramTranslations}
                 translatingIds={translatingConversationMessageIds}
               />
-              <AgentContextSuggestions
-                channel="telegram"
+              <TelegramAgentSuggestionsPanel
+                language={language}
                 cacheKey={activeTelegramAgentContext.cacheKey}
-                contextLookup={{ conversationId: selectedTelegramConversation.id }}
+                conversationId={selectedTelegramConversation.id}
                 clientId={activeTelegramClient?.id || selectedTelegramConversation.client_id}
                 clientName={activeTelegramClient?.name || selectedTelegramConversation.client_name}
                 persistedInsight={selectedTelegramConversation.agent_context_analysis_key === activeTelegramAgentContext.cacheKey ? selectedTelegramConversation.agent_context_analysis : undefined}
@@ -2152,8 +2152,6 @@ ${activeTelegramAgentContext.additionalContext}`,
                 hasClient={!!(activeTelegramClient?.id || selectedTelegramConversation.client_id)}
                 hasKnowledge={!!activeTelegramClient}
                 hasCustomerMessage={activeTelegramAgentContext.hasCustomerMessage}
-                draftReplyLabel={language === 'zh' ? '起草 Telegram 回复' : 'Draft Telegram Reply'}
-                draftReplyDescription={language === 'zh' ? '使用客户资料、Telegram 记录、产品和 RAG 上下文生成回复草稿。' : 'Draft a Telegram reply using customer, conversation, product, and RAG context.'}
                 onDraftReply={draftTelegramReply}
                 onAddComment={async () => appendActiveConversationComment(`Telegram note: ${activeTelegramAgentContext.latestInbound?.body || selectedTelegramConversation.title || 'Follow up this Telegram conversation'}`)}
                 onCreateLead={!activeTelegramClient && !selectedTelegramConversation.client_id ? handleCreateLead : undefined}
@@ -2298,10 +2296,10 @@ ${activeTelegramAgentContext.additionalContext}`,
                 translations={activeLiveChatTranslations}
                 translatingIds={translatingConversationMessageIds}
               />
-              <AgentContextSuggestions
-                channel="live_chat"
+              <LiveChatAgentSuggestionsPanel
+                language={language}
                 cacheKey={activeLiveChatAgentContext.cacheKey}
-                contextLookup={{ conversationId: selectedLiveChatConversation.id }}
+                conversationId={selectedLiveChatConversation.id}
                 clientId={activeLiveChatClient?.id || selectedLiveChatConversation.client_id}
                 clientName={activeLiveChatClient?.name || selectedLiveChatConversation.client_name}
                 persistedInsight={selectedLiveChatConversation.agent_context_analysis_key === activeLiveChatAgentContext.cacheKey ? selectedLiveChatConversation.agent_context_analysis : undefined}
@@ -2312,8 +2310,6 @@ ${activeTelegramAgentContext.additionalContext}`,
                 hasClient={!!(activeLiveChatClient?.id || selectedLiveChatConversation.client_id)}
                 hasKnowledge={!!activeLiveChatClient}
                 hasCustomerMessage={activeLiveChatAgentContext.hasCustomerMessage}
-                draftReplyLabel={language === 'zh' ? '运行 Agent 回复' : 'Run Agent Reply'}
-                draftReplyDescription={language === 'zh' ? '使用客户资料、聊天记录、产品和 RAG 上下文生成并发送 Live Chat 回复。' : 'Generate and send a Live Chat reply using customer, conversation, product, and RAG context.'}
                 onDraftReply={runSelectedLiveChatAgent}
                 onAddComment={async () => appendActiveConversationComment(`Live Chat note: ${latestLiveChatVisitorMessage?.body || selectedLiveChatConversation.title || 'Follow up this visitor'}`)}
                 followUpAt={activeFollowUpAt}
