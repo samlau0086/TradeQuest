@@ -912,6 +912,8 @@ Content-Type: application/json
 - Agent Context & Suggestions now uses one shared context builder across Email, WhatsApp, Live Chat, and Telegram. It reads the latest inbound customer messages together with customer profile, AI summary, best next step, score, comments, logs, other-channel history, compressed channel memory, products, and RAG context.
 - Team outbound messages are included only as background context. They are explicitly separated from inbound customer messages and must not be interpreted as customer intent.
 - Email and WhatsApp keep channel-native Agent Context analysis persistence. Live Chat and Telegram store their Agent Context analysis on the shared `communication_conversations` record, so cached analysis survives navigation and refresh.
+- The backend exposes `GET /api/agent-context?conversationId=<communication_conversation_id>` as the shared Context Service. Inbox Agent Context panels prefer this server context and fall back to the local frontend builder when a unified conversation id is not available.
+- Unattended Live Chat and Telegram customer service agents also consume the shared Context Service before drafting a reply, so backend automation uses the same customer summary, best next step, cross-channel history, product context, and RAG evidence shown in Inbox.
 - Live Chat conversations are embedded directly in the unified Inbox reading pane. Operators can read/reply, toggle human takeover, run the Live Chat Agent, set follow-ups, delete/request review, and use Agent Context & Suggestions without leaving Inbox. The standalone Live Chat Desk remains the seat-management and monitoring view.
 - Live Chat tags and internal notes use the linked customer as the primary destination when a customer is attached. Unlinked visitor conversations keep tags and notes on the conversation until they are linked or converted.
 - Inbox Live Chat shows visitor context evidence such as page URL, IP, browser, OS, language, timezone, local time, and message timing. The same evidence plus recent transcript, customer tags, and recent customer notes is passed into Agent Context & Suggestions so recommendations are easier to audit.
@@ -936,7 +938,10 @@ Content-Type: application/json
 - 智能体上下文与建议现在在 Email、WhatsApp、Live Chat 和 Telegram 中共用同一套上下文构建器。它会读取最新客户入站消息，并结合客户资料、AI 摘要、最佳下一步、评分、评论、日志、其他渠道沟通历史、压缩后的渠道记忆、产品和 RAG 上下文。
 - 我方发送的 outbound 消息只作为背景上下文，并会与客户入站消息明确分离，不能被解释为客户意图。
 - Email 和 WhatsApp 继续使用各自渠道的智能体上下文分析持久化；Live Chat 和 Telegram 会把分析结果保存到统一的 `communication_conversations` 记录中，因此切换页面或刷新后仍可复用缓存分析。
+- 后端提供 `GET /api/agent-context?conversationId=<communication_conversation_id>` 作为统一 Context Service。收件箱里的智能体上下文面板会优先使用服务端上下文；当缺少统一会话 ID 时，才回退到前端本地构建器。
 - Telegram 会话在统一收件箱中也会显示智能体上下文与建议；运营人员可以基于同一套客户/RAG/产品/跨渠道上下文起草 Telegram 回复，草稿不会自动发送。
+
+补充：无人值守的 Live Chat 和 Telegram 客服 Agent 在起草回复前也会读取统一 Context Service，因此后台自动化会使用与收件箱一致的客户摘要、最佳下一步、跨渠道历史、产品上下文和 RAG 证据。
 
 ## Deployment
 

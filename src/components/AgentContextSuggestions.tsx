@@ -20,6 +20,9 @@ interface AgentContextSuggestionsProps {
   body?: string;
   additionalContext?: string;
   cacheKey: string;
+  contextLookup?: {
+    conversationId?: string;
+  };
   clientId?: string;
   emailAddress?: string;
   whatsappNumber?: string;
@@ -45,6 +48,16 @@ interface AgentContextSuggestionsProps {
   onCompleteFollowUp?: () => void | Promise<void>;
   autoScrollOnOpen?: boolean;
   onSaveAnalysis?: (key: string, insight: AgentContextSuggestionInsight) => void | Promise<void>;
+}
+
+interface ServerAgentContext {
+  cacheKey: string;
+  body: string;
+  additionalContext: string;
+  hasCustomerMessage: boolean;
+  latestInboundMessageId?: string | null;
+  signature?: string;
+  knowledgeEvidence?: AgentContextSuggestionInsight['knowledgeEvidence'];
 }
 
 const toDateTimeLocalValue = (value?: string | null) => {
@@ -86,6 +99,7 @@ export function AgentContextSuggestions({
   body = '',
   additionalContext = '',
   cacheKey,
+  contextLookup,
   clientId,
   emailAddress,
   whatsappNumber,
@@ -132,6 +146,8 @@ export function AgentContextSuggestions({
   const [followUpEditorOpen, setFollowUpEditorOpen] = useState(false);
   const [followUpDraftAt, setFollowUpDraftAt] = useState('');
   const [followUpDraftNote, setFollowUpDraftNote] = useState('');
+  const [serverContext, setServerContext] = useState<ServerAgentContext | null>(null);
+  const [loadingServerContext, setLoadingServerContext] = useState(false);
   const panelRef = useRef<HTMLElement | null>(null);
   const agent = useMemo(() => {
     const preferredId = channel === 'whatsapp'
@@ -145,8 +161,12 @@ export function AgentContextSuggestions({
       || agentHubAgents.find(item => item.tools.some(tool => tool.startsWith(channel) || tool.includes('send')));
   }, [agentHubAgents, channel]);
 
-  const customerMessageAvailable = hasCustomerMessage !== false;
-  const text = `${subject} ${body} ${additionalContext}`.trim();
+  const effectiveCacheKey = serverContext?.cacheKey || cacheKey;
+  const effectiveBody = serverContext?.body || body;
+  const effectiveAdditionalContext = serverContext?.additionalContext || additionalContext;
+  const effectiveHasCustomerMessage = serverContext ? serverContext.hasCustomerMessage : hasCustomerMessage;
+  const customerMessageAvailable = effectiveHasCustomerMessage !== false;
+  const text = `${subject} ${effectiveBody} ${effectiveAdditionalContext}`.trim();
   const fallbackIntent = inferIntent(text);
   const intent = aiInsight?.intent || fallbackIntent;
   const normalizedIntent = String(intent || '').toLowerCase();
@@ -158,7 +178,7 @@ export function AgentContextSuggestions({
   const canAutoExecute = automationReady && agent.guardrail === 'auto';
   const executionLabel = canAutoExecute ? t('Auto-ready') : automationReady ? t('Review-gated automation') : t('Manual options');
   const llmConfig = llmConfigs.find(llm => llm.id === (llmMappings.agent_context_suggestions || activeLLMId)) || null;
-  const cachedInsight = customerMessageAvailable && persistedInsightKey === cacheKey ? persistedInsight : undefined;
+  const cachedInsight = customerMessageAvailable && persistedInsightKey === effectiveCacheKey ? persistedInsight : undefined;
   const resolvedAnalysisMode: AgentContextAnalysisMode =
     (clientId && agentContextAnalysisConfig.clientModes[clientId])
     || (emailAddress && agentContextAnalysisConfig.emailModes[emailAddress.toLowerCase()])
@@ -168,7 +188,7 @@ export function AgentContextSuggestions({
     || 'manual';
 
   useEffect(() => {
-    if (!autoScrollOnOpen || !cacheKey) return;
+    if (!autoScrollOnOpen || !effectiveCacheKey) return;
     const scrollToPanel = () => panelRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
     const frame = window.requestAnimationFrame(scrollToPanel);
     const shortTimer = window.setTimeout(scrollToPanel, 140);
@@ -178,13 +198,43 @@ export function AgentContextSuggestions({
       window.clearTimeout(shortTimer);
       window.clearTimeout(finalTimer);
     };
-  }, [autoScrollOnOpen, cacheKey]);
+  }, [autoScrollOnOpen, effectiveCacheKey]);
+
+  useEffect(() => {
+    const conversationId = contextLookup?.conversationId;
+    if (!conversationId) {
+      setServerContext(null);
+      setLoadingServerContext(false);
+      return;
+    }
+    const controller = new AbortController();
+    setLoadingServerContext(true);
+    const llmId = llmMappings.agent_context_suggestions || activeLLMId || '';
+    const params = new URLSearchParams({ conversationId });
+    if (llmId) params.set('llmId', llmId);
+    fetch(`/api/agent-context?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      signal: controller.signal
+    })
+      .then(async response => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Failed to load agent context');
+        setServerContext(data.context || null);
+      })
+      .catch(error => {
+        if (error?.name !== 'AbortError') setServerContext(null);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingServerContext(false);
+      });
+    return () => controller.abort();
+  }, [contextLookup?.conversationId, llmMappings.agent_context_suggestions, activeLLMId]);
 
   useEffect(() => {
     setFollowUpDraftAt(toDateTimeLocalValue(followUpAt));
     setFollowUpDraftNote(followUpNote || '');
     setFollowUpEditorOpen(false);
-  }, [followUpAt, followUpNote, cacheKey]);
+  }, [followUpAt, followUpNote, effectiveCacheKey]);
 
   const setCurrentAnalysisMode = (mode: AgentContextAnalysisMode) => {
     if (clientId) {
@@ -224,7 +274,7 @@ export function AgentContextSuggestions({
       setLoadingInsight(false);
       return Promise.resolve();
     }
-    if (!llmConfig || !text || !cacheKey) {
+    if (!llmConfig || !text || !effectiveCacheKey) {
       setAiInsight(null);
       return Promise.resolve();
     }
@@ -247,15 +297,15 @@ Important direction rule:
 
 Subject/contact: ${subject || clientName || 'N/A'}
 Message:
-${body || 'N/A'}
+${effectiveBody || 'N/A'}
 
 Broader CRM/customer context:
-${additionalContext || 'N/A'}`,
+${effectiveAdditionalContext || 'N/A'}`,
         context: {
           channel,
           subject,
-          body,
-          additionalContext,
+          body: effectiveBody,
+          additionalContext: effectiveAdditionalContext,
           clientId: clientId || null,
           clientName,
           hasClient,
@@ -275,12 +325,14 @@ ${additionalContext || 'N/A'}`,
           intent: parsed.intent || fallbackIntent,
           customerContext: parsed.customerContext || '',
           knowledgeContext: parsed.knowledgeContext || '',
-          knowledgeEvidence: Array.isArray(data.knowledgeEvidence) ? data.knowledgeEvidence : [],
+          knowledgeEvidence: Array.isArray(data.knowledgeEvidence) && data.knowledgeEvidence.length
+            ? data.knowledgeEvidence
+            : (serverContext?.knowledgeEvidence || []),
           knowledgeConflicts: Array.isArray(data.knowledgeConflicts) ? data.knowledgeConflicts : [],
           analyzedAt: new Date().toISOString(),
           modelId: llmConfig.id
         };
-        await onSaveAnalysis?.(cacheKey, insight);
+        await onSaveAnalysis?.(effectiveCacheKey, insight);
         setAiInsight(insight);
         incrementAgentHubTaskCount('context_suggestion_agent');
       })
@@ -311,7 +363,7 @@ ${additionalContext || 'N/A'}`,
     const controller = new AbortController();
     void runAnalysis(controller.signal);
     return () => controller.abort();
-  }, [cacheKey, cachedInsight, resolvedAnalysisMode, llmConfig?.id, text, channel, subject, body, additionalContext, clientName, hasClient, hasKnowledge, hasCustomerMessage, language, fallbackIntent]);
+  }, [effectiveCacheKey, cachedInsight, resolvedAnalysisMode, llmConfig?.id, text, channel, subject, effectiveBody, effectiveAdditionalContext, clientName, hasClient, hasKnowledge, effectiveHasCustomerMessage, language, fallbackIntent, serverContext?.signature]);
 
   const recordOption = async (optionId: string, label: string, run: () => void | Promise<void>) => {
     if (runningOptionId) return;

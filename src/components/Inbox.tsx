@@ -3067,6 +3067,7 @@ ${activeTelegramAgentContext.additionalContext}`,
               <AgentContextSuggestions
                 channel="telegram"
                 cacheKey={activeTelegramAgentContext.cacheKey}
+                contextLookup={{ conversationId: selectedTelegramConversation.id }}
                 clientId={activeTelegramClient?.id || selectedTelegramConversation.client_id}
                 clientName={activeTelegramClient?.name || selectedTelegramConversation.client_name}
                 persistedInsight={selectedTelegramConversation.agent_context_analysis_key === activeTelegramAgentContext.cacheKey ? selectedTelegramConversation.agent_context_analysis : undefined}
@@ -3353,6 +3354,7 @@ ${activeTelegramAgentContext.additionalContext}`,
               <AgentContextSuggestions
                 channel="live_chat"
                 cacheKey={activeLiveChatAgentContext.cacheKey}
+                contextLookup={{ conversationId: selectedLiveChatConversation.id }}
                 clientId={activeLiveChatClient?.id || selectedLiveChatConversation.client_id}
                 clientName={activeLiveChatClient?.name || selectedLiveChatConversation.client_name}
                 persistedInsight={selectedLiveChatConversation.agent_context_analysis_key === activeLiveChatAgentContext.cacheKey ? selectedLiveChatConversation.agent_context_analysis : undefined}
@@ -3694,6 +3696,7 @@ ${activeTelegramAgentContext.additionalContext}`,
                <AgentContextSuggestions
                  channel="email"
                  cacheKey={selectedEmailAgentContext.cacheKey || `email:${selectedEmail.id}`}
+                 contextLookup={activeUnifiedConversation?.id ? { conversationId: activeUnifiedConversation.id } : undefined}
                  clientId={selectedEmail.clientId}
                  emailAddress={isInboundCustomerEmail(selectedEmail) ? selectedEmail.sender : selectedEmail.recipient}
                  defaultAnalysisMode={['sent', 'outbound', 'scheduled'].includes(selectedEmail.type) ? 'manual' : undefined}

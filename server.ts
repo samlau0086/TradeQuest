@@ -2300,6 +2300,391 @@ async function startServer() {
     }
   });
 
+  const findUnifiedConversationId = async (userId: string, channel: string, sourceId: string) => {
+    const result = await pool.query(
+      `SELECT id
+       FROM communication_conversations
+       WHERE user_id = $1 AND channel = $2 AND source_id = $3
+       LIMIT 1`,
+      [userId, channel, sourceId]
+    );
+    return result.rows[0]?.id || null;
+  };
+
+  const buildAgentContextForConversation = async (
+    userId: string,
+    conversationId: string,
+    options: { llmId?: string } = {}
+  ) => {
+    const conversationRes = await pool.query(
+      `SELECT c.*, cl.name AS client_name, cl.company AS client_company, cl.country AS client_country,
+              cl.status AS client_status, cl.tags AS client_tags, cl.comments AS client_comments,
+              cl.contact_methods AS client_contact_methods, cl.contacts AS client_contacts,
+              cl.preferred_language, cl.agent_summary, cl.agent_next_step,
+              cl.lead_summary, cl.lead_next_step, cl.lead_score, cl.updated_at AS client_updated_at
+       FROM communication_conversations c
+       LEFT JOIN clients cl ON cl.id = c.client_id
+       WHERE c.id = $1 AND c.user_id = $2
+       LIMIT 1`,
+      [conversationId, userId]
+    );
+    const conversation = conversationRes.rows[0];
+    if (!conversation) {
+      const error: any = new Error('Conversation not found');
+      error.status = 404;
+      throw error;
+    }
+
+    const messagesRes = await pool.query(
+      `SELECT id, channel, direction, sender, recipient, body, message_type, payload, source_created_at, created_at
+       FROM communication_messages
+       WHERE conversation_id = $1 AND user_id = $2
+       ORDER BY COALESCE(source_created_at, created_at) ASC
+       LIMIT 120`,
+      [conversation.id, userId]
+    );
+    const messages = messagesRes.rows;
+    const inboundMessages = messages.filter((message: any) => message.direction === 'inbound' && String(message.body || '').trim());
+    const outboundMessages = messages.filter((message: any) => message.direction === 'outbound' && String(message.body || '').trim());
+    const latestInbound = inboundMessages[inboundMessages.length - 1] || null;
+    const clientId = conversation.client_id || null;
+
+    const emailsRes = clientId
+      ? await pool.query(
+        `SELECT id, type, sender, recipient, subject, body, date
+         FROM emails
+         WHERE user_id = $1 AND client_id = $2
+         ORDER BY date DESC
+         LIMIT 8`,
+        [userId, clientId]
+      )
+      : { rows: [] as any[] };
+    const logsRes = clientId
+      ? await pool.query(
+        `SELECT id, date, content, type
+         FROM logs
+         WHERE client_id = $1
+         ORDER BY date DESC
+         LIMIT 12`,
+        [clientId]
+      )
+      : { rows: [] as any[] };
+    const dealsRes = clientId
+      ? await pool.query(
+        `SELECT id, name, status, value, lead_score, lead_summary, lead_next_step, updated_at
+         FROM deals
+         WHERE user_id = $1 AND client_id = $2
+         ORDER BY updated_at DESC
+         LIMIT 8`,
+        [userId, clientId]
+      )
+      : { rows: [] as any[] };
+    const productsRes = await pool.query(
+      `SELECT id, sku, name, description, sales_points, updated_at
+       FROM products
+       WHERE user_id = $1
+       ORDER BY updated_at DESC
+       LIMIT 12`,
+      [userId]
+    );
+
+    const ragQuery = [
+      latestInbound?.body,
+      conversation.title,
+      conversation.subject,
+      conversation.client_name,
+      conversation.client_company,
+      conversation.agent_summary,
+      conversation.agent_next_step
+    ].filter(Boolean).join('\n').slice(0, 2000);
+    let llmConfig: any = null;
+    if (options.llmId) {
+      const userSettings = await pool.query('SELECT settings FROM users WHERE id = $1 LIMIT 1', [userId]);
+      const settings = typeof userSettings.rows[0]?.settings === 'string'
+        ? JSON.parse(userSettings.rows[0]?.settings || '{}')
+        : (userSettings.rows[0]?.settings || {});
+      llmConfig = (settings.llmConfigs || []).find((config: any) => config.id === options.llmId) || null;
+    }
+    const kbRes = await searchKnowledgeBase(userId, clientId, ragQuery || conversation.last_message_preview || conversation.title || '', llmConfig, 8)
+      .catch(() => ({ rows: [] as any[] }));
+    const knowledgeEvidence = (kbRes.rows || []).map((row: any) => ({
+      id: row.id,
+      title: row.title,
+      scope: row.client_id ? 'client' : 'global',
+      source: row.source_path || row.source_type || row.source || 'knowledge_base',
+      sourceType: row.source_type || row.sourceType || 'knowledge_base',
+      confidence: typeof row.relevanceScore === 'number' ? row.relevanceScore : (typeof row.relevance_score === 'number' ? row.relevance_score : undefined),
+      excerpt: normalizeCommunicationBody(row.content || '', 260)
+    }));
+
+    const formatMessageLine = (message: any) => {
+      const when = message.source_created_at || message.created_at ? new Date(message.source_created_at || message.created_at).toISOString() : '';
+      return `${message.direction}${when ? ` (${when})` : ''}: ${normalizeCommunicationBody(message.body || '', 700)}`;
+    };
+    const body = inboundMessages.length > 0
+      ? [
+        'Customer inbound messages. Use only these messages to infer customer intent:',
+        ...inboundMessages.slice(-8).map(formatMessageLine),
+        '',
+        'Our outbound/team messages. Use as background only; never infer customer intent from these:',
+        ...outboundMessages.slice(-8).map(formatMessageLine)
+      ].join('\n')
+      : [
+        'NO_INBOUND_CUSTOMER_MESSAGES',
+        `No inbound customer message is available in this ${conversation.channel} conversation.`,
+        'Our outbound/team messages are background only and must not be treated as customer intent:',
+        ...outboundMessages.slice(-8).map(formatMessageLine)
+      ].join('\n');
+
+    const additionalContext = [
+      `Channel: ${conversation.channel}`,
+      `Subject/contact: ${conversation.subject || conversation.title || conversation.contact_address || 'N/A'}`,
+      clientId
+        ? `Client profile: ${[conversation.client_name, conversation.client_company, conversation.client_country].filter(Boolean).join(' / ') || clientId}`
+        : `Unlinked contact: ${conversation.contact_name || conversation.contact_address || 'N/A'}`,
+      clientId ? `Preferred language: ${conversation.preferred_language || 'N/A'}` : '',
+      clientId ? `AI customer summary: ${conversation.agent_summary || conversation.lead_summary || 'N/A'}` : '',
+      clientId ? `Best next action: ${conversation.agent_next_step || conversation.lead_next_step || 'N/A'}` : '',
+      clientId ? `Lead score: ${conversation.lead_score ?? 'N/A'}` : '',
+      clientId ? `Tags: ${parseJsonArray(conversation.client_tags).join(', ') || 'N/A'}` : '',
+      clientId ? `Recent internal comments: ${parseJsonArray(conversation.client_comments).slice(-6).map((comment: any) => comment.content).filter(Boolean).join(' | ') || 'N/A'}` : '',
+      logsRes.rows.length ? `Recent CRM activity: ${logsRes.rows.map((log: any) => `${log.date}: ${log.content}`).join(' | ')}` : 'Recent CRM activity: N/A',
+      emailsRes.rows.length ? `Cross-channel email history: ${emailsRes.rows.map((email: any) => `${email.type} ${email.date}: ${email.subject} - ${normalizeCommunicationBody(email.body || '', 260)}`).join(' | ')}` : 'Cross-channel email history: N/A',
+      dealsRes.rows.length ? `Related leads/deals: ${dealsRes.rows.map((deal: any) => `${deal.name} (${deal.status}) score ${deal.lead_score ?? 'N/A'} summary: ${deal.lead_summary || 'N/A'} next: ${deal.lead_next_step || 'N/A'}`).join(' | ')}` : 'Related leads/deals: N/A',
+      knowledgeEvidence.length ? `Relevant knowledge snippets: ${knowledgeEvidence.map((item: any) => `${item.scope}:${item.title}: ${item.excerpt}`).join(' | ')}` : 'Relevant knowledge snippets: N/A',
+      productsRes.rows.length ? `Product context: ${productsRes.rows.map((product: any) => `${product.name}${product.sku ? ` (${product.sku})` : ''}: ${normalizeCommunicationBody(product.sales_points || product.description || '', 420)}`).join(' | ')}` : 'Product context: N/A'
+    ].filter(Boolean).join('\n');
+
+    const signatureParts = [
+      conversation.id,
+      latestInbound?.id || 'no-inbound',
+      conversation.updated_at,
+      conversation.client_updated_at,
+      kbRes.rows?.[0]?.updated_at || '',
+      productsRes.rows?.[0]?.updated_at || ''
+    ];
+    const signature = nodeCrypto.createHash('sha1').update(signatureParts.join('|')).digest('hex');
+    const cacheKey = latestInbound
+      ? `${conversation.channel}:${conversation.id}:inbound:${latestInbound.id}:${signature}`
+      : `${conversation.channel}:${conversation.id}:no-inbound:${signature}`;
+
+    return {
+      conversation,
+      context: {
+        cacheKey,
+        body,
+        additionalContext,
+        hasCustomerMessage: inboundMessages.length > 0,
+        latestInboundMessageId: latestInbound?.id || null,
+        signature,
+        knowledgeEvidence,
+        evidence: {
+          conversationId: conversation.id,
+          channel: conversation.channel,
+          sourceId: conversation.source_id,
+          clientId,
+          messageCount: messages.length,
+          inboundCount: inboundMessages.length,
+          outboundCount: outboundMessages.length,
+          latestInboundMessageId: latestInbound?.id || null,
+          knowledgeCount: knowledgeEvidence.length,
+          productCount: productsRes.rows.length,
+          emailHistoryCount: emailsRes.rows.length,
+          logCount: logsRes.rows.length,
+          dealCount: dealsRes.rows.length
+        }
+      }
+    };
+  };
+
+  app.get('/api/agent-context', authenticateToken, async (req: any, res) => {
+    try {
+      const conversationId = String(req.query.conversationId || '').trim();
+      if (!conversationId) return res.status(400).json({ error: 'conversationId is required' });
+      const built = await buildAgentContextForConversation(req.user.uid, conversationId, {
+        llmId: String(req.query.llmId || '').trim() || undefined
+      });
+      return res.json({ context: built.context });
+
+      const conversationRes = await pool.query(
+        `SELECT c.*, cl.name AS client_name, cl.company AS client_company, cl.country AS client_country,
+                cl.status AS client_status, cl.tags AS client_tags, cl.comments AS client_comments,
+                cl.contact_methods AS client_contact_methods, cl.contacts AS client_contacts,
+                cl.preferred_language, cl.agent_summary, cl.agent_next_step,
+                cl.lead_summary, cl.lead_next_step, cl.lead_score, cl.updated_at AS client_updated_at
+         FROM communication_conversations c
+         LEFT JOIN clients cl ON cl.id = c.client_id
+         WHERE c.id = $1 AND c.user_id = $2
+         LIMIT 1`,
+        [conversationId, req.user.uid]
+      );
+      const conversation = conversationRes.rows[0];
+      if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+
+      const messagesRes = await pool.query(
+        `SELECT id, channel, direction, sender, recipient, body, message_type, payload, source_created_at, created_at
+         FROM communication_messages
+         WHERE conversation_id = $1 AND user_id = $2
+         ORDER BY COALESCE(source_created_at, created_at) ASC
+         LIMIT 120`,
+        [conversation.id, req.user.uid]
+      );
+      const messages = messagesRes.rows;
+      const inboundMessages = messages.filter((message: any) => message.direction === 'inbound' && String(message.body || '').trim());
+      const outboundMessages = messages.filter((message: any) => message.direction === 'outbound' && String(message.body || '').trim());
+      const latestInbound = inboundMessages[inboundMessages.length - 1] || null;
+
+      const clientId = conversation.client_id || null;
+      const emailsRes = clientId
+        ? await pool.query(
+          `SELECT id, type, sender, recipient, subject, body, date
+           FROM emails
+           WHERE user_id = $1 AND client_id = $2
+           ORDER BY date DESC
+           LIMIT 8`,
+          [req.user.uid, clientId]
+        )
+        : { rows: [] as any[] };
+      const logsRes = clientId
+        ? await pool.query(
+          `SELECT id, date, content, type
+           FROM logs
+           WHERE client_id = $1
+           ORDER BY date DESC
+           LIMIT 12`,
+          [clientId]
+        )
+        : { rows: [] as any[] };
+      const dealsRes = clientId
+        ? await pool.query(
+          `SELECT id, name, status, value, lead_score, lead_summary, lead_next_step, updated_at
+           FROM deals
+           WHERE user_id = $1 AND client_id = $2
+           ORDER BY updated_at DESC
+           LIMIT 8`,
+          [req.user.uid, clientId]
+        )
+        : { rows: [] as any[] };
+      const productsRes = await pool.query(
+        `SELECT id, sku, name, description, sales_points, updated_at
+         FROM products
+         WHERE user_id = $1
+         ORDER BY updated_at DESC
+         LIMIT 12`,
+        [req.user.uid]
+      );
+
+      const ragQuery = [
+        latestInbound?.body,
+        conversation.title,
+        conversation.subject,
+        conversation.client_name,
+        conversation.client_company,
+        conversation.agent_summary,
+        conversation.agent_next_step
+      ].filter(Boolean).join('\n').slice(0, 2000);
+      const llmId = String(req.query.llmId || '').trim();
+      let llmConfig: any = null;
+      if (llmId) {
+        const userSettings = await pool.query('SELECT settings FROM users WHERE id = $1 LIMIT 1', [req.user.uid]);
+        const settings = typeof userSettings.rows[0]?.settings === 'string' ? JSON.parse(userSettings.rows[0]?.settings || '{}') : (userSettings.rows[0]?.settings || {});
+        llmConfig = (settings.llmConfigs || []).find((config: any) => config.id === llmId) || null;
+      }
+      const kbRes = await searchKnowledgeBase(req.user.uid, clientId, ragQuery || conversation.last_message_preview || conversation.title || '', llmConfig, 8)
+        .catch(() => ({ rows: [] as any[] }));
+      const knowledgeEvidence = (kbRes.rows || []).map((row: any) => ({
+        id: row.id,
+        title: row.title,
+        scope: row.client_id ? 'client' : 'global',
+        source: row.source_path || row.source_type || row.source || 'knowledge_base',
+        sourceType: row.source_type || row.sourceType || 'knowledge_base',
+        confidence: typeof row.relevanceScore === 'number' ? row.relevanceScore : (typeof row.relevance_score === 'number' ? row.relevance_score : undefined),
+        excerpt: normalizeCommunicationBody(row.content || '', 260)
+      }));
+
+      const formatMessageLine = (message: any) => {
+        const when = message.source_created_at || message.created_at ? new Date(message.source_created_at || message.created_at).toISOString() : '';
+        return `${message.direction}${when ? ` (${when})` : ''}: ${normalizeCommunicationBody(message.body || '', 700)}`;
+      };
+      const body = inboundMessages.length > 0
+        ? [
+          'Customer inbound messages. Use only these messages to infer customer intent:',
+          ...inboundMessages.slice(-8).map(formatMessageLine),
+          '',
+          'Our outbound/team messages. Use as background only; never infer customer intent from these:',
+          ...outboundMessages.slice(-8).map(formatMessageLine)
+        ].join('\n')
+        : [
+          'NO_INBOUND_CUSTOMER_MESSAGES',
+          `No inbound customer message is available in this ${conversation.channel} conversation.`,
+          'Our outbound/team messages are background only and must not be treated as customer intent:',
+          ...outboundMessages.slice(-8).map(formatMessageLine)
+        ].join('\n');
+
+      const additionalContext = [
+        `Channel: ${conversation.channel}`,
+        `Subject/contact: ${conversation.subject || conversation.title || conversation.contact_address || 'N/A'}`,
+        clientId
+          ? `Client profile: ${[conversation.client_name, conversation.client_company, conversation.client_country].filter(Boolean).join(' · ') || clientId}`
+          : `Unlinked contact: ${conversation.contact_name || conversation.contact_address || 'N/A'}`,
+        clientId ? `Preferred language: ${conversation.preferred_language || 'N/A'}` : '',
+        clientId ? `AI customer summary: ${conversation.agent_summary || conversation.lead_summary || 'N/A'}` : '',
+        clientId ? `Best next action: ${conversation.agent_next_step || conversation.lead_next_step || 'N/A'}` : '',
+        clientId ? `Lead score: ${conversation.lead_score ?? 'N/A'}` : '',
+        clientId ? `Tags: ${parseJsonArray(conversation.client_tags).join(', ') || 'N/A'}` : '',
+        clientId ? `Recent internal comments: ${parseJsonArray(conversation.client_comments).slice(-6).map((comment: any) => comment.content).filter(Boolean).join(' | ') || 'N/A'}` : '',
+        logsRes.rows.length ? `Recent CRM activity: ${logsRes.rows.map((log: any) => `${log.date}: ${log.content}`).join(' | ')}` : 'Recent CRM activity: N/A',
+        emailsRes.rows.length ? `Cross-channel email history: ${emailsRes.rows.map((email: any) => `${email.type} ${email.date}: ${email.subject} - ${normalizeCommunicationBody(email.body || '', 260)}`).join(' | ')}` : 'Cross-channel email history: N/A',
+        dealsRes.rows.length ? `Related leads/deals: ${dealsRes.rows.map((deal: any) => `${deal.name} (${deal.status}) score ${deal.lead_score ?? 'N/A'} summary: ${deal.lead_summary || 'N/A'} next: ${deal.lead_next_step || 'N/A'}`).join(' | ')}` : 'Related leads/deals: N/A',
+        knowledgeEvidence.length ? `Relevant knowledge snippets: ${knowledgeEvidence.map((item: any) => `${item.scope}:${item.title}: ${item.excerpt}`).join(' | ')}` : 'Relevant knowledge snippets: N/A',
+        productsRes.rows.length ? `Product context: ${productsRes.rows.map((product: any) => `${product.name}${product.sku ? ` (${product.sku})` : ''}: ${normalizeCommunicationBody(product.sales_points || product.description || '', 420)}`).join(' | ')}` : 'Product context: N/A'
+      ].filter(Boolean).join('\n');
+
+      const signatureParts = [
+        conversation.id,
+        latestInbound?.id || 'no-inbound',
+        conversation.updated_at,
+        conversation.client_updated_at,
+        kbRes.rows?.[0]?.updated_at || '',
+        productsRes.rows?.[0]?.updated_at || ''
+      ];
+      const signature = nodeCrypto.createHash('sha1').update(signatureParts.join('|')).digest('hex');
+      const cacheKey = latestInbound
+        ? `${conversation.channel}:${conversation.id}:inbound:${latestInbound.id}:${signature}`
+        : `${conversation.channel}:${conversation.id}:no-inbound:${signature}`;
+
+      res.json({
+        context: {
+          cacheKey,
+          body,
+          additionalContext,
+          hasCustomerMessage: inboundMessages.length > 0,
+          latestInboundMessageId: latestInbound?.id || null,
+          signature,
+          knowledgeEvidence,
+          evidence: {
+            conversationId: conversation.id,
+            channel: conversation.channel,
+            sourceId: conversation.source_id,
+            clientId,
+            messageCount: messages.length,
+            inboundCount: inboundMessages.length,
+            outboundCount: outboundMessages.length,
+            latestInboundMessageId: latestInbound?.id || null,
+            knowledgeCount: knowledgeEvidence.length,
+            productCount: productsRes.rows.length,
+            emailHistoryCount: emailsRes.rows.length,
+            logCount: logsRes.rows.length,
+            dealCount: dealsRes.rows.length
+          }
+        }
+      });
+    } catch (e: any) {
+      console.error('Failed to build agent context', e);
+      res.status(e.status || 500).json({ error: e.message || 'Failed to build agent context' });
+    }
+  });
+
   app.patch('/api/conversations/:id', authenticateToken, async (req: any, res) => {
     try {
       const currentRes = await pool.query(
@@ -8859,6 +9244,21 @@ No markdown wrappers, just valid JSON.`;
       score: row.relevanceScore || row.relevance_score || null,
       content: String(row.content || '').slice(0, 900)
     }));
+    const unifiedConversationId = await findUnifiedConversationId(userId, 'telegram', conversation.id);
+    const sharedAgentContext = unifiedConversationId
+      ? await buildAgentContextForConversation(userId, unifiedConversationId, { llmId: selectedLlmId }).catch(error => {
+          console.warn('Telegram Customer Service Agent shared context failed', { userId, conversationId, unifiedConversationId, error });
+          return null;
+        })
+      : null;
+    const sharedRagSnippets = (sharedAgentContext?.context.knowledgeEvidence || []).map((item: any) => ({
+      title: String(item.title || '').slice(0, 160),
+      scope: item.scope,
+      source: item.source,
+      score: item.confidence ?? null,
+      content: String(item.excerpt || '').slice(0, 900)
+    }));
+    const customerSafeRagSnippets = sharedRagSnippets.length ? sharedRagSnippets : safeRagSnippets;
     const recentMessagesForPrompt = messages.slice(-24).map((message: any) => (
       `${message.direction === 'outbound' ? 'operator' : 'customer'}: ${message.body}`
     )).join('\n');
@@ -8903,8 +9303,14 @@ ${JSON.stringify(matchedClient ? {
   displayName: conversation.display_name
 }, null, 2)}
 
+Shared cross-channel Agent Context:
+${sharedAgentContext ? `${sharedAgentContext.context.body}\n\n${sharedAgentContext.context.additionalContext}` : 'No unified conversation context available.'}
+
+Shared context evidence:
+${sharedAgentContext ? JSON.stringify(sharedAgentContext.context.evidence, null, 2) : 'No evidence available.'}
+
 Customer-safe RAG snippets:
-${safeRagSnippets.length ? JSON.stringify(safeRagSnippets, null, 2) : 'No relevant customer RAG snippets found.'}
+${customerSafeRagSnippets.length ? JSON.stringify(customerSafeRagSnippets, null, 2) : 'No relevant customer RAG snippets found.'}
 
 Recent Telegram conversation:
 ${recentMessagesForPrompt}
@@ -9583,6 +9989,21 @@ Return JSON only:
       score: row.relevanceScore || row.relevance_score || null,
       content: String(row.content || '').slice(0, 900)
     }));
+    const unifiedConversationId = await findUnifiedConversationId(userId, 'live_chat', sessionId);
+    const sharedAgentContext = unifiedConversationId
+      ? await buildAgentContextForConversation(userId, unifiedConversationId, { llmId: selectedLlmId }).catch(error => {
+          console.warn('Live Chat Agent shared context failed', { userId, sessionId, unifiedConversationId, error });
+          return null;
+        })
+      : null;
+    const sharedRagSnippets = (sharedAgentContext?.context.knowledgeEvidence || []).map((item: any) => ({
+      title: String(item.title || '').slice(0, 160),
+      scope: item.scope,
+      source: item.source,
+      score: item.confidence ?? null,
+      content: String(item.excerpt || '').slice(0, 900)
+    }));
+    const customerSafeRagSnippets = sharedRagSnippets.length ? sharedRagSnippets : safeRagSnippets;
     const prompt = `You are the Live Chat Agent for a foreign trade CRM website.
 Your job is to help website visitors in real time and move qualified visitors toward a human sales/support conversation.
 
@@ -9625,8 +10046,14 @@ ${JSON.stringify({
 Durable conversation memory:
 ${liveChatSummary || 'No summary yet.'}
 
+Shared cross-channel Agent Context:
+${sharedAgentContext ? `${sharedAgentContext.context.body}\n\n${sharedAgentContext.context.additionalContext}` : 'No unified conversation context available.'}
+
+Shared context evidence:
+${sharedAgentContext ? JSON.stringify(sharedAgentContext.context.evidence, null, 2) : 'No evidence available.'}
+
 Customer-safe RAG snippets:
-${safeRagSnippets.length ? JSON.stringify(safeRagSnippets, null, 2) : 'No relevant customer RAG snippets found.'}
+${customerSafeRagSnippets.length ? JSON.stringify(customerSafeRagSnippets, null, 2) : 'No relevant customer RAG snippets found.'}
 
 Recent conversation:
 ${recentMessagesForPrompt.map((message: any) => `${message.role}: ${message.body}`).join('\n')}

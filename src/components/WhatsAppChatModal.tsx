@@ -1405,6 +1405,7 @@ Return only the message text.`,
           <AgentContextSuggestions
             channel="whatsapp"
             cacheKey={whatsappAgentContext.cacheKey}
+            contextLookup={conversation?.unifiedId ? { conversationId: conversation.unifiedId } : undefined}
             clientId={conversation?.clientId || activeClient?.id}
             whatsappNumber={displayPhone}
             persistedInsight={conversation?.agentContextAnalysisKey === whatsappAgentContext.cacheKey ? conversation?.agentContextAnalysis : undefined}
