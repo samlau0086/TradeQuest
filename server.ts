@@ -11048,11 +11048,87 @@ Return JSON only:
     return 'process';
   };
 
+  const compactEvidenceText = (value: any, maxLength = 260) => String(value || '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLength);
+
+  const pickAdditionalContextLine = (additionalContext: any, label: string) => {
+    const prefix = `${label}:`;
+    return String(additionalContext || '')
+      .split('\n')
+      .find(line => line.toLowerCase().startsWith(prefix.toLowerCase()))
+      ?.slice(prefix.length)
+      .trim() || '';
+  };
+
+  const buildAgentContextEvidence = (source: any = {}, fallback: any = {}) => {
+    const context = source?.context || source || {};
+    const evidence = context.evidence || {};
+    const additionalContext = context.additionalContext || '';
+    const normalizeKnowledge = (rows: any[] = []) => rows.slice(0, 5).map(row => ({
+      id: row.id || '',
+      title: row.title || row.name || 'Knowledge snippet',
+      scope: row.scope || (row.client_id ? 'client' : 'global'),
+      source: row.source || row.source_path || row.source_type || 'knowledge_base',
+      confidence: row.confidence ?? row.relevanceScore ?? row.relevance_score,
+      excerpt: compactEvidenceText(row.excerpt || row.content || row.body || '', 220)
+    }));
+    const normalizeProducts = (rows: any[] = []) => rows.slice(0, 5).map(row => ({
+      id: row.id || '',
+      sku: row.sku || '',
+      name: row.name || row.title || 'Product',
+      summary: compactEvidenceText(row.sales_points || row.description || row.summary || '', 220)
+    }));
+    const normalizeCommunications = (rows: any[] = []) => rows.slice(0, 6).map(row => (
+      typeof row === 'string'
+        ? compactEvidenceText(row, 260)
+        : compactEvidenceText(`${row.type || row.direction || row.channel || 'message'} ${row.date || row.created_at || row.source_created_at || ''}: ${row.subject ? `${row.subject} - ` : ''}${row.body || row.content || row.last_message_preview || ''}`, 260)
+    )).filter(Boolean);
+    const ragSnippets = normalizeKnowledge(context.knowledgeEvidence || fallback.ragSnippets || fallback.knowledge || []);
+    const products = normalizeProducts(fallback.products || context.products || []);
+    const recentCommunications = normalizeCommunications(fallback.recentCommunications || fallback.emails || fallback.messages || []);
+    const inboundCount = Number(evidence.inboundCount ?? fallback.inboundCount ?? 0);
+    const outboundCount = Number(evidence.outboundCount ?? fallback.outboundCount ?? 0);
+    const messageCount = Number(evidence.messageCount ?? fallback.messageCount ?? (inboundCount + outboundCount));
+    return {
+      cacheKey: context.cacheKey || fallback.cacheKey || '',
+      clientId: evidence.clientId || fallback.clientId || '',
+      channel: evidence.channel || fallback.channel || '',
+      sourceId: evidence.sourceId || fallback.sourceId || '',
+      hasCustomerMessage: Boolean(context.hasCustomerMessage ?? fallback.hasCustomerMessage ?? inboundCount > 0),
+      latestInboundMessageId: context.latestInboundMessageId || evidence.latestInboundMessageId || fallback.latestInboundMessageId || '',
+      messageCount,
+      inboundCount,
+      outboundCount,
+      customerSummary: compactEvidenceText(
+        fallback.customerSummary || pickAdditionalContextLine(additionalContext, 'AI customer summary'),
+        420
+      ),
+      bestNextAction: compactEvidenceText(
+        fallback.bestNextAction || pickAdditionalContextLine(additionalContext, 'Best next action'),
+        420
+      ),
+      ragSnippets,
+      products,
+      recentCommunications,
+      counts: {
+        knowledge: Number(evidence.knowledgeCount ?? ragSnippets.length),
+        products: Number(evidence.productCount ?? products.length),
+        emailHistory: Number(evidence.emailHistoryCount ?? 0),
+        logs: Number(evidence.logCount ?? 0),
+        deals: Number(evidence.dealCount ?? 0)
+      }
+    };
+  };
+
   const buildAgentStepResultMeta = (tool: string, options: {
     executed: boolean;
     status: string;
     resultText: string;
     evidence?: string[];
+    contextEvidence?: any;
     isZh: boolean;
   }) => {
     const impact = getAgentToolImpact(tool);
@@ -11079,6 +11155,7 @@ Return JSON only:
               ? 'Executed'
               : 'Not landed',
       evidence: options.evidence?.length ? options.evidence.slice(0, 8) : [options.resultText].filter(Boolean),
+      contextEvidence: options.contextEvidence,
       summary: options.resultText
     };
   };
@@ -11489,6 +11566,7 @@ Return JSON only:
     const executedTools = new Set<string>();
     const landingEvidence: string[] = [];
     const toolEvidence: Record<string, string[]> = {};
+    const contextEvidenceItems: any[] = [];
     const markTool = (tool: string, evidence?: string | string[]) => {
       executedTools.add(tool);
       const evidenceItems = Array.isArray(evidence) ? evidence : evidence ? [evidence] : [];
@@ -11570,6 +11648,22 @@ Return JSON only:
         if (tools.includes('knowledge.read')) executedTools.add('knowledge.read');
 
         const latestCustomerMessage = emailsRes.rows.find((email: any) => ['inbox', 'inbound'].includes(email.type)) || emailsRes.rows[0];
+        contextEvidenceItems.push(buildAgentContextEvidence(null, {
+          clientId: client.id,
+          channel: 'crm',
+          hasCustomerMessage: emailsRes.rows.some((email: any) => ['inbox', 'inbound'].includes(email.type)),
+          inboundCount: emailsRes.rows.filter((email: any) => ['inbox', 'inbound'].includes(email.type)).length,
+          outboundCount: emailsRes.rows.filter((email: any) => ['sent', 'outbound'].includes(email.type)).length,
+          messageCount: emailsRes.rows.length,
+          customerSummary: client.agent_summary || client.lead_summary || '',
+          bestNextAction: client.agent_next_step || client.lead_next_step || '',
+          ragSnippets: kbRes.rows || [],
+          products: productsRes.rows || [],
+          recentCommunications: [
+            ...emailsRes.rows.slice(0, 4),
+            ...logsRes.rows.slice(0, 2).map((log: any) => ({ type: log.type || 'log', date: log.date, body: log.content }))
+          ]
+        }));
         const outboundLanguage = getCustomerOutputLanguage({
           lastCommunicationText: latestCustomerMessage?.body,
           preferredLanguage: client.preferred_language,
@@ -12048,6 +12142,7 @@ Return JSON only:
               : 'completed',
         resultText: executedTools.has(step.tool) || !actionLikeTools.has(step.tool) ? resultText : (isZh ? '该工具本次没有执行具体动作。' : 'This tool did not execute a concrete action in this run.'),
         evidence: toolEvidence[step.tool] || landingEvidence,
+        contextEvidence: contextEvidenceItems.length ? { clients: contextEvidenceItems.slice(0, 3) } : undefined,
         isZh
       }),
       error: run.status === 'failed' ? resultText : undefined
@@ -14109,6 +14204,20 @@ Return JSON only:
         evidence: step.tool === 'email.draft'
           ? [`draft:${draftId}`, `recipient:${sourceEmail.sender}`, ...(sharedAgentContext ? [`context:${sharedAgentContext.context.cacheKey}`] : [])]
           : [`client:${client.id}`, `email:${sourceEmail.id}`, ...(sharedAgentContext ? [`context:${sharedAgentContext.context.cacheKey}`] : [])],
+        contextEvidence: buildAgentContextEvidence(sharedAgentContext, {
+          clientId: client.id,
+          channel: 'email',
+          sourceId: sourceEmail.id,
+          hasCustomerMessage: inboundEmails.length > 0,
+          inboundCount: inboundEmails.length,
+          outboundCount: relatedEmailsRes.rows.filter((email: any) => ['sent', 'outbound'].includes(email.type)).length,
+          messageCount: relatedEmailsRes.rows.length,
+          customerSummary: client.agent_summary || client.lead_summary || '',
+          bestNextAction: client.agent_next_step || client.lead_next_step || '',
+          ragSnippets: kbRes.rows || [],
+          products: productsRes.rows || [],
+          recentCommunications: relatedEmailsRes.rows.slice(0, 6)
+        }),
         isZh
       })
     }));
@@ -14149,6 +14258,7 @@ Return JSON only:
     let skipped = 0;
     let failed = 0;
     const details: string[] = [];
+    const contextEvidenceItems: any[] = [];
     const llmId = settings.llmMappings?.agent_harness || settings.llmMappings?.analysis || settings.activeLLMId;
     const llmConfig = llmId ? (settings.llmConfigs || []).find((config: any) => config.id === llmId) : null;
 
@@ -14163,6 +14273,22 @@ Return JSON only:
         const kbRes = (tools.includes('knowledge.search') || tools.includes('knowledge.read'))
           ? await searchKnowledgeBase(userId, client.id, `${agent.name} ${objective} ${client.company || client.name || ''}`, llmConfig, 8).catch(() => ({ rows: [] as any[] }))
           : { rows: [] };
+        contextEvidenceItems.push(buildAgentContextEvidence(null, {
+          clientId: client.id,
+          channel: 'crm',
+          hasCustomerMessage: emailsRes.rows.some((email: any) => ['inbox', 'inbound'].includes(email.type)),
+          inboundCount: emailsRes.rows.filter((email: any) => ['inbox', 'inbound'].includes(email.type)).length,
+          outboundCount: emailsRes.rows.filter((email: any) => ['sent', 'outbound'].includes(email.type)).length,
+          messageCount: emailsRes.rows.length,
+          customerSummary: client.agent_summary || client.lead_summary || '',
+          bestNextAction: client.agent_next_step || client.lead_next_step || '',
+          ragSnippets: kbRes.rows || [],
+          products: productsRes.rows || [],
+          recentCommunications: [
+            ...emailsRes.rows.slice(0, 4),
+            ...logsRes.rows.slice(0, 2).map((log: any) => ({ type: log.type || 'log', date: log.date, body: log.content }))
+          ]
+        }));
         const primaryDeal = dealsRes.rows[0];
         const analysisSignature = buildServerLeadAnalysisSignature(client, dealsRes.rows, emailsRes.rows, logsRes.rows, settings.language);
         const writesLeadAnalysis = !!primaryDeal && (tools.includes('lead.score') || tools.includes('lead.update') || tools.includes('lead.analyze'));
@@ -14281,6 +14407,7 @@ Return JSON only:
         status: run.status === 'failed' ? 'failed' : 'completed',
         resultText,
         evidence: [`processed:${acted}`, `skipped:${skipped}`, `failed:${failed}`],
+        contextEvidence: contextEvidenceItems.length ? { clients: contextEvidenceItems.slice(0, 3) } : undefined,
         isZh
       }),
       error: run.status === 'failed' ? resultText : undefined

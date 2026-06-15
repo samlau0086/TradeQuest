@@ -197,6 +197,8 @@ Task cards and the task detail drawer show a source chain: source -> linked enti
 
 Execution trace steps include landing metadata. Each tool call can show whether it only read/analyzed context or actually landed a write/send/create action, along with compact evidence such as draft IDs, imported lead counts, sent channels, tags, quote numbers, or updated records.
 
+Execution trace steps also include Context Evidence when available. This shows which customer summary, best next step, RAG snippets, products, recent communications, message counts, and inbound-customer-message status were used for the run. Operators can use this evidence to understand why an agent replied a certain way, skipped execution, or chose a specific follow-up action.
+
 Routing policy decides whether each opportunity should:
 
 - Stay open for manual dispatch.

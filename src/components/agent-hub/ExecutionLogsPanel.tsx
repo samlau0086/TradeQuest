@@ -16,6 +16,7 @@ export interface AgentTraceRunStep {
     readOnly?: boolean;
     label?: string;
     evidence?: string[];
+    contextEvidence?: any;
     summary?: string;
   };
 }
@@ -99,6 +100,112 @@ function resultMetaTone(meta?: AgentTraceRunStep['resultMeta']) {
   if (meta.landed) return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
   if (meta.readOnly) return 'border-blue-500/30 bg-blue-500/10 text-blue-200';
   return 'border-amber-500/30 bg-amber-500/10 text-amber-200';
+}
+
+function contextEvidenceItems(value: any) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value.clients)) return value.clients;
+  return [value];
+}
+
+function renderEvidenceList(items: any[], renderItem: (item: any, index: number) => React.ReactNode) {
+  if (!Array.isArray(items) || items.length === 0) return null;
+  return (
+    <div className="space-y-1">
+      {items.slice(0, 5).map((item, index) => (
+        <div key={`${index}-${JSON.stringify(item).slice(0, 60)}`} className="rounded border border-neutral-800 bg-black/40 px-2 py-1">
+          {renderItem(item, index)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function renderContextEvidence(value: any, isZh: boolean) {
+  const items = contextEvidenceItems(value);
+  if (items.length === 0) return null;
+  const labels = {
+    title: isZh ? 'Context 证据' : 'Context Evidence',
+    summary: isZh ? '客户摘要' : 'Customer summary',
+    nextStep: isZh ? '推荐下一步' : 'Best next step',
+    inbound: isZh ? '客户入站消息' : 'Customer inbound',
+    rag: isZh ? 'RAG Snippets' : 'RAG Snippets',
+    products: isZh ? '产品' : 'Products',
+    recent: isZh ? '最近沟通' : 'Recent communications',
+    yes: isZh ? '有' : 'Yes',
+    no: isZh ? '无' : 'No'
+  };
+  return (
+    <div className="mt-3 rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="text-[10px] font-bold uppercase tracking-widest text-cyan-300">{labels.title}</div>
+        <div className="text-[10px] text-slate-500">
+          {items.length > 1 ? `${items.length} ${isZh ? '个主体' : 'entities'}` : items[0]?.cacheKey || items[0]?.clientId || ''}
+        </div>
+      </div>
+      <div className="space-y-3">
+        {items.slice(0, 3).map((item, index) => (
+          <div key={`${item.clientId || item.cacheKey || index}`} className="rounded-md border border-neutral-800 bg-neutral-950/80 p-3">
+            <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] text-slate-500">
+              {item.clientId && <span className="rounded border border-neutral-800 bg-black px-2 py-0.5 font-mono">client:{item.clientId}</span>}
+              {item.channel && <span className="rounded border border-neutral-800 bg-black px-2 py-0.5">{item.channel}</span>}
+              <span className={cn('rounded border px-2 py-0.5 font-bold', item.hasCustomerMessage ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-amber-500/30 bg-amber-500/10 text-amber-200')}>
+                {labels.inbound}: {item.hasCustomerMessage ? labels.yes : labels.no}
+              </span>
+              <span>{isZh ? '消息' : 'Messages'} {item.messageCount ?? 0} / {isZh ? '入站' : 'in'} {item.inboundCount ?? 0} / {isZh ? '出站' : 'out'} {item.outboundCount ?? 0}</span>
+            </div>
+            <div className="grid gap-2 md:grid-cols-2">
+              {item.customerSummary && (
+                <div className="rounded border border-neutral-800 bg-black/40 p-2">
+                  <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">{labels.summary}</div>
+                  <p className="text-xs leading-relaxed text-slate-300">{item.customerSummary}</p>
+                </div>
+              )}
+              {item.bestNextAction && (
+                <div className="rounded border border-neutral-800 bg-black/40 p-2">
+                  <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">{labels.nextStep}</div>
+                  <p className="text-xs leading-relaxed text-slate-300">{item.bestNextAction}</p>
+                </div>
+              )}
+            </div>
+            {Array.isArray(item.ragSnippets) && item.ragSnippets.length > 0 && (
+              <div className="mt-2">
+                <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-cyan-300">{labels.rag}</div>
+                {renderEvidenceList(item.ragSnippets, snippet => (
+                  <div className="text-[10px] leading-relaxed text-slate-400">
+                    <div className="font-bold text-slate-300">{snippet.title || snippet.id}</div>
+                    <div>{[snippet.scope, snippet.source, snippet.confidence != null ? `score:${snippet.confidence}` : ''].filter(Boolean).join(' · ')}</div>
+                    {snippet.excerpt && <div className="mt-0.5 text-slate-500">{snippet.excerpt}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {Array.isArray(item.products) && item.products.length > 0 && (
+              <div className="mt-2">
+                <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-blue-300">{labels.products}</div>
+                {renderEvidenceList(item.products, product => (
+                  <div className="text-[10px] leading-relaxed text-slate-400">
+                    <span className="font-bold text-slate-300">{product.name}</span>
+                    {product.sku ? <span className="ml-1 text-slate-500">({product.sku})</span> : null}
+                    {product.summary && <div className="mt-0.5 text-slate-500">{product.summary}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {Array.isArray(item.recentCommunications) && item.recentCommunications.length > 0 && (
+              <div className="mt-2">
+                <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">{labels.recent}</div>
+                {renderEvidenceList(item.recentCommunications, communication => (
+                  <div className="text-[10px] leading-relaxed text-slate-500">{communication}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function splitTimelineText(value: string) {
@@ -478,6 +585,7 @@ export function ExecutionLogsPanel({
                           ))}
                         </div>
                       )}
+                      {step.resultMeta?.contextEvidence && renderContextEvidence(step.resultMeta.contextEvidence, isZh)}
                       {step.result && <div className="mt-2 text-slate-500 leading-relaxed">{step.result}</div>}
                       {agentFixSuggestions(`${step.status}\n${step.title}\n${step.tool}\n${step.result || ''}`, language).length > 0 && (
                         <div className="mt-2 rounded border border-amber-500/20 bg-amber-500/10 px-3 py-2">
@@ -561,7 +669,10 @@ export function ExecutionLogsPanel({
           {filteredAgentRunRecords.length === 0 && (
             <div className="text-sm text-slate-500 py-8 text-center">{t('No agent run records yet.')}</div>
           )}
-          {visibleAgentRunRecords.map(record => (
+          {visibleAgentRunRecords.map(record => {
+            const linkedRun = runLogs.find(run => run.id === record.relatedRunId);
+            const recordContextEvidence = linkedRun?.steps.find(step => step.resultMeta?.contextEvidence)?.resultMeta?.contextEvidence;
+            return (
             <div key={record.id} className="bg-black border border-neutral-800 rounded-lg p-4">
               <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
                 <div>
@@ -612,6 +723,7 @@ export function ExecutionLogsPanel({
                   })}
                 </div>
               </div>
+              {recordContextEvidence && renderContextEvidence(recordContextEvidence, isZh)}
               {agentFixSuggestions(`${record.status}\n${record.plan}\n${record.expectedResult}\n${record.actualResult || ''}`, language).length > 0 && (
                 <div className="mt-4 rounded-md border border-amber-500/20 bg-amber-500/10 p-3">
                   <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-amber-200">
@@ -624,7 +736,8 @@ export function ExecutionLogsPanel({
                 </div>
               )}
             </div>
-          ))}
+          );
+          })}
         </div>
       </section>
     </div>
