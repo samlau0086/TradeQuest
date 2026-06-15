@@ -16,7 +16,9 @@ import {
   ConversationMessageList,
   ConversationReplyComposer,
   ComposeEmail,
+  EmailAgentSuggestionsPanel,
   EmailAttachmentsPanel,
+  EmailBodyPanel,
   EmailCommentsPanel,
   EmailHeaderActions,
   EmailHeaderMeta,
@@ -2592,14 +2594,9 @@ ${activeTelegramAgentContext.additionalContext}`,
                  onToggleExpanded={() => toggleTrackingExpanded(selectedEmail.id)}
                />
 
-               <h2 className="text-xl font-bold text-slate-200 mb-6">{selectedEmail.subject}</h2>               <h2 className="text-xl font-bold text-slate-200 mb-6">{selectedEmail.subject}</h2>
-               <div 
-                 className="text-sm bg-white text-black p-6 rounded-lg leading-relaxed overflow-x-auto"
-                 dangerouslySetInnerHTML={{ __html: (selectedEmail.body || '').replace(/<img[^>]*\/api\/track\/open\/[^>]*>/g, '') }}
-               />
+               <EmailBodyPanel subject={selectedEmail.subject} body={selectedEmail.body} />
 
-               <AgentContextSuggestions
-                 channel="email"
+               <EmailAgentSuggestionsPanel
                  cacheKey={selectedEmailAgentContext.cacheKey || `email:${selectedEmail.id}`}
                  contextLookup={activeUnifiedConversation?.id ? { conversationId: activeUnifiedConversation.id } : undefined}
                  clientId={selectedEmail.clientId}
@@ -2614,7 +2611,8 @@ ${activeTelegramAgentContext.additionalContext}`,
                  hasClient={!!selectedEmail.clientId}
                  hasKnowledge={addedToRagId === selectedEmail.id}
                  hasCustomerMessage={selectedEmailAgentContext.hasCustomerMessage}
-                 autoScrollOnOpen
+                 followUpAt={activeFollowUpAt || selectedEmail.todoAt}
+                 followUpNote={activeFollowUpNote || selectedEmail.todoNote}
                  onDraftReply={() => {
                    const replySourceEmail = isInboundCustomerEmail(selectedEmail)
                      ? selectedEmail
@@ -2636,23 +2634,21 @@ ${activeTelegramAgentContext.additionalContext}`,
                  }}
                  onCreateLead={!selectedEmail.clientId ? handleCreateLead : undefined}
                  onAddToKnowledge={selectedEmail.clientId ? handleAddToRag : undefined}
-                  followUpAt={activeFollowUpAt || selectedEmail.todoAt}
-                  followUpNote={activeFollowUpNote || selectedEmail.todoNote}
-                  onSetFollowUp={(dueAt, note) => updateActiveConversationFollowUp(dueAt, note || `Follow up: ${selectedEmail.subject || selectedEmail.sender}`, 'open')}
-                  onClearFollowUp={() => updateActiveConversationFollowUp(null, null, 'canceled')}
-                  onCompleteFollowUp={() => updateActiveConversationFollowUp(null, null, 'completed')}
-                  onDeleteItem={() => {
-                    setConfirmDialog({
-                      message: 'Are you sure you want to delete this email? Emails associated with a client will be soft-deleted pending admin review.',
-                      onConfirm: async () => {
-                        const conversation = activeUnifiedConversation;
-                        selectEmail(null);
-                        if (conversation && !conversation.metadata?.localFallback) await deleteUnifiedConversation(conversation);
-                        else await useStore.getState().deleteEmails([selectedEmail.id]);
-                        await refreshUnifiedConversationData();
-                        setConfirmDialog(null);
-                      }
-                    });
+                 onSetFollowUp={(dueAt, note) => updateActiveConversationFollowUp(dueAt, note || `Follow up: ${selectedEmail.subject || selectedEmail.sender}`, 'open')}
+                 onClearFollowUp={() => updateActiveConversationFollowUp(null, null, 'canceled')}
+                 onCompleteFollowUp={() => updateActiveConversationFollowUp(null, null, 'completed')}
+                 onDeleteItem={() => {
+                   setConfirmDialog({
+                     message: 'Are you sure you want to delete this email? Emails associated with a client will be soft-deleted pending admin review.',
+                     onConfirm: async () => {
+                       const conversation = activeUnifiedConversation;
+                       selectEmail(null);
+                       if (conversation && !conversation.metadata?.localFallback) await deleteUnifiedConversation(conversation);
+                       else await useStore.getState().deleteEmails([selectedEmail.id]);
+                       await refreshUnifiedConversationData();
+                       setConfirmDialog(null);
+                     }
+                   });
                  }}
                  onSaveAnalysis={(key, insight) => editEmail(selectedEmail.id, {
                    agentContextAnalysis: insight,
@@ -2660,7 +2656,7 @@ ${activeTelegramAgentContext.additionalContext}`,
                  })}
                />
 
-               <EmailAttachmentsPanel attachments={selectedEmail.attachments} />
+               <EmailAttachmentsPanel attachments={selectedEmail.attachments} />               <EmailAttachmentsPanel attachments={selectedEmail.attachments} />
 
                <EmailCommentsPanel
                  comments={activeConversationComments}

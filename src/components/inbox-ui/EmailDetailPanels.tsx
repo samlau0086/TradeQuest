@@ -1,10 +1,116 @@
 import React from 'react';
 import { CheckCircle2, Clock, Database, Eye, Loader2, MessageSquare, MousePointerClick, Paperclip, PenLine, Radar, Reply, User, UserPlus, X } from 'lucide-react';
 import { CommentItem } from '../CommentItem';
+import { AgentContextSuggestions } from '../AgentContextSuggestions';
 
 interface EmailAttachment {
   name: string;
   url: string;
+}
+
+interface EmailBodyPanelProps {
+  subject: string;
+  body?: string;
+}
+
+export function EmailBodyPanel({ subject, body }: EmailBodyPanelProps) {
+  return (
+    <>
+      <h2 className="text-xl font-bold text-slate-200 mb-6">{subject}</h2>
+      <div
+        className="text-sm bg-white text-black p-6 rounded-lg leading-relaxed overflow-x-auto"
+        dangerouslySetInnerHTML={{ __html: (body || '').replace(/<img[^>]*\/api\/track\/open\/[^>]*>/g, '') }}
+      />
+    </>
+  );
+}
+
+interface EmailAgentSuggestionsPanelProps {
+  cacheKey: string;
+  contextLookup?: { conversationId?: string };
+  clientId?: string;
+  emailAddress: string;
+  defaultAnalysisMode?: any;
+  persistedInsight?: any;
+  persistedInsightKey?: string;
+  subject: string;
+  body: string;
+  additionalContext: string;
+  clientName?: string;
+  hasClient: boolean;
+  hasKnowledge: boolean;
+  hasCustomerMessage: boolean;
+  followUpAt?: string | null;
+  followUpNote?: string | null;
+  onDraftReply: () => void | Promise<void>;
+  onAddComment: () => void | Promise<void>;
+  onCreateLead?: () => void | Promise<void>;
+  onAddToKnowledge?: () => void | Promise<void>;
+  onSetFollowUp: (dueAt: string, note: string) => void | Promise<void>;
+  onClearFollowUp: () => void | Promise<void>;
+  onCompleteFollowUp: () => void | Promise<void>;
+  onDeleteItem: () => void | Promise<void>;
+  onSaveAnalysis: (key: string, insight: any) => void | Promise<void>;
+}
+
+export function EmailAgentSuggestionsPanel({
+  cacheKey,
+  contextLookup,
+  clientId,
+  emailAddress,
+  defaultAnalysisMode,
+  persistedInsight,
+  persistedInsightKey,
+  subject,
+  body,
+  additionalContext,
+  clientName,
+  hasClient,
+  hasKnowledge,
+  hasCustomerMessage,
+  followUpAt,
+  followUpNote,
+  onDraftReply,
+  onAddComment,
+  onCreateLead,
+  onAddToKnowledge,
+  onSetFollowUp,
+  onClearFollowUp,
+  onCompleteFollowUp,
+  onDeleteItem,
+  onSaveAnalysis,
+}: EmailAgentSuggestionsPanelProps) {
+  return (
+    <AgentContextSuggestions
+      channel="email"
+      cacheKey={cacheKey}
+      contextLookup={contextLookup}
+      clientId={clientId}
+      emailAddress={emailAddress}
+      defaultAnalysisMode={defaultAnalysisMode}
+      persistedInsight={persistedInsight}
+      persistedInsightKey={persistedInsightKey}
+      subject={subject}
+      body={body}
+      additionalContext={additionalContext}
+      clientName={clientName}
+      hasClient={hasClient}
+      hasKnowledge={hasKnowledge}
+      hasCustomerMessage={hasCustomerMessage}
+      autoScrollOnOpen
+      onDraftReply={onDraftReply}
+      onAddComment={onAddComment}
+      onCreateLead={onCreateLead}
+      onAddToKnowledge={onAddToKnowledge}
+      followUpAt={followUpAt}
+      followUpNote={followUpNote}
+      onSetFollowUp={onSetFollowUp}
+      onClearFollowUp={onClearFollowUp}
+      onCompleteFollowUp={onCompleteFollowUp}
+      onDeleteItem={onDeleteItem}
+      onSaveAnalysis={onSaveAnalysis}
+    />
+  );
 }
 
 interface EmailHeaderMetaProps {
