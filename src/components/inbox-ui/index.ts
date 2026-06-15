@@ -6,6 +6,7 @@ export { ConversationFollowUpStrip } from './ConversationFollowUpStrip';
 export { ConversationInternalNotesPanel } from './ConversationInternalNotesPanel';
 export { ConversationMessageList } from './ConversationMessageList';
 export { ConversationReplyComposer } from './ConversationReplyComposer';
+export { EmailConversationPane } from './EmailConversationPane';
 export { EmailAgentSuggestionsPanel, EmailAttachmentsPanel, EmailBodyPanel, EmailCommentsPanel, EmailHeaderActions, EmailHeaderMeta, EmailTrackingPanel } from './EmailDetailPanels';
 export { InboxBulkActionsPanel } from './InboxBulkActionsPanel';
 export { InboxConversationSidebar } from './InboxConversationSidebar';

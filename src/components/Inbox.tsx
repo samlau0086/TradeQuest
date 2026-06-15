@@ -14,13 +14,7 @@ import {
   ConversationMessageList,
   ConversationReplyComposer,
   ComposeEmail,
-  EmailAgentSuggestionsPanel,
-  EmailAttachmentsPanel,
-  EmailBodyPanel,
-  EmailCommentsPanel,
-  EmailHeaderActions,
-  EmailHeaderMeta,
-  EmailTrackingPanel,
+  EmailConversationPane,
   EmailTagDialog,
   EmailTodoDialog,
   InboxConfirmDialog,
@@ -1343,191 +1337,117 @@ ${bodyText}`,
             />
           </div>
         ) : selectedEmail ? (
-          <>
-            <ConversationDetailHeader
-              language={language}
-              channel="email"
-              title={isInboundCustomerEmail(selectedEmail) ? (selectedEmail.senderName || selectedEmail.sender) : (selectedEmail.type === 'draft' ? `Draft: ${selectedEmail.recipient || '(No Recipient)'}` : selectedEmail.recipient)}
-              subtitle={isInboundCustomerEmail(selectedEmail) ? `From: ${selectedEmail.sender}` : (selectedEmail.type === 'draft' ? `To: ${selectedEmail.recipient || '(No Recipient)'}` : `To: ${selectedEmail.recipient}`)}
-              clientId={selectedEmail.clientId}
-              clientName={selectedEmail.clientId ? clients.find(c => c.id === selectedEmail.clientId)?.name : undefined}
-              tags={activeUnifiedConversation?.tags || selectedEmail.tags || []}
-              ownerId={activeUnifiedConversation?.owner_id}
-              stage={activeUnifiedConversation?.stage}
-              currentUser={currentUser}
-              onBack={() => selectEmail(null)}
-              onClientClick={() => selectedEmail.clientId && selectClient(selectedEmail.clientId)}
-              onOwnerChange={activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback ? (ownerId) => {
-                updateConversationOwnerStage(activeUnifiedConversation, { ownerId });
-              } : undefined}
-              onStageChange={activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback ? (stage) => {
-                updateConversationOwnerStage(activeUnifiedConversation, { stage });
-              } : undefined}
-              onDelete={() => {
-                setConfirmDialog({
-                  message: 'Are you sure you want to delete this email? Emails associated with a client will be soft-deleted pending admin review.',
-                  onConfirm: async () => {
-                    const conversation = activeUnifiedConversation;
-                    selectEmail(null);
-                    if (conversation && !conversation.metadata?.localFallback) await deleteUnifiedConversation(conversation);
-                    else await useStore.getState().deleteEmails([selectedEmail.id]);
-                    await refreshUnifiedConversationData();
-                    setConfirmDialog(null);
-                  }
-                });
-              }}
-              meta={(
-                <EmailHeaderMeta
-                  isLinked={!!selectedEmail.clientId}
-                  isInbound={isInboundCustomerEmail(selectedEmail)}
-                  senderIp={selectedEmail.senderIp}
-                  senderCountry={selectedEmail.senderCountry}
-                  cc={selectedEmail.cc}
-                  bcc={selectedEmail.bcc}
-                  onCreateLead={handleCreateLead}
-                  onAddToExistingClient={() => setIsAddingContactToClient(true)}
-                />
-              )}
-              actions={(
-                <EmailHeaderActions
-                  isDraft={selectedEmail.type === 'draft'}
-                  hasClient={!!selectedEmail.clientId}
-                  isAddingToRag={addingToRag}
-                  isAddedToRag={addedToRagId === selectedEmail.id}
-                  onEditDraft={() => {
-                    setComposeDefaults({
-                      recipient: selectedEmail.recipient,
-                      subject: selectedEmail.subject,
-                      initialBody: selectedEmail.body,
-                      draftId: selectedEmail.id,
-                      initialOutboxId: selectedEmail.outboxConfigId
-                    });
-                    setIsComposing(true);
-                  }}
-                  onReply={() => {
-                    setComposeDefaults({
-                      recipient: selectedEmail.sender,
-                      subject: `Re: ${selectedEmail.subject.replace(/^Re:\s*/i, '')}`,
-                      originalEmailBody: `On ${new Date(selectedEmail.date).toLocaleString()}, ${selectedEmail.senderName || selectedEmail.sender} wrote:<br>${selectedEmail.body || ''}`,
-                      replyToEmailId: selectedEmail.id
-                    });
-                    setIsComposing(true);
-                  }}
-                  onAddToRag={handleAddToRag}
-                />
-              )}
-            />
-            <ConversationFollowUpStrip
-              language={language}
-              dueAt={activeFollowUpAt}
-              note={activeFollowUpNote}
-              onSet={(dueAt, note) => updateActiveConversationFollowUp(dueAt, note, 'open')}
-              onClear={() => updateActiveConversationFollowUp(null, null, 'canceled')}
-              onComplete={() => updateActiveConversationFollowUp(null, null, 'completed')}
-            />
-            
-            <div className="p-6 overflow-y-auto scrollbar-thin flex-1">
-               <EmailTrackingPanel
-                 language={language}
-                 enabled={(selectedEmail.type === 'sent' || selectedEmail.type === 'scheduled' || selectedEmail.type === 'outbound') && (selectedEmail.body?.includes('/api/track/open/') || !!selectedEmail.enableTracking)}
-                 events={selectedTrackingEvents}
-                 visibleEvents={visibleTrackingEvents}
-                 isExpanded={isTrackingExpanded}
-                 onToggleExpanded={() => toggleTrackingExpanded(selectedEmail.id)}
-               />
-
-               <EmailBodyPanel subject={selectedEmail.subject} body={selectedEmail.body} />
-
-               <EmailAgentSuggestionsPanel
-                 cacheKey={selectedEmailAgentContext.cacheKey || `email:${selectedEmail.id}`}
-                 contextLookup={activeUnifiedConversation?.id ? { conversationId: activeUnifiedConversation.id } : undefined}
-                 clientId={selectedEmail.clientId}
-                 emailAddress={isInboundCustomerEmail(selectedEmail) ? selectedEmail.sender : selectedEmail.recipient}
-                 defaultAnalysisMode={['sent', 'outbound', 'scheduled'].includes(selectedEmail.type) ? 'manual' : undefined}
-                 persistedInsight={selectedEmail.agentContextAnalysisKey === (selectedEmailAgentContext.cacheKey || `email:${selectedEmail.id}`) ? selectedEmail.agentContextAnalysis : undefined}
-                 persistedInsightKey={selectedEmail.agentContextAnalysisKey}
-                 subject={selectedEmail.subject}
-                 body={selectedEmailAgentContext.body}
-                 additionalContext={selectedEmailAgentContext.additionalContext}
-                 clientName={selectedEmail.clientId ? clients.find(c => c.id === selectedEmail.clientId)?.name : undefined}
-                 hasClient={!!selectedEmail.clientId}
-                 hasKnowledge={addedToRagId === selectedEmail.id}
-                 hasCustomerMessage={selectedEmailAgentContext.hasCustomerMessage}
-                 followUpAt={activeFollowUpAt || selectedEmail.todoAt}
-                 followUpNote={activeFollowUpNote || selectedEmail.todoNote}
-                 onDraftReply={() => {
-                   const replySourceEmail = isInboundCustomerEmail(selectedEmail)
-                     ? selectedEmail
-                     : latestInboundEmailForSelectedClient || selectedEmail;
-                   setComposeDefaults({
-                     recipient: isInboundCustomerEmail(replySourceEmail) ? replySourceEmail.sender : selectedEmail.recipient,
-                     subject: `Re: ${selectedEmail.subject.replace(/^Re:\s*/i, '')}`,
-                     originalEmailBody: isInboundCustomerEmail(replySourceEmail)
-                       ? `On ${new Date(replySourceEmail.date).toLocaleString()}, ${replySourceEmail.senderName || replySourceEmail.sender} wrote:<br>${replySourceEmail.body || ''}`
-                       : '',
-                     initialBody: '',
-                     replyToEmailId: replySourceEmail.id
-                   });
-                   setIsComposing(true);
-                 }}
-                 onAddComment={async () => {
-                   const content = `Agent suggestion: ${selectedEmail.subject || 'Follow up this conversation'}`;
-                   await appendActiveConversationComment(content);
-                 }}
-                 onCreateLead={!selectedEmail.clientId ? handleCreateLead : undefined}
-                 onAddToKnowledge={selectedEmail.clientId ? handleAddToRag : undefined}
-                 onSetFollowUp={(dueAt, note) => updateActiveConversationFollowUp(dueAt, note || `Follow up: ${selectedEmail.subject || selectedEmail.sender}`, 'open')}
-                 onClearFollowUp={() => updateActiveConversationFollowUp(null, null, 'canceled')}
-                 onCompleteFollowUp={() => updateActiveConversationFollowUp(null, null, 'completed')}
-                 onDeleteItem={() => {
-                   setConfirmDialog({
-                     message: 'Are you sure you want to delete this email? Emails associated with a client will be soft-deleted pending admin review.',
-                     onConfirm: async () => {
-                       const conversation = activeUnifiedConversation;
-                       selectEmail(null);
-                       if (conversation && !conversation.metadata?.localFallback) await deleteUnifiedConversation(conversation);
-                       else await useStore.getState().deleteEmails([selectedEmail.id]);
-                       await refreshUnifiedConversationData();
-                       setConfirmDialog(null);
-                     }
-                   });
-                 }}
-                 onSaveAnalysis={(key, insight) => editEmail(selectedEmail.id, {
-                   agentContextAnalysis: insight,
-                   agentContextAnalysisKey: key
-                 })}
-               />
-
-               <EmailAttachmentsPanel attachments={selectedEmail.attachments} />               <EmailAttachmentsPanel attachments={selectedEmail.attachments} />
-
-               <EmailCommentsPanel
-                 comments={activeConversationComments}
-                 commentText={commentText}
-                 attachments={commentAttachments}
-                 onCommentTextChange={setCommentText}
-                 onAttachClick={() => setShowCommentAttachmentModal(true)}
-                 onRemoveAttachment={(index) => setCommentAttachments(prev => prev.filter((_, i) => i !== index))}
-                 onReply={(commentId, content, attachments) => void replyActiveConversationComment(commentId, content, attachments)}
-                 onSubmit={() => {
-                   if (commentText.trim() || commentAttachments.length > 0) {
-                     const attsPayload = commentAttachments.length > 0
-                       ? commentAttachments.map(file => ({
-                           id: `file${Date.now()}_${Math.random()}`,
-                           name: file.name,
-                           type: (file.type.includes('image') ? 'image' : 'document') as 'image' | 'document' | 'other',
-                           url: URL.createObjectURL(file)
-                         }))
-                       : undefined;
-                     if (commentText.trim() || attsPayload) {
-                       void appendActiveConversationComment(commentText || 'Uploaded attachment(s)', attsPayload);
-                     }
-                     setCommentText('');
-                     setCommentAttachments([]);
-                   }
-                 }}
-               />
-            </div>
-          </>
+          <EmailConversationPane
+            language={language}
+            selectedEmail={selectedEmail}
+            clientName={selectedEmail.clientId ? clients.find(c => c.id === selectedEmail.clientId)?.name : undefined}
+            activeUnifiedConversation={activeUnifiedConversation}
+            currentUser={currentUser}
+            isInboundCustomerEmail={isInboundCustomerEmail}
+            addingToRag={addingToRag}
+            addedToRagId={addedToRagId}
+            selectedTrackingEvents={selectedTrackingEvents}
+            visibleTrackingEvents={visibleTrackingEvents}
+            isTrackingExpanded={isTrackingExpanded}
+            selectedEmailAgentContext={selectedEmailAgentContext}
+            latestInboundEmailForSelectedClient={latestInboundEmailForSelectedClient}
+            activeFollowUpAt={activeFollowUpAt}
+            activeFollowUpNote={activeFollowUpNote}
+            activeConversationComments={activeConversationComments}
+            commentText={commentText}
+            commentAttachments={commentAttachments}
+            onBack={() => selectEmail(null)}
+            onClientClick={() => selectedEmail.clientId && selectClient(selectedEmail.clientId)}
+            onOwnerChange={activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback ? (ownerId) => {
+              updateConversationOwnerStage(activeUnifiedConversation, { ownerId });
+            } : undefined}
+            onStageChange={activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback ? (stage) => {
+              updateConversationOwnerStage(activeUnifiedConversation, { stage });
+            } : undefined}
+            onDeleteEmail={() => {
+              setConfirmDialog({
+                message: 'Are you sure you want to delete this email? Emails associated with a client will be soft-deleted pending admin review.',
+                onConfirm: async () => {
+                  const conversation = activeUnifiedConversation;
+                  selectEmail(null);
+                  if (conversation && !conversation.metadata?.localFallback) await deleteUnifiedConversation(conversation);
+                  else await useStore.getState().deleteEmails([selectedEmail.id]);
+                  await refreshUnifiedConversationData();
+                  setConfirmDialog(null);
+                }
+              });
+            }}
+            onEditDraft={() => {
+              setComposeDefaults({
+                recipient: selectedEmail.recipient,
+                subject: selectedEmail.subject,
+                initialBody: selectedEmail.body,
+                draftId: selectedEmail.id,
+                initialOutboxId: selectedEmail.outboxConfigId
+              });
+              setIsComposing(true);
+            }}
+            onReply={() => {
+              setComposeDefaults({
+                recipient: selectedEmail.sender,
+                subject: `Re: ${selectedEmail.subject.replace(/^Re:\s*/i, '')}`,
+                originalEmailBody: `On ${new Date(selectedEmail.date).toLocaleString()}, ${selectedEmail.senderName || selectedEmail.sender} wrote:<br>${selectedEmail.body || ''}`,
+                replyToEmailId: selectedEmail.id
+              });
+              setIsComposing(true);
+            }}
+            onAddToRag={handleAddToRag}
+            onToggleTrackingExpanded={() => toggleTrackingExpanded(selectedEmail.id)}
+            onDraftAgentReply={() => {
+              const replySourceEmail = isInboundCustomerEmail(selectedEmail)
+                ? selectedEmail
+                : latestInboundEmailForSelectedClient || selectedEmail;
+              setComposeDefaults({
+                recipient: isInboundCustomerEmail(replySourceEmail) ? replySourceEmail.sender : selectedEmail.recipient,
+                subject: `Re: ${selectedEmail.subject.replace(/^Re:\s*/i, '')}`,
+                originalEmailBody: isInboundCustomerEmail(replySourceEmail)
+                  ? `On ${new Date(replySourceEmail.date).toLocaleString()}, ${replySourceEmail.senderName || replySourceEmail.sender} wrote:<br>${replySourceEmail.body || ''}`
+                  : '',
+                initialBody: '',
+                replyToEmailId: replySourceEmail.id
+              });
+              setIsComposing(true);
+            }}
+            onAddAgentComment={async () => {
+              const content = `Agent suggestion: ${selectedEmail.subject || 'Follow up this conversation'}`;
+              await appendActiveConversationComment(content);
+            }}
+            onCreateLead={!selectedEmail.clientId ? handleCreateLead : undefined}
+            onAddToExistingClient={() => setIsAddingContactToClient(true)}
+            onSetFollowUp={(dueAt, note) => updateActiveConversationFollowUp(dueAt, note || `Follow up: ${selectedEmail.subject || selectedEmail.sender}`, 'open')}
+            onClearFollowUp={() => updateActiveConversationFollowUp(null, null, 'canceled')}
+            onCompleteFollowUp={() => updateActiveConversationFollowUp(null, null, 'completed')}
+            onSaveAnalysis={(key, insight) => editEmail(selectedEmail.id, {
+              agentContextAnalysis: insight,
+              agentContextAnalysisKey: key
+            })}
+            onCommentTextChange={setCommentText}
+            onAttachClick={() => setShowCommentAttachmentModal(true)}
+            onRemoveAttachment={(index) => setCommentAttachments(prev => prev.filter((_, i) => i !== index))}
+            onReplyComment={(commentId, content, attachments) => void replyActiveConversationComment(commentId, content, attachments)}
+            onSubmitComment={() => {
+              if (commentText.trim() || commentAttachments.length > 0) {
+                const attsPayload = commentAttachments.length > 0
+                  ? commentAttachments.map(file => ({
+                      id: `file${Date.now()}_${Math.random()}`,
+                      name: file.name,
+                      type: (file.type.includes('image') ? 'image' : 'document') as 'image' | 'document' | 'other',
+                      url: URL.createObjectURL(file)
+                    }))
+                  : undefined;
+                if (commentText.trim() || attsPayload) {
+                  void appendActiveConversationComment(commentText || 'Uploaded attachment(s)', attsPayload);
+                }
+                setCommentText('');
+                setCommentAttachments([]);
+              }
+            }}
+          />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-slate-500">
             <Mail className="w-12 h-12 mb-4 opacity-20" />
