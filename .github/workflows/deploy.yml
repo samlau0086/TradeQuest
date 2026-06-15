@@ -66,9 +66,58 @@ jobs:
           cd "$DEPLOY_TARGET"
           docker compose version
 
+          BASE_IMAGE="node:22-alpine"
+
+          check_docker_hub_access() {
+            echo "Checking Docker Hub access for $BASE_IMAGE..."
+            for attempt in 1 2 3; do
+              if getent hosts registry-1.docker.io >/dev/null 2>&1 && docker pull "$BASE_IMAGE"; then
+                echo "Docker Hub access is healthy."
+                return 0
+              fi
+              echo "::warning::Docker Hub check failed on attempt $attempt. Retrying in 5 seconds..."
+              sleep 5
+            done
+            return 1
+          }
+
+          try_repair_dns() {
+            echo "::warning::VPS cannot resolve or reach Docker Hub. Attempting DNS repair when passwordless sudo is available."
+            if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null && command -v resolvectl >/dev/null 2>&1; then
+              DEFAULT_IFACE="$(ip route | awk '/default/ {print $5; exit}')"
+              if [ -n "$DEFAULT_IFACE" ]; then
+                sudo resolvectl dns "$DEFAULT_IFACE" 1.1.1.1 8.8.8.8 || true
+                sudo resolvectl domain "$DEFAULT_IFACE" '~.' || true
+                sudo systemctl restart docker || true
+              fi
+            fi
+          }
+
+          if ! check_docker_hub_access; then
+            try_repair_dns
+            if ! check_docker_hub_access; then
+              echo "::error::The VPS cannot resolve or reach Docker Hub (registry-1.docker.io), so Docker cannot load node:22-alpine."
+              echo "This is a VPS DNS/network issue, not an application build error."
+              echo "Recommended fix on the VPS:"
+              echo "  sudo resolvectl status"
+              echo "  ip route | awk '/default/ {print \$5; exit}'"
+              echo "  sudo resolvectl dns <default-interface> 1.1.1.1 8.8.8.8"
+              echo "  sudo resolvectl domain <default-interface> '~.'"
+              echo "  sudo systemctl restart docker"
+              echo "  docker pull node:22-alpine"
+              echo "If your server provider blocks Docker Hub, configure a Docker registry mirror on the VPS and rerun this workflow."
+              exit 1
+            fi
+          fi
+
           echo "Building image before replacing the running container..."
           if ! docker compose build; then
-            echo "::warning::Initial Docker build failed. Cleaning Docker builder cache and retrying without cache."
+            echo "::warning::Initial Docker build failed. Verifying registry access before cache cleanup."
+            if ! check_docker_hub_access; then
+              echo "::error::Docker Hub became unavailable after the preflight check. Keeping the current running container unchanged."
+              exit 1
+            fi
+            echo "::warning::Cleaning Docker builder cache and retrying without cache."
             docker builder prune -af || true
             docker buildx prune -af || true
             docker image prune -f || true
