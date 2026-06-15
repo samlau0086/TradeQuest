@@ -10781,6 +10781,228 @@ Return JSON only:
     return records.slice(0, 20);
   };
 
+  const executeTelegramAgentHarnessRun = async (userId: string, settings: any, run: any, agent: any) => {
+    const isZh = settings.language === 'zh';
+    const tools = Array.isArray(agent.tools) ? agent.tools : [];
+    const firstStep = run.steps?.[0] || {};
+    const payload = firstStep.payload || {};
+    const eventPayload = payload.eventPayload || {};
+    const batchLimit = Math.max(1, Math.min(10, Number(agent.batchSize || 3)));
+    const nowIso = new Date().toISOString();
+    const requestedConversationIds = new Set<string>();
+    const addConversationId = (value: any) => {
+      const id = String(value || '').trim();
+      if (id) requestedConversationIds.add(id);
+    };
+
+    addConversationId(payload.targetType === 'telegram' ? payload.targetId : null);
+    addConversationId(eventPayload.telegramConversationId);
+    addConversationId(eventPayload.conversationId);
+
+    if (eventPayload.telegramId) {
+      const messageRes = await pool.query(
+        `SELECT conversation_id FROM telegram_messages WHERE id = $1 AND user_id = $2 LIMIT 1`,
+        [String(eventPayload.telegramId), userId]
+      );
+      addConversationId(messageRes.rows[0]?.conversation_id);
+    }
+
+    const conversationRes = requestedConversationIds.size > 0
+      ? await pool.query(
+        `SELECT *
+         FROM telegram_conversations
+         WHERE user_id = $1
+           AND id = ANY($2::text[])
+           AND deleted_at IS NULL
+         ORDER BY COALESCE(last_message_at, updated_at, created_at) DESC
+         LIMIT $3`,
+        [userId, Array.from(requestedConversationIds), batchLimit]
+      )
+      : await pool.query(
+        `SELECT *
+         FROM telegram_conversations
+         WHERE user_id = $1
+           AND deleted_at IS NULL
+           AND COALESCE(status, 'open') <> 'closed'
+         ORDER BY COALESCE(last_message_at, updated_at, created_at) DESC
+         LIMIT $2`,
+        [userId, batchLimit]
+      );
+
+    let scanned = 0;
+    let acted = 0;
+    let skipped = 0;
+    let failed = 0;
+    const details: string[] = [];
+    const executedTools = new Set<string>();
+    const toolEvidence: Record<string, string[]> = {};
+    const markTool = (tool: string, evidence?: string | string[]) => {
+      executedTools.add(tool);
+      const items = Array.isArray(evidence) ? evidence : evidence ? [evidence] : [];
+      if (items.length > 0) {
+        toolEvidence[tool] = [
+          ...(toolEvidence[tool] || []),
+          ...items.map(item => String(item)).filter(Boolean)
+        ];
+      }
+    };
+
+    if (conversationRes.rows.length === 0) {
+      skipped += 1;
+      details.push(isZh
+        ? '未找到可处理的 Telegram 会话。'
+        : 'No eligible Telegram conversations were found.');
+    }
+
+    for (const conversation of conversationRes.rows) {
+      scanned += 1;
+      try {
+        const messagesRes = await pool.query(
+          `SELECT *
+           FROM (
+             SELECT *
+             FROM telegram_messages
+             WHERE conversation_id = $1 AND user_id = $2
+             ORDER BY COALESCE(source_created_at, created_at) DESC
+             LIMIT 80
+           ) recent_messages
+           ORDER BY COALESCE(source_created_at, created_at) ASC`,
+          [conversation.id, userId]
+        );
+        const messages = messagesRes.rows;
+        const latest = messages[messages.length - 1];
+        if (tools.includes('telegram.read')) {
+          markTool('telegram.read', [`telegram:${conversation.id}`, latest?.id ? `telegram_message:${latest.id}` : '']);
+        }
+
+        let landed = false;
+        let agentMessage: any = null;
+        if (tools.includes('telegram.reply')) {
+          agentMessage = await maybeRunTelegramAgent(userId, conversation.id);
+          if (agentMessage) {
+            markTool('telegram.reply', [`telegram:${conversation.id}`, `telegram_message:${agentMessage.id}`]);
+            landed = true;
+          }
+        }
+
+        if (tools.includes('telegram.escalate') && agentMessage?.payload?.escalate) {
+          markTool('telegram.escalate', `telegram:${conversation.id}`);
+          landed = true;
+        }
+
+        if (tools.includes('telegram.tag')) {
+          const requestedTags = [
+            ...toStringList(eventPayload.tags),
+            ...(agentMessage ? ['agent-handled'] : []),
+            ...(agentMessage?.payload?.escalate ? ['needs-human-review'] : [])
+          ];
+          if (requestedTags.length > 0) {
+            const nextTags = Array.from(new Set([
+              ...parseJsonArray(conversation.tags),
+              ...requestedTags
+            ].map((tag: any) => String(tag).trim()).filter(Boolean)));
+            await pool.query(
+              `UPDATE telegram_conversations
+               SET tags = $1::jsonb, updated_at = CURRENT_TIMESTAMP
+               WHERE id = $2 AND user_id = $3`,
+              [JSON.stringify(nextTags), conversation.id, userId]
+            );
+            await upsertCommunicationConversation({
+              userId,
+              channel: 'telegram',
+              sourceId: conversation.id,
+              clientId: conversation.client_id || null,
+              status: conversation.status || 'open',
+              title: conversation.display_name || conversation.username || conversation.telegram_chat_id,
+              contactName: conversation.display_name || null,
+              contactAddress: conversation.username || conversation.telegram_chat_id,
+              lastMessageAt: conversation.last_message_at || nowIso,
+              tags: nextTags,
+              metadata: {
+                ...(conversation.metadata || {}),
+                telegramChatId: conversation.telegram_chat_id,
+                telegramUserId: conversation.telegram_user_id,
+                username: conversation.username,
+                priority: conversation.priority,
+                humanTakeover: conversation.human_takeover,
+                assignedAgentId: conversation.assigned_agent_id
+              }
+            });
+            markTool('telegram.tag', `telegram:${conversation.id}`);
+            landed = true;
+          }
+        }
+
+        if (landed) {
+          acted += 1;
+          details.push(isZh
+            ? `${conversation.id}：已执行 Telegram 动作。`
+            : `${conversation.id}: Telegram action executed.`);
+        } else {
+          skipped += 1;
+          const reason = conversation.human_takeover
+            ? (isZh ? '人工接管中' : 'human takeover is active')
+            : latest?.direction !== 'inbound'
+              ? (isZh ? '最新消息不是客户入站消息' : 'latest message is not inbound')
+              : (isZh ? '未生成可落地动作' : 'no concrete action was generated');
+          details.push(isZh
+            ? `${conversation.id}：已读取，跳过（${reason}）。`
+            : `${conversation.id}: read and skipped (${reason}).`);
+        }
+      } catch (error: any) {
+        failed += 1;
+        details.push(isZh
+          ? `${conversation.id}：失败 - ${error?.message || '未知错误'}。`
+          : `${conversation.id}: failed - ${error?.message || 'unknown error'}.`);
+      }
+    }
+
+    const resultText = isZh
+      ? `Telegram 工作流已完成：扫描 ${scanned} 个会话，执行 ${acted} 个，跳过 ${skipped} 个，失败 ${failed} 个。${details.slice(0, 8).join(' ')}`
+      : `Telegram workflow completed: scanned ${scanned} conversation(s), acted on ${acted}, skipped ${skipped}, failed ${failed}. ${details.slice(0, 8).join(' ')}`;
+    run.status = failed > 0 && acted === 0 ? 'failed' : 'completed';
+    run.completedAt = new Date().toISOString();
+    const actionLikeTools = new Set(['telegram.reply', 'telegram.escalate', 'telegram.tag']);
+    run.steps = (run.steps || []).map((step: any) => {
+      const status = run.status === 'failed'
+        ? 'failed'
+        : executedTools.has(step.tool)
+          ? 'completed'
+          : actionLikeTools.has(step.tool)
+            ? 'skipped'
+            : 'completed';
+      const stepResult = executedTools.has(step.tool) || !actionLikeTools.has(step.tool)
+        ? resultText
+        : (isZh ? '该 Telegram 工具本次没有执行具体动作。' : 'This Telegram tool did not execute a concrete action in this run.');
+      return {
+        ...step,
+        status,
+        result: stepResult,
+        resultMeta: buildAgentStepResultMeta(step.tool, {
+          executed: executedTools.has(step.tool),
+          status,
+          resultText: stepResult,
+          evidence: toolEvidence[step.tool],
+          isZh
+        }),
+        error: run.status === 'failed' ? resultText : undefined
+      };
+    });
+
+    const record = (settings.agentRunRecords || []).find((item: any) => item.relatedRunId === run.id && item.relatedRunType === 'harness');
+    if (record) {
+      record.status = run.status === 'failed' ? 'failed' : 'completed';
+      record.actualResult = resultText;
+      record.completedAt = new Date().toISOString();
+      record.updatedAt = new Date().toISOString();
+      record.affectedRecords = collectAffectedRecordsFromRun(run);
+    }
+
+    agent.tasksCompleted = (agent.tasksCompleted || 0) + Math.max(1, acted || scanned);
+    agent.updatedAt = new Date().toISOString();
+    return { scanned, acted, skipped, failed, details };
+  };
+
   const executeAgentHubHarnessRun = async (userId: string, settings: any, runId: string) => {
     const isZh = settings.language === 'zh';
     const runs = Array.isArray(settings.agentHarnessRuns) ? settings.agentHarnessRuns : [];
@@ -10821,6 +11043,9 @@ Return JSON only:
     }
     if (tools.includes('lead.acquire')) {
       return executeLeadAcquisitionAgentRun(userId, settings, run, agent);
+    }
+    if (tools.some((tool: string) => tool.startsWith('telegram.'))) {
+      return executeTelegramAgentHarnessRun(userId, settings, run, agent);
     }
     if (tools.includes('email.draft') && !tools.includes('email.send')) {
       return executeEmailDraftAgentRun(userId, settings, run, agent);
