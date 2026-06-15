@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { ContactMethod, useStore, EmailMessage, LiveChatMessage, LiveChatSession } from '../store';
 import { useAuthStore } from '../authStore';
-import { Mail, MailOpen, Send, Reply, Trash2, ArrowLeft, RefreshCw, PenLine, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, MessageCircle, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2, MoreHorizontal, Star, Clock, Activity, Eye, MousePointerClick, Radar, Timer, Bold, Italic, List, Link2, Image as ImageIcon } from 'lucide-react';
+import { Mail, MailOpen, Send, Reply, Trash2, ArrowLeft, RefreshCw, PenLine, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, MessageCircle, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2, MoreHorizontal, Star, Clock, Activity, Eye, MousePointerClick, Radar, Timer, Bold, Italic, List, Link2, Languages, Image as ImageIcon } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { CommentItem } from './CommentItem';
 import { AddressInput } from './AddressInput';
@@ -77,10 +77,69 @@ const WHATSAPP_CONVERSATION_CACHE_KEY = 'tradequest.whatsapp.conversations.cache
 const INBOX_OPEN_REQUEST_KEY = 'tradequest:inbox-open-request:v1';
 const WHATSAPP_CONVERSATION_POLL_MS = 20_000;
 const WHATSAPP_FOLLOW_UP_MARKER = '__FOLLOW_UP__';
+const CONVERSATION_AUTO_TRANSLATE_KEY = 'tradequest.conversation.autoTranslate.v1';
 
 type InboxChannelFilter = 'all' | 'email' | 'whatsapp' | 'live_chat' | 'telegram';
 const CONVERSATION_STAGES = ['Leads', 'Contacted', 'Sample Sent', 'Negotiating', 'Closed Won'];
 const normalizeTagSearchTerm = (term: string) => term.trim().replace(/^#/, '').toLowerCase();
+
+interface ConversationMessageTranslation {
+  language?: string;
+  text: string;
+  sourceLanguage?: string;
+  targetLanguage?: string;
+  bodyHash: string;
+  skipped?: boolean;
+  modelId?: string | null;
+  updatedAt?: string;
+}
+
+function simpleHash(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) - hash) + value.charCodeAt(index);
+    hash |= 0;
+  }
+  return String(Math.abs(hash));
+}
+
+function conversationAutoTranslateId(channel: 'live_chat' | 'telegram', conversationKey: string) {
+  return `${channel}:${conversationKey}`.toLowerCase();
+}
+
+function conversationTranslationBucketId(channel: 'live_chat' | 'telegram', conversationKey: string, language: string) {
+  return `${channel}:${conversationKey}:${language}`.toLowerCase();
+}
+
+function conversationTranslationCacheKey(channel: 'live_chat' | 'telegram', conversationKey: string, language: string) {
+  return `tradequest.${channel}.translations.v1.${language}.${conversationKey}`;
+}
+
+function readConversationAutoTranslateConfig(): Record<string, boolean> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CONVERSATION_AUTO_TRANSLATE_KEY) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function readCachedConversationTranslations(channel: 'live_chat' | 'telegram', conversationKey: string, language: string): Record<string, ConversationMessageTranslation> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(conversationTranslationCacheKey(channel, conversationKey, language)) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeCachedConversationTranslations(channel: 'live_chat' | 'telegram', conversationKey: string, language: string, translations: Record<string, ConversationMessageTranslation>) {
+  try {
+    localStorage.setItem(conversationTranslationCacheKey(channel, conversationKey, language), JSON.stringify(translations));
+  } catch {
+    // Browser cache is optional; server metadata remains the source of truth.
+  }
+}
 
 function ConversationDetailHeader({
   language,
@@ -566,6 +625,9 @@ export function Inbox() {
   const [liveChatReply, setLiveChatReply] = useState('');
   const [isSendingLiveChatReply, setIsSendingLiveChatReply] = useState(false);
   const [isRunningLiveChatAgent, setIsRunningLiveChatAgent] = useState(false);
+  const [conversationAutoTranslateConfig, setConversationAutoTranslateConfig] = useState<Record<string, boolean>>(() => readConversationAutoTranslateConfig());
+  const [conversationTranslations, setConversationTranslations] = useState<Record<string, Record<string, ConversationMessageTranslation>>>({});
+  const [translatingConversationMessageIds, setTranslatingConversationMessageIds] = useState<Set<string>>(new Set());
   const liveChatEndRef = useRef<HTMLDivElement | null>(null);
   const [isStartingWhatsApp, setIsStartingWhatsApp] = useState(false);
   const [newWhatsAppPhone, setNewWhatsAppPhone] = useState('');
@@ -576,6 +638,142 @@ export function Inbox() {
   const [confirmDialog, setConfirmDialog] = useState<{message: string, onConfirm: () => void} | null>(null);
   const [alertDialog, setAlertDialog] = useState<string | null>(null);
   const isInboundCustomerEmail = (email: EmailMessage) => ['inbox', 'inbound'].includes(email.type);
+
+  const setConversationAutoTranslateEnabled = (channel: 'live_chat' | 'telegram', conversationKey: string, enabled: boolean) => {
+    if (!conversationKey) return;
+    const key = conversationAutoTranslateId(channel, conversationKey);
+    setConversationAutoTranslateConfig(prev => {
+      const next = { ...prev, [key]: enabled };
+      localStorage.setItem(CONVERSATION_AUTO_TRANSLATE_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const getConversationTranslationLLMConfig = () => {
+    const id = llmMappings.agent_context_suggestions || llmMappings.whatsapp_drafting || llmMappings.drafting || activeLLMId;
+    return llmConfigs.find(config => config.id === id) || null;
+  };
+
+  const mergeConversationTranslations = (
+    channel: 'live_chat' | 'telegram',
+    conversationKey: string,
+    messageTranslations: Record<string, ConversationMessageTranslation>
+  ) => {
+    if (!conversationKey) return;
+    const bucketId = conversationTranslationBucketId(channel, conversationKey, language);
+    setConversationTranslations(prev => {
+      const cached = readCachedConversationTranslations(channel, conversationKey, language);
+      const nextBucket = { ...cached, ...(prev[bucketId] || {}), ...messageTranslations };
+      writeCachedConversationTranslations(channel, conversationKey, language, nextBucket);
+      return { ...prev, [bucketId]: nextBucket };
+    });
+  };
+
+  const saveConversationTranslation = async (
+    channel: 'live_chat' | 'telegram',
+    messageId: string,
+    translation: ConversationMessageTranslation
+  ) => {
+    const url = channel === 'telegram'
+      ? `/api/conversations/messages/${encodeURIComponent(messageId)}/translation`
+      : `/api/live-chat/messages/${encodeURIComponent(messageId)}/translation`;
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify({
+        language,
+        translatedText: translation.text,
+        sourceLanguage: translation.sourceLanguage,
+        targetLanguage: translation.targetLanguage,
+        bodyHash: translation.bodyHash,
+        skipped: translation.skipped,
+        modelId: translation.modelId
+      })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Failed to save translation');
+    return data.translation || translation;
+  };
+
+  const translateConversationMessage = async (
+    channel: 'live_chat' | 'telegram',
+    conversationKey: string,
+    messageId: string,
+    body: string,
+    signal?: AbortSignal
+  ) => {
+    const bodyText = String(body || '').trim();
+    if (!conversationKey || !messageId || !bodyText) return;
+    const bucketId = conversationTranslationBucketId(channel, conversationKey, language);
+    const bodyHash = simpleHash(bodyText);
+    const existing = (conversationTranslations[bucketId] || {})[messageId];
+    if (existing && existing.bodyHash === bodyHash) return;
+    const translatingKey = `${channel}:${messageId}`;
+    if (translatingConversationMessageIds.has(translatingKey)) return;
+    const llmConfig = getConversationTranslationLLMConfig();
+    if (!llmConfig) return;
+    setTranslatingConversationMessageIds(prev => new Set(prev).add(translatingKey));
+    try {
+      const targetLanguage = language === 'zh' ? 'Chinese' : 'English';
+      const response = await fetch('/api/chat/magic', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('token')}`
+        },
+        signal,
+        body: JSON.stringify({
+          command: `You are translating an inbound ${channel === 'telegram' ? 'Telegram' : 'Live Chat'} customer message for an internal CRM user.
+Target system language: ${targetLanguage}.
+If the message is already in ${targetLanguage}, return JSON with alreadyTargetLanguage true and translatedText empty.
+Otherwise translate faithfully into ${targetLanguage}. Keep names, numbers, product names, URLs, and line breaks. Do not add commentary.
+Return only valid JSON: {"alreadyTargetLanguage": boolean, "sourceLanguage": string, "translatedText": string}.
+
+Message:
+${bodyText}`,
+          context: {
+            channel,
+            messageId,
+            direction: 'inbound',
+            systemLanguage: targetLanguage
+          },
+          llmConfig,
+          skipKnowledgeBase: true
+        })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Translation failed');
+      const raw = String(data.result || '').replace(/```json|```/g, '').trim();
+      const jsonText = raw.match(/\{[\s\S]*\}/)?.[0] || raw;
+      const parsed = JSON.parse(jsonText);
+      const nextTranslation: ConversationMessageTranslation = {
+        language,
+        text: parsed.alreadyTargetLanguage ? '' : String(parsed.translatedText || '').trim(),
+        sourceLanguage: parsed.sourceLanguage || '',
+        targetLanguage,
+        bodyHash,
+        skipped: !!parsed.alreadyTargetLanguage,
+        modelId: llmConfig.id
+      };
+      const savedTranslation = await saveConversationTranslation(channel, messageId, nextTranslation).catch(() => nextTranslation);
+      setConversationTranslations(prev => {
+        const nextBucket = { ...(prev[bucketId] || {}), [messageId]: savedTranslation };
+        writeCachedConversationTranslations(channel, conversationKey, language, nextBucket);
+        return { ...prev, [bucketId]: nextBucket };
+      });
+    } catch (error: any) {
+      if (error?.name !== 'AbortError') console.warn(`${channel} translation failed`, error);
+    } finally {
+      setTranslatingConversationMessageIds(prev => {
+        const next = new Set(prev);
+        next.delete(translatingKey);
+        return next;
+      });
+    }
+  };
 
   useEffect(() => {
     const closeMenu = () => setActiveMenu(null);
@@ -699,6 +897,63 @@ export function Inbox() {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [selectedLiveChatConversation?.id, liveChatMessages[selectedLiveChatConversation?.source_id || '']?.length]);
+
+  useEffect(() => {
+    if (!selectedTelegramConversation?.id) return;
+    const messageTranslations: Record<string, ConversationMessageTranslation> = {};
+    telegramMessages.forEach(message => {
+      const translation = message.payload?.translation;
+      if (translation && (!translation.language || translation.language === language)) {
+        messageTranslations[message.id] = translation;
+      }
+    });
+    mergeConversationTranslations('telegram', selectedTelegramConversation.id, messageTranslations);
+  }, [selectedTelegramConversation?.id, telegramMessages, language]);
+
+  useEffect(() => {
+    if (!selectedLiveChatConversation?.source_id) return;
+    const messages = liveChatMessages[selectedLiveChatConversation.source_id] || [];
+    const messageTranslations: Record<string, ConversationMessageTranslation> = {};
+    messages.forEach(message => {
+      const translation = message.metadata?.translation;
+      if (translation && (!translation.language || translation.language === language)) {
+        messageTranslations[message.id] = translation;
+      }
+    });
+    mergeConversationTranslations('live_chat', selectedLiveChatConversation.source_id, messageTranslations);
+  }, [selectedLiveChatConversation?.source_id, liveChatMessages[selectedLiveChatConversation?.source_id || '']?.length, language]);
+
+  useEffect(() => {
+    if (!selectedTelegramConversation?.id) return;
+    const autoKey = conversationAutoTranslateId('telegram', selectedTelegramConversation.id);
+    if (!conversationAutoTranslateConfig[autoKey]) return;
+    const controller = new AbortController();
+    telegramMessages
+      .filter(message => message.direction === 'inbound')
+      .forEach(message => {
+        const saved = message.payload?.translation;
+        const bodyHash = simpleHash(String(message.body || '').trim());
+        if (saved && (!saved.language || saved.language === language) && saved.bodyHash === bodyHash) return;
+        void translateConversationMessage('telegram', selectedTelegramConversation.id, message.id, message.body || '', controller.signal);
+      });
+    return () => controller.abort();
+  }, [selectedTelegramConversation?.id, telegramMessages, language, conversationAutoTranslateConfig]);
+
+  useEffect(() => {
+    if (!selectedLiveChatConversation?.source_id) return;
+    const autoKey = conversationAutoTranslateId('live_chat', selectedLiveChatConversation.source_id);
+    if (!conversationAutoTranslateConfig[autoKey]) return;
+    const controller = new AbortController();
+    (liveChatMessages[selectedLiveChatConversation.source_id] || [])
+      .filter(message => message.role === 'visitor')
+      .forEach(message => {
+        const saved = message.metadata?.translation;
+        const bodyHash = simpleHash(String(message.body || '').trim());
+        if (saved && (!saved.language || saved.language === language) && saved.bodyHash === bodyHash) return;
+        void translateConversationMessage('live_chat', selectedLiveChatConversation.source_id, message.id, message.body || '', controller.signal);
+      });
+    return () => controller.abort();
+  }, [selectedLiveChatConversation?.source_id, liveChatMessages[selectedLiveChatConversation?.source_id || '']?.length, language, conversationAutoTranslateConfig]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -1366,12 +1621,22 @@ export function Inbox() {
     || activeTelegramUserId
     || activeTelegramChatId
     || 'Telegram User';
+  const activeTelegramTranslateKey = selectedTelegramConversation?.id || '';
+  const activeTelegramTranslateEnabled = Boolean(activeTelegramTranslateKey && conversationAutoTranslateConfig[conversationAutoTranslateId('telegram', activeTelegramTranslateKey)]);
+  const activeTelegramTranslations = activeTelegramTranslateKey
+    ? (conversationTranslations[conversationTranslationBucketId('telegram', activeTelegramTranslateKey, language)] || {})
+    : {};
   const activeLiveChatSession = selectedLiveChatConversation
     ? liveChatSessions.find(session => session.id === selectedLiveChatConversation.source_id) || null
     : null;
   const activeLiveChatMessages = selectedLiveChatConversation
     ? (liveChatMessages[selectedLiveChatConversation.source_id] || [])
     : [];
+  const activeLiveChatTranslateKey = selectedLiveChatConversation?.source_id || '';
+  const activeLiveChatTranslateEnabled = Boolean(activeLiveChatTranslateKey && conversationAutoTranslateConfig[conversationAutoTranslateId('live_chat', activeLiveChatTranslateKey)]);
+  const activeLiveChatTranslations = activeLiveChatTranslateKey
+    ? (conversationTranslations[conversationTranslationBucketId('live_chat', activeLiveChatTranslateKey, language)] || {})
+    : {};
   const visibleLiveChatMessages = activeLiveChatMessages.filter(message => message.role !== 'system').slice(-200);
   const activeLiveChatClient = activeLiveChatSession?.clientId || selectedLiveChatConversation?.client_id
     ? clients.find(client => client.id === (activeLiveChatSession?.clientId || selectedLiveChatConversation?.client_id)) || null
@@ -3059,6 +3324,20 @@ ${activeTelegramAgentContext.additionalContext}`,
               )}
               meta={(
                 <>
+                  <button
+                    type="button"
+                    onClick={() => setConversationAutoTranslateEnabled('telegram', selectedTelegramConversation.id, !activeTelegramTranslateEnabled)}
+                    className={cn(
+                      "text-xs flex items-center gap-1 rounded border px-1.5 py-0.5",
+                      activeTelegramTranslateEnabled
+                        ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-200"
+                        : "border-slate-700 bg-slate-800/50 text-slate-400 hover:text-slate-200"
+                    )}
+                  >
+                    <Languages className="w-3 h-3" />
+                    {language === 'zh' ? '自动翻译' : 'Auto Translate'}
+                    <span className={cn("h-1.5 w-1.5 rounded-full", activeTelegramTranslateEnabled ? "bg-cyan-300" : "bg-slate-600")} />
+                  </button>
                   {!activeTelegramClient && !selectedTelegramConversation.client_id && activeTelegramContactMethod && (
                     <>
                       <button onClick={handleCreateLead} className="text-cyan-500 flex items-center gap-1 hover:text-cyan-400 bg-slate-800/50 rounded px-1.5 py-0.5">
@@ -3112,6 +3391,8 @@ ${activeTelegramAgentContext.additionalContext}`,
                 <div className="py-16 text-center text-sm text-slate-500 italic">No Telegram messages saved yet.</div>
               ) : telegramMessages.map(message => {
                 const outbound = message.direction === 'outbound';
+                const translation = activeTelegramTranslations[message.id] || message.payload?.translation;
+                const isTranslating = translatingConversationMessageIds.has(`telegram:${message.id}`);
                 return (
                   <div key={message.id} className={cn("flex", outbound ? "justify-end" : "justify-start")}>
                     <div className={cn(
@@ -3125,6 +3406,16 @@ ${activeTelegramAgentContext.additionalContext}`,
                         <span>{message.message_type || message.messageType || 'message'}</span>
                       </div>
                       <div className="whitespace-pre-wrap leading-relaxed">{message.body || '[media]'}</div>
+                      {!outbound && ((activeTelegramTranslateEnabled && isTranslating) || translation?.text) && (
+                        <div className="mt-3 border-t border-slate-700/70 pt-2 text-xs leading-relaxed text-cyan-100">
+                          <div className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-cyan-300">
+                            <Languages className="h-3 w-3" />
+                            {language === 'zh' ? '翻译' : 'Translation'}
+                            {isTranslating && <Loader2 className="h-3 w-3 animate-spin" />}
+                          </div>
+                          <div className="whitespace-pre-wrap">{translation?.text || (language === 'zh' ? '翻译中...' : 'Translating...')}</div>
+                        </div>
+                      )}
                       <div className="mt-2 text-[10px] text-slate-500">
                         {message.source_created_at || message.sourceCreatedAt ? new Date(message.source_created_at || message.sourceCreatedAt).toLocaleString() : ''}
                       </div>
@@ -3324,6 +3615,20 @@ ${activeTelegramAgentContext.additionalContext}`,
               )}
               meta={(
                 <>
+                  <button
+                    type="button"
+                    onClick={() => setConversationAutoTranslateEnabled('live_chat', selectedLiveChatConversation.source_id, !activeLiveChatTranslateEnabled)}
+                    className={cn(
+                      "text-xs flex items-center gap-1 rounded border px-1.5 py-0.5",
+                      activeLiveChatTranslateEnabled
+                        ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-200"
+                        : "border-slate-700 bg-slate-800/50 text-slate-400 hover:text-slate-200"
+                    )}
+                  >
+                    <Languages className="w-3 h-3" />
+                    {language === 'zh' ? '自动翻译' : 'Auto Translate'}
+                    <span className={cn("h-1.5 w-1.5 rounded-full", activeLiveChatTranslateEnabled ? "bg-cyan-300" : "bg-slate-600")} />
+                  </button>
                   {!activeLiveChatClient && !selectedLiveChatConversation.client_id && activeLiveChatContactMethod && (
                     <>
                       <button onClick={handleCreateLead} className="text-cyan-500 flex items-center gap-1 hover:text-cyan-400 bg-slate-800/50 rounded px-1.5 py-0.5">
@@ -3399,6 +3704,8 @@ ${activeTelegramAgentContext.additionalContext}`,
                 <div className="py-16 text-center text-sm text-slate-500 italic">No Live Chat messages saved yet.</div>
               ) : visibleLiveChatMessages.map((message: LiveChatMessage) => {
                 const outbound = message.role === 'operator' || message.role === 'agent';
+                const translation = activeLiveChatTranslations[message.id] || message.metadata?.translation;
+                const isTranslating = translatingConversationMessageIds.has(`live_chat:${message.id}`);
                 return (
                   <div key={message.id} className={cn("flex", outbound ? "justify-end" : "justify-start")}>
                     <div className={cn(
@@ -3412,6 +3719,16 @@ ${activeTelegramAgentContext.additionalContext}`,
                         <span>{message.role}</span>
                       </div>
                       <div className="whitespace-pre-wrap leading-relaxed">{message.body}</div>
+                      {!outbound && ((activeLiveChatTranslateEnabled && isTranslating) || translation?.text) && (
+                        <div className="mt-3 border-t border-slate-700/70 pt-2 text-xs leading-relaxed text-cyan-100">
+                          <div className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-cyan-300">
+                            <Languages className="h-3 w-3" />
+                            {language === 'zh' ? '翻译' : 'Translation'}
+                            {isTranslating && <Loader2 className="h-3 w-3 animate-spin" />}
+                          </div>
+                          <div className="whitespace-pre-wrap">{translation?.text || (language === 'zh' ? '翻译中...' : 'Translating...')}</div>
+                        </div>
+                      )}
                       <div className="mt-2 text-[10px] text-slate-500">
                         {message.createdAt ? new Date(message.createdAt).toLocaleString() : ''}
                       </div>

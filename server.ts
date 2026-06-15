@@ -2327,6 +2327,54 @@ async function startServer() {
     }
   });
 
+  app.put('/api/conversations/messages/:id/translation', authenticateToken, async (req: any, res) => {
+    try {
+      const messageId = String(req.params.id || '').trim();
+      const language = String(req.body?.language || '').toLowerCase().slice(0, 16);
+      if (!messageId || !language) {
+        return res.status(400).json({ error: 'messageId and language are required.' });
+      }
+      const messageRes = await pool.query(
+        `SELECT id, channel, source_id, source_message_id
+         FROM communication_messages
+         WHERE id = $1 AND user_id = $2
+         LIMIT 1`,
+        [messageId, req.user.uid]
+      );
+      const message = messageRes.rows[0];
+      if (!message) return res.status(404).json({ error: 'Conversation message not found.' });
+      const translation = {
+        language,
+        text: String(req.body?.translatedText || req.body?.text || ''),
+        sourceLanguage: String(req.body?.sourceLanguage || ''),
+        targetLanguage: String(req.body?.targetLanguage || ''),
+        bodyHash: String(req.body?.bodyHash || ''),
+        skipped: !!req.body?.skipped,
+        modelId: req.body?.modelId ? String(req.body.modelId) : null,
+        updatedAt: new Date().toISOString()
+      };
+      await pool.query(
+        `UPDATE communication_messages
+         SET payload = COALESCE(payload, '{}'::jsonb) || jsonb_build_object('translation', $1::jsonb)
+         WHERE id = $2 AND user_id = $3`,
+        [JSON.stringify(translation), messageId, req.user.uid]
+      );
+      if (message.channel === 'telegram') {
+        await pool.query(
+          `UPDATE telegram_messages
+           SET payload = COALESCE(payload, '{}'::jsonb) || jsonb_build_object('translation', $1::jsonb)
+           WHERE user_id = $2
+             AND conversation_id = $3
+             AND ('telegram:' || md5(conversation_id || ':' || telegram_message_id)) = $4`,
+          [JSON.stringify(translation), req.user.uid, message.source_id, message.source_message_id]
+        );
+      }
+      res.json({ translation });
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message || 'Failed to save conversation message translation' });
+    }
+  });
+
   const findUnifiedConversationId = async (userId: string, channel: string, sourceId: string) => {
     const result = await pool.query(
       `SELECT id
@@ -10567,6 +10615,46 @@ Return JSON only:
     } catch (e: any) {
       console.error('Failed to fetch live chat messages', e);
       res.status(500).json({ error: e.message || 'Failed to fetch live chat messages' });
+    }
+  });
+
+  app.put('/api/live-chat/messages/:id/translation', authenticateToken, async (req: any, res) => {
+    try {
+      const messageId = String(req.params.id || '').trim();
+      const language = String(req.body?.language || '').toLowerCase().slice(0, 16);
+      if (!messageId || !language) {
+        return res.status(400).json({ error: 'messageId and language are required.' });
+      }
+      const messageRes = await pool.query(
+        `SELECT id FROM live_chat_messages WHERE id = $1 AND user_id = $2 LIMIT 1`,
+        [messageId, req.user.uid]
+      );
+      if (messageRes.rows.length === 0) return res.status(404).json({ error: 'Live Chat message not found.' });
+      const translation = {
+        language,
+        text: String(req.body?.translatedText || req.body?.text || ''),
+        sourceLanguage: String(req.body?.sourceLanguage || ''),
+        targetLanguage: String(req.body?.targetLanguage || ''),
+        bodyHash: String(req.body?.bodyHash || ''),
+        skipped: !!req.body?.skipped,
+        modelId: req.body?.modelId ? String(req.body.modelId) : null,
+        updatedAt: new Date().toISOString()
+      };
+      await pool.query(
+        `UPDATE live_chat_messages
+         SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('translation', $1::jsonb)
+         WHERE id = $2 AND user_id = $3`,
+        [JSON.stringify(translation), messageId, req.user.uid]
+      );
+      await pool.query(
+        `UPDATE communication_messages
+         SET payload = COALESCE(payload, '{}'::jsonb) || jsonb_build_object('translation', $1::jsonb)
+         WHERE user_id = $2 AND channel = 'live_chat' AND source_message_id = $3`,
+        [JSON.stringify(translation), req.user.uid, messageId]
+      );
+      res.json({ translation });
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message || 'Failed to save Live Chat translation' });
     }
   });
 

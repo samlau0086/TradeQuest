@@ -1383,7 +1383,7 @@ Return only the message text.`,
                   </div>
                 )}
                 {message.body && <div className="whitespace-pre-wrap break-words">{message.body}</div>}
-                {whatsappAutoTranslateEnabled && message.direction === 'inbound' && (isTranslating || translation?.text) && translation?.kind !== 'outbound_original' && (
+                {message.direction === 'inbound' && ((whatsappAutoTranslateEnabled && isTranslating) || translation?.text) && translation?.kind !== 'outbound_original' && (
                   <div className="mt-2 border-t border-slate-600/70 pt-2">
                     <div className="mb-1 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-cyan-300">
                       {isTranslating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Languages className="h-3 w-3" />}
