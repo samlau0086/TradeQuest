@@ -14,6 +14,7 @@ export { InboxConversationListItem } from './InboxConversationListItem';
 export { EmailTagDialog, EmailTodoDialog, InboxConfirmDialog, InboxNotificationDialog } from './InboxDialogs';
 export { InboxSidebarControls } from './InboxSidebarControls';
 export { LiveChatCustomerInsightCard, LiveChatEvidencePanel } from './LiveChatContextWidgets';
+export { LiveChatConversationPane } from './LiveChatConversationPane';
 export { LiveChatHeaderActions, LiveChatHeaderMeta } from './LiveChatHeaderControls';
 export { StartWhatsAppConversationPane } from './StartWhatsAppConversationPane';
 export { TelegramConversationPane } from './TelegramConversationPane';

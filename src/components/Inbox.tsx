@@ -7,24 +7,15 @@ import { ClientFormModal } from './ClientFormModal';
 import { UploadAttachmentModal } from './UploadAttachmentModal';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle, useDefaultLayout } from 'react-resizable-panels';
 import {
-  ConversationDetailHeader,
-  ConversationFollowUpStrip,
   CONVERSATION_STAGES,
-  ConversationMessageList,
-  ConversationReplyComposer,
   ComposeEmail,
   EmailConversationPane,
   EmailTagDialog,
   EmailTodoDialog,
   InboxConfirmDialog,
-  ConversationInternalNotesPanel,
   InboxConversationSidebar,
   InboxNotificationDialog,
-  LiveChatAgentSuggestionsPanel,
-  LiveChatCustomerInsightCard,
-  LiveChatEvidencePanel,
-  LiveChatHeaderActions,
-  LiveChatHeaderMeta,
+  LiveChatConversationPane,
   StartWhatsAppConversationPane,
   TelegramConversationPane,
   WhatsAppConversationPane,
@@ -1050,160 +1041,88 @@ ${bodyText}`,
             onSendTelegramReply={sendTelegramReply}
           />
         ) : selectedLiveChatConversation ? (
-          <div className="flex-1 flex flex-col min-h-0">
-            <ConversationDetailHeader
-              language={language}
-              channel="live_chat"
-              title={activeLiveChatClient?.name || selectedLiveChatConversation.client_name || selectedLiveChatConversation.title || activeLiveChatSession?.visitorName || 'Live Chat'}
-              subtitle={activeLiveChatSession?.visitorEmail || activeLiveChatSession?.visitorPhone || selectedLiveChatConversation.contact_address || activeLiveChatSession?.pageUrl || ''}
-              clientId={activeLiveChatClient?.id || selectedLiveChatConversation.client_id}
-              clientName={activeLiveChatClient?.name || selectedLiveChatConversation.client_name}
-              tags={activeLiveChatClient?.tags || activeUnifiedConversation?.tags || activeLiveChatSession?.tags || selectedLiveChatConversation.tags || []}
-              ownerId={activeUnifiedConversation?.owner_id}
-              stage={activeUnifiedConversation?.stage}
-              currentUser={currentUser}
-              onBack={() => setSelectedLiveChatConversation(null)}
-              onClientClick={() => {
-                const id = activeLiveChatClient?.id || selectedLiveChatConversation.client_id;
-                if (id) selectClient(id);
-              }}
-              onOwnerChange={activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback ? (ownerId) => {
-                updateConversationOwnerStage(activeUnifiedConversation, { ownerId });
-              } : undefined}
-              onStageChange={activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback ? (stage) => {
-                updateConversationOwnerStage(activeUnifiedConversation, { stage });
-              } : undefined}
-              onDelete={() => {
-                setConfirmDialog({
-                  message: 'Are you sure you want to delete this Live Chat conversation? It may require approval before records are removed.',
-                  onConfirm: async () => {
-                    await deleteUnifiedConversation(selectedLiveChatConversation);
-                    setSelectedLiveChatConversation(null);
-                    await refreshUnifiedConversationData();
-                    setConfirmDialog(null);
-                  }
-                });
-              }}
-              actions={(
-                <LiveChatHeaderActions
-                  language={language}
-                  humanTakeover={activeLiveChatSession?.humanTakeover ?? selectedLiveChatConversation.metadata?.humanTakeover}
-                  isRunningAgent={isRunningLiveChatAgent}
-                  onToggleHumanTakeover={toggleLiveChatHumanTakeover}
-                  onRunAgent={runSelectedLiveChatAgent}
-                />
-              )}
-              meta={(
-                <LiveChatHeaderMeta
-                  language={language}
-                  isLinked={!!(activeLiveChatClient || selectedLiveChatConversation.client_id)}
-                  hasContactMethod={!!activeLiveChatContactMethod}
-                  translateEnabled={activeLiveChatTranslateEnabled}
-                  visitorEmail={activeLiveChatSession?.visitorEmail}
-                  visitorPhone={activeLiveChatSession?.visitorPhone}
-                  pageUrl={activeLiveChatSession?.pageUrl}
-                  visitorInfo={activeLiveChatVisitorInfo}
-                  onToggleTranslate={() => setConversationAutoTranslateEnabled('live_chat', selectedLiveChatConversation.source_id, !activeLiveChatTranslateEnabled)}
-                  onCreateLead={handleCreateLead}
-                  onAddToExistingClient={() => setIsAddingContactToClient(true)}
-                />
-              )}
-            />
-            <ConversationFollowUpStrip
-              language={language}
-              dueAt={activeFollowUpAt}
-              note={activeFollowUpNote}
-              onSet={(dueAt, note) => updateActiveConversationFollowUp(dueAt, note, 'open')}
-              onClear={() => updateActiveConversationFollowUp(null, null, 'canceled')}
-              onComplete={() => updateActiveConversationFollowUp(null, null, 'completed')}
-            />
-            <div className="flex-1 overflow-y-auto bg-slate-950/50 p-6 space-y-4">
-              <LiveChatCustomerInsightCard client={activeLiveChatClient} />
-              <LiveChatEvidencePanel language={language} items={activeLiveChatEvidenceItems} />
-              <ConversationMessageList
-                channel="live_chat"
-                language={language}
-                messages={visibleLiveChatMessages}
-                translateEnabled={activeLiveChatTranslateEnabled}
-                translations={activeLiveChatTranslations}
-                translatingIds={translatingConversationMessageIds}
-              />
-              <LiveChatAgentSuggestionsPanel
-                language={language}
-                cacheKey={activeLiveChatAgentContext.cacheKey}
-                conversationId={selectedLiveChatConversation.id}
-                clientId={activeLiveChatClient?.id || selectedLiveChatConversation.client_id}
-                clientName={activeLiveChatClient?.name || selectedLiveChatConversation.client_name}
-                persistedInsight={selectedLiveChatConversation.agent_context_analysis_key === activeLiveChatAgentContext.cacheKey ? selectedLiveChatConversation.agent_context_analysis : undefined}
-                persistedInsightKey={selectedLiveChatConversation.agent_context_analysis_key}
-                subject={selectedLiveChatConversation.title || 'Live Chat conversation'}
-                body={activeLiveChatAgentContext.body}
-                additionalContext={activeLiveChatAgentContext.additionalContext}
-                hasClient={!!(activeLiveChatClient?.id || selectedLiveChatConversation.client_id)}
-                hasKnowledge={!!activeLiveChatClient}
-                hasCustomerMessage={activeLiveChatAgentContext.hasCustomerMessage}
-                onDraftReply={runSelectedLiveChatAgent}
-                onAddComment={async () => appendActiveConversationComment(`Live Chat note: ${latestLiveChatVisitorMessage?.body || selectedLiveChatConversation.title || 'Follow up this visitor'}`)}
-                followUpAt={activeFollowUpAt}
-                followUpNote={activeFollowUpNote}
-                onSetFollowUp={(dueAt, note) => updateActiveConversationFollowUp(dueAt, note || `Follow up Live Chat: ${selectedLiveChatConversation.title || selectedLiveChatConversation.contact_address || selectedLiveChatConversation.source_id}`, 'open')}
-                onClearFollowUp={() => updateActiveConversationFollowUp(null, null, 'canceled')}
-                onCompleteFollowUp={() => updateActiveConversationFollowUp(null, null, 'completed')}
-                onSaveAnalysis={async (key, insight) => {
-                  const patched = await patchUnifiedConversation(selectedLiveChatConversation, {
-                    agentContextAnalysis: insight,
-                    agentContextAnalysisKey: key
-                  });
-                  setSelectedLiveChatConversation(prev => prev ? {
-                    ...prev,
-                    agent_context_analysis: patched.agent_context_analysis || insight,
-                    agent_context_analysis_key: patched.agent_context_analysis_key || key
-                  } : prev);
-                  applyUnifiedConversationUpdate(selectedLiveChatConversation, {
-                    agent_context_analysis: patched.agent_context_analysis || insight,
-                    agent_context_analysis_key: patched.agent_context_analysis_key || key
-                  });
-                }}
-                onDeleteItem={() => {
-                  setConfirmDialog({
-                    message: 'Are you sure you want to delete this Live Chat conversation? It may require approval before records are removed.',
-                    onConfirm: async () => {
-                      await deleteUnifiedConversation(selectedLiveChatConversation);
-                      setSelectedLiveChatConversation(null);
-                      await refreshUnifiedConversationData();
-                      setConfirmDialog(null);
-                    }
-                  });
-                }}
-              />
-              <ConversationInternalNotesPanel
-                language={language}
-                comments={activeConversationComments}
-                commentText={commentText}
-                accent="violet"
-                isLinked={!!activeLiveChatClient}
-                linkedDescription="Linked client: notes are saved to the customer profile."
-                unlinkedDescription="Unlinked visitor: notes are saved to this conversation."
-                onCommentTextChange={setCommentText}
-                onReply={(commentId, content, attachments) => void replyActiveConversationComment(commentId, content, attachments)}
-                onSubmit={() => {
-                  if (!commentText.trim()) return;
-                  void appendActiveConversationComment(commentText.trim()).then(() => setCommentText(''));
-                }}
-              />
-              <div ref={liveChatEndRef} />
-            </div>
-            <ConversationReplyComposer
-              language={language}
-              value={liveChatReply}
-              isSending={isSendingLiveChatReply}
-              accent="violet"
-              placeholder="Write a Live Chat reply, Ctrl+Enter to send..."
-              helperText="Human takeover pauses background Live Chat Agent replies. Hand back to Agent to let new visitor messages trigger automation."
-              onChange={setLiveChatReply}
-              onSend={sendLiveChatReply}
-            />
-          </div>
+          <LiveChatConversationPane
+            language={language}
+            selectedLiveChatConversation={selectedLiveChatConversation}
+            activeLiveChatClient={activeLiveChatClient}
+            activeLiveChatContactMethod={activeLiveChatContactMethod}
+            activeLiveChatSession={activeLiveChatSession}
+            activeLiveChatTranslateEnabled={activeLiveChatTranslateEnabled}
+            activeLiveChatTranslations={activeLiveChatTranslations}
+            activeLiveChatVisitorInfo={activeLiveChatVisitorInfo}
+            activeLiveChatEvidenceItems={activeLiveChatEvidenceItems}
+            activeLiveChatAgentContext={activeLiveChatAgentContext}
+            activeUnifiedConversation={activeUnifiedConversation}
+            currentUser={currentUser}
+            visibleLiveChatMessages={visibleLiveChatMessages}
+            translatingConversationMessageIds={translatingConversationMessageIds}
+            activeConversationComments={activeConversationComments}
+            commentText={commentText}
+            liveChatReply={liveChatReply}
+            isSendingLiveChatReply={isSendingLiveChatReply}
+            isRunningLiveChatAgent={isRunningLiveChatAgent}
+            latestLiveChatVisitorMessage={latestLiveChatVisitorMessage}
+            liveChatEndRef={liveChatEndRef}
+            activeFollowUpAt={activeFollowUpAt}
+            activeFollowUpNote={activeFollowUpNote}
+            onBack={() => setSelectedLiveChatConversation(null)}
+            onClientClick={() => {
+              const id = activeLiveChatClient?.id || selectedLiveChatConversation.client_id;
+              if (id) selectClient(id);
+            }}
+            onOwnerChange={activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback ? (ownerId) => {
+              updateConversationOwnerStage(activeUnifiedConversation, { ownerId });
+            } : undefined}
+            onStageChange={activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback ? (stage) => {
+              updateConversationOwnerStage(activeUnifiedConversation, { stage });
+            } : undefined}
+            onDeleteConversation={() => {
+              setConfirmDialog({
+                message: 'Are you sure you want to delete this Live Chat conversation? It may require approval before records are removed.',
+                onConfirm: async () => {
+                  await deleteUnifiedConversation(selectedLiveChatConversation);
+                  setSelectedLiveChatConversation(null);
+                  await refreshUnifiedConversationData();
+                  setConfirmDialog(null);
+                }
+              });
+            }}
+            onToggleHumanTakeover={toggleLiveChatHumanTakeover}
+            onRunAgent={runSelectedLiveChatAgent}
+            onToggleTranslate={() => setConversationAutoTranslateEnabled('live_chat', selectedLiveChatConversation.source_id, !activeLiveChatTranslateEnabled)}
+            onCreateLead={handleCreateLead}
+            onAddToExistingClient={() => setIsAddingContactToClient(true)}
+            onSetConversationFollowUp={(dueAt, note) => updateActiveConversationFollowUp(dueAt, note, 'open')}
+            onClearConversationFollowUp={() => updateActiveConversationFollowUp(null, null, 'canceled')}
+            onCompleteConversationFollowUp={() => updateActiveConversationFollowUp(null, null, 'completed')}
+            onAddSuggestionComment={async () => appendActiveConversationComment(`Live Chat note: ${latestLiveChatVisitorMessage?.body || selectedLiveChatConversation.title || 'Follow up this visitor'}`)}
+            onSetAgentFollowUp={(dueAt, note) => updateActiveConversationFollowUp(dueAt, note || `Follow up Live Chat: ${selectedLiveChatConversation.title || selectedLiveChatConversation.contact_address || selectedLiveChatConversation.source_id}`, 'open')}
+            onClearAgentFollowUp={() => updateActiveConversationFollowUp(null, null, 'canceled')}
+            onCompleteAgentFollowUp={() => updateActiveConversationFollowUp(null, null, 'completed')}
+            onSaveAnalysis={async (key, insight) => {
+              const patched = await patchUnifiedConversation(selectedLiveChatConversation, {
+                agentContextAnalysis: insight,
+                agentContextAnalysisKey: key
+              });
+              setSelectedLiveChatConversation(prev => prev ? {
+                ...prev,
+                agent_context_analysis: patched.agent_context_analysis || insight,
+                agent_context_analysis_key: patched.agent_context_analysis_key || key
+              } : prev);
+              applyUnifiedConversationUpdate(selectedLiveChatConversation, {
+                agent_context_analysis: patched.agent_context_analysis || insight,
+                agent_context_analysis_key: patched.agent_context_analysis_key || key
+              });
+            }}
+            onCommentTextChange={setCommentText}
+            onReplyComment={(commentId, content, attachments) => void replyActiveConversationComment(commentId, content, attachments)}
+            onSubmitComment={() => {
+              if (!commentText.trim()) return;
+              void appendActiveConversationComment(commentText.trim()).then(() => setCommentText(''));
+            }}
+            onLiveChatReplyChange={setLiveChatReply}
+            onSendLiveChatReply={sendLiveChatReply}
+          />
         ) : selectedWhatsAppPhone ? (
           <WhatsAppConversationPane
             language={language}
