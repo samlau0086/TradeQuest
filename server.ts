@@ -1955,6 +1955,9 @@ async function initDB() {
       CREATE INDEX IF NOT EXISTS idx_communication_conversations_client
       ON communication_conversations (user_id, client_id, last_message_at DESC);
 
+      ALTER TABLE communication_conversations ADD COLUMN IF NOT EXISTS agent_context_analysis JSONB;
+      ALTER TABLE communication_conversations ADD COLUMN IF NOT EXISTS agent_context_analysis_key TEXT;
+
       CREATE TABLE IF NOT EXISTS communication_messages (
         id VARCHAR(128) PRIMARY KEY,
         conversation_id VARCHAR(128) REFERENCES communication_conversations(id) ON DELETE CASCADE,
@@ -2318,17 +2321,23 @@ async function startServer() {
         todoNote: 'todo_note',
         tags: 'tags',
         comments: 'comments',
-        metadata: 'metadata'
+        metadata: 'metadata',
+        agentContextAnalysis: 'agent_context_analysis',
+        agentContextAnalysisKey: 'agent_context_analysis_key'
       };
       const values: any[] = [req.params.id, req.user.uid];
       const clauses: string[] = [];
       let idx = 3;
       for (const [key, column] of Object.entries(allowed)) {
         if (!(key in req.body)) continue;
-        const value = ['tags', 'comments', 'metadata'].includes(key)
-          ? JSON.stringify(req.body[key] || (key === 'metadata' ? {} : []))
-          : req.body[key];
-        clauses.push(`${column} = $${idx}${['tags', 'comments', 'metadata'].includes(key) ? '::jsonb' : ''}`);
+        const value = key === 'metadata'
+          ? JSON.stringify(req.body[key] || {})
+          : ['tags', 'comments'].includes(key)
+            ? JSON.stringify(req.body[key] || [])
+            : key === 'agentContextAnalysis'
+              ? JSON.stringify(req.body[key] || null)
+              : req.body[key];
+        clauses.push(`${column} = $${idx}${['tags', 'comments', 'metadata', 'agentContextAnalysis'].includes(key) ? '::jsonb' : ''}`);
         values.push(value);
         idx += 1;
       }

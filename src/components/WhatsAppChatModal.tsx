@@ -7,6 +7,7 @@ import { AgentContextSuggestions } from './AgentContextSuggestions';
 import { getCustomerOutputLanguage, getOutboundLanguage } from '../lib/language';
 import { ClientFormModal, PREFERRED_LANGUAGES } from './ClientFormModal';
 import { AddContactToClientModal } from './AddContactToClientModal';
+import { buildUnifiedAgentContext } from '../lib/agentContext';
 
 interface WhatsAppHubClient {
   id: string;
@@ -279,47 +280,27 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   }, [conversation?.whatsappSummary, conversation?.whatsappSummaryKeyPoints, conversation?.whatsappSummaryNextStep, conversation?.whatsappSummaryUpdatedAt]);
   const latestInboundMessage = messages.filter(message => message.direction === 'inbound').slice(-1)[0];
   const latestOutboundMessage = messages.filter(message => message.direction === 'outbound').slice(-1)[0];
-  const recentInboundMessages = messages.filter(message => message.direction === 'inbound').slice(-6);
-  const recentOutboundMessages = messages.filter(message => message.direction === 'outbound').slice(-6);
-  const agentContextCacheKey = latestInboundMessage
-    ? `whatsapp:${targetPhone}:inbound:${latestInboundMessage.id}`
-    : `whatsapp:${targetPhone}:no-inbound`;
-  const agentContextBody = recentInboundMessages.length > 0
-    ? [
-        'Customer inbound WhatsApp messages only. Use these to infer customer intent:',
-        ...recentInboundMessages.map(message => `inbound customer: ${message.body}`),
-        '',
-        'Our outbound WhatsApp messages are background only. Do not infer customer intent from these:',
-        ...recentOutboundMessages.map(message => `outbound team: ${message.body}`)
-      ].join('\n')
-    : [
-        'NO_INBOUND_CUSTOMER_MESSAGES',
-        'The customer has not sent any inbound WhatsApp messages in this conversation.',
-        'Our outbound WhatsApp messages are prior outreach only and must not be used as evidence of customer intent:',
-        ...recentOutboundMessages.map(message => `outbound team: ${message.body}`)
-      ].join('\n');
-  const agentContextAdditionalContext = activeClient
-    ? [
-        `Client profile: ${activeClient.name || ''} ${activeClient.company || ''} ${activeClient.country || ''}`.trim(),
-        `Preferred language: ${activeClient.preferredLanguage || 'N/A'}`,
-        `AI customer summary: ${activeClient.agentSummary || activeClient.leadSummary || 'N/A'}`,
-        `Best next action: ${activeClient.agentNextStep || activeClient.leadNextStep || 'N/A'}`,
-        whatsappMemoryContext || 'Compressed WhatsApp memory: N/A',
-        `Lead score: ${activeClient.leadScore ?? 'N/A'}`,
-        `Tags: ${(activeClient.tags || []).join(', ') || 'N/A'}`,
-        `Recent internal comments: ${(activeClient.comments || []).slice(-5).map(comment => comment.content).join(' | ') || 'N/A'}`,
-        `Recent CRM activity: ${logs.filter(log => log.clientId === activeClient.id).slice(0, 10).map(log => `${log.date}: ${log.content}`).join(' | ') || 'N/A'}`,
-        `Recent email history: ${emails.filter(email => email.clientId === activeClient.id).slice(0, 6).map(email => `${email.type} ${email.date}: ${email.subject} - ${(email.body || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 220)}`).join(' | ') || 'N/A'}`,
-        `Related leads/deals: ${relatedDeals.map(deal => `${deal.name} (${deal.status}) score ${deal.leadScore ?? 'N/A'} summary: ${deal.leadSummary || 'N/A'} next: ${deal.leadNextStep || 'N/A'}`).join(' | ') || 'N/A'}`,
-        `Relevant knowledge snippets: ${localKnowledgeSnippets.map(item => `${item.title}: ${item.content}`).join(' | ') || 'N/A'}`,
-        `Product context: ${productSnippets.map(product => `${product.name}: ${product.salesPoints || product.description || ''}`).join(' | ') || 'N/A'}`
-      ].join('\n')
-    : [
-        `Unlinked WhatsApp conversation: ${displayPhone}`,
-        whatsappMemoryContext || 'Compressed WhatsApp memory: N/A',
-        `Product context: ${productSnippets.map(product => `${product.name}: ${product.salesPoints || product.description || ''}`).join(' | ') || 'N/A'}`,
-        `Relevant knowledge snippets: ${localKnowledgeSnippets.map(item => `${item.title}: ${item.content}`).join(' | ') || 'N/A'}`
-      ].join('\n');
+  const whatsappAgentContext = buildUnifiedAgentContext({
+    channel: 'whatsapp',
+    subject: conversation?.clientName || activeClient?.name || displayPhone,
+    contactLabel: displayPhone,
+    client: activeClient,
+    messages: messages.map(message => ({
+      id: message.id,
+      direction: message.direction,
+      body: message.body,
+      createdAt: message.created_at || message.received_at,
+      channel: 'whatsapp',
+      sender: message.sender || message.client_id
+    })),
+    emails,
+    logs,
+    deals,
+    knowledgeBase,
+    products,
+    memory: whatsappMemoryContext || 'Compressed WhatsApp memory: N/A',
+    currentMessageId: latestInboundMessage?.id || latestOutboundMessage?.id
+  });
   const visibleConversationComments = (conversation?.comments || []).filter(comment => !String(comment.content || '').startsWith(WHATSAPP_FOLLOW_UP_MARKER));
   const whatsappFollowUp = useMemo(() => {
     const marker = [...(conversation?.comments || [])].reverse().find(comment => String(comment.content || '').startsWith(WHATSAPP_FOLLOW_UP_MARKER));
@@ -1423,18 +1404,18 @@ Return only the message text.`,
           <div ref={messagesEndRef} />
           <AgentContextSuggestions
             channel="whatsapp"
-            cacheKey={agentContextCacheKey}
+            cacheKey={whatsappAgentContext.cacheKey}
             clientId={conversation?.clientId || activeClient?.id}
             whatsappNumber={displayPhone}
-            persistedInsight={conversation?.agentContextAnalysisKey === agentContextCacheKey ? conversation?.agentContextAnalysis : undefined}
+            persistedInsight={conversation?.agentContextAnalysisKey === whatsappAgentContext.cacheKey ? conversation?.agentContextAnalysis : undefined}
             persistedInsightKey={conversation?.agentContextAnalysisKey}
             subject={conversation?.clientName || activeClient?.name || displayPhone}
-            body={agentContextBody}
-            additionalContext={agentContextAdditionalContext}
+            body={whatsappAgentContext.body}
+            additionalContext={whatsappAgentContext.additionalContext}
             clientName={conversation?.clientName || activeClient?.name}
             hasClient={!!(conversation?.clientId || activeClient?.id)}
             hasKnowledge={!!activeClient}
-            hasCustomerMessage={recentInboundMessages.length > 0}
+            hasCustomerMessage={whatsappAgentContext.hasCustomerMessage}
             autoScrollOnOpen={embedded}
             onDraftReply={() => generateWhatsAppMessage(
               body.trim() || (latestInboundMessage

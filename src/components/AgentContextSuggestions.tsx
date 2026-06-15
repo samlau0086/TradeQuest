@@ -15,7 +15,7 @@ interface SuggestionOption {
 }
 
 interface AgentContextSuggestionsProps {
-  channel: 'email' | 'whatsapp' | 'live_chat';
+  channel: 'email' | 'whatsapp' | 'live_chat' | 'telegram';
   subject?: string;
   body?: string;
   additionalContext?: string;
@@ -134,7 +134,13 @@ export function AgentContextSuggestions({
   const [followUpDraftNote, setFollowUpDraftNote] = useState('');
   const panelRef = useRef<HTMLElement | null>(null);
   const agent = useMemo(() => {
-    const preferredId = channel === 'whatsapp' ? 'whatsapp_agent' : channel === 'live_chat' ? 'live_chat_agent' : 'follow_up_agent';
+    const preferredId = channel === 'whatsapp'
+      ? 'whatsapp_agent'
+      : channel === 'live_chat'
+        ? 'live_chat_agent'
+        : channel === 'telegram'
+          ? 'telegram_customer_service_agent'
+          : 'follow_up_agent';
     return agentHubAgents.find(item => item.id === preferredId)
       || agentHubAgents.find(item => item.tools.some(tool => tool.startsWith(channel) || tool.includes('send')));
   }, [agentHubAgents, channel]);

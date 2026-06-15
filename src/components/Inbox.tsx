@@ -13,6 +13,7 @@ import { WhatsAppChatModal } from './WhatsAppChatModal';
 import { AgentContextSuggestions } from './AgentContextSuggestions';
 import { AddContactToClientModal } from './AddContactToClientModal';
 import { getCustomerOutputLanguage } from '../lib/language';
+import { buildUnifiedAgentContext, extractLatestMessageText } from '../lib/agentContext';
 
 interface InboxWhatsAppConversation {
   id: string;
@@ -55,6 +56,8 @@ interface UnifiedCommunicationConversation {
   todo_note?: string;
   tags?: string[];
   comments?: any[];
+  agent_context_analysis?: any;
+  agent_context_analysis_key?: string;
   metadata?: any;
 }
 
@@ -1274,38 +1277,44 @@ export function Inbox() {
         .filter(email => email.clientId === selectedEmailClient.id && ['inbox', 'inbound'].includes(email.type))
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
     : null;
-  const selectedEmailAgentContextBody = selectedEmail
-    ? [
-        `Current email direction: ${selectedEmailIsInbound ? 'INBOUND_FROM_CUSTOMER' : 'OUTBOUND_FROM_OUR_TEAM'}.`,
-        selectedEmailIsInbound
-          ? 'Treat the current email as the customer message to reply to.'
-          : 'Do NOT treat the current email as a customer request. It was sent by our team and is only prior outreach context.',
-        `Current email body:\n${extractLatestEmailText(selectedEmail.body || '') || selectedEmail.body || 'N/A'}`,
-        !selectedEmailIsInbound && latestInboundEmailForSelectedClient
-          ? `Latest inbound customer message to consider:\n${extractLatestEmailText(latestInboundEmailForSelectedClient.body || '') || latestInboundEmailForSelectedClient.body || 'N/A'}`
-          : ''
-      ].filter(Boolean).join('\n\n')
-    : '';
-  const selectedEmailAgentAdditionalContext = selectedEmailClient
-    ? [
-        `Client profile: ${selectedEmailClient.name || ''} ${selectedEmailClient.company || ''} ${selectedEmailClient.country || ''}`.trim(),
-        `Preferred language: ${selectedEmailClient.preferredLanguage || 'N/A'}`,
-        `AI customer summary: ${selectedEmailClient.agentSummary || selectedEmailClient.leadSummary || 'N/A'}`,
-        `Best next action: ${selectedEmailClient.agentNextStep || selectedEmailClient.leadNextStep || 'N/A'}`,
-        `Lead score: ${selectedEmailClient.leadScore ?? 'N/A'}`,
-        `Tags: ${(selectedEmailClient.tags || []).join(', ') || 'N/A'}`,
-        `Recent internal comments: ${(selectedEmailClient.comments || []).slice(-5).map(comment => comment.content).join(' | ') || 'N/A'}`,
-        `Recent CRM activity: ${logs.filter(log => log.clientId === selectedEmailClient.id).slice(0, 10).map(log => `${log.date}: ${log.content}`).join(' | ') || 'N/A'}`,
-        `Other email history: ${emails.filter(email => email.clientId === selectedEmailClient.id && email.id !== selectedEmail?.id).slice(0, 6).map(email => `${email.type} ${email.date}: ${email.subject} - ${extractLatestEmailText(email.body || '').slice(0, 220)}`).join(' | ') || 'N/A'}`,
-        `Related leads/deals: ${deals.filter(deal => deal.clientId === selectedEmailClient.id).slice(0, 5).map(deal => `${deal.name} (${deal.status}) score ${deal.leadScore ?? 'N/A'} summary: ${deal.leadSummary || 'N/A'} next: ${deal.leadNextStep || 'N/A'}`).join(' | ') || 'N/A'}`,
-        `Relevant knowledge snippets: ${knowledgeBase.filter(item => !item.clientId || item.clientId === selectedEmailClient.id).slice(0, 6).map(item => `${item.title}: ${item.content?.slice(0, 500)}`).join(' | ') || 'N/A'}`,
-        `Product context: ${products.slice(0, 8).map(product => `${product.name}: ${product.salesPoints || product.description || ''}`).join(' | ') || 'N/A'}`
-      ].join('\n')
-    : [
-        `Unlinked email contact: ${selectedEmail ? (selectedEmailIsInbound ? selectedEmail.sender : selectedEmail.recipient) : 'N/A'}`,
-        `Product context: ${products.slice(0, 8).map(product => `${product.name}: ${product.salesPoints || product.description || ''}`).join(' | ') || 'N/A'}`,
-        `Relevant knowledge snippets: ${knowledgeBase.slice(0, 6).map(item => `${item.title}: ${item.content?.slice(0, 500)}`).join(' | ') || 'N/A'}`
-      ].join('\n');
+  const selectedEmailAgentContext = selectedEmail
+    ? buildUnifiedAgentContext({
+      channel: 'email',
+      subject: selectedEmail.subject,
+      contactLabel: selectedEmailContactAddress,
+      client: selectedEmailClient,
+      messages: [
+        latestInboundEmailForSelectedClient && latestInboundEmailForSelectedClient.id !== selectedEmail.id ? {
+          id: latestInboundEmailForSelectedClient.id,
+          direction: 'inbound',
+          subject: latestInboundEmailForSelectedClient.subject,
+          body: extractLatestMessageText(latestInboundEmailForSelectedClient.body || ''),
+          createdAt: latestInboundEmailForSelectedClient.date,
+          channel: 'email',
+          sender: latestInboundEmailForSelectedClient.senderName || latestInboundEmailForSelectedClient.sender
+        } : null,
+        {
+          id: selectedEmail.id,
+          direction: selectedEmailIsInbound ? 'inbound' : 'outbound',
+          subject: selectedEmail.subject,
+          body: extractLatestMessageText(selectedEmail.body || ''),
+          createdAt: selectedEmail.date,
+          channel: 'email',
+          sender: selectedEmailIsInbound ? (selectedEmail.senderName || selectedEmail.sender) : selectedEmail.sender
+        }
+      ].filter(Boolean) as any,
+      emails,
+      logs,
+      deals,
+      knowledgeBase,
+      products,
+      currentMessageId: selectedEmail.id,
+      extraFacts: [
+        selectedEmail.senderIp ? `Sender IP: ${selectedEmail.senderIp}` : '',
+        selectedEmail.senderCountry ? `Sender country: ${selectedEmail.senderCountry}` : ''
+      ]
+    })
+    : { cacheKey: '', body: '', additionalContext: '', hasCustomerMessage: false };
   useEffect(() => {
     if (!selectedEmail) return;
     const nextFilter = getInboxFilterForEmail(selectedEmail);
@@ -1399,6 +1408,61 @@ export function Inbox() {
     || selectedLiveChatConversation?.contact_name
     || selectedLiveChatConversation?.contact_address
     || 'Live Chat Visitor';
+  const activeLiveChatAgentContext = selectedLiveChatConversation
+    ? buildUnifiedAgentContext({
+      channel: 'live_chat',
+      subject: selectedLiveChatConversation.title || 'Live Chat conversation',
+      contactLabel: activeLiveChatDisplayName,
+      client: activeLiveChatClient,
+      messages: visibleLiveChatMessages.map(message => ({
+        id: message.id,
+        direction: message.role === 'visitor' ? 'inbound' : message.role === 'system' ? 'system' : 'outbound',
+        body: message.body,
+        createdAt: message.createdAt,
+        channel: 'live_chat',
+        sender: message.senderName || message.role
+      })),
+      emails,
+      logs,
+      deals,
+      knowledgeBase,
+      products,
+      extraFacts: [
+        activeLiveChatSession?.visitorEmail ? `Visitor email: ${activeLiveChatSession.visitorEmail}` : '',
+        activeLiveChatSession?.visitorPhone ? `Visitor phone: ${activeLiveChatSession.visitorPhone}` : '',
+        activeLiveChatSession?.pageUrl ? `Page URL: ${activeLiveChatSession.pageUrl}` : '',
+        activeLiveChatEvidenceItems.length ? `Visitor evidence:\n${activeLiveChatEvidenceItems.map(item => `${item.label}: ${item.value}`).join('\n')}` : '',
+        activeLiveChatTranscriptContext ? `Recent live chat transcript:\n${activeLiveChatTranscriptContext}` : ''
+      ]
+    })
+    : { cacheKey: '', body: '', additionalContext: '', hasCustomerMessage: false };
+  const activeTelegramAgentContext = selectedTelegramConversation
+    ? buildUnifiedAgentContext({
+      channel: 'telegram',
+      subject: selectedTelegramConversation.title || 'Telegram conversation',
+      contactLabel: activeTelegramDisplayName,
+      client: activeTelegramClient,
+      messages: telegramMessages.map(message => ({
+        id: message.id,
+        direction: message.direction === 'inbound' ? 'inbound' : message.direction === 'outbound' ? 'outbound' : 'system',
+        body: message.body || '',
+        createdAt: message.source_created_at || message.sourceCreatedAt || message.created_at || message.createdAt,
+        channel: 'telegram',
+        sender: message.sender || message.senderName || message.direction
+      })),
+      emails,
+      logs,
+      deals,
+      knowledgeBase,
+      products,
+      extraFacts: [
+        activeTelegramUsername ? `Telegram username: @${activeTelegramUsername}` : '',
+        activeTelegramUserId ? `Telegram user id: ${activeTelegramUserId}` : '',
+        activeTelegramChatId ? `Telegram chat id: ${activeTelegramChatId}` : '',
+        selectedTelegramConversation.metadata?.humanTakeover ? 'Human takeover is active.' : ''
+      ]
+    })
+    : { cacheKey: '', body: '', additionalContext: '', hasCustomerMessage: false };
   const activeLinkableContactMethod: ContactMethod | null = selectedEmail && selectedEmailContactAddress
     ? { type: 'email', value: selectedEmailContactAddress }
     : selectedLiveChatConversation
@@ -1663,6 +1727,59 @@ export function Inbox() {
       notify(error instanceof Error ? error.message : 'Failed to send Telegram message.', 'error');
     } finally {
       setIsSendingTelegramReply(false);
+    }
+  };
+
+  const draftTelegramReply = async () => {
+    if (!selectedTelegramConversation) return;
+    const llmId = llmMappings.telegram_customer_service_agent
+      || llmMappings.agent_context_suggestions
+      || llmMappings.drafting
+      || activeLLMId;
+    const llmConfig = llmId ? llmConfigs.find(config => config.id === llmId) : null;
+    if (!llmConfig) {
+      notify(language === 'zh' ? '请先在 AI & Integrations 配置 Telegram/上下文建议模型。' : 'Configure a Telegram/context suggestion AI model first.', 'warning');
+      return;
+    }
+    try {
+      const res = await fetch('/api/chat/magic', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          command: `Draft a concise Telegram customer-service reply. Do not send it. Return only the message body.
+
+Rules:
+- Reply only to inbound customer intent. Team outbound messages are background only.
+- Use the customer's preferred/likely language when available.
+- Use product, RAG, AI summary, best next step, and cross-channel history only when helpful.
+- If no inbound customer message exists, write a light, low-pressure follow-up instead of pretending the customer asked something.
+
+Current context:
+${activeTelegramAgentContext.body}
+
+Broader CRM context:
+${activeTelegramAgentContext.additionalContext}`,
+          context: {
+            channel: 'telegram',
+            clientId: activeTelegramClient?.id || selectedTelegramConversation.client_id || null,
+            conversationId: selectedTelegramConversation.source_id,
+            systemLanguage: language === 'zh' ? 'Chinese' : 'English'
+          },
+          llmConfig,
+          skipKnowledgeBase: false
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to draft Telegram reply');
+      const draft = String(data.result || '').replace(/```[\s\S]*?```/g, match => match.replace(/```(?:text|markdown)?/g, '').replace(/```/g, '')).trim();
+      if (!draft) throw new Error('AI returned an empty Telegram draft.');
+      setTelegramReply(draft);
+      notify(language === 'zh' ? 'Telegram 回复草稿已生成。' : 'Telegram reply draft generated.', 'success');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Failed to draft Telegram reply.', 'error');
     }
   };
 
@@ -2947,6 +3064,57 @@ export function Inbox() {
                   </div>
                 );
               })}
+              <AgentContextSuggestions
+                channel="telegram"
+                cacheKey={activeTelegramAgentContext.cacheKey}
+                clientId={activeTelegramClient?.id || selectedTelegramConversation.client_id}
+                clientName={activeTelegramClient?.name || selectedTelegramConversation.client_name}
+                persistedInsight={selectedTelegramConversation.agent_context_analysis_key === activeTelegramAgentContext.cacheKey ? selectedTelegramConversation.agent_context_analysis : undefined}
+                persistedInsightKey={selectedTelegramConversation.agent_context_analysis_key}
+                subject={selectedTelegramConversation.title || activeTelegramDisplayName || 'Telegram conversation'}
+                body={activeTelegramAgentContext.body}
+                additionalContext={activeTelegramAgentContext.additionalContext}
+                hasClient={!!(activeTelegramClient?.id || selectedTelegramConversation.client_id)}
+                hasKnowledge={!!activeTelegramClient}
+                hasCustomerMessage={activeTelegramAgentContext.hasCustomerMessage}
+                draftReplyLabel={language === 'zh' ? '起草 Telegram 回复' : 'Draft Telegram Reply'}
+                draftReplyDescription={language === 'zh' ? '使用客户资料、Telegram 记录、产品和 RAG 上下文生成回复草稿。' : 'Draft a Telegram reply using customer, conversation, product, and RAG context.'}
+                onDraftReply={draftTelegramReply}
+                onAddComment={async () => appendActiveConversationComment(`Telegram note: ${activeTelegramAgentContext.latestInbound?.body || selectedTelegramConversation.title || 'Follow up this Telegram conversation'}`)}
+                onCreateLead={!activeTelegramClient && !selectedTelegramConversation.client_id ? handleCreateLead : undefined}
+                followUpAt={activeFollowUpAt}
+                followUpNote={activeFollowUpNote}
+                onSetFollowUp={(dueAt, note) => updateActiveConversationFollowUp(dueAt, note || `Follow up Telegram conversation with ${activeTelegramDisplayName}.`, 'open')}
+                onClearFollowUp={() => updateActiveConversationFollowUp(null, null, 'canceled')}
+                onCompleteFollowUp={() => updateActiveConversationFollowUp(null, null, 'completed')}
+                onSaveAnalysis={async (key, insight) => {
+                  const patched = await patchUnifiedConversation(selectedTelegramConversation, {
+                    agentContextAnalysis: insight,
+                    agentContextAnalysisKey: key
+                  });
+                  setSelectedTelegramConversation(prev => prev ? {
+                    ...prev,
+                    agent_context_analysis: patched.agent_context_analysis || insight,
+                    agent_context_analysis_key: patched.agent_context_analysis_key || key
+                  } : prev);
+                  applyUnifiedConversationUpdate(selectedTelegramConversation, {
+                    agent_context_analysis: patched.agent_context_analysis || insight,
+                    agent_context_analysis_key: patched.agent_context_analysis_key || key
+                  });
+                }}
+                onDeleteItem={() => {
+                  setConfirmDialog({
+                    message: 'Are you sure you want to delete this Telegram conversation from CRM?',
+                    onConfirm: async () => {
+                      await deleteUnifiedConversation(selectedTelegramConversation);
+                      setSelectedTelegramConversation(null);
+                      setTelegramMessages([]);
+                      await refreshUnifiedConversationData();
+                      setConfirmDialog(null);
+                    }
+                  });
+                }}
+              />
               <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
@@ -3184,24 +3352,17 @@ export function Inbox() {
               })}
               <AgentContextSuggestions
                 channel="live_chat"
-                cacheKey={`live_chat:${selectedLiveChatConversation.source_id}`}
+                cacheKey={activeLiveChatAgentContext.cacheKey}
                 clientId={activeLiveChatClient?.id || selectedLiveChatConversation.client_id}
                 clientName={activeLiveChatClient?.name || selectedLiveChatConversation.client_name}
+                persistedInsight={selectedLiveChatConversation.agent_context_analysis_key === activeLiveChatAgentContext.cacheKey ? selectedLiveChatConversation.agent_context_analysis : undefined}
+                persistedInsightKey={selectedLiveChatConversation.agent_context_analysis_key}
                 subject={selectedLiveChatConversation.title || 'Live Chat conversation'}
-                body={latestLiveChatVisitorMessage?.body || selectedLiveChatConversation.last_message_preview || ''}
-                additionalContext={[
-                  activeLiveChatSession?.visitorEmail ? `Visitor email: ${activeLiveChatSession.visitorEmail}` : '',
-                  activeLiveChatSession?.visitorPhone ? `Visitor phone: ${activeLiveChatSession.visitorPhone}` : '',
-                  activeLiveChatSession?.pageUrl ? `Page URL: ${activeLiveChatSession.pageUrl}` : '',
-                  activeLiveChatEvidenceItems.length ? `Visitor evidence:\n${activeLiveChatEvidenceItems.map(item => `${item.label}: ${item.value}`).join('\n')}` : '',
-                  activeLiveChatTranscriptContext ? `Recent live chat transcript:\n${activeLiveChatTranscriptContext}` : '',
-                  activeLiveChatClient?.agentSummary ? `AI summary: ${activeLiveChatClient.agentSummary}` : '',
-                  activeLiveChatClient?.agentNextStep ? `Best next step: ${activeLiveChatClient.agentNextStep}` : '',
-                  activeLiveChatClient?.tags?.length ? `Client tags: ${activeLiveChatClient.tags.join(', ')}` : '',
-                  activeLiveChatClient?.comments?.length ? `Recent client notes: ${activeLiveChatClient.comments.slice(-5).map(comment => comment.content).join(' | ')}` : ''
-                ].filter(Boolean).join('\n')}
+                body={activeLiveChatAgentContext.body}
+                additionalContext={activeLiveChatAgentContext.additionalContext}
                 hasClient={!!(activeLiveChatClient?.id || selectedLiveChatConversation.client_id)}
-                hasCustomerMessage={!!latestLiveChatVisitorMessage}
+                hasKnowledge={!!activeLiveChatClient}
+                hasCustomerMessage={activeLiveChatAgentContext.hasCustomerMessage}
                 draftReplyLabel={language === 'zh' ? '运行 Agent 回复' : 'Run Agent Reply'}
                 draftReplyDescription={language === 'zh' ? '使用客户资料、聊天记录、产品和 RAG 上下文生成并发送 Live Chat 回复。' : 'Generate and send a Live Chat reply using customer, conversation, product, and RAG context.'}
                 onDraftReply={runSelectedLiveChatAgent}
@@ -3211,6 +3372,21 @@ export function Inbox() {
                 onSetFollowUp={(dueAt, note) => updateActiveConversationFollowUp(dueAt, note || `Follow up Live Chat: ${selectedLiveChatConversation.title || selectedLiveChatConversation.contact_address || selectedLiveChatConversation.source_id}`, 'open')}
                 onClearFollowUp={() => updateActiveConversationFollowUp(null, null, 'canceled')}
                 onCompleteFollowUp={() => updateActiveConversationFollowUp(null, null, 'completed')}
+                onSaveAnalysis={async (key, insight) => {
+                  const patched = await patchUnifiedConversation(selectedLiveChatConversation, {
+                    agentContextAnalysis: insight,
+                    agentContextAnalysisKey: key
+                  });
+                  setSelectedLiveChatConversation(prev => prev ? {
+                    ...prev,
+                    agent_context_analysis: patched.agent_context_analysis || insight,
+                    agent_context_analysis_key: patched.agent_context_analysis_key || key
+                  } : prev);
+                  applyUnifiedConversationUpdate(selectedLiveChatConversation, {
+                    agent_context_analysis: patched.agent_context_analysis || insight,
+                    agent_context_analysis_key: patched.agent_context_analysis_key || key
+                  });
+                }}
                 onDeleteItem={() => {
                   setConfirmDialog({
                     message: 'Are you sure you want to delete this Live Chat conversation? It may require approval before records are removed.',
@@ -3517,19 +3693,19 @@ export function Inbox() {
 
                <AgentContextSuggestions
                  channel="email"
-                 cacheKey={`email:${selectedEmail.id}`}
+                 cacheKey={selectedEmailAgentContext.cacheKey || `email:${selectedEmail.id}`}
                  clientId={selectedEmail.clientId}
                  emailAddress={isInboundCustomerEmail(selectedEmail) ? selectedEmail.sender : selectedEmail.recipient}
                  defaultAnalysisMode={['sent', 'outbound', 'scheduled'].includes(selectedEmail.type) ? 'manual' : undefined}
-                 persistedInsight={selectedEmail.agentContextAnalysisKey === `email:${selectedEmail.id}` ? selectedEmail.agentContextAnalysis : undefined}
+                 persistedInsight={selectedEmail.agentContextAnalysisKey === (selectedEmailAgentContext.cacheKey || `email:${selectedEmail.id}`) ? selectedEmail.agentContextAnalysis : undefined}
                  persistedInsightKey={selectedEmail.agentContextAnalysisKey}
                  subject={selectedEmail.subject}
-                 body={selectedEmailAgentContextBody}
-                 additionalContext={selectedEmailAgentAdditionalContext}
+                 body={selectedEmailAgentContext.body}
+                 additionalContext={selectedEmailAgentContext.additionalContext}
                  clientName={selectedEmail.clientId ? clients.find(c => c.id === selectedEmail.clientId)?.name : undefined}
                  hasClient={!!selectedEmail.clientId}
                  hasKnowledge={addedToRagId === selectedEmail.id}
-                 hasCustomerMessage={selectedEmailIsInbound || !!latestInboundEmailForSelectedClient}
+                 hasCustomerMessage={selectedEmailAgentContext.hasCustomerMessage}
                  autoScrollOnOpen
                  onDraftReply={() => {
                    const replySourceEmail = isInboundCustomerEmail(selectedEmail)
