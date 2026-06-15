@@ -45,6 +45,7 @@ import {
   useInboxConversationList,
   useInboxNavigationActions,
   useInboxSelection,
+  useInboxSidebarActions,
   useInboxSync,
   useSelectedEmailContext,
   useUnifiedConversationActions,
@@ -547,6 +548,31 @@ ${bodyText}`,
   });
 
   const {
+    handleFilterChange,
+    handleChannelFilterChange,
+    handleToggleFollowUpOnly,
+    handleClearFollowUpOnly,
+    handleComposeEmail,
+    handleStartWhatsApp,
+  } = useInboxSidebarActions({
+    selectedWhatsAppPhone,
+    selectEmail,
+    clearBulkSelection,
+    setFilter,
+    setChannelFilter,
+    setEmailListMode,
+    setFollowUpOnly,
+    setIsComposing,
+    setComposeDefaults,
+    setIsStartingWhatsApp,
+    setSelectedWhatsAppPhone,
+    setSelectedWhatsAppClientId,
+    setSelectedTelegramConversation,
+    setTelegramMessages,
+    setSelectedLiveChatConversation,
+  });
+
+  const {
     addWhatsAppConversationComment,
     patchUnifiedConversation,
     deleteUnifiedConversation,
@@ -883,39 +909,12 @@ ${bodyText}`,
           bulkOwnerId={bulkOwnerId}
           bulkStage={bulkStage}
           bulkFollowUpAt={bulkFollowUpAt}
-          onFilterChange={(nextFilter) => {
-            selectEmail(null);
-            setSelectedWhatsAppPhone(null);
-            setSelectedTelegramConversation(null);
-            setSelectedLiveChatConversation(null);
-            setFilter(nextFilter);
-          }}
-          onChannelFilterChange={(nextChannel) => {
-            setChannelFilter(nextChannel);
-            if (nextChannel === 'whatsapp' || nextChannel === 'live_chat' || nextChannel === 'telegram') {
-              setFilter('inbox');
-              setEmailListMode('list');
-              selectEmail(null);
-            }
-            if (nextChannel !== 'whatsapp' && selectedWhatsAppPhone) {
-              setSelectedWhatsAppPhone(null);
-              setSelectedWhatsAppClientId(null);
-            }
-            if (nextChannel !== 'telegram') {
-              setSelectedTelegramConversation(null);
-              setTelegramMessages([]);
-            }
-            if (nextChannel !== 'live_chat') {
-              setSelectedLiveChatConversation(null);
-            }
-          }}
+          onFilterChange={handleFilterChange}
+          onChannelFilterChange={handleChannelFilterChange}
           onSearchChange={setSearch}
           onSearchTagsChange={setSearchTags}
-          onToggleFollowUpOnly={() => {
-            setFollowUpOnly(prev => !prev);
-            clearBulkSelection();
-          }}
-          onClearFollowUpOnly={() => setFollowUpOnly(false)}
+          onToggleFollowUpOnly={handleToggleFollowUpOnly}
+          onClearFollowUpOnly={handleClearFollowUpOnly}
           onSync={() => handleSync()}
           onToggleSelectAll={toggleSelectAll}
           onClearSelection={clearBulkSelection}
@@ -935,24 +934,8 @@ ${bodyText}`,
           onToggleConversationSelection={toggleUnifiedSelection}
           onDeleteWhatsAppConversation={handleDeleteWhatsAppConversation}
           onOwnerStageChange={updateConversationOwnerStage}
-          onComposeEmail={() => {
-            setComposeDefaults(null);
-            setIsComposing(true);
-            setIsStartingWhatsApp(false);
-            setSelectedWhatsAppPhone(null);
-            setSelectedTelegramConversation(null);
-            setSelectedLiveChatConversation(null);
-            selectEmail(null);
-          }}
-          onStartWhatsApp={() => {
-            setIsStartingWhatsApp(true);
-            setIsComposing(false);
-            setSelectedWhatsAppPhone(null);
-            setSelectedWhatsAppClientId(null);
-            setSelectedTelegramConversation(null);
-            setSelectedLiveChatConversation(null);
-            selectEmail(null);
-          }}
+          onComposeEmail={handleComposeEmail}
+          onStartWhatsApp={handleStartWhatsApp}
         />
       </Panel>
 

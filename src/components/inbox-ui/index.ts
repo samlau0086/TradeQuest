@@ -25,6 +25,7 @@ export { useInboxBulkActions } from './useInboxBulkActions';
 export { useInboxConversationList } from './useInboxConversationList';
 export { useInboxNavigationActions } from './useInboxNavigationActions';
 export { useInboxSelection } from './useInboxSelection';
+export { useInboxSidebarActions } from './useInboxSidebarActions';
 export { useInboxSync } from './useInboxSync';
 export { useSelectedEmailContext } from './useSelectedEmailContext';
 export { useUnifiedConversationActions } from './useUnifiedConversationActions';
