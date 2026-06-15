@@ -23,6 +23,7 @@ export { useInboxBulkActions } from './useInboxBulkActions';
 export { useInboxNavigationActions } from './useInboxNavigationActions';
 export { useInboxSelection } from './useInboxSelection';
 export { useInboxSync } from './useInboxSync';
+export { useSelectedEmailContext } from './useSelectedEmailContext';
 export { useUnifiedConversationActions } from './useUnifiedConversationActions';
 export {
   EmailRichTextEditor,

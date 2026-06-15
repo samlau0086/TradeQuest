@@ -46,6 +46,7 @@ import {
   useInboxNavigationActions,
   useInboxSelection,
   useInboxSync,
+  useSelectedEmailContext,
   useUnifiedConversationActions,
   CONVERSATION_AUTO_TRANSLATE_KEY,
   WHATSAPP_CONVERSATION_POLL_MS,
@@ -53,7 +54,6 @@ import {
   conversationAutoTranslateId,
   conversationTranslationBucketId,
   emailToUnifiedConversation,
-  getInboxFilterForEmail,
   getWhatsAppFollowUp,
   hasOpenWhatsAppFollowUp,
   mapUnifiedWhatsAppConversation,
@@ -71,7 +71,7 @@ import type {
   UnifiedCommunicationConversation,
 } from './inbox-ui';
 import { AddContactToClientModal } from './AddContactToClientModal';
-import { buildUnifiedAgentContext, extractLatestMessageText } from '../lib/agentContext';
+import { buildUnifiedAgentContext } from '../lib/agentContext';
 
 interface WhatsAppContactOption {
   key: string;
@@ -108,7 +108,6 @@ export function Inbox() {
   const [bulkFollowUpAt, setBulkFollowUpAt] = useState('');
   const [bulkOwnerId, setBulkOwnerId] = useState('');
   const [bulkStage, setBulkStage] = useState('');
-  const [expandedTrackingEmailIds, setExpandedTrackingEmailIds] = useState<Set<string>>(new Set());
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [todoModalEmail, setTodoModalEmail] = useState<string | null>(null);
   const [todoAt, setTodoAt] = useState('');
@@ -678,74 +677,29 @@ ${bodyText}`,
     };
   }, []);
 
-  const selectedEmail = emails.find(e => e.id === selectedEmailId);
-  const selectedEmailIsInbound = selectedEmail ? isInboundCustomerEmail(selectedEmail) : false;
-  const selectedEmailContactAddress = selectedEmail
-    ? (selectedEmailIsInbound ? selectedEmail.sender : selectedEmail.recipient)
-    : '';
-  const selectedEmailClient = selectedEmail?.clientId ? clients.find(client => client.id === selectedEmail.clientId) : null;
-  const latestInboundEmailForSelectedClient = selectedEmailClient
-    ? emails
-        .filter(email => email.clientId === selectedEmailClient.id && ['inbox', 'inbound'].includes(email.type))
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
-    : null;
-  const selectedEmailAgentContext = selectedEmail
-    ? buildUnifiedAgentContext({
-      channel: 'email',
-      subject: selectedEmail.subject,
-      contactLabel: selectedEmailContactAddress,
-      client: selectedEmailClient,
-      messages: [
-        latestInboundEmailForSelectedClient && latestInboundEmailForSelectedClient.id !== selectedEmail.id ? {
-          id: latestInboundEmailForSelectedClient.id,
-          direction: 'inbound',
-          subject: latestInboundEmailForSelectedClient.subject,
-          body: extractLatestMessageText(latestInboundEmailForSelectedClient.body || ''),
-          createdAt: latestInboundEmailForSelectedClient.date,
-          channel: 'email',
-          sender: latestInboundEmailForSelectedClient.senderName || latestInboundEmailForSelectedClient.sender
-        } : null,
-        {
-          id: selectedEmail.id,
-          direction: selectedEmailIsInbound ? 'inbound' : 'outbound',
-          subject: selectedEmail.subject,
-          body: extractLatestMessageText(selectedEmail.body || ''),
-          createdAt: selectedEmail.date,
-          channel: 'email',
-          sender: selectedEmailIsInbound ? (selectedEmail.senderName || selectedEmail.sender) : selectedEmail.sender
-        }
-      ].filter(Boolean) as any,
-      emails,
-      logs,
-      deals,
-      knowledgeBase,
-      products,
-      currentMessageId: selectedEmail.id,
-      extraFacts: [
-        selectedEmail.senderIp ? `Sender IP: ${selectedEmail.senderIp}` : '',
-        selectedEmail.senderCountry ? `Sender country: ${selectedEmail.senderCountry}` : ''
-      ]
-    })
-    : { cacheKey: '', body: '', additionalContext: '', hasCustomerMessage: false };
-  useEffect(() => {
-    if (!selectedEmail) return;
-    const nextFilter = getInboxFilterForEmail(selectedEmail);
-    if (filter !== nextFilter) setFilter(nextFilter);
-  }, [selectedEmail?.id, selectedEmail?.type]);
+  const {
+    selectedEmail,
+    selectedEmailIsInbound,
+    selectedEmailContactAddress,
+    selectedEmailClient,
+    latestInboundEmailForSelectedClient,
+    selectedEmailAgentContext,
+    selectedTrackingEvents,
+    isTrackingExpanded,
+    visibleTrackingEvents,
+    toggleTrackingExpanded,
+  } = useSelectedEmailContext({
+    selectedEmailId,
+    emails,
+    clients,
+    logs,
+    deals,
+    knowledgeBase,
+    products,
+    filter,
+    setFilter,
+  });
 
-  const selectedTrackingEvents = [...(selectedEmail?.trackingEvents || [])].sort((a: any, b: any) => (
-    new Date(b.created_at || b.createdAt || b.date || 0).getTime() - new Date(a.created_at || a.createdAt || a.date || 0).getTime()
-  ));
-  const isTrackingExpanded = selectedEmail ? expandedTrackingEmailIds.has(selectedEmail.id) : false;
-  const visibleTrackingEvents = isTrackingExpanded ? selectedTrackingEvents : selectedTrackingEvents.slice(0, 3);
-  const toggleTrackingExpanded = (emailId: string) => {
-    setExpandedTrackingEmailIds(prev => {
-      const next = new Set(prev);
-      if (next.has(emailId)) next.delete(emailId);
-      else next.add(emailId);
-      return next;
-    });
-  };
   const matchWhatsAppClient = (phone: string) => clients.find(client => client.contactMethods?.some(method => (
     ['whatsapp', 'phone'].includes(method.type) && method.value.replace(/[^0-9]/g, '').endsWith(phone.slice(-8))
   )));
