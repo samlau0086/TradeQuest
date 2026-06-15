@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { ContactMethod, useStore, EmailMessage, LiveChatMessage, LiveChatSession } from '../store';
+import { ContactMethod, useStore, EmailMessage, LiveChatSession } from '../store';
 import { useAuthStore } from '../authStore';
 import { Mail, Reply, PenLine, User, Sparkles, Loader2, UserPlus, MessageSquare, Paperclip, X, Database, CheckCircle2, Clock, Eye, MousePointerClick, Radar, Languages } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -13,6 +13,7 @@ import {
   ConversationDetailHeader,
   ConversationFollowUpStrip,
   CONVERSATION_STAGES,
+  ConversationMessageList,
   ConversationReplyComposer,
   ComposeEmail,
   EmailTagDialog,
@@ -2151,46 +2152,15 @@ ${activeTelegramAgentContext.additionalContext}`,
               }}
             />
             <div className="flex-1 overflow-y-auto bg-slate-950/50 p-6 space-y-4">
-              {isTelegramMessagesLoading ? (
-                <div className="flex items-center justify-center py-16 text-sm text-slate-500">
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading Telegram messages...
-                </div>
-              ) : telegramMessages.length === 0 ? (
-                <div className="py-16 text-center text-sm text-slate-500 italic">No Telegram messages saved yet.</div>
-              ) : telegramMessages.map(message => {
-                const outbound = message.direction === 'outbound';
-                const translation = activeTelegramTranslations[message.id] || message.payload?.translation;
-                const isTranslating = translatingConversationMessageIds.has(`telegram:${message.id}`);
-                return (
-                  <div key={message.id} className={cn("flex", outbound ? "justify-end" : "justify-start")}>
-                    <div className={cn(
-                      "max-w-[78%] rounded-2xl border px-4 py-3 text-sm shadow-sm",
-                      outbound
-                        ? "border-sky-500/30 bg-sky-600/20 text-sky-50"
-                        : "border-slate-800 bg-slate-900 text-slate-100"
-                    )}>
-                      <div className="mb-1 flex items-center gap-2 text-[10px] uppercase tracking-wide text-slate-500">
-                        <span>{message.sender || message.senderName || (outbound ? 'Operator' : 'Telegram')}</span>
-                        <span>{message.message_type || message.messageType || 'message'}</span>
-                      </div>
-                      <div className="whitespace-pre-wrap leading-relaxed">{message.body || '[media]'}</div>
-                      {!outbound && ((activeTelegramTranslateEnabled && isTranslating) || translation?.text) && (
-                        <div className="mt-3 border-t border-slate-700/70 pt-2 text-xs leading-relaxed text-cyan-100">
-                          <div className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-cyan-300">
-                            <Languages className="h-3 w-3" />
-                            {language === 'zh' ? '翻译' : 'Translation'}
-                            {isTranslating && <Loader2 className="h-3 w-3 animate-spin" />}
-                          </div>
-                          <div className="whitespace-pre-wrap">{translation?.text || (language === 'zh' ? '翻译中...' : 'Translating...')}</div>
-                        </div>
-                      )}
-                      <div className="mt-2 text-[10px] text-slate-500">
-                        {message.source_created_at || message.sourceCreatedAt ? new Date(message.source_created_at || message.sourceCreatedAt).toLocaleString() : ''}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+              <ConversationMessageList
+                channel="telegram"
+                language={language}
+                messages={telegramMessages}
+                isLoading={isTelegramMessagesLoading}
+                translateEnabled={activeTelegramTranslateEnabled}
+                translations={activeTelegramTranslations}
+                translatingIds={translatingConversationMessageIds}
+              />
               <AgentContextSuggestions
                 channel="telegram"
                 cacheKey={activeTelegramAgentContext.cacheKey}
@@ -2422,42 +2392,14 @@ ${activeTelegramAgentContext.additionalContext}`,
                   </div>
                 </div>
               )}
-              {visibleLiveChatMessages.length === 0 ? (
-                <div className="py-16 text-center text-sm text-slate-500 italic">No Live Chat messages saved yet.</div>
-              ) : visibleLiveChatMessages.map((message: LiveChatMessage) => {
-                const outbound = message.role === 'operator' || message.role === 'agent';
-                const translation = activeLiveChatTranslations[message.id] || message.metadata?.translation;
-                const isTranslating = translatingConversationMessageIds.has(`live_chat:${message.id}`);
-                return (
-                  <div key={message.id} className={cn("flex", outbound ? "justify-end" : "justify-start")}>
-                    <div className={cn(
-                      "max-w-[78%] rounded-2xl border px-4 py-3 text-sm shadow-sm",
-                      outbound
-                        ? "border-violet-500/30 bg-violet-600/20 text-violet-50"
-                        : "border-slate-800 bg-slate-900 text-slate-100"
-                    )}>
-                      <div className="mb-1 flex items-center gap-2 text-[10px] uppercase tracking-wide text-slate-500">
-                        <span>{message.senderName || (outbound ? 'Operator' : 'Visitor')}</span>
-                        <span>{message.role}</span>
-                      </div>
-                      <div className="whitespace-pre-wrap leading-relaxed">{message.body}</div>
-                      {!outbound && ((activeLiveChatTranslateEnabled && isTranslating) || translation?.text) && (
-                        <div className="mt-3 border-t border-slate-700/70 pt-2 text-xs leading-relaxed text-cyan-100">
-                          <div className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-cyan-300">
-                            <Languages className="h-3 w-3" />
-                            {language === 'zh' ? '翻译' : 'Translation'}
-                            {isTranslating && <Loader2 className="h-3 w-3 animate-spin" />}
-                          </div>
-                          <div className="whitespace-pre-wrap">{translation?.text || (language === 'zh' ? '翻译中...' : 'Translating...')}</div>
-                        </div>
-                      )}
-                      <div className="mt-2 text-[10px] text-slate-500">
-                        {message.createdAt ? new Date(message.createdAt).toLocaleString() : ''}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+              <ConversationMessageList
+                channel="live_chat"
+                language={language}
+                messages={visibleLiveChatMessages}
+                translateEnabled={activeLiveChatTranslateEnabled}
+                translations={activeLiveChatTranslations}
+                translatingIds={translatingConversationMessageIds}
+              />
               <AgentContextSuggestions
                 channel="live_chat"
                 cacheKey={activeLiveChatAgentContext.cacheKey}

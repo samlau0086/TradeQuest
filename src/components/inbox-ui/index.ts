@@ -3,6 +3,7 @@ export { ComposeEmail } from './ComposeEmail';
 export { ConversationDetailHeader } from './ConversationDetailHeader';
 export { ConversationFollowUpStrip } from './ConversationFollowUpStrip';
 export { ConversationInternalNotesPanel } from './ConversationInternalNotesPanel';
+export { ConversationMessageList } from './ConversationMessageList';
 export { ConversationReplyComposer } from './ConversationReplyComposer';
 export { InboxBulkActionsPanel } from './InboxBulkActionsPanel';
 export { InboxConversationListItem } from './InboxConversationListItem';
