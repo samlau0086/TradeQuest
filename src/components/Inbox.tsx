@@ -1,17 +1,27 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { ContactMethod, useStore, EmailMessage, LiveChatMessage, LiveChatSession } from '../store';
 import { useAuthStore } from '../authStore';
-import { Mail, MailOpen, Send, Reply, Trash2, ArrowLeft, RefreshCw, PenLine, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, MessageCircle, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2, MoreHorizontal, Star, Clock, Activity, Eye, MousePointerClick, Radar, Timer, Bold, Italic, List, Link2, Languages, Image as ImageIcon } from 'lucide-react';
+import { Mail, MailOpen, Send, Reply, Trash2, ArrowLeft, RefreshCw, PenLine, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, MessageCircle, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2, MoreHorizontal, Star, Clock, Eye, MousePointerClick, Radar, Timer, Languages } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { CommentItem } from './CommentItem';
 import { AddressInput } from './AddressInput';
 import { ClientFormModal } from './ClientFormModal';
 import { UploadAttachmentModal } from './UploadAttachmentModal';
-import { MediaSelectorModal } from './MediaSelectorModal';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle, useDefaultLayout } from 'react-resizable-panels';
 import { WhatsAppChatModal } from './WhatsAppChatModal';
 import { AgentContextSuggestions } from './AgentContextSuggestions';
-import { ConversationDetailHeader, ConversationFollowUpStrip, CONVERSATION_STAGES } from './inbox-ui';
+import {
+  ConversationDetailHeader,
+  ConversationFollowUpStrip,
+  CONVERSATION_STAGES,
+  EmailRichTextEditor,
+  InboxBulkActionsPanel,
+  emailHtmlHasContent,
+  emailHtmlToText,
+  escapeEmailHtml,
+  normalizeEmailEditorHtml,
+  plainTextToEmailHtml,
+} from './inbox-ui';
 import { AddContactToClientModal } from './AddContactToClientModal';
 import { getCustomerOutputLanguage } from '../lib/language';
 import { buildUnifiedAgentContext, extractLatestMessageText } from '../lib/agentContext';
@@ -2325,100 +2335,32 @@ ${activeTelegramAgentContext.additionalContext}`,
         
         <div className="flex-1 overflow-y-auto scrollbar-thin pb-48">
           {selectableVisibleCount > 0 && (
-            <div className="p-3 px-4 border-b border-slate-800 bg-slate-900/70 text-xs text-slate-400 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={allVisibleSelected}
-                    ref={input => {
-                      if (input) input.indeterminate = someVisibleSelected && !allVisibleSelected;
-                    }}
-                    onChange={toggleSelectAll}
-                    className="rounded border-slate-700 bg-slate-800 text-cyan-500 focus:ring-cyan-500"
-                  />
-                  <span>Select All</span>
-                </label>
-                {selectedCount > 0 && (
-                  <div className="flex items-center gap-2">
-                    <span>Selected {selectedCount}</span>
-                    <button onClick={clearBulkSelection} className="text-slate-300 hover:text-white">Clear</button>
-                  </div>
-                )}
-              </div>
-              {selectedCount > 0 && (
-                <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-2 space-y-2">
-                  <div className="grid grid-cols-1 gap-2">
-                    <div className="flex gap-2">
-                      <input
-                        value={bulkTagInput}
-                        onChange={event => setBulkTagInput(event.target.value)}
-                        onKeyDown={event => { if (event.key === 'Enter') void handleBulkAddTag(); }}
-                        placeholder="Tag"
-                        className="min-w-0 flex-1 rounded border border-slate-800 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-cyan-500"
-                      />
-                      <button onClick={handleBulkAddTag} disabled={!bulkTagInput.trim()} className="inline-flex items-center gap-1 rounded border border-cyan-500/40 bg-cyan-500/10 px-2 py-1.5 font-bold text-cyan-200 hover:bg-cyan-500/20 disabled:border-slate-700 disabled:text-slate-500">
-                        <Tag className="h-3.5 w-3.5" /> Add Tag
-                      </button>
-                    </div>
-                    <div className="flex gap-2">
-                      <input
-                        value={bulkNoteInput}
-                        onChange={event => setBulkNoteInput(event.target.value)}
-                        onKeyDown={event => { if (event.key === 'Enter') void handleBulkAddComment(); }}
-                        placeholder="Internal note"
-                        className="min-w-0 flex-1 rounded border border-slate-800 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-cyan-500"
-                      />
-                      <button onClick={handleBulkAddComment} disabled={!bulkNoteInput.trim()} className="inline-flex items-center gap-1 rounded border border-blue-500/40 bg-blue-500/10 px-2 py-1.5 font-bold text-blue-200 hover:bg-blue-500/20 disabled:border-slate-700 disabled:text-slate-500">
-                        <MessageSquare className="h-3.5 w-3.5" /> Note
-                      </button>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <select
-                        value={bulkOwnerId}
-                        onChange={event => setBulkOwnerId(event.target.value)}
-                        className="min-w-[140px] flex-1 rounded border border-slate-800 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-blue-500"
-                      >
-                        <option value="">{language === 'zh' ? '负责人：未分配' : 'Owner: Unassigned'}</option>
-                        {currentUser && (
-                          <option value={currentUser.id}>{language === 'zh' ? '负责人：我' : 'Owner: Me'}</option>
-                        )}
-                      </select>
-                      <button onClick={handleBulkAssignOwner} className="inline-flex items-center gap-1 rounded border border-blue-500/40 bg-blue-500/10 px-2 py-1.5 font-bold text-blue-200 hover:bg-blue-500/20">
-                        <User className="h-3.5 w-3.5" /> {language === 'zh' ? '分配' : 'Assign'}
-                      </button>
-                      <select
-                        value={bulkStage}
-                        onChange={event => setBulkStage(event.target.value)}
-                        className="min-w-[140px] flex-1 rounded border border-slate-800 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-purple-500"
-                      >
-                        <option value="">{language === 'zh' ? '选择阶段' : 'Select stage'}</option>
-                        {CONVERSATION_STAGES.map(stage => <option key={stage} value={stage}>{stage}</option>)}
-                      </select>
-                      <button onClick={handleBulkSetStage} disabled={!bulkStage} className="inline-flex items-center gap-1 rounded border border-purple-500/40 bg-purple-500/10 px-2 py-1.5 font-bold text-purple-200 hover:bg-purple-500/20 disabled:border-slate-700 disabled:text-slate-500">
-                        <Activity className="h-3.5 w-3.5" /> {language === 'zh' ? '阶段' : 'Stage'}
-                      </button>
-                      <input
-                        type="datetime-local"
-                        value={bulkFollowUpAt}
-                        min={new Date().toISOString().slice(0, 16)}
-                        onChange={event => setBulkFollowUpAt(event.target.value)}
-                        className="min-w-[170px] flex-1 rounded border border-slate-800 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500"
-                      />
-                      <button onClick={handleBulkSetFollowUp} disabled={!bulkFollowUpAt} className="inline-flex items-center gap-1 rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-1.5 font-bold text-emerald-200 hover:bg-emerald-500/20 disabled:border-slate-700 disabled:text-slate-500">
-                        <CalendarClock className="h-3.5 w-3.5" /> Follow-up
-                      </button>
-                      <button onClick={handleBulkMarkImportant} className="inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 font-bold text-amber-200 hover:bg-amber-500/20">
-                        <Star className="h-3.5 w-3.5" /> Important
-                      </button>
-                      <button onClick={handleDeleteSelected} className="inline-flex items-center gap-1 rounded border border-red-500/40 bg-red-500/10 px-2 py-1.5 font-bold text-red-200 hover:bg-red-500/20">
-                        <Trash2 className="h-3.5 w-3.5" /> Delete
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+            <InboxBulkActionsPanel
+              language={language}
+              selectedCount={selectedCount}
+              allVisibleSelected={allVisibleSelected}
+              someVisibleSelected={someVisibleSelected}
+              currentUser={currentUser}
+              bulkTagInput={bulkTagInput}
+              bulkNoteInput={bulkNoteInput}
+              bulkOwnerId={bulkOwnerId}
+              bulkStage={bulkStage}
+              bulkFollowUpAt={bulkFollowUpAt}
+              onToggleSelectAll={toggleSelectAll}
+              onClearSelection={clearBulkSelection}
+              onBulkTagInputChange={setBulkTagInput}
+              onBulkNoteInputChange={setBulkNoteInput}
+              onBulkOwnerIdChange={setBulkOwnerId}
+              onBulkStageChange={setBulkStage}
+              onBulkFollowUpAtChange={setBulkFollowUpAt}
+              onAddTag={handleBulkAddTag}
+              onAddComment={handleBulkAddComment}
+              onAssignOwner={handleBulkAssignOwner}
+              onSetStage={handleBulkSetStage}
+              onSetFollowUp={handleBulkSetFollowUp}
+              onMarkImportant={handleBulkMarkImportant}
+              onDeleteSelected={handleDeleteSelected}
+            />
           )}
           {totalVisibleCount === 0 && (
             <div className="p-8 text-center text-sm text-slate-500 italic">
@@ -4180,266 +4122,6 @@ ${activeTelegramAgentContext.additionalContext}`,
       )}
 
     </PanelGroup>
-  );
-}
-
-const escapeEmailHtml = (value: string) => value
-  .replace(/&/g, '&amp;')
-  .replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;')
-  .replace(/'/g, '&#39;');
-
-const plainTextToEmailHtml = (value: string) => escapeEmailHtml(value)
-  .replace(/\r\n/g, '\n')
-  .replace(/\r/g, '\n')
-  .split(/\n{2,}/)
-  .map(part => `<p>${part.replace(/\n/g, '<br>') || '<br>'}</p>`)
-  .join('');
-
-const looksLikeHtml = (value: string) => /<\/?[a-z][\s\S]*>/i.test(value);
-const normalizeEmailEditorHtml = (value: string) => {
-  if (!value?.trim()) return '';
-  return looksLikeHtml(value) ? value : plainTextToEmailHtml(value);
-};
-const emailHtmlToText = (value: string) => value
-  .replace(/<br\s*\/?>/gi, '\n')
-  .replace(/<\/p>/gi, '\n\n')
-  .replace(/<[^>]*>/g, ' ')
-  .replace(/&nbsp;/g, ' ')
-  .replace(/&amp;/g, '&')
-  .replace(/&lt;/g, '<')
-  .replace(/&gt;/g, '>')
-  .replace(/&quot;/g, '"')
-  .replace(/&#39;/g, "'")
-  .replace(/[ \t]+/g, ' ')
-  .trim();
-const emailHtmlHasContent = (value: string) => !!emailHtmlToText(value) || /<img\b/i.test(value || '');
-
-function EmailRichTextEditor({
-  value,
-  onChange,
-  loading,
-  originalEmailBody,
-  quotes,
-  onOptimize,
-  onInlineAI
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  loading: boolean;
-  originalEmailBody?: string;
-  quotes: any[];
-  onOptimize: () => void;
-  onInlineAI: (prompt: string, currentHtml: string) => Promise<string>;
-}) {
-  const editorRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [showMediaSelector, setShowMediaSelector] = useState(false);
-  const [showQuoteMenu, setShowQuoteMenu] = useState(false);
-  const [quoteSearch, setQuoteSearch] = useState('');
-  const [showLinkForm, setShowLinkForm] = useState(false);
-  const [linkUrl, setLinkUrl] = useState('');
-  const [runningInlineAI, setRunningInlineAI] = useState(false);
-
-  useEffect(() => {
-    if (!editorRef.current || document.activeElement === editorRef.current) return;
-    if (editorRef.current.innerHTML !== value) editorRef.current.innerHTML = value || '';
-  }, [value]);
-
-  const syncEditor = () => onChange(editorRef.current?.innerHTML || '');
-
-  const runCommand = (command: string, commandValue?: string) => {
-    editorRef.current?.focus();
-    document.execCommand(command, false, commandValue);
-    syncEditor();
-  };
-
-  const insertHtml = (html: string) => {
-    editorRef.current?.focus();
-    document.execCommand('insertHTML', false, html);
-    syncEditor();
-  };
-
-  const insertImage = (url: string, alt = '') => {
-    insertHtml(`<p><img src="${escapeEmailHtml(url)}" alt="${escapeEmailHtml(alt)}" style="max-width:100%;height:auto;border-radius:6px;" /></p>`);
-  };
-
-  const findAiCommandNode = () => {
-    if (!editorRef.current) return null;
-    const walker = document.createTreeWalker(editorRef.current, NodeFilter.SHOW_TEXT);
-    const nodes: Text[] = [];
-    while (walker.nextNode()) nodes.push(walker.currentNode as Text);
-    for (const node of nodes.reverse()) {
-      const match = node.data.match(/\/ai:([^\n\r<]*)/);
-      if (match) {
-        return { node, matchText: match[0], prompt: match[1].trim(), index: match.index || 0 };
-      }
-    }
-    return null;
-  };
-
-  const runInlineAI = async () => {
-    const command = findAiCommandNode();
-    if (!command || !command.prompt || runningInlineAI) return;
-    setRunningInlineAI(true);
-    try {
-      const result = await onInlineAI(command.prompt, editorRef.current?.innerHTML || '');
-      const range = document.createRange();
-      range.setStart(command.node, command.index);
-      range.setEnd(command.node, command.index + command.matchText.length);
-      range.deleteContents();
-      range.insertNode(range.createContextualFragment(normalizeEmailEditorHtml(result)));
-      syncEditor();
-      editorRef.current?.focus();
-    } finally {
-      setRunningInlineAI(false);
-    }
-  };
-
-  const handleLocalImage = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => insertImage(String(reader.result || ''), file.name);
-    reader.readAsDataURL(file);
-    event.target.value = '';
-  };
-
-  const applyLink = () => {
-    const url = linkUrl.trim();
-    if (!url) return;
-    runCommand('createLink', url);
-    setLinkUrl('');
-    setShowLinkForm(false);
-  };
-
-  const filteredQuotes = quotes.filter(quote => quote.quoteNumber.toLowerCase().includes(quoteSearch.toLowerCase())).slice(0, 8);
-
-  return (
-    <div className="flex-1 flex flex-col min-h-0">
-      <div className="flex flex-wrap items-center gap-1 rounded-t-xl border border-slate-800 bg-slate-950/70 px-2 py-2">
-        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => runCommand('bold')} className="p-2 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white" title="Bold">
-          <Bold className="w-4 h-4" />
-        </button>
-        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => runCommand('italic')} className="p-2 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white" title="Italic">
-          <Italic className="w-4 h-4" />
-        </button>
-        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => runCommand('insertUnorderedList')} className="p-2 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white" title="List">
-          <List className="w-4 h-4" />
-        </button>
-        <div className="h-6 w-px bg-slate-800 mx-1" />
-        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => setShowLinkForm(prev => !prev)} className="p-2 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white" title="Insert link">
-          <Link2 className="w-4 h-4" />
-        </button>
-        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => fileInputRef.current?.click()} className="p-2 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white" title="Insert image">
-          <ImageIcon className="w-4 h-4" />
-        </button>
-        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => setShowMediaSelector(true)} className="px-2.5 py-2 rounded-lg text-xs font-bold text-slate-300 hover:bg-slate-800 hover:text-white">
-          Media
-        </button>
-        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => setShowQuoteMenu(prev => !prev)} className="px-2.5 py-2 rounded-lg text-xs font-bold text-slate-300 hover:bg-slate-800 hover:text-white">
-          Quote
-        </button>
-        <button type="button" onMouseDown={e => e.preventDefault()} onClick={runInlineAI} disabled={loading || runningInlineAI} className="px-2.5 py-2 rounded-lg text-xs font-bold text-cyan-300 hover:bg-cyan-950/40 disabled:text-slate-600">
-          {runningInlineAI ? 'Generating...' : '/ai'}
-        </button>
-        <div className="ml-auto">
-          <button
-            type="button"
-            onClick={onOptimize}
-            disabled={loading || !emailHtmlHasContent(value)}
-            className="p-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-600 text-white shadow-[0_0_15px_rgba(79,70,229,0.35)]"
-            title="Optimize Content with AI"
-          >
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-          </button>
-        </div>
-        <input ref={fileInputRef} type="file" accept="image/*" onChange={handleLocalImage} className="hidden" />
-      </div>
-
-      {showLinkForm && (
-        <div className="flex items-center gap-2 border-x border-slate-800 bg-slate-950 px-3 py-2">
-          <input
-            value={linkUrl}
-            onChange={e => setLinkUrl(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') applyLink(); }}
-            className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 outline-none focus:border-cyan-500"
-            placeholder="https://example.com"
-          />
-          <button type="button" onClick={applyLink} className="px-3 py-1.5 rounded-lg bg-cyan-700 hover:bg-cyan-600 text-xs font-bold text-white">Apply</button>
-          <button type="button" onClick={() => setShowLinkForm(false)} className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300">Cancel</button>
-        </div>
-      )}
-
-      {showQuoteMenu && (
-        <div className="border-x border-slate-800 bg-slate-950 px-3 py-2 space-y-2">
-          <input
-            value={quoteSearch}
-            onChange={e => setQuoteSearch(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 outline-none focus:border-cyan-500"
-            placeholder="Search quote number..."
-          />
-          <div className="max-h-32 overflow-y-auto rounded-lg border border-slate-800">
-            {filteredQuotes.map(quote => (
-              <button
-                key={quote.id}
-                type="button"
-                onClick={() => {
-                  const link = `${window.location.origin}/quote/${quote.id}`;
-                  insertHtml(`<a href="${escapeEmailHtml(link)}">${escapeEmailHtml(quote.quoteNumber)}</a>`);
-                  setShowQuoteMenu(false);
-                }}
-                className="w-full px-3 py-2 text-left text-xs text-slate-300 hover:bg-cyan-950/50 hover:text-cyan-300 flex items-center justify-between"
-              >
-                <span className="font-mono">{quote.quoteNumber}</span>
-                <span className="text-slate-500">{quote.status}</span>
-              </button>
-            ))}
-            {filteredQuotes.length === 0 && <div className="px-3 py-2 text-xs text-slate-500 text-center">No matching quotes</div>}
-          </div>
-        </div>
-      )}
-
-      <div
-        ref={editorRef}
-        contentEditable
-        suppressContentEditableWarning
-        onInput={syncEditor}
-        onBlur={syncEditor}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && findAiCommandNode()) {
-            e.preventDefault();
-            void runInlineAI();
-          }
-        }}
-        className={cn(
-          "email-rich-editor flex-1 min-h-[220px] overflow-y-auto rounded-b-xl border-x border-b border-slate-800 bg-slate-950/30 px-4 py-3 text-sm text-slate-200 outline-none focus:border-indigo-500 leading-relaxed",
-          !value && "before:content-['Write_your_email_here...'] before:text-slate-600"
-        )}
-      />
-
-      {originalEmailBody && (
-        <div className="mt-4 pt-4 border-t border-slate-800 shrink-0">
-          <div className="text-xs text-slate-500 mb-2 font-medium">Original Message</div>
-          <div
-            className="text-sm text-slate-400 pl-3 border-l-2 border-slate-700 py-1"
-            dangerouslySetInnerHTML={{ __html: originalEmailBody }}
-          />
-        </div>
-      )}
-
-      {showMediaSelector && (
-        <MediaSelectorModal
-          onClose={() => setShowMediaSelector(false)}
-          onSelect={(url, media) => {
-            insertImage(url, media.name);
-            setShowMediaSelector(false);
-          }}
-          allowedTypes={['image']}
-        />
-      )}
-    </div>
   );
 }
 
