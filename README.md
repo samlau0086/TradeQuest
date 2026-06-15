@@ -493,6 +493,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] Extract Inbox Live Chat conversation pane so visitor context, AI suggestions, notes, and reply composer can evolve independently.
 - [x] Extract Inbox data/action hooks for sync, unified conversation actions, conversation list data, sidebar actions, bulk actions, navigation actions, selection state, selected email context, active conversation context, follow-up state, comments, and Telegram/Live Chat reply actions.
 - [x] Extract Inbox Telegram/Live Chat translation state, cache, persistence, and auto-translate effects into a shared hook.
+- [x] Extract Inbox Live Chat socket/session side effects into a shared hook and remove obsolete commented conversation-list code.
 - [ ] Continue reducing `Inbox.tsx` toward a page orchestration layer before replacing its layout.
 - [ ] Apply the same gradual extraction pattern to other large record/detail pages before major redesign.
 
@@ -551,6 +552,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] 已拆出 Inbox 的同步、统一会话动作、批量动作、导航动作、选择状态、选中邮件上下文、活跃会话上下文、待跟进、评论、Telegram/Live Chat 回复等 hooks。
 - [x] 已拆出 Inbox Live Chat 对话面板，使访客上下文、AI 建议、内部备注和回复框可以独立演进。
 - [x] 已拆出 Telegram/Live Chat 自动翻译状态、缓存、持久化和自动触发逻辑，统一放入共享 hook。
+- [x] 已拆出 Live Chat socket/会话副作用，并清理旧的注释版会话列表死代码。
 - [ ] 继续把 `Inbox.tsx` 收敛为页面编排层，再替换整体布局。
 - [ ] 对其他大型详情页/记录页使用同样的渐进式抽组件方式。
 

@@ -32,6 +32,7 @@ export { useInboxNavigationActions } from './useInboxNavigationActions';
 export { useInboxSelection } from './useInboxSelection';
 export { useInboxSidebarActions } from './useInboxSidebarActions';
 export { useInboxSync } from './useInboxSync';
+export { useLiveChatInboxSession } from './useLiveChatInboxSession';
 export { useSelectedEmailContext } from './useSelectedEmailContext';
 export { useUnifiedConversationActions } from './useUnifiedConversationActions';
 export {

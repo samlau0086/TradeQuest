@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useStore, EmailMessage, LiveChatSession } from '../store';
 import { useAuthStore } from '../authStore';
 import { Mail } from 'lucide-react';
@@ -31,6 +31,7 @@ import {
   useInboxSelection,
   useInboxSidebarActions,
   useInboxSync,
+  useLiveChatInboxSession,
   useSelectedEmailContext,
   useUnifiedConversationActions,
   WHATSAPP_CONVERSATION_POLL_MS,
@@ -134,35 +135,6 @@ export function Inbox() {
   }, []);
 
   useEffect(() => {
-    void connectLiveChatSocket();
-  }, [connectLiveChatSocket]);
-
-  useEffect(() => {
-    if (!selectedLiveChatConversation) return;
-    const sessionId = selectedLiveChatConversation.source_id;
-    joinLiveChatSocketSession(sessionId);
-    void fetchLiveChatMessages(sessionId);
-    if (!selectedLiveChatConversation.read) {
-      void patchUnifiedConversation(selectedLiveChatConversation, { read: true })
-        .then(() => refreshUnifiedConversationData())
-        .catch(() => undefined);
-    }
-    const interval = window.setInterval(
-      () => void fetchLiveChatMessages(sessionId),
-      liveChatSocketStatus === 'connected' ? 45000 : 8000
-    );
-    return () => window.clearInterval(interval);
-  }, [selectedLiveChatConversation?.id, selectedLiveChatConversation?.source_id, selectedLiveChatConversation?.read, fetchLiveChatMessages, joinLiveChatSocketSession, liveChatSocketStatus]);
-
-  useEffect(() => {
-    if (!selectedLiveChatConversation) return;
-    const frame = window.requestAnimationFrame(() => {
-      liveChatEndRef.current?.scrollIntoView({ block: 'end' });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [selectedLiveChatConversation?.id, liveChatMessages[selectedLiveChatConversation?.source_id || '']?.length]);
-
-  useEffect(() => {
     const handle = window.setTimeout(() => {
       void fetchUnifiedConversations(search, searchTags);
     }, 300);
@@ -217,111 +189,6 @@ export function Inbox() {
     showWhatsAppContactPicker,
   });
 
-  /*
-  const whatsappContactOptions = useMemo<WhatsAppContactOption[]>(() => {
-    const options: WhatsAppContactOption[] = [];
-    clients.forEach(client => {
-      const pushMethod = (method: any, contactName: string, contactTitle?: string, suffix = '') => {
-        if (method.type !== 'whatsapp') return;
-        const phone = method.value || '';
-        const normalized = phone.replace(/[^0-9]/g, '');
-        if (!normalized) return;
-        const label = `${contactName || client.name} · ${phone}`;
-        options.push({
-          key: `${client.id}:${suffix}:${normalized}`,
-          clientId: client.id,
-          clientName: client.name,
-          clientCompany: client.company,
-          contactName: contactName || client.name,
-          contactTitle,
-          phone,
-          label,
-          searchText: [
-            client.name,
-            client.company,
-            client.country,
-            contactName,
-            contactTitle,
-            phone,
-            normalized
-          ].filter(Boolean).join(' ').toLowerCase()
-        });
-      };
-
-      (client.contactMethods || []).forEach((method, index) => pushMethod(method, client.name, undefined, `client-${index}`));
-      (client.contacts || []).forEach(contact => {
-        (contact.contactMethods || []).forEach((method, index) => pushMethod(method, contact.name || client.name, contact.title, `${contact.id}-${index}`));
-      });
-    });
-    return options.sort((a, b) => a.clientName.localeCompare(b.clientName));
-  }, [clients]);
-
-  const whatsappMentionQuery = (() => {
-    const atIndex = newWhatsAppPhone.lastIndexOf('@');
-    return atIndex >= 0 ? newWhatsAppPhone.slice(atIndex + 1).trim().toLowerCase() : '';
-  })();
-
-  const visibleWhatsAppContactOptions = showWhatsAppContactPicker || newWhatsAppPhone.includes('@')
-    ? whatsappContactOptions
-        .filter(option => !whatsappMentionQuery || option.searchText.includes(whatsappMentionQuery))
-        .slice(0, 8)
-    : [];
-  */
-
-  /*
-  const emailConversationGroups = useMemo(() => {
-    const stripHtml = (value: string) => value.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
-    const findClientForEmail = (email: EmailMessage) => {
-      if (email.clientId) return clients.find(client => client.id === email.clientId) || null;
-      const addresses = [email.sender, email.recipient].map(value => value?.toLowerCase()).filter(Boolean);
-      return clients.find(client => {
-        const methods = [
-          ...(client.contactMethods || []),
-          ...(client.contacts || []).flatMap(contact => contact.contactMethods || [])
-        ];
-        return methods.some(method => (
-          method.type === 'email' && addresses.includes(method.value.trim().toLowerCase())
-        ));
-      }) || null;
-    };
-    const contactAddress = (email: EmailMessage) => {
-      if (email.type === 'inbox' || email.type === 'inbound') return email.sender;
-      return email.recipient || email.sender;
-    };
-    const groups = new Map<string, {
-      key: string;
-      title: string;
-      subtitle: string;
-      clientId?: string;
-      emails: EmailMessage[];
-      latest: EmailMessage;
-      unreadCount: number;
-    }>();
-
-    filteredEmails.forEach(email => {
-      const client = findClientForEmail(email);
-      const address = contactAddress(email);
-      const key = client ? `client:${client.id}` : `email:${(address || 'unknown').toLowerCase()}`;
-      const existing = groups.get(key);
-      const nextEmails = existing ? [...existing.emails, email] : [email];
-      nextEmails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      groups.set(key, {
-        key,
-        title: client?.name || client?.company || address || 'Unknown contact',
-        subtitle: client ? [client.company, client.country].filter(Boolean).join(' · ') || address : address,
-        clientId: client?.id,
-        emails: nextEmails,
-        latest: nextEmails[0],
-        unreadCount: nextEmails.filter(item => !item.read && (item.type === 'inbox' || item.type === 'inbound')).length
-      });
-    });
-
-    return Array.from(groups.values()).sort((a, b) => new Date(b.latest.date).getTime() - new Date(a.latest.date).getTime()).map(group => ({
-      ...group,
-      preview: stripHtml(group.latest.body || '').slice(0, 140)
-    }));
-  }, [filteredEmails, clients]);
-  */
 
   const {
     selectedIds,
@@ -384,6 +251,18 @@ export function Inbox() {
     fetchEmails,
     fetchLiveChatSessions,
     notify,
+  });
+
+  useLiveChatInboxSession({
+    selectedLiveChatConversation,
+    liveChatMessages,
+    liveChatSocketStatus,
+    liveChatEndRef,
+    connectLiveChatSocket,
+    joinLiveChatSocketSession,
+    fetchLiveChatMessages,
+    patchUnifiedConversation,
+    refreshUnifiedConversationData,
   });
 
   useEffect(() => {
