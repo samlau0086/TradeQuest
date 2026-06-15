@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarClock, Download, FileText, FolderOpen, Languages, Loader2, MessageCircle, Paperclip, Plus, Send, Smile, Sparkles, Tag, User, UserPlus, X } from 'lucide-react';
+import { CalendarClock, Download, FileText, FolderOpen, Languages, Loader2, Maximize2, MessageCircle, Paperclip, Plus, Send, Smile, Sparkles, Tag, User, UserPlus, X } from 'lucide-react';
 import { Client, Comment, MediaItem, useStore } from '../store';
 import { MediaSelectorModal } from './MediaSelectorModal';
 import { useTranslation } from '../lib/i18n';
@@ -50,6 +50,7 @@ interface Props {
   initialMessage?: string;
   embedded?: boolean;
   onClose: () => void;
+  onOpenInInbox?: () => void;
 }
 
 interface WhatsAppConversation {
@@ -181,7 +182,7 @@ const getWhatsAppMessageMedia = (message: WhatsAppHubMessage, hubBaseUrl?: strin
   return { hasMedia, url, mimeType, name, isImage, isVideo };
 };
 
-export function WhatsAppChatModal({ client, phone, conversation: initialConversation, initialMessage = '', embedded = false, onClose }: Props) {
+export function WhatsAppChatModal({ client, phone, conversation: initialConversation, initialMessage = '', embedded = false, onClose, onOpenInInbox }: Props) {
   const { notify, addLog, selectClient, editClient, language, llmConfigs, activeLLMId, llmMappings, logs, emails, clients, deals, knowledgeBase, products, whatsappHubConfig, whatsappCustomerServiceAgentEnabled, setWhatsAppCustomerServiceAgentEnabled, whatsappAutoTranslateConfig, setWhatsAppAutoTranslateEnabled, whatsappOutboundAutoTranslateConfig, setWhatsAppOutboundAutoTranslateEnabled, incrementAgentHubTaskCount } = useStore();
   const t = useTranslation(language);
   const [hubClients, setHubClients] = useState<WhatsAppHubClient[]>([]);
@@ -1170,9 +1171,21 @@ Return only the message text.`,
               </div>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg">
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {!embedded && onOpenInInbox && (
+              <button
+                type="button"
+                onClick={onOpenInInbox}
+                className="p-2 text-slate-400 hover:text-cyan-300 hover:bg-slate-800 rounded-lg"
+                title={language === 'zh' ? '在收件箱中打开' : 'Open in inbox'}
+              >
+                <Maximize2 className="w-5 h-5" />
+              </button>
+            )}
+            <button onClick={onClose} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {rawChatId && (

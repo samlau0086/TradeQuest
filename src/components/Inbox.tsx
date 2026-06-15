@@ -74,6 +74,7 @@ interface WhatsAppContactOption {
 }
 
 const WHATSAPP_CONVERSATION_CACHE_KEY = 'tradequest.whatsapp.conversations.cache.v1';
+const INBOX_OPEN_REQUEST_KEY = 'tradequest:inbox-open-request:v1';
 const WHATSAPP_CONVERSATION_POLL_MS = 20_000;
 const WHATSAPP_FOLLOW_UP_MARKER = '__FOLLOW_UP__';
 
@@ -1644,6 +1645,73 @@ export function Inbox() {
     setSelectedWhatsAppPhone(conversation.targetPhone);
     setSelectedWhatsAppClientId(conversation.clientId || null);
   };
+
+  useEffect(() => {
+    const consumeOpenRequest = () => {
+      const raw = localStorage.getItem(INBOX_OPEN_REQUEST_KEY);
+      if (!raw) return;
+      let request: any = null;
+      try {
+        request = JSON.parse(raw);
+      } catch {
+        localStorage.removeItem(INBOX_OPEN_REQUEST_KEY);
+        return;
+      }
+      if (!request || typeof request !== 'object') {
+        localStorage.removeItem(INBOX_OPEN_REQUEST_KEY);
+        return;
+      }
+      if (request.type === 'composeEmail') {
+        setIsStartingWhatsApp(false);
+        setSelectedWhatsAppPhone(null);
+        setSelectedWhatsAppClientId(null);
+        setSelectedTelegramConversation(null);
+        setSelectedLiveChatConversation(null);
+        selectEmail(null);
+        setComposeDefaults({
+          recipient: String(request.recipient || ''),
+          subject: String(request.subject || ''),
+          initialBody: String(request.initialBody || '')
+        });
+        setIsComposing(true);
+        localStorage.removeItem(INBOX_OPEN_REQUEST_KEY);
+        return;
+      }
+      if (request.type === 'whatsapp') {
+        const phone = String(request.phone || '').trim();
+        if (!phone) {
+          localStorage.removeItem(INBOX_OPEN_REQUEST_KEY);
+          return;
+        }
+        const normalizedPhone = phone.replace(/[^0-9]/g, '') || phone;
+        const conversation = whatsappConversations.find(item => {
+          const values = [item.targetPhone, item.contactPhone, item.rawChatId, item.conversationKey].filter(Boolean).map(value => String(value));
+          return values.some(value => value === phone || value === normalizedPhone || value.replace(/[^0-9]/g, '') === normalizedPhone);
+        });
+        if (conversation) {
+          handleSelectWhatsApp(conversation);
+        } else {
+          setIsComposing(false);
+          setIsStartingWhatsApp(false);
+          setSelectedTelegramConversation(null);
+          setTelegramMessages([]);
+          setSelectedLiveChatConversation(null);
+          selectEmail(null);
+          setSelectedWhatsAppPhone(normalizedPhone);
+          setSelectedWhatsAppClientId(request.clientId || null);
+        }
+        setChannelFilter('whatsapp');
+        localStorage.removeItem(INBOX_OPEN_REQUEST_KEY);
+      }
+    };
+    consumeOpenRequest();
+    window.addEventListener('storage', consumeOpenRequest);
+    window.addEventListener('tradequest:open-inbox-request', consumeOpenRequest);
+    return () => {
+      window.removeEventListener('storage', consumeOpenRequest);
+      window.removeEventListener('tradequest:open-inbox-request', consumeOpenRequest);
+    };
+  }, [whatsappConversations, selectEmail]);
 
   const loadTelegramMessages = async (conversation: UnifiedCommunicationConversation) => {
     setIsTelegramMessagesLoading(true);
