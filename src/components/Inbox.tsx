@@ -1106,7 +1106,7 @@ export function Inbox() {
     for (const conversation of selectedUnifiedConversations) {
       const tagToApply = conversation.channel === 'email' ? normalizedTag : tag;
       const tags = Array.from(new Set([...(conversation.tags || []), tagToApply]));
-      if (conversation.channel === 'live_chat' && conversation.client_id) {
+      if ((conversation.channel === 'live_chat' || conversation.channel === 'telegram') && conversation.client_id) {
         const client = clients.find(item => item.id === conversation.client_id);
         if (client) {
           editClient(client.id, {
@@ -1141,13 +1141,13 @@ export function Inbox() {
         createdAt: new Date().toISOString(),
         replies: []
       };
-      if (conversation.channel === 'live_chat' && conversation.client_id) {
+      if ((conversation.channel === 'live_chat' || conversation.channel === 'telegram') && conversation.client_id) {
         const client = clients.find(item => item.id === conversation.client_id);
         if (client) {
           editClient(client.id, {
             comments: [...(client.comments || []), {
               ...comment,
-              content: `[Live Chat] ${content}`
+              content: `[${conversation.channel === 'telegram' ? 'Telegram' : 'Live Chat'}] ${content}`
             }]
           });
           continue;
@@ -1336,6 +1336,26 @@ export function Inbox() {
       || matchWhatsAppClient(activeWhatsAppConversation?.targetPhone || selectedWhatsAppPhone)
       || null
     : null;
+  const activeTelegramClient = selectedTelegramConversation?.client_id
+    ? clients.find(client => client.id === selectedTelegramConversation.client_id) || null
+    : null;
+  const activeTelegramUsername = String(selectedTelegramConversation?.metadata?.username || selectedTelegramConversation?.contact_address || '').replace(/^@/, '').trim();
+  const activeTelegramUserId = String(selectedTelegramConversation?.metadata?.telegramUserId || '').trim();
+  const activeTelegramChatId = String(selectedTelegramConversation?.metadata?.telegramChatId || selectedTelegramConversation?.source_id || '').trim();
+  const activeTelegramContactMethod: ContactMethod | null = selectedTelegramConversation
+    ? {
+        type: 'telegram',
+        value: activeTelegramUsername
+          ? `@${activeTelegramUsername}`
+          : activeTelegramUserId || activeTelegramChatId
+      }
+    : null;
+  const activeTelegramDisplayName = selectedTelegramConversation?.contact_name
+    || selectedTelegramConversation?.title
+    || (activeTelegramUsername ? `@${activeTelegramUsername}` : '')
+    || activeTelegramUserId
+    || activeTelegramChatId
+    || 'Telegram User';
   const activeLiveChatSession = selectedLiveChatConversation
     ? liveChatSessions.find(session => session.id === selectedLiveChatConversation.source_id) || null
     : null;
@@ -1383,10 +1403,14 @@ export function Inbox() {
     ? { type: 'email', value: selectedEmailContactAddress }
     : selectedLiveChatConversation
       ? activeLiveChatContactMethod
+      : selectedTelegramConversation
+        ? activeTelegramContactMethod
       : null;
   const activeLinkableDisplayName = selectedEmail
     ? (selectedEmail.senderName || selectedEmailContactAddress)
-    : activeLiveChatDisplayName;
+    : selectedTelegramConversation
+      ? activeTelegramDisplayName
+      : activeLiveChatDisplayName;
   const activeUnifiedConversation = useMemo(() => {
     if (selectedEmail) {
       return unifiedConversationSource.find(conversation => conversation.channel === 'email' && conversation.source_id === selectedEmail.id)
@@ -1415,7 +1439,9 @@ export function Inbox() {
   const activeWhatsAppFollowUp = getWhatsAppFollowUp(activeWhatsAppConversation);
   const activeFollowUpAt = activeUnifiedConversation?.todo_at || selectedEmail?.todoAt || activeWhatsAppFollowUp?.dueAt || null;
   const activeFollowUpNote = activeUnifiedConversation?.todo_note || selectedEmail?.todoNote || activeWhatsAppFollowUp?.note || null;
-  const activeConversationComments = (selectedLiveChatConversation && activeLiveChatClient)
+  const activeConversationComments = (selectedTelegramConversation && activeTelegramClient)
+    ? (activeTelegramClient.comments || [])
+    : (selectedLiveChatConversation && activeLiveChatClient)
     ? (activeLiveChatClient.comments || [])
     : (activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback)
     ? (activeUnifiedConversation.comments || [])
@@ -1430,11 +1456,13 @@ export function Inbox() {
       attachments,
       replies: []
     };
-    if (selectedLiveChatConversation && activeLiveChatClient) {
-      editClient(activeLiveChatClient.id, {
-        comments: [...(activeLiveChatClient.comments || []), {
+    if ((selectedTelegramConversation && activeTelegramClient) || (selectedLiveChatConversation && activeLiveChatClient)) {
+      const client = activeTelegramClient || activeLiveChatClient!;
+      const sourceLabel = selectedTelegramConversation ? 'Telegram' : 'Live Chat';
+      editClient(client.id, {
+        comments: [...(client.comments || []), {
           ...comment,
-          content: `[Live Chat] ${content}`
+          content: `[${sourceLabel}] ${content}`
         }]
       });
       await refreshUnifiedConversationData();
@@ -1454,7 +1482,8 @@ export function Inbox() {
   };
 
   const replyActiveConversationComment = async (commentId: string, content: string, attachments?: any[]) => {
-    if (selectedLiveChatConversation && activeLiveChatClient) {
+    if ((selectedTelegramConversation && activeTelegramClient) || (selectedLiveChatConversation && activeLiveChatClient)) {
+      const client = activeTelegramClient || activeLiveChatClient!;
       const reply = {
         id: `ucr_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
         author: 'User',
@@ -1463,12 +1492,12 @@ export function Inbox() {
         attachments,
         replies: []
       };
-      const comments = (activeLiveChatClient.comments || []).map((comment: any) => (
+      const comments = (client.comments || []).map((comment: any) => (
         comment.id === commentId
           ? { ...comment, replies: [...(comment.replies || []), reply] }
           : comment
       ));
-      editClient(activeLiveChatClient.id, { comments });
+      editClient(client.id, { comments });
     } else if (activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback) {
       const reply = {
         id: `ucr_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
@@ -1769,7 +1798,8 @@ export function Inbox() {
   const handleCreateLead = () => {
     const canCreateFromEmail = selectedEmail && !selectedEmail.clientId;
     const canCreateFromLiveChat = selectedLiveChatConversation && !activeLiveChatClient && activeLiveChatContactMethod;
-    if (!canCreateFromEmail && !canCreateFromLiveChat) return;
+    const canCreateFromTelegram = selectedTelegramConversation && !activeTelegramClient && activeTelegramContactMethod;
+    if (!canCreateFromEmail && !canCreateFromLiveChat && !canCreateFromTelegram) return;
     setIsCreatingLead(true);
   };
 
@@ -2793,14 +2823,17 @@ export function Inbox() {
               channel="telegram"
               title={selectedTelegramConversation.client_name || selectedTelegramConversation.title || selectedTelegramConversation.contact_name || selectedTelegramConversation.contact_address || 'Telegram'}
               subtitle={selectedTelegramConversation.contact_address || selectedTelegramConversation.metadata?.telegramChatId || ''}
-              clientId={selectedTelegramConversation.client_id}
-              clientName={selectedTelegramConversation.client_name}
-              tags={selectedTelegramConversation.tags || []}
+              clientId={activeTelegramClient?.id || selectedTelegramConversation.client_id}
+              clientName={activeTelegramClient?.name || selectedTelegramConversation.client_name}
+              tags={activeTelegramClient?.tags || selectedTelegramConversation.tags || []}
               ownerId={selectedTelegramConversation.owner_id}
               stage={selectedTelegramConversation.stage}
               currentUser={currentUser}
               onBack={() => { setSelectedTelegramConversation(null); setTelegramMessages([]); }}
-              onClientClick={() => selectedTelegramConversation.client_id && selectClient(selectedTelegramConversation.client_id)}
+              onClientClick={() => {
+                const id = activeTelegramClient?.id || selectedTelegramConversation.client_id;
+                if (id) selectClient(id);
+              }}
               onOwnerChange={(ownerId) => {
                 updateConversationOwnerStage(selectedTelegramConversation, { ownerId });
                 setSelectedTelegramConversation(prev => prev ? { ...prev, owner_id: ownerId || undefined } : prev);
@@ -2841,6 +2874,16 @@ export function Inbox() {
               )}
               meta={(
                 <>
+                  {!activeTelegramClient && !selectedTelegramConversation.client_id && activeTelegramContactMethod && (
+                    <>
+                      <button onClick={handleCreateLead} className="text-cyan-500 flex items-center gap-1 hover:text-cyan-400 bg-slate-800/50 rounded px-1.5 py-0.5">
+                        <UserPlus className="w-3 h-3" /> New Lead
+                      </button>
+                      <button onClick={() => setIsAddingContactToClient(true)} className="text-emerald-400 flex items-center gap-1 hover:text-emerald-300 bg-slate-800/50 rounded px-1.5 py-0.5">
+                        <User className="w-3 h-3" /> Add to Existing Client
+                      </button>
+                    </>
+                  )}
                   {selectedTelegramConversation.metadata?.telegramChatId && (
                     <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">chat: {selectedTelegramConversation.metadata.telegramChatId}</span>
                   )}
@@ -2904,6 +2947,49 @@ export function Inbox() {
                   </div>
                 );
               })}
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 text-sm font-bold text-slate-200">
+                      <MessageSquare className="h-4 w-4 text-sky-300" />
+                      {language === 'zh' ? '内部备注' : 'Internal Notes'}
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-500">
+                      {activeTelegramClient
+                        ? (language === 'zh' ? '已关联客户：备注保存到客户资料。' : 'Linked client: notes are saved to the customer profile.')
+                        : (language === 'zh' ? '未关联客户：备注暂存到当前 Telegram 会话。' : 'Unlinked Telegram user: notes are saved to this conversation.')}
+                    </div>
+                  </div>
+                </div>
+                <div className="mb-3 space-y-3">
+                  {activeConversationComments.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-slate-800 px-3 py-4 text-center text-xs text-slate-500">
+                      {language === 'zh' ? '暂无内部备注。' : 'No internal notes yet.'}
+                    </div>
+                  ) : activeConversationComments.slice(-5).map(comment => (
+                    <CommentItem key={comment.id} comment={comment} onReply={(cmtId, text, atts) => void replyActiveConversationComment(cmtId, text, atts)} />
+                  ))}
+                </div>
+                <div className="flex items-end gap-2">
+                  <textarea
+                    value={commentText}
+                    onChange={event => setCommentText(event.target.value)}
+                    placeholder={language === 'zh' ? '添加内部备注...' : 'Add an internal note...'}
+                    className="min-h-[64px] flex-1 resize-none rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none placeholder:text-slate-600 focus:border-sky-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!commentText.trim()) return;
+                      void appendActiveConversationComment(commentText.trim()).then(() => setCommentText(''));
+                    }}
+                    disabled={!commentText.trim()}
+                    className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500 disabled:bg-slate-800 disabled:text-slate-500"
+                  >
+                    {language === 'zh' ? '添加' : 'Add'}
+                  </button>
+                </div>
+              </div>
             </div>
             <div className="border-t border-slate-800 bg-slate-900/80 p-4">
               <div className="flex items-end gap-3">
@@ -3588,29 +3674,48 @@ export function Inbox() {
         )}
       </Panel>
 
-      {isCreatingLead && (selectedEmail || selectedLiveChatConversation) && (
+      {isCreatingLead && (selectedEmail || selectedLiveChatConversation || selectedTelegramConversation) && (
         <ClientFormModal
           onClose={() => setIsCreatingLead(false)}
           initialData={{
             name: selectedEmail
               ? (filter === 'inbox' ? (selectedEmail.senderName || selectedEmail.sender.split('@')[0]) : (selectedEmail.recipient.split('@')[0]))
+              : selectedTelegramConversation
+                ? activeTelegramDisplayName
               : activeLiveChatDisplayName,
             company: 'Unknown',
             country: 'Unknown',
             status: 'Leads',
-            tags: selectedLiveChatConversation ? ['live-chat'] : [],
-            sourceType: selectedLiveChatConversation ? 'live_chat' : 'email',
-            sourceId: selectedLiveChatConversation?.source_id || selectedEmail?.id,
-            sourceLabel: selectedLiveChatConversation ? `Live Chat: ${activeLiveChatDisplayName}` : selectedEmail?.subject,
+            tags: selectedLiveChatConversation ? ['live-chat'] : selectedTelegramConversation ? ['telegram'] : [],
+            sourceType: selectedLiveChatConversation ? 'live_chat' : selectedTelegramConversation ? 'telegram' : 'email',
+            sourceId: selectedLiveChatConversation?.source_id || selectedTelegramConversation?.source_id || selectedEmail?.id,
+            sourceLabel: selectedLiveChatConversation ? `Live Chat: ${activeLiveChatDisplayName}` : selectedTelegramConversation ? `Telegram: ${activeTelegramDisplayName}` : selectedEmail?.subject,
             contactMethods: selectedEmail
               ? [{ type: 'email', value: filter === 'inbox' ? selectedEmail.sender : selectedEmail.recipient }]
+              : selectedTelegramConversation
+                ? (activeTelegramContactMethod ? [activeTelegramContactMethod] : [])
               : (activeLiveChatContactMethod ? [activeLiveChatContactMethod] : [])
           }}
           onSave={async (newClientId) => {
             if (activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback) {
               await patchUnifiedConversation(activeUnifiedConversation, { clientId: newClientId });
             }
-            if (selectedLiveChatConversation) {
+            if (selectedTelegramConversation) {
+              const res = await fetch(`/api/telegram/conversations/${encodeURIComponent(selectedTelegramConversation.source_id)}`, {
+                method: 'PATCH',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({ clientId: newClientId })
+              });
+              if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.error || 'Failed to link Telegram conversation');
+              }
+              setSelectedTelegramConversation(prev => prev ? { ...prev, client_id: newClientId } : prev);
+              await refreshUnifiedConversationData();
+            } else if (selectedLiveChatConversation) {
               await updateLiveChatSession(selectedLiveChatConversation.source_id, { clientId: newClientId } as Partial<LiveChatSession>);
               setSelectedLiveChatConversation(prev => prev ? { ...prev, client_id: newClientId } : prev);
               await fetchLiveChatSessions();
@@ -3632,7 +3737,22 @@ export function Inbox() {
             if (activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback) {
               await patchUnifiedConversation(activeUnifiedConversation, { clientId });
             }
-            if (selectedLiveChatConversation) {
+            if (selectedTelegramConversation) {
+              const res = await fetch(`/api/telegram/conversations/${encodeURIComponent(selectedTelegramConversation.source_id)}`, {
+                method: 'PATCH',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({ clientId })
+              });
+              if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.error || 'Failed to link Telegram conversation');
+              }
+              setSelectedTelegramConversation(prev => prev ? { ...prev, client_id: clientId } : prev);
+              await refreshUnifiedConversationData();
+            } else if (selectedLiveChatConversation) {
               await updateLiveChatSession(selectedLiveChatConversation.source_id, { clientId } as Partial<LiveChatSession>);
               setSelectedLiveChatConversation(prev => prev ? { ...prev, client_id: clientId } : prev);
               await fetchLiveChatSessions();

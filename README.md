@@ -914,6 +914,7 @@ Content-Type: application/json
 - Live Chat tags and internal notes use the linked customer as the primary destination when a customer is attached. Unlinked visitor conversations keep tags and notes on the conversation until they are linked or converted.
 - Inbox Live Chat shows visitor context evidence such as page URL, IP, browser, OS, language, timezone, local time, and message timing. The same evidence plus recent transcript, customer tags, and recent customer notes is passed into Agent Context & Suggestions so recommendations are easier to audit.
 - Unified Inbox is now the primary Live Chat conversation surface. The standalone Live Chat page remains for seat monitoring and operational management, not as the default message-reading path.
+- Telegram conversations in the unified Inbox support `New Lead` and `Add to Existing Client` using Telegram username, Telegram user id, or chat id. Once linked, Telegram tags and internal notes use the customer profile as the primary destination; unlinked conversations keep those records on the conversation.
 
 ### 中文
 
