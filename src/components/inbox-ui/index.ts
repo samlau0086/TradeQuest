@@ -1,4 +1,5 @@
 export { CONVERSATION_STAGES } from './constants';
+export { ComposeEmail } from './ComposeEmail';
 export { ConversationDetailHeader } from './ConversationDetailHeader';
 export { ConversationFollowUpStrip } from './ConversationFollowUpStrip';
 export { InboxBulkActionsPanel } from './InboxBulkActionsPanel';
