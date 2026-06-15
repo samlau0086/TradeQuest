@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { ContactMethod, useStore, EmailMessage, LiveChatSession } from '../store';
 import { useAuthStore } from '../authStore';
-import { Mail, User, Sparkles, Loader2, UserPlus, Languages } from 'lucide-react';
+import { Mail } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { CommentItem } from './CommentItem';
 import { ClientFormModal } from './ClientFormModal';
@@ -33,7 +33,11 @@ import {
   InboxSidebarControls,
   LiveChatCustomerInsightCard,
   LiveChatEvidencePanel,
+  LiveChatHeaderActions,
+  LiveChatHeaderMeta,
   StartWhatsAppConversationPane,
+  TelegramHeaderActions,
+  TelegramHeaderMeta,
   CONVERSATION_AUTO_TRANSLATE_KEY,
   INBOX_OPEN_REQUEST_KEY,
   WHATSAPP_CONVERSATION_POLL_MS,
@@ -2083,61 +2087,25 @@ ${activeTelegramAgentContext.additionalContext}`,
                 });
               }}
               actions={(
-                <button
-                  type="button"
-                  onClick={toggleTelegramHumanTakeover}
-                  className={cn(
-                    "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-colors",
-                    selectedTelegramConversation.metadata?.humanTakeover
-                      ? "border-amber-500/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20"
-                      : "border-sky-500/40 bg-sky-500/10 text-sky-200 hover:bg-sky-500/20"
-                  )}
-                  title={selectedTelegramConversation.metadata?.humanTakeover ? 'Human takeover is active' : 'Telegram Agent auto-reply is enabled when the agent is active'}
-                >
-                  {selectedTelegramConversation.metadata?.humanTakeover ? <User className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
-                  {selectedTelegramConversation.metadata?.humanTakeover
-                    ? (language === 'zh' ? '人工接管' : 'Human Takeover')
-                    : (language === 'zh' ? 'Agent 自动' : 'Agent Auto')}
-                </button>
+                <TelegramHeaderActions
+                  language={language}
+                  humanTakeover={selectedTelegramConversation.metadata?.humanTakeover}
+                  onToggleHumanTakeover={toggleTelegramHumanTakeover}
+                />
               )}
               meta={(
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setConversationAutoTranslateEnabled('telegram', selectedTelegramConversation.id, !activeTelegramTranslateEnabled)}
-                    className={cn(
-                      "text-xs flex items-center gap-1 rounded border px-1.5 py-0.5",
-                      activeTelegramTranslateEnabled
-                        ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-200"
-                        : "border-slate-700 bg-slate-800/50 text-slate-400 hover:text-slate-200"
-                    )}
-                  >
-                    <Languages className="w-3 h-3" />
-                    {language === 'zh' ? '自动翻译' : 'Auto Translate'}
-                    <span className={cn("h-1.5 w-1.5 rounded-full", activeTelegramTranslateEnabled ? "bg-cyan-300" : "bg-slate-600")} />
-                  </button>
-                  {!activeTelegramClient && !selectedTelegramConversation.client_id && activeTelegramContactMethod && (
-                    <>
-                      <button onClick={handleCreateLead} className="text-cyan-500 flex items-center gap-1 hover:text-cyan-400 bg-slate-800/50 rounded px-1.5 py-0.5">
-                        <UserPlus className="w-3 h-3" /> New Lead
-                      </button>
-                      <button onClick={() => setIsAddingContactToClient(true)} className="text-emerald-400 flex items-center gap-1 hover:text-emerald-300 bg-slate-800/50 rounded px-1.5 py-0.5">
-                        <User className="w-3 h-3" /> Add to Existing Client
-                      </button>
-                    </>
-                  )}
-                  {selectedTelegramConversation.metadata?.telegramChatId && (
-                    <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">chat: {selectedTelegramConversation.metadata.telegramChatId}</span>
-                  )}
-                  {selectedTelegramConversation.metadata?.telegramUserId && (
-                    <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">user: {selectedTelegramConversation.metadata.telegramUserId}</span>
-                  )}
-                  {selectedTelegramConversation.metadata?.humanTakeover && (
-                    <span className="bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-700/40 text-amber-200">
-                      {language === 'zh' ? 'Agent 已暂停' : 'Agent paused'}
-                    </span>
-                  )}
-                </>
+                <TelegramHeaderMeta
+                  language={language}
+                  isLinked={!!(activeTelegramClient || selectedTelegramConversation.client_id)}
+                  hasContactMethod={!!activeTelegramContactMethod}
+                  translateEnabled={activeTelegramTranslateEnabled}
+                  humanTakeover={selectedTelegramConversation.metadata?.humanTakeover}
+                  chatId={selectedTelegramConversation.metadata?.telegramChatId}
+                  userId={selectedTelegramConversation.metadata?.telegramUserId}
+                  onToggleTranslate={() => setConversationAutoTranslateEnabled('telegram', selectedTelegramConversation.id, !activeTelegramTranslateEnabled)}
+                  onCreateLead={handleCreateLead}
+                  onAddToExistingClient={() => setIsAddingContactToClient(true)}
+                />
               )}
             />
             <ConversationFollowUpStrip
@@ -2287,66 +2255,28 @@ ${activeTelegramAgentContext.additionalContext}`,
                 });
               }}
               actions={(
-                <>
-                  <button
-                    type="button"
-                    onClick={toggleLiveChatHumanTakeover}
-                    className={cn(
-                      "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-colors",
-                      (activeLiveChatSession?.humanTakeover ?? selectedLiveChatConversation.metadata?.humanTakeover)
-                        ? "border-amber-500/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20"
-                        : "border-violet-500/40 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20"
-                    )}
-                  >
-                    {(activeLiveChatSession?.humanTakeover ?? selectedLiveChatConversation.metadata?.humanTakeover) ? <User className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
-                    {(activeLiveChatSession?.humanTakeover ?? selectedLiveChatConversation.metadata?.humanTakeover)
-                      ? (language === 'zh' ? '人工接管' : 'Human Takeover')
-                      : (language === 'zh' ? 'Agent 自动' : 'Agent Auto')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={runSelectedLiveChatAgent}
-                    disabled={isRunningLiveChatAgent}
-                    className="inline-flex items-center gap-2 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs font-bold text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-60"
-                  >
-                    {isRunningLiveChatAgent ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                    {language === 'zh' ? '运行 Agent' : 'Run Agent'}
-                  </button>
-                </>
+                <LiveChatHeaderActions
+                  language={language}
+                  humanTakeover={activeLiveChatSession?.humanTakeover ?? selectedLiveChatConversation.metadata?.humanTakeover}
+                  isRunningAgent={isRunningLiveChatAgent}
+                  onToggleHumanTakeover={toggleLiveChatHumanTakeover}
+                  onRunAgent={runSelectedLiveChatAgent}
+                />
               )}
               meta={(
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setConversationAutoTranslateEnabled('live_chat', selectedLiveChatConversation.source_id, !activeLiveChatTranslateEnabled)}
-                    className={cn(
-                      "text-xs flex items-center gap-1 rounded border px-1.5 py-0.5",
-                      activeLiveChatTranslateEnabled
-                        ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-200"
-                        : "border-slate-700 bg-slate-800/50 text-slate-400 hover:text-slate-200"
-                    )}
-                  >
-                    <Languages className="w-3 h-3" />
-                    {language === 'zh' ? '自动翻译' : 'Auto Translate'}
-                    <span className={cn("h-1.5 w-1.5 rounded-full", activeLiveChatTranslateEnabled ? "bg-cyan-300" : "bg-slate-600")} />
-                  </button>
-                  {!activeLiveChatClient && !selectedLiveChatConversation.client_id && activeLiveChatContactMethod && (
-                    <>
-                      <button onClick={handleCreateLead} className="text-cyan-500 flex items-center gap-1 hover:text-cyan-400 bg-slate-800/50 rounded px-1.5 py-0.5">
-                        <UserPlus className="w-3 h-3" /> New Lead
-                      </button>
-                      <button onClick={() => setIsAddingContactToClient(true)} className="text-emerald-400 flex items-center gap-1 hover:text-emerald-300 bg-slate-800/50 rounded px-1.5 py-0.5">
-                        <User className="w-3 h-3" /> Add to Existing Client
-                      </button>
-                    </>
-                  )}
-                  {activeLiveChatSession?.visitorEmail && <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">email: {activeLiveChatSession.visitorEmail}</span>}
-                  {activeLiveChatSession?.visitorPhone && <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">phone: {activeLiveChatSession.visitorPhone}</span>}
-                  {activeLiveChatSession?.pageUrl && <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70 truncate max-w-[360px]">page: {activeLiveChatSession.pageUrl}</span>}
-                  {activeLiveChatVisitorInfo.ip && <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">IP: {activeLiveChatVisitorInfo.ip}</span>}
-                  {activeLiveChatVisitorInfo.browserName && <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">{[activeLiveChatVisitorInfo.browserName, activeLiveChatVisitorInfo.browserVersion].filter(Boolean).join(' ')}</span>}
-                  {activeLiveChatVisitorInfo.os && <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">{activeLiveChatVisitorInfo.os}</span>}
-                </>
+                <LiveChatHeaderMeta
+                  language={language}
+                  isLinked={!!(activeLiveChatClient || selectedLiveChatConversation.client_id)}
+                  hasContactMethod={!!activeLiveChatContactMethod}
+                  translateEnabled={activeLiveChatTranslateEnabled}
+                  visitorEmail={activeLiveChatSession?.visitorEmail}
+                  visitorPhone={activeLiveChatSession?.visitorPhone}
+                  pageUrl={activeLiveChatSession?.pageUrl}
+                  visitorInfo={activeLiveChatVisitorInfo}
+                  onToggleTranslate={() => setConversationAutoTranslateEnabled('live_chat', selectedLiveChatConversation.source_id, !activeLiveChatTranslateEnabled)}
+                  onCreateLead={handleCreateLead}
+                  onAddToExistingClient={() => setIsAddingContactToClient(true)}
+                />
               )}
             />
             <ConversationFollowUpStrip
