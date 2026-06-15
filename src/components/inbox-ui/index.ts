@@ -5,10 +5,12 @@ export { ConversationFollowUpStrip } from './ConversationFollowUpStrip';
 export { ConversationInternalNotesPanel } from './ConversationInternalNotesPanel';
 export { ConversationMessageList } from './ConversationMessageList';
 export { ConversationReplyComposer } from './ConversationReplyComposer';
+export { EmailAttachmentsPanel, EmailCommentsPanel } from './EmailDetailPanels';
 export { InboxBulkActionsPanel } from './InboxBulkActionsPanel';
 export { InboxConversationListItem } from './InboxConversationListItem';
 export { EmailTagDialog, EmailTodoDialog, InboxConfirmDialog, InboxNotificationDialog } from './InboxDialogs';
 export { InboxSidebarControls } from './InboxSidebarControls';
+export { LiveChatCustomerInsightCard, LiveChatEvidencePanel } from './LiveChatContextWidgets';
 export { StartWhatsAppConversationPane } from './StartWhatsAppConversationPane';
 export {
   EmailRichTextEditor,

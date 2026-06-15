@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { ContactMethod, useStore, EmailMessage, LiveChatSession } from '../store';
 import { useAuthStore } from '../authStore';
-import { Mail, Reply, PenLine, User, Sparkles, Loader2, UserPlus, MessageSquare, Paperclip, X, Database, CheckCircle2, Clock, Eye, MousePointerClick, Radar, Languages } from 'lucide-react';
+import { Mail, Reply, PenLine, User, Sparkles, Loader2, UserPlus, Database, CheckCircle2, Clock, Eye, MousePointerClick, Radar, Languages } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { CommentItem } from './CommentItem';
 import { ClientFormModal } from './ClientFormModal';
@@ -16,6 +16,8 @@ import {
   ConversationMessageList,
   ConversationReplyComposer,
   ComposeEmail,
+  EmailAttachmentsPanel,
+  EmailCommentsPanel,
   EmailTagDialog,
   EmailTodoDialog,
   InboxBulkActionsPanel,
@@ -24,6 +26,8 @@ import {
   InboxConversationListItem,
   InboxNotificationDialog,
   InboxSidebarControls,
+  LiveChatCustomerInsightCard,
+  LiveChatEvidencePanel,
   StartWhatsAppConversationPane,
   CONVERSATION_AUTO_TRANSLATE_KEY,
   INBOX_OPEN_REQUEST_KEY,
@@ -2349,49 +2353,8 @@ ${activeTelegramAgentContext.additionalContext}`,
               onComplete={() => updateActiveConversationFollowUp(null, null, 'completed')}
             />
             <div className="flex-1 overflow-y-auto bg-slate-950/50 p-6 space-y-4">
-              {activeLiveChatClient && (activeLiveChatClient.agentSummary || activeLiveChatClient.leadSummary || activeLiveChatClient.agentNextStep || activeLiveChatClient.leadNextStep) && (
-                <div className="rounded-xl border border-blue-500/20 bg-blue-950/20 p-4 text-sm text-slate-200">
-                  {(activeLiveChatClient.agentSummary || activeLiveChatClient.leadSummary) && (
-                    <div className="mb-2">
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-blue-300">AI Customer Summary</div>
-                      <div className="mt-1 leading-relaxed">{activeLiveChatClient.agentSummary || activeLiveChatClient.leadSummary}</div>
-                    </div>
-                  )}
-                  {(activeLiveChatClient.agentNextStep || activeLiveChatClient.leadNextStep) && (
-                    <div>
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">Best Next Step</div>
-                      <div className="mt-1 leading-relaxed">{activeLiveChatClient.agentNextStep || activeLiveChatClient.leadNextStep}</div>
-                    </div>
-                  )}
-                </div>
-              )}
-              {activeLiveChatEvidenceItems.length > 0 && (
-                <div className="rounded-xl border border-violet-500/20 bg-violet-950/10 p-4">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-bold text-slate-200">
-                        {language === 'zh' ? '访客上下文证据' : 'Visitor Context Evidence'}
-                      </div>
-                      <div className="mt-1 text-[11px] text-slate-500">
-                        {language === 'zh'
-                          ? '这些信息会作为 Live Chat Agent 建议的上下文依据。'
-                          : 'These facts are used as context for Live Chat Agent suggestions.'}
-                      </div>
-                    </div>
-                    <span className="rounded border border-violet-500/30 bg-violet-500/10 px-2 py-1 text-[10px] font-bold uppercase text-violet-200">
-                      {activeLiveChatEvidenceItems.length} {language === 'zh' ? '项' : 'facts'}
-                    </span>
-                  </div>
-                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                    {activeLiveChatEvidenceItems.map(item => (
-                      <div key={`${item.label}:${item.value}`} className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
-                        <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{item.label}</div>
-                        <div className="mt-1 break-words text-xs text-slate-200">{item.value}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <LiveChatCustomerInsightCard client={activeLiveChatClient} />
+              <LiveChatEvidencePanel language={language} items={activeLiveChatEvidenceItems} />
               <ConversationMessageList
                 channel="live_chat"
                 language={language}
@@ -2758,94 +2721,34 @@ ${activeTelegramAgentContext.additionalContext}`,
                  })}
                />
 
-               {selectedEmail.attachments && selectedEmail.attachments.length > 0 && (
-                 <div className="mt-8 border-t border-slate-800/50 pt-4">
-                   <div className="flex items-center gap-2 text-xs font-bold text-slate-400 mb-3">
-                     <Paperclip className="w-4 h-4" /> Attachments
-                   </div>
-                   <div className="flex flex-wrap gap-3">
-                     {selectedEmail.attachments.map((att, idx) => (
-                       <a href={att.url} key={idx} className="flex items-center gap-2 bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 px-3 py-2 rounded-lg text-sm text-slate-300 transition-colors">
-                         <Paperclip className="w-3.5 h-3.5 text-slate-500" />
-                         <span>{att.name}</span>
-                       </a>
-                     ))}
-                   </div>
-                 </div>
-               )}
+               <EmailAttachmentsPanel attachments={selectedEmail.attachments} />
 
-               {/* Comments Section */}
-               <div className="mt-12 border-t border-slate-800 pt-6">
-                 <h3 className="text-sm border-b border-slate-800 pb-2 font-bold flex items-center text-slate-400 mb-4">
-                   <MessageSquare className="w-4 h-4 mr-2" /> Comments & Notes
-                 </h3>
-                 <div className="space-y-4 mb-4">
-                   {activeConversationComments.map(comment => (
-                     <CommentItem key={comment.id} comment={comment} onReply={(cmtId, text, atts) => void replyActiveConversationComment(cmtId, text, atts)} />
-                   ))}
-                 </div>
-                 <div className="bg-slate-900 border border-slate-800 p-2 rounded-lg">
-                   <textarea
-                     value={commentText}
-                     onChange={(e) => setCommentText(e.target.value)}
-                     className="w-full bg-transparent text-sm resize-none focus:outline-none text-slate-300 placeholder-slate-600 p-1 min-h-[60px]"
-                     placeholder="Add a comment to this email..."
-                   />
-                   {commentAttachments.length > 0 && (
-                     <div className="flex flex-wrap gap-2 px-1 mb-2">
-                       {commentAttachments.map((f, idx) => (
-                         <div key={idx} className="relative group overflow-hidden border border-slate-700 rounded-md bg-slate-900 w-16 h-16 shrink-0">
-                           {f.type.startsWith('image/') ? (
-                             <img src={URL.createObjectURL(f)} alt={f.name} className="w-full h-full object-cover" />
-                           ) : (
-                             <div className="w-full h-full flex flex-col items-center justify-center text-[10px] text-slate-400 p-1 text-center break-words">
-                               <Paperclip className="w-3 h-3 mb-1" />
-                               <span className="truncate w-full line-clamp-2">{f.name}</span>
-                             </div>
-                           )}
-                           <button 
-                             onClick={() => setCommentAttachments(prev => prev.filter((_, i) => i !== idx))}
-                             className="absolute top-0 right-0 bg-red-500/80 hover:bg-red-500 text-white p-0.5 rounded-bl opacity-0 group-hover:opacity-100 transition-opacity"
-                           >
-                             <X className="w-3 h-3" />
-                           </button>
-                         </div>
-                       ))}
-                     </div>
-                   )}
-                   <div className="flex justify-between items-center pt-2">
-                     <div className="flex items-center gap-2 shrink-0 pb-1">
-                       <button onClick={() => setShowCommentAttachmentModal(true)} className="p-1.5 text-slate-500 hover:text-cyan-400 rounded-md transition-colors flex items-center gap-1" title="Attach Files">
-                         <Paperclip className="w-4 h-4" />
-                         {commentAttachments.length > 0 && <span className="text-xs bg-cyan-600 text-white px-1.5 py-0.5 rounded-full">{commentAttachments.length}</span>}
-                       </button>
-                     </div>
-                     <button
-                       onClick={() => { 
-                         if (commentText.trim() || commentAttachments.length > 0) { 
-                           const attsPayload = commentAttachments.length > 0 
-                             ? commentAttachments.map(f => ({
-                                 id: `file${Date.now()}_${Math.random()}`,
-                                 name: f.name,
-                                 type: (f.type.includes('image') ? 'image' : 'document') as 'image' | 'document' | 'other',
-                                 url: URL.createObjectURL(f)
-                               })) 
-                             : undefined;
-                           if (commentText.trim() || attsPayload) {
-                             void appendActiveConversationComment(commentText || 'Uploaded attachment(s)', attsPayload);
-                           }
-                           setCommentText(''); 
-                           setCommentAttachments([]);
-                         } 
-                       }}
-                       disabled={!commentText.trim() && commentAttachments.length === 0}
-                       className="bg-slate-800 disabled:opacity-50 text-slate-300 px-3 py-1 text-xs rounded hover:text-white"
-                     >
-                       Post Comment
-                     </button>
-                   </div>
-                 </div>
-               </div>
+               <EmailCommentsPanel
+                 comments={activeConversationComments}
+                 commentText={commentText}
+                 attachments={commentAttachments}
+                 onCommentTextChange={setCommentText}
+                 onAttachClick={() => setShowCommentAttachmentModal(true)}
+                 onRemoveAttachment={(index) => setCommentAttachments(prev => prev.filter((_, i) => i !== index))}
+                 onReply={(commentId, content, attachments) => void replyActiveConversationComment(commentId, content, attachments)}
+                 onSubmit={() => {
+                   if (commentText.trim() || commentAttachments.length > 0) {
+                     const attsPayload = commentAttachments.length > 0
+                       ? commentAttachments.map(file => ({
+                           id: `file${Date.now()}_${Math.random()}`,
+                           name: file.name,
+                           type: (file.type.includes('image') ? 'image' : 'document') as 'image' | 'document' | 'other',
+                           url: URL.createObjectURL(file)
+                         }))
+                       : undefined;
+                     if (commentText.trim() || attsPayload) {
+                       void appendActiveConversationComment(commentText || 'Uploaded attachment(s)', attsPayload);
+                     }
+                     setCommentText('');
+                     setCommentAttachments([]);
+                   }
+                 }}
+               />
             </div>
           </>
         ) : (
