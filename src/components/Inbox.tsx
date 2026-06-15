@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { ContactMethod, useStore, EmailMessage, LiveChatMessage, LiveChatSession } from '../store';
 import { useAuthStore } from '../authStore';
-import { Mail, Send, Reply, PenLine, User, Sparkles, Loader2, UserPlus, MessageSquare, Paperclip, X, Database, CheckCircle2, Clock, Eye, MousePointerClick, Radar, Languages } from 'lucide-react';
+import { Mail, Reply, PenLine, User, Sparkles, Loader2, UserPlus, MessageSquare, Paperclip, X, Database, CheckCircle2, Clock, Eye, MousePointerClick, Radar, Languages } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { CommentItem } from './CommentItem';
 import { ClientFormModal } from './ClientFormModal';
@@ -13,11 +13,13 @@ import {
   ConversationDetailHeader,
   ConversationFollowUpStrip,
   CONVERSATION_STAGES,
+  ConversationReplyComposer,
   ComposeEmail,
   EmailTagDialog,
   EmailTodoDialog,
   InboxBulkActionsPanel,
   InboxConfirmDialog,
+  ConversationInternalNotesPanel,
   InboxConversationListItem,
   InboxNotificationDialog,
   InboxSidebarControls,
@@ -2241,80 +2243,34 @@ ${activeTelegramAgentContext.additionalContext}`,
                   });
                 }}
               />
-              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2 text-sm font-bold text-slate-200">
-                      <MessageSquare className="h-4 w-4 text-sky-300" />
-                      {language === 'zh' ? '内部备注' : 'Internal Notes'}
-                    </div>
-                    <div className="mt-1 text-[11px] text-slate-500">
-                      {activeTelegramClient
-                        ? (language === 'zh' ? '已关联客户：备注保存到客户资料。' : 'Linked client: notes are saved to the customer profile.')
-                        : (language === 'zh' ? '未关联客户：备注暂存到当前 Telegram 会话。' : 'Unlinked Telegram user: notes are saved to this conversation.')}
-                    </div>
-                  </div>
-                </div>
-                <div className="mb-3 space-y-3">
-                  {activeConversationComments.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-slate-800 px-3 py-4 text-center text-xs text-slate-500">
-                      {language === 'zh' ? '暂无内部备注。' : 'No internal notes yet.'}
-                    </div>
-                  ) : activeConversationComments.slice(-5).map(comment => (
-                    <CommentItem key={comment.id} comment={comment} onReply={(cmtId, text, atts) => void replyActiveConversationComment(cmtId, text, atts)} />
-                  ))}
-                </div>
-                <div className="flex items-end gap-2">
-                  <textarea
-                    value={commentText}
-                    onChange={event => setCommentText(event.target.value)}
-                    placeholder={language === 'zh' ? '添加内部备注...' : 'Add an internal note...'}
-                    className="min-h-[64px] flex-1 resize-none rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none placeholder:text-slate-600 focus:border-sky-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!commentText.trim()) return;
-                      void appendActiveConversationComment(commentText.trim()).then(() => setCommentText(''));
-                    }}
-                    disabled={!commentText.trim()}
-                    className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500 disabled:bg-slate-800 disabled:text-slate-500"
-                  >
-                    {language === 'zh' ? '添加' : 'Add'}
-                  </button>
-                </div>
-              </div>
+              <ConversationInternalNotesPanel
+                language={language}
+                comments={activeConversationComments}
+                commentText={commentText}
+                accent="sky"
+                isLinked={!!activeTelegramClient}
+                linkedDescription={language === 'zh' ? '已关联客户：备注保存到客户资料。' : 'Linked client: notes are saved to the customer profile.'}
+                unlinkedDescription={language === 'zh' ? '未关联客户：备注暂存到当前 Telegram 会话。' : 'Unlinked Telegram user: notes are saved to this conversation.'}
+                onCommentTextChange={setCommentText}
+                onReply={(commentId, content, attachments) => void replyActiveConversationComment(commentId, content, attachments)}
+                onSubmit={() => {
+                  if (!commentText.trim()) return;
+                  void appendActiveConversationComment(commentText.trim()).then(() => setCommentText(''));
+                }}
+              />
             </div>
-            <div className="border-t border-slate-800 bg-slate-900/80 p-4">
-              <div className="flex items-end gap-3">
-                <textarea
-                  value={telegramReply}
-                  onChange={event => setTelegramReply(event.target.value)}
-                  onKeyDown={event => {
-                    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-                      event.preventDefault();
-                      void sendTelegramReply();
-                    }
-                  }}
-                  placeholder={language === 'zh' ? '输入 Telegram 回复，Ctrl+Enter 发送...' : 'Write a Telegram reply, Ctrl+Enter to send...'}
-                  className="min-h-[76px] flex-1 resize-none rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-sky-500"
-                />
-                <button
-                  type="button"
-                  onClick={sendTelegramReply}
-                  disabled={isSendingTelegramReply || !telegramReply.trim()}
-                  className="inline-flex h-10 items-center gap-2 rounded-lg bg-sky-600 px-4 text-sm font-bold text-white hover:bg-sky-500 disabled:bg-slate-800 disabled:text-slate-500"
-                >
-                  {isSendingTelegramReply ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  {language === 'zh' ? '发送' : 'Send'}
-                </button>
-              </div>
-              <div className="mt-2 text-[11px] text-slate-500">
-                {language === 'zh'
-                  ? '发送使用 Settings -> Telegram Bot 中配置的 Bot Token。AI 自动回复和人工接管控制将在下一步接入。'
-                  : 'Sending uses the Bot Token configured in Settings -> Telegram Bot. Human takeover pauses Telegram Agent auto-replies.'}
-              </div>
-            </div>
+            <ConversationReplyComposer
+              language={language}
+              value={telegramReply}
+              isSending={isSendingTelegramReply}
+              accent="sky"
+              placeholder={language === 'zh' ? '输入 Telegram 回复，Ctrl+Enter 发送...' : 'Write a Telegram reply, Ctrl+Enter to send...'}
+              helperText={language === 'zh'
+                ? '发送使用 Settings -> Telegram Bot 中配置的 Bot Token。人工接管会暂停 Telegram Agent 自动回复。'
+                : 'Sending uses the Bot Token configured in Settings -> Telegram Bot. Human takeover pauses Telegram Agent auto-replies.'}
+              onChange={setTelegramReply}
+              onSend={sendTelegramReply}
+            />
           </div>
         ) : selectedLiveChatConversation ? (
           <div className="flex-1 flex flex-col min-h-0">
@@ -2552,81 +2508,35 @@ ${activeTelegramAgentContext.additionalContext}`,
                   });
                 }}
               />
-              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2 text-sm font-bold text-slate-200">
-                      <MessageSquare className="h-4 w-4 text-violet-300" />
-                      {language === 'zh' ? '内部备注' : 'Internal Notes'}
-                    </div>
-                    <div className="mt-1 text-[11px] text-slate-500">
-                      {activeLiveChatClient
-                        ? (language === 'zh' ? '已关联客户：备注保存到客户资料。' : 'Linked client: notes are saved to the customer profile.')
-                        : (language === 'zh' ? '未关联客户：备注暂存到当前会话。' : 'Unlinked visitor: notes are saved to this conversation.')}
-                    </div>
-                  </div>
-                </div>
-                <div className="mb-3 space-y-3">
-                  {activeConversationComments.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-slate-800 px-3 py-4 text-center text-xs text-slate-500">
-                      {language === 'zh' ? '暂无内部备注。' : 'No internal notes yet.'}
-                    </div>
-                  ) : activeConversationComments.slice(-5).map(comment => (
-                    <CommentItem key={comment.id} comment={comment} onReply={(cmtId, text, atts) => void replyActiveConversationComment(cmtId, text, atts)} />
-                  ))}
-                </div>
-                <div className="flex items-end gap-2">
-                  <textarea
-                    value={commentText}
-                    onChange={event => setCommentText(event.target.value)}
-                    placeholder={language === 'zh' ? '添加内部备注...' : 'Add an internal note...'}
-                    className="min-h-[64px] flex-1 resize-none rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none placeholder:text-slate-600 focus:border-violet-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!commentText.trim()) return;
-                      void appendActiveConversationComment(commentText.trim()).then(() => setCommentText(''));
-                    }}
-                    disabled={!commentText.trim()}
-                    className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-bold text-white hover:bg-violet-500 disabled:bg-slate-800 disabled:text-slate-500"
-                  >
-                    {language === 'zh' ? '添加' : 'Add'}
-                  </button>
-                </div>
-              </div>
+              <ConversationInternalNotesPanel
+                language={language}
+                comments={activeConversationComments}
+                commentText={commentText}
+                accent="violet"
+                isLinked={!!activeLiveChatClient}
+                linkedDescription={language === 'zh' ? '已关联客户：备注保存到客户资料。' : 'Linked client: notes are saved to the customer profile.'}
+                unlinkedDescription={language === 'zh' ? '未关联客户：备注暂存到当前会话。' : 'Unlinked visitor: notes are saved to this conversation.'}
+                onCommentTextChange={setCommentText}
+                onReply={(commentId, content, attachments) => void replyActiveConversationComment(commentId, content, attachments)}
+                onSubmit={() => {
+                  if (!commentText.trim()) return;
+                  void appendActiveConversationComment(commentText.trim()).then(() => setCommentText(''));
+                }}
+              />
               <div ref={liveChatEndRef} />
             </div>
-            <div className="border-t border-slate-800 bg-slate-900/80 p-4">
-              <div className="flex items-end gap-3">
-                <textarea
-                  value={liveChatReply}
-                  onChange={event => setLiveChatReply(event.target.value)}
-                  onKeyDown={event => {
-                    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-                      event.preventDefault();
-                      void sendLiveChatReply();
-                    }
-                  }}
-                  placeholder={language === 'zh' ? '输入 Live Chat 回复，Ctrl+Enter 发送...' : 'Write a Live Chat reply, Ctrl+Enter to send...'}
-                  className="min-h-[76px] flex-1 resize-none rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-violet-500"
-                />
-                <button
-                  type="button"
-                  onClick={sendLiveChatReply}
-                  disabled={isSendingLiveChatReply || !liveChatReply.trim()}
-                  className="inline-flex h-10 items-center gap-2 rounded-lg bg-violet-600 px-4 text-sm font-bold text-white hover:bg-violet-500 disabled:bg-slate-800 disabled:text-slate-500"
-                >
-                  {isSendingLiveChatReply ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  {language === 'zh' ? '发送' : 'Send'}
-                </button>
-              </div>
-              <div className="mt-2 text-[11px] text-slate-500">
-                {language === 'zh'
-                  ? '人工接管会暂停后台 Live Chat Agent 自动回复；交还给 Agent 后，新访客消息可自动触发。'
-                  : 'Human takeover pauses background Live Chat Agent replies. Hand back to Agent to let new visitor messages trigger automation.'}
-              </div>
-            </div>
+            <ConversationReplyComposer
+              language={language}
+              value={liveChatReply}
+              isSending={isSendingLiveChatReply}
+              accent="violet"
+              placeholder={language === 'zh' ? '输入 Live Chat 回复，Ctrl+Enter 发送...' : 'Write a Live Chat reply, Ctrl+Enter to send...'}
+              helperText={language === 'zh'
+                ? '人工接管会暂停后台 Live Chat Agent 自动回复；交还给 Agent 后，新访客消息可自动触发。'
+                : 'Human takeover pauses background Live Chat Agent replies. Hand back to Agent to let new visitor messages trigger automation.'}
+              onChange={setLiveChatReply}
+              onSend={sendLiveChatReply}
+            />
           </div>
         ) : selectedWhatsAppPhone ? (
           <div className="flex-1 flex flex-col min-h-0">
