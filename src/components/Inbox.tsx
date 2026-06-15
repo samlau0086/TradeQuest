@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { ContactMethod, useStore, EmailMessage, LiveChatMessage, LiveChatSession } from '../store';
 import { useAuthStore } from '../authStore';
-import { Mail, MailOpen, Send, Reply, Trash2, ArrowLeft, RefreshCw, PenLine, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, MessageCircle, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2, MoreHorizontal, Star, Clock, Eye, MousePointerClick, Radar, Timer, Languages } from 'lucide-react';
+import { Mail, MailOpen, Send, Reply, Trash2, ArrowLeft, PenLine, User, Sparkles, Loader2, Tag, CalendarClock, UserPlus, MessageSquare, MessageCircle, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2, MoreHorizontal, Star, Clock, Eye, MousePointerClick, Radar, Timer, Languages } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { CommentItem } from './CommentItem';
 import { ClientFormModal } from './ClientFormModal';
@@ -15,55 +15,37 @@ import {
   CONVERSATION_STAGES,
   ComposeEmail,
   InboxBulkActionsPanel,
+  InboxSidebarControls,
+  CONVERSATION_AUTO_TRANSLATE_KEY,
+  INBOX_OPEN_REQUEST_KEY,
+  WHATSAPP_CONVERSATION_POLL_MS,
+  WHATSAPP_FOLLOW_UP_MARKER,
+  conversationAutoTranslateId,
+  conversationTranslationBucketId,
+  emailToUnifiedConversation,
+  extractLatestEmailText,
+  fallbackEmailKnowledgeSummary,
+  getInboxFilterForEmail,
+  getWhatsAppFollowUp,
+  hasOpenWhatsAppFollowUp,
+  mapUnifiedWhatsAppConversation,
+  normalizeTagSearchTerm,
+  readCachedConversationTranslations,
+  readCachedWhatsAppConversations,
+  readConversationAutoTranslateConfig,
+  simpleHash,
+  whatsappToUnifiedConversation,
+  writeCachedConversationTranslations,
+  writeCachedWhatsAppConversations,
+} from './inbox-ui';
+import type {
+  ConversationMessageTranslation,
+  InboxChannelFilter,
+  InboxWhatsAppConversation,
+  UnifiedCommunicationConversation,
 } from './inbox-ui';
 import { AddContactToClientModal } from './AddContactToClientModal';
 import { buildUnifiedAgentContext, extractLatestMessageText } from '../lib/agentContext';
-
-interface InboxWhatsAppConversation {
-  id: string;
-  unifiedId?: string;
-  targetPhone: string;
-  contactPhone?: string;
-  rawChatId?: string;
-  conversationKey?: string;
-  clientId?: string;
-  clientName?: string;
-  clientCompany?: string;
-  tags: string[];
-  comments: any[];
-  lastMessageAt?: string;
-  lastBody?: string;
-  lastDirection?: 'inbound' | 'outbound';
-  lastHubClientId?: string;
-}
-
-interface UnifiedCommunicationConversation {
-  id: string;
-  channel: 'email' | 'whatsapp' | 'live_chat' | 'telegram';
-  source_id: string;
-  client_id?: string;
-  owner_id?: string;
-  stage?: string;
-  client_name?: string;
-  client_company?: string;
-  status?: string;
-  direction?: 'inbound' | 'outbound';
-  title?: string;
-  subject?: string;
-  contact_name?: string;
-  contact_address?: string;
-  last_message_preview?: string;
-  last_message_at?: string;
-  read?: boolean;
-  is_important?: boolean;
-  todo_at?: string;
-  todo_note?: string;
-  tags?: string[];
-  comments?: any[];
-  agent_context_analysis?: any;
-  agent_context_analysis_key?: string;
-  metadata?: any;
-}
 
 interface WhatsAppContactOption {
   key: string;
@@ -77,257 +59,6 @@ interface WhatsAppContactOption {
   searchText: string;
 }
 
-const WHATSAPP_CONVERSATION_CACHE_KEY = 'tradequest.whatsapp.conversations.cache.v1';
-const INBOX_OPEN_REQUEST_KEY = 'tradequest:inbox-open-request:v1';
-const WHATSAPP_CONVERSATION_POLL_MS = 20_000;
-const WHATSAPP_FOLLOW_UP_MARKER = '__FOLLOW_UP__';
-const CONVERSATION_AUTO_TRANSLATE_KEY = 'tradequest.conversation.autoTranslate.v1';
-
-type InboxChannelFilter = 'all' | 'email' | 'whatsapp' | 'live_chat' | 'telegram';
-const normalizeTagSearchTerm = (term: string) => term.trim().replace(/^#/, '').toLowerCase();
-
-interface ConversationMessageTranslation {
-  language?: string;
-  text: string;
-  sourceLanguage?: string;
-  targetLanguage?: string;
-  bodyHash: string;
-  skipped?: boolean;
-  modelId?: string | null;
-  updatedAt?: string;
-}
-
-function simpleHash(value: string) {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = ((hash << 5) - hash) + value.charCodeAt(index);
-    hash |= 0;
-  }
-  return String(Math.abs(hash));
-}
-
-function conversationAutoTranslateId(channel: 'live_chat' | 'telegram', conversationKey: string) {
-  return `${channel}:${conversationKey}`.toLowerCase();
-}
-
-function conversationTranslationBucketId(channel: 'live_chat' | 'telegram', conversationKey: string, language: string) {
-  return `${channel}:${conversationKey}:${language}`.toLowerCase();
-}
-
-function conversationTranslationCacheKey(channel: 'live_chat' | 'telegram', conversationKey: string, language: string) {
-  return `tradequest.${channel}.translations.v1.${language}.${conversationKey}`;
-}
-
-function readConversationAutoTranslateConfig(): Record<string, boolean> {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(CONVERSATION_AUTO_TRANSLATE_KEY) || '{}');
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function readCachedConversationTranslations(channel: 'live_chat' | 'telegram', conversationKey: string, language: string): Record<string, ConversationMessageTranslation> {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(conversationTranslationCacheKey(channel, conversationKey, language)) || '{}');
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeCachedConversationTranslations(channel: 'live_chat' | 'telegram', conversationKey: string, language: string, translations: Record<string, ConversationMessageTranslation>) {
-  try {
-    localStorage.setItem(conversationTranslationCacheKey(channel, conversationKey, language), JSON.stringify(translations));
-  } catch {
-    // Browser cache is optional; server metadata remains the source of truth.
-  }
-}
-
-const getWhatsAppFollowUp = (conversation?: InboxWhatsAppConversation | null) => {
-  if (!conversation) return null;
-  const marker = [...(conversation.comments || [])]
-    .reverse()
-    .find(comment => String(comment.content || '').startsWith(WHATSAPP_FOLLOW_UP_MARKER));
-  if (!marker) return null;
-  try {
-    const parsed = JSON.parse(String(marker.content).slice(WHATSAPP_FOLLOW_UP_MARKER.length));
-    return parsed?.status === 'open' && parsed?.dueAt
-      ? { dueAt: String(parsed.dueAt), note: parsed.note ? String(parsed.note) : '' }
-      : null;
-  } catch {
-    return null;
-  }
-};
-
-const hasOpenWhatsAppFollowUp = (conversation: InboxWhatsAppConversation) => Boolean(getWhatsAppFollowUp(conversation));
-
-function readCachedWhatsAppConversations(): InboxWhatsAppConversation[] {
-  try {
-    const raw = sessionStorage.getItem(WHATSAPP_CONVERSATION_CACHE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeCachedWhatsAppConversations(conversations: InboxWhatsAppConversation[]) {
-  try {
-    sessionStorage.setItem(WHATSAPP_CONVERSATION_CACHE_KEY, JSON.stringify(conversations.slice(0, 300)));
-  } catch {
-    // Session storage is an optional speed cache only.
-  }
-}
-
-function mapUnifiedWhatsAppConversation(row: UnifiedCommunicationConversation): InboxWhatsAppConversation {
-  const metadata = row.metadata || {};
-  return {
-    id: row.source_id,
-    unifiedId: row.id,
-    targetPhone: metadata.targetPhone || row.contact_address || row.title || row.source_id,
-    contactPhone: metadata.contactPhone || row.contact_address || undefined,
-    rawChatId: metadata.rawChatId || undefined,
-    conversationKey: metadata.conversationKey || metadata.targetPhone || row.contact_address || undefined,
-    clientId: row.client_id,
-    clientName: row.client_name,
-    clientCompany: row.client_company,
-    tags: Array.isArray(row.tags) ? row.tags : [],
-    comments: Array.isArray(row.comments) ? row.comments : [],
-    lastMessageAt: row.last_message_at,
-    lastBody: row.last_message_preview,
-    lastDirection: row.direction
-  };
-}
-
-function emailToUnifiedConversation(email: EmailMessage): UnifiedCommunicationConversation {
-  const outbound = ['sent', 'outbound', 'scheduled'].includes(email.type);
-  return {
-    id: `local_email_${email.id}`,
-    channel: 'email',
-    source_id: email.id,
-    client_id: email.clientId,
-    status: email.type === 'draft' || email.type === 'scheduled' ? email.type : 'open',
-    direction: outbound ? 'outbound' : 'inbound',
-    title: email.subject || '(No Subject)',
-    subject: email.subject,
-    contact_name: email.senderName || (outbound ? email.recipient : email.sender),
-    contact_address: outbound ? email.recipient : email.sender,
-    last_message_preview: htmlEmailToText(email.body || '').slice(0, 500),
-    last_message_at: email.scheduledAt || email.date,
-    read: email.read,
-    is_important: email.isImportant,
-    todo_at: email.todoAt,
-    todo_note: email.todoNote,
-    tags: email.tags || [],
-    comments: email.comments || [],
-    metadata: { emailType: email.type, localFallback: true }
-  };
-}
-
-function whatsappToUnifiedConversation(conversation: InboxWhatsAppConversation): UnifiedCommunicationConversation {
-  return {
-    id: `local_whatsapp_${conversation.id}`,
-    channel: 'whatsapp',
-    source_id: conversation.id,
-    client_id: conversation.clientId,
-    client_name: conversation.clientName,
-    client_company: conversation.clientCompany,
-    status: 'open',
-    direction: conversation.lastDirection,
-    title: conversation.clientName || conversation.contactPhone || conversation.targetPhone,
-    contact_address: conversation.contactPhone || conversation.targetPhone,
-    last_message_preview: conversation.lastBody || '',
-    last_message_at: conversation.lastMessageAt,
-    tags: conversation.tags || [],
-    comments: conversation.comments || [],
-    metadata: {
-      targetPhone: conversation.targetPhone,
-      contactPhone: conversation.contactPhone,
-      rawChatId: conversation.rawChatId,
-      conversationKey: conversation.conversationKey,
-      localFallback: true
-    }
-  };
-}
-
-function decodeHtmlEntities(value: string) {
-  const textarea = document.createElement('textarea');
-  textarea.innerHTML = value;
-  return textarea.value;
-}
-
-function htmlEmailToText(html: string) {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html || '', 'text/html');
-  doc.querySelectorAll([
-    'script',
-    'style',
-    'meta',
-    'link',
-    'img[src*="/api/track/open/"]',
-    'blockquote',
-    '.gmail_quote',
-    '.gmail_attr',
-    '.yahoo_quoted',
-    '.moz-cite-prefix',
-    '.protonmail_quote',
-    '.OutlookMessageHeader',
-    '[type="cite"]'
-  ].join(',')).forEach(node => node.remove());
-  const htmlWithBreaks = doc.body.innerHTML
-    .replace(/<\s*br\s*\/?>/gi, '\n')
-    .replace(/<\/\s*(p|div|li|tr|h[1-6])\s*>/gi, '\n')
-    .replace(/<\s*li[^>]*>/gi, '\n- ');
-  return decodeHtmlEntities(htmlWithBreaks.replace(/<[^>]+>/g, ' '))
-    .replace(/\r/g, '')
-    .replace(/\u00a0/g, ' ')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n[ \t]+/g, '\n')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
-
-function extractLatestEmailText(htmlOrText: string) {
-  const text = htmlEmailToText(htmlOrText);
-  const separators = [
-    /\n\s*On\s.+?\bwrote:\s*\n/i,
-    /\n\s*-{2,}\s*Original Message\s*-{2,}\s*\n/i,
-    /\n\s*From:\s.+\n\s*(Sent|Date):\s.+\n/i,
-    /\n\s*发件人[:：]\s.+\n/i,
-    /\n\s*发送时间[:：]\s.+\n/i,
-    /\n\s*De\s*:\s.+\n\s*Envoyé\s*:\s.+\n/i,
-    /\n\s*Von:\s.+\n\s*Gesendet:\s.+\n/i,
-    /\n\s*_{6,}\s*\n/
-  ];
-  const cutAt = separators
-    .map(pattern => {
-      const match = pattern.exec(text);
-      return match?.index ?? -1;
-    })
-    .filter(index => index > 0)
-    .sort((a, b) => a - b)[0];
-  const latest = cutAt ? text.slice(0, cutAt) : text;
-  return latest
-    .split('\n')
-    .filter(line => !line.trim().startsWith('>'))
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
-
-function fallbackEmailKnowledgeSummary(text: string) {
-  const compact = text.replace(/\s+/g, ' ').trim();
-  return compact.length > 1200 ? `${compact.slice(0, 1200)}...` : compact;
-}
-
-function getInboxFilterForEmail(email: EmailMessage): 'inbox' | 'sent' | 'scheduled' | 'drafts' {
-  if (email.type === 'sent' || email.type === 'outbound') return 'sent';
-  if (email.type === 'scheduled') return 'scheduled';
-  if (email.type === 'draft') return 'drafts';
-  return 'inbox';
-}
 
 export function Inbox() {
   const { emails, markEmailRead, clients, logs, deals, knowledgeBase, products, addEmail, addLog, addClient, editClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail, notify, language, llmConfigs, activeLLMId, llmMappings, inboxFollowUpFilterRequest, fetchEmails, fetchLiveChatSessions, fetchLiveChatMessages, sendLiveChatOperatorMessage, updateLiveChatSession, runLiveChatAgent, connectLiveChatSocket, joinLiveChatSocketSession, liveChatSessions, liveChatMessages, liveChatSocketStatus } = useStore();
@@ -2128,204 +1859,74 @@ ${activeTelegramAgentContext.additionalContext}`,
     <PanelGroup id="inbox-layout" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged} orientation="horizontal" className="flex-1 overflow-hidden bg-slate-900 border-t border-slate-800">
       {/* Sidebar List */}
       <Panel id="inbox-list" defaultSize={320} minSize={250} maxSize={500} className={cn("flex flex-col transition-transform relative z-10", (selectedEmailId || selectedWhatsAppPhone || selectedTelegramConversation || selectedLiveChatConversation || isStartingWhatsApp) && "hidden md:flex")}>
-        <div className="p-4 border-b border-slate-800 flex flex-col gap-3 bg-slate-900">
-          <div className="flex justify-between items-center bg-slate-900">
-            <div className="flex bg-slate-800/50 rounded-lg p-1 border border-slate-700/50">
-              <button 
-                onClick={() => { selectEmail(null); setSelectedWhatsAppPhone(null); setSelectedTelegramConversation(null); setSelectedLiveChatConversation(null); setFilter('inbox'); }}
-                className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors", filter === 'inbox' ? "bg-slate-700 text-white" : "text-slate-400 hover:text-slate-200")}
-              >
-                Inbox
-              </button>
-              <button 
-                onClick={() => { selectEmail(null); setSelectedWhatsAppPhone(null); setSelectedTelegramConversation(null); setSelectedLiveChatConversation(null); setFilter('sent'); }}
-                className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors", filter === 'sent' ? "bg-slate-700 text-white" : "text-slate-400 hover:text-slate-200")}
-              >
-                Sent
-              </button>
-              <button 
-                onClick={() => { selectEmail(null); setSelectedWhatsAppPhone(null); setSelectedTelegramConversation(null); setSelectedLiveChatConversation(null); setFilter('scheduled'); }}
-                className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors", filter === 'scheduled' ? "bg-slate-700 text-white" : "text-slate-400 hover:text-slate-200")}
-              >
-                Scheduled
-              </button>
-              <button 
-                onClick={() => { selectEmail(null); setSelectedWhatsAppPhone(null); setSelectedTelegramConversation(null); setSelectedLiveChatConversation(null); setFilter('drafts'); }}
-                className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors", filter === 'drafts' ? "bg-slate-700 text-white" : "text-slate-400 hover:text-slate-200")}
-              >
-                Drafts
-              </button>
-            </div>
-            <div className="flex gap-2">
-              <button 
-                onClick={() => handleSync()}
-                disabled={isSyncing}
-                className={cn("p-1.5 bg-slate-800 text-slate-300 rounded-md hover:bg-slate-700 transition-colors border border-slate-700", isSyncing && "opacity-50")}
-                title="Sync Emails"
-              >
-                <RefreshCw className={cn("w-4 h-4", isSyncing && "animate-spin")} />
-              </button>
-              <button 
-                onClick={() => { setComposeDefaults(null); setIsComposing(true); setIsStartingWhatsApp(false); setSelectedWhatsAppPhone(null); setSelectedTelegramConversation(null); setSelectedLiveChatConversation(null); selectEmail(null); }}
-                className="p-1.5 bg-cyan-600 text-white rounded-md hover:bg-cyan-500 transition-colors shadow-lg shadow-cyan-600/20"
-                title="Compose Email"
-              >
-                <Edit3 className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => { setIsStartingWhatsApp(true); setIsComposing(false); setSelectedWhatsAppPhone(null); setSelectedWhatsAppClientId(null); setSelectedTelegramConversation(null); setSelectedLiveChatConversation(null); selectEmail(null); }}
-                className="p-1.5 bg-green-600 text-white rounded-md hover:bg-green-500 transition-colors shadow-lg shadow-green-600/20"
-                title="New WhatsApp Message"
-              >
-                <MessageCircle className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-          <div className="grid grid-cols-5 gap-1 rounded-lg border border-slate-800 bg-slate-950 p-1">
-            {([
-              { value: 'all', label: 'All', icon: null },
-              { value: 'email', label: 'Email', icon: Mail },
-              { value: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
-              { value: 'live_chat', label: 'Live Chat', icon: MessageSquare },
-              { value: 'telegram', label: 'Telegram', icon: Send }
-            ] as const).map(option => {
-              const Icon = option.icon;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => {
-                    setChannelFilter(option.value);
-                    if (option.value === 'whatsapp' || option.value === 'live_chat' || option.value === 'telegram') {
-                      setFilter('inbox');
-                      setEmailListMode('list');
-                      selectEmail(null);
-                    }
-                    if (option.value !== 'whatsapp' && selectedWhatsAppPhone) {
-                      setSelectedWhatsAppPhone(null);
-                      setSelectedWhatsAppClientId(null);
-                    }
-                    if (option.value !== 'telegram') {
-                      setSelectedTelegramConversation(null);
-                      setTelegramMessages([]);
-                    }
-                    if (option.value !== 'live_chat') {
-                      setSelectedLiveChatConversation(null);
-                    }
-                  }}
-                  className={cn(
-                    "flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-bold transition-colors",
-                    channelFilter === option.value
-                      ? "bg-slate-800 text-white shadow-sm"
-                      : "text-slate-500 hover:bg-slate-900 hover:text-slate-300"
-                  )}
-                >
-                  {Icon && <Icon className={cn("h-3.5 w-3.5", option.value === 'whatsapp' ? 'text-green-400' : option.value === 'live_chat' ? 'text-violet-400' : option.value === 'telegram' ? 'text-sky-400' : 'text-cyan-400')} />}
-                  <span>{option.label}</span>
-                </button>
-              );
-            })}
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="flex-1 flex flex-wrap items-center bg-slate-950 border border-slate-800 rounded px-2 min-h-[36px] focus-within:border-cyan-500 transition-colors">
-              <Search className="w-3 h-3 text-slate-500 mr-2" />
-              {searchTags.map((tag, i) => (
-                <span key={i} className="flex items-center gap-1 bg-slate-800 text-slate-300 text-xs px-2 py-0.5 rounded border border-slate-700 mr-1 my-1">
-                  {tag}
-                  <button onClick={() => setSearchTags(tags => tags.filter((_, index) => index !== i))} className="hover:text-red-400 ml-1">
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              ))}
-              <input 
-                type="text" 
-                placeholder={searchTags.length > 0 ? "Search..." : "Search or add #tag..."}
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Tab' || e.key === 'Enter') {
-                    e.preventDefault();
-                    if (search.trim()) {
-                      let tg = search.trim();
-                      setSearchTags([...searchTags, tg]);
-                      setSearch('');
-                    }
-                  } else if (e.key === 'Backspace' && !search && searchTags.length > 0) {
-                    setSearchTags(searchTags.slice(0, -1));
-                  }
-                }}
-                list="inbox-tag-suggestions"
-                className="flex-1 min-w-[100px] bg-transparent text-xs text-slate-200 py-1.5 focus:outline-none"
-              />
-              <datalist id="inbox-tag-suggestions">
-                {Array.from(new Set(emails.flatMap(e => e.tags || []))).map(t => (
-                  <option key={t} value={t} />
-                ))}
-              </datalist>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setFollowUpOnly(prev => !prev);
-                clearBulkSelection();
-              }}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold transition-colors",
-                followUpOnly
-                  ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-200"
-                  : "border-slate-700 bg-slate-950 text-slate-400 hover:border-emerald-500/40 hover:text-emerald-200"
-              )}
-              title="Filter conversations with follow-up reminders"
-            >
-              <CalendarClock className="h-3.5 w-3.5" />
-              {language === 'zh' ? '待跟进' : 'Follow-up'}
-              <span className={cn("rounded-full px-1.5 py-0.5 text-[10px]", followUpOnly ? "bg-emerald-500/20 text-emerald-100" : "bg-slate-800 text-slate-500")}>
-                {visibleFollowUpCount}
-              </span>
-            </button>
-            {followUpOnly && (
-              <button
-                type="button"
-                onClick={() => setFollowUpOnly(false)}
-                className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-950 px-2 py-1 text-[10px] font-bold text-slate-500 hover:text-slate-300"
-              >
-                <X className="h-3 w-3" />
-                {language === 'zh' ? '清除筛选' : 'Clear'}
-              </button>
-            )}
-          </div>
-          <div className="flex items-center justify-between gap-2">
-            <div className="inline-flex items-center gap-1.5 rounded-md border border-slate-800 bg-slate-950 px-2 py-1 text-[10px] font-bold text-slate-400">
-              <Database className="h-3 w-3 text-cyan-400" />
-              {language === 'zh' ? '统一会话视图' : 'Unified conversations'}
-            </div>
-            <span className="text-[10px] text-slate-500">
-              {unifiedConversationList.length} {language === 'zh' ? '条' : 'items'}
-            </span>
-          </div>
-          <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500">
-            <span className="inline-flex min-w-0 items-center gap-1">
-              <Timer className={cn("w-3 h-3 shrink-0", isSyncing ? "text-cyan-400" : syncError ? "text-rose-400" : "text-slate-500")} />
-              <span className="truncate">
-                {isSyncing
-                  ? 'Auto syncing emails...'
-                  : isWhatsAppBackgroundSyncing
-                    ? 'Refreshing WhatsApp in background...'
-                  : syncError
-                    ? `Auto sync waiting: ${syncError}`
-                    : 'Background auto sync is enabled'}
-              </span>
-            </span>
-            {lastSyncAt && (
-              <span className="shrink-0">
-                Last {new Date(lastSyncAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </span>
-            )}
-          </div>
-        </div>
-        
+        <InboxSidebarControls
+          language={language}
+          filter={filter}
+          channelFilter={channelFilter}
+          search={search}
+          searchTags={searchTags}
+          tagSuggestions={Array.from(new Set(emails.flatMap(e => e.tags || [])))}
+          followUpOnly={followUpOnly}
+          visibleFollowUpCount={visibleFollowUpCount}
+          totalConversations={unifiedConversationList.length}
+          isSyncing={isSyncing}
+          isWhatsAppBackgroundSyncing={isWhatsAppBackgroundSyncing}
+          syncError={syncError}
+          lastSyncAt={lastSyncAt}
+          onFilterChange={(nextFilter) => {
+            selectEmail(null);
+            setSelectedWhatsAppPhone(null);
+            setSelectedTelegramConversation(null);
+            setSelectedLiveChatConversation(null);
+            setFilter(nextFilter);
+          }}
+          onChannelFilterChange={(nextChannel) => {
+            setChannelFilter(nextChannel);
+            if (nextChannel === 'whatsapp' || nextChannel === 'live_chat' || nextChannel === 'telegram') {
+              setFilter('inbox');
+              setEmailListMode('list');
+              selectEmail(null);
+            }
+            if (nextChannel !== 'whatsapp' && selectedWhatsAppPhone) {
+              setSelectedWhatsAppPhone(null);
+              setSelectedWhatsAppClientId(null);
+            }
+            if (nextChannel !== 'telegram') {
+              setSelectedTelegramConversation(null);
+              setTelegramMessages([]);
+            }
+            if (nextChannel !== 'live_chat') {
+              setSelectedLiveChatConversation(null);
+            }
+          }}
+          onSearchChange={setSearch}
+          onSearchTagsChange={setSearchTags}
+          onToggleFollowUpOnly={() => {
+            setFollowUpOnly(prev => !prev);
+            clearBulkSelection();
+          }}
+          onClearFollowUpOnly={() => setFollowUpOnly(false)}
+          onSync={() => handleSync()}
+          onComposeEmail={() => {
+            setComposeDefaults(null);
+            setIsComposing(true);
+            setIsStartingWhatsApp(false);
+            setSelectedWhatsAppPhone(null);
+            setSelectedTelegramConversation(null);
+            setSelectedLiveChatConversation(null);
+            selectEmail(null);
+          }}
+          onStartWhatsApp={() => {
+            setIsStartingWhatsApp(true);
+            setIsComposing(false);
+            setSelectedWhatsAppPhone(null);
+            setSelectedWhatsAppClientId(null);
+            setSelectedTelegramConversation(null);
+            setSelectedLiveChatConversation(null);
+            selectEmail(null);
+          }}
+        />
+
         <div className="flex-1 overflow-y-auto scrollbar-thin pb-48">
           {selectableVisibleCount > 0 && (
             <InboxBulkActionsPanel
