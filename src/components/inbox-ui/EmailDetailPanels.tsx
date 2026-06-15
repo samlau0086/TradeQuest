@@ -1,5 +1,5 @@
 import React from 'react';
-import { MessageSquare, Paperclip, X } from 'lucide-react';
+import { Clock, Eye, MessageSquare, MousePointerClick, Paperclip, Radar, X } from 'lucide-react';
 import { CommentItem } from '../CommentItem';
 
 interface EmailAttachment {
@@ -31,6 +31,89 @@ export function EmailAttachmentsPanel({ attachments }: EmailAttachmentsPanelProp
           </a>
         ))}
       </div>
+    </div>
+  );
+}
+
+interface EmailTrackingPanelProps {
+  language: 'en' | 'zh';
+  enabled: boolean;
+  events: any[];
+  visibleEvents: any[];
+  isExpanded: boolean;
+  onToggleExpanded: () => void;
+}
+
+export function EmailTrackingPanel({
+  language,
+  enabled,
+  events,
+  visibleEvents,
+  isExpanded,
+  onToggleExpanded,
+}: EmailTrackingPanelProps) {
+  if (!enabled) return null;
+
+  return (
+    <div className="mb-6 bg-slate-800/30 border border-slate-700/50 rounded-xl p-4">
+      <div className="flex items-center gap-2 text-xs font-bold text-slate-400 mb-3 uppercase tracking-wider">
+        <Radar className="w-4 h-4 text-emerald-400" /> Interaction Tracking Activity
+      </div>
+      {events.length === 0 ? (
+        <div className="text-sm text-slate-500 py-2">No tracking events have been recorded yet.</div>
+      ) : (
+        <div className="space-y-3">
+          {visibleEvents.map((event, index) => (
+            <div
+              key={`${event.created_at || index}-${event.type || 'event'}`}
+              className="flex flex-wrap items-center gap-4 text-sm bg-slate-900/50 p-2.5 rounded-lg border border-slate-800/50"
+            >
+              <div className="flex items-center gap-2 min-w-[100px]">
+                {event.type === 'open' ? (
+                  <Eye className="w-4 h-4 text-cyan-500" />
+                ) : (
+                  <MousePointerClick className="w-4 h-4 text-fuchsia-500" />
+                )}
+                <span className="text-white font-medium capitalize">{event.type}</span>
+              </div>
+              <div className="flex items-center gap-2 text-slate-400 text-xs min-w-[140px]">
+                <Clock className="w-3.5 h-3.5" />
+                {new Date(event.created_at).toLocaleString()}
+              </div>
+              {(event.location?.country || event.location?.city) && (
+                <div className="flex items-center gap-1.5 text-slate-300 text-xs">
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/50" />
+                  {event.location.city ? `${event.location.city}, ` : ''}
+                  {event.location.region ? `${event.location.region}, ` : ''}
+                  {event.location.country}
+                </div>
+              )}
+              <div className="text-slate-500 text-xs ml-auto font-mono bg-slate-800 px-2 py-0.5 rounded" title={event.user_agent}>
+                {event.ip_address}
+              </div>
+              {event.type === 'click' && event.url && (
+                <div className="w-full mt-1.5 text-xs">
+                  <span className="text-slate-500 mr-2">Link Clicked:</span>
+                  <a href={event.url} target="_blank" rel="noopener noreferrer" className="text-fuchsia-400 hover:text-fuchsia-300 underline break-all">
+                    {event.url}
+                  </a>
+                </div>
+              )}
+            </div>
+          ))}
+          {events.length > 3 && (
+            <button
+              type="button"
+              onClick={onToggleExpanded}
+              className="text-xs font-bold text-emerald-300 hover:text-emerald-200 transition-colors"
+            >
+              {isExpanded
+                ? (language === 'zh' ? '收起' : 'Show Less')
+                : (language === 'zh' ? `显示全部 ${events.length} 条记录` : `Show More (${events.length})`)}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
