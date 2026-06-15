@@ -1,10 +1,113 @@
 import React from 'react';
-import { Clock, Eye, MessageSquare, MousePointerClick, Paperclip, Radar, X } from 'lucide-react';
+import { CheckCircle2, Clock, Database, Eye, Loader2, MessageSquare, MousePointerClick, Paperclip, PenLine, Radar, Reply, User, UserPlus, X } from 'lucide-react';
 import { CommentItem } from '../CommentItem';
 
 interface EmailAttachment {
   name: string;
   url: string;
+}
+
+interface EmailHeaderMetaProps {
+  isLinked: boolean;
+  isInbound: boolean;
+  senderIp?: string;
+  senderCountry?: string;
+  cc?: string;
+  bcc?: string;
+  onCreateLead: () => void;
+  onAddToExistingClient: () => void;
+}
+
+export function EmailHeaderMeta({
+  isLinked,
+  isInbound,
+  senderIp,
+  senderCountry,
+  cc,
+  bcc,
+  onCreateLead,
+  onAddToExistingClient,
+}: EmailHeaderMetaProps) {
+  return (
+    <>
+      {!isLinked && (
+        <>
+          <button onClick={onCreateLead} className="text-cyan-500 flex items-center gap-1 hover:text-cyan-400 bg-slate-800/50 rounded px-1.5 py-0.5">
+            <UserPlus className="w-3 h-3" /> New Lead
+          </button>
+          <button onClick={onAddToExistingClient} className="text-emerald-400 flex items-center gap-1 hover:text-emerald-300 bg-slate-800/50 rounded px-1.5 py-0.5">
+            <User className="w-3 h-3" /> Add to Existing Client
+          </button>
+        </>
+      )}
+      {isInbound && senderIp && (
+        <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">IP: {senderIp}</span>
+      )}
+      {isInbound && senderCountry && (
+        <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70 text-emerald-300">{senderCountry}</span>
+      )}
+      {cc && <span>Cc: {cc}</span>}
+      {bcc && <span>Bcc: {bcc}</span>}
+    </>
+  );
+}
+
+interface EmailHeaderActionsProps {
+  isDraft: boolean;
+  hasClient: boolean;
+  isAddingToRag: boolean;
+  isAddedToRag: boolean;
+  onEditDraft: () => void;
+  onReply: () => void;
+  onAddToRag: () => void;
+}
+
+export function EmailHeaderActions({
+  isDraft,
+  hasClient,
+  isAddingToRag,
+  isAddedToRag,
+  onEditDraft,
+  onReply,
+  onAddToRag,
+}: EmailHeaderActionsProps) {
+  return (
+    <>
+      {isDraft ? (
+        <button
+          onClick={onEditDraft}
+          className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"
+          title="Edit Draft"
+        >
+          <PenLine className="w-4 h-4" />
+        </button>
+      ) : (
+        <button
+          onClick={onReply}
+          className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"
+          title="Reply"
+        >
+          <Reply className="w-4 h-4" />
+        </button>
+      )}
+      {hasClient && (
+        <button
+          onClick={onAddToRag}
+          disabled={isAddingToRag}
+          className="p-2 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-900/30 rounded transition-colors flex items-center gap-1"
+          title="Add to Knowledge Base (RAG)"
+        >
+          {isAddingToRag ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : isAddedToRag ? (
+            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+          ) : (
+            <Database className="w-4 h-4" />
+          )}
+        </button>
+      )}
+    </>
+  );
 }
 
 interface EmailAttachmentsPanelProps {

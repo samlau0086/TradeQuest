@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { ContactMethod, useStore, EmailMessage, LiveChatSession } from '../store';
 import { useAuthStore } from '../authStore';
-import { Mail, Reply, PenLine, User, Sparkles, Loader2, UserPlus, Database, CheckCircle2, Languages } from 'lucide-react';
+import { Mail, User, Sparkles, Loader2, UserPlus, Languages } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { CommentItem } from './CommentItem';
 import { ClientFormModal } from './ClientFormModal';
@@ -18,6 +18,8 @@ import {
   ComposeEmail,
   EmailAttachmentsPanel,
   EmailCommentsPanel,
+  EmailHeaderActions,
+  EmailHeaderMeta,
   EmailTrackingPanel,
   EmailTagDialog,
   EmailTodoDialog,
@@ -2531,64 +2533,44 @@ ${activeTelegramAgentContext.additionalContext}`,
                 });
               }}
               meta={(
-                <>
-                  {!selectedEmail.clientId && (
-                    <>
-                      <button onClick={handleCreateLead} className="text-cyan-500 flex items-center gap-1 hover:text-cyan-400 bg-slate-800/50 rounded px-1.5 py-0.5">
-                        <UserPlus className="w-3 h-3" /> New Lead
-                      </button>
-                      <button onClick={() => setIsAddingContactToClient(true)} className="text-emerald-400 flex items-center gap-1 hover:text-emerald-300 bg-slate-800/50 rounded px-1.5 py-0.5">
-                        <User className="w-3 h-3" /> Add to Existing Client
-                      </button>
-                    </>
-                  )}
-                  {isInboundCustomerEmail(selectedEmail) && selectedEmail.senderIp && (
-                    <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">IP: {selectedEmail.senderIp}</span>
-                  )}
-                  {isInboundCustomerEmail(selectedEmail) && selectedEmail.senderCountry && (
-                    <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70 text-emerald-300">{selectedEmail.senderCountry}</span>
-                  )}
-                  {selectedEmail.cc && <span>Cc: {selectedEmail.cc}</span>}
-                  {selectedEmail.bcc && <span>Bcc: {selectedEmail.bcc}</span>}
-                </>
+                <EmailHeaderMeta
+                  isLinked={!!selectedEmail.clientId}
+                  isInbound={isInboundCustomerEmail(selectedEmail)}
+                  senderIp={selectedEmail.senderIp}
+                  senderCountry={selectedEmail.senderCountry}
+                  cc={selectedEmail.cc}
+                  bcc={selectedEmail.bcc}
+                  onCreateLead={handleCreateLead}
+                  onAddToExistingClient={() => setIsAddingContactToClient(true)}
+                />
               )}
               actions={(
-                <>
-                  {selectedEmail.type === 'draft' ? (
-                    <button
-                      onClick={() => {
-                        setComposeDefaults({
-                          recipient: selectedEmail.recipient,
-                          subject: selectedEmail.subject,
-                          initialBody: selectedEmail.body,
-                          draftId: selectedEmail.id,
-                          initialOutboxId: selectedEmail.outboxConfigId
-                        });
-                        setIsComposing(true);
-                      }}
-                      className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"
-                      title="Edit Draft"
-                    >
-                      <PenLine className="w-4 h-4" />
-                    </button>
-                  ) : (
-                    <button onClick={() => { setComposeDefaults({ recipient: selectedEmail.sender, subject: `Re: ${selectedEmail.subject.replace(/^Re:\s*/i, '')}`, originalEmailBody: `On ${new Date(selectedEmail.date).toLocaleString()}, ${selectedEmail.senderName || selectedEmail.sender} wrote:<br>${selectedEmail.body || ''}`, replyToEmailId: selectedEmail.id }); setIsComposing(true); }} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors" title="Reply">
-                      <Reply className="w-4 h-4" />
-                    </button>
-                  )}
-                  {selectedEmail.clientId && (
-                    <button
-                      onClick={handleAddToRag}
-                      disabled={addingToRag}
-                      className="p-2 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-900/30 rounded transition-colors flex items-center gap-1"
-                      title="Add to Knowledge Base (RAG)"
-                    >
-                      {addingToRag ? <Loader2 className="w-4 h-4 animate-spin" /> :
-                       addedToRagId === selectedEmail.id ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> :
-                       <Database className="w-4 h-4" />}
-                    </button>
-                  )}
-                </>
+                <EmailHeaderActions
+                  isDraft={selectedEmail.type === 'draft'}
+                  hasClient={!!selectedEmail.clientId}
+                  isAddingToRag={addingToRag}
+                  isAddedToRag={addedToRagId === selectedEmail.id}
+                  onEditDraft={() => {
+                    setComposeDefaults({
+                      recipient: selectedEmail.recipient,
+                      subject: selectedEmail.subject,
+                      initialBody: selectedEmail.body,
+                      draftId: selectedEmail.id,
+                      initialOutboxId: selectedEmail.outboxConfigId
+                    });
+                    setIsComposing(true);
+                  }}
+                  onReply={() => {
+                    setComposeDefaults({
+                      recipient: selectedEmail.sender,
+                      subject: `Re: ${selectedEmail.subject.replace(/^Re:\s*/i, '')}`,
+                      originalEmailBody: `On ${new Date(selectedEmail.date).toLocaleString()}, ${selectedEmail.senderName || selectedEmail.sender} wrote:<br>${selectedEmail.body || ''}`,
+                      replyToEmailId: selectedEmail.id
+                    });
+                    setIsComposing(true);
+                  }}
+                  onAddToRag={handleAddToRag}
+                />
               )}
             />
             <ConversationFollowUpStrip
