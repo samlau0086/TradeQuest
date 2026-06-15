@@ -477,6 +477,118 @@ Recommended near-term roadmap:
 - [x] Tie gamification rewards to real CRM outcomes and configurable point/EXP rules.
 - [x] Award configurable, idempotent points and EXP for real sales outcomes: quote sent, sample sent, negotiation started, and closed won.
 
+## HubSpot-Inspired UI Refactor Roadmap
+
+This roadmap tracks the gradual UI refactor inspired by HubSpot-style CRM information architecture. The goal is not to copy HubSpot visually, but to adopt a clearer CRM workspace model: object records, activity timeline, property panels, communication workspace, task/approval operations, and consistent navigation.
+
+Maintenance rule: every future UI refactor step must update this roadmap in the same change. Use `[ ]` for not started, `[-]` for in progress, and `[x]` for complete.
+
+### Phase 0: Refactor Foundation
+
+- [-] Gradually split oversized page components before changing major layouts. `Inbox.tsx` is being reduced through smaller hooks and UI components.
+- [x] Extract Inbox conversation list item, sidebar controls, bulk actions panel, dialogs, message list, reply composer, internal notes, follow-up strip, and channel detail header pieces.
+- [x] Extract Inbox data/action hooks for sync, unified conversation actions, bulk actions, navigation actions, selection state, selected email context, follow-up state, comments, and Telegram/Live Chat reply actions.
+- [ ] Continue reducing `Inbox.tsx` toward a page orchestration layer before replacing its layout.
+- [ ] Apply the same gradual extraction pattern to other large record/detail pages before major redesign.
+
+### Phase 1: Design System Layer
+
+- [ ] Create shared UI primitives for `PageHeader`, `SectionHeader`, `ActionBar`, `Toolbar`, `FilterBar`, `StatusBadge`, `OwnerStageControl`, `EmptyState`, `ConfirmDialog`, and `DataTable`.
+- [ ] Normalize spacing, typography, button hierarchy, input styling, tab styling, icon usage, and density across operational pages.
+- [ ] Add shared layout primitives for `CRMWorkspaceLayout`, `RecordPageLayout`, `LeftListMiddleDetailRightPanelLayout`, and `WidgetRail`.
+- [ ] Keep the UI optimized for repeated CRM work: compact, scannable, keyboard-friendly, and not marketing-page-like.
+
+### Phase 2: Customer and Lead Record Pages
+
+- [ ] Rebuild client/lead details as HubSpot-like record workrooms.
+- [ ] Use a clear three-zone structure: left properties/identity, center activity timeline and communication history, right widgets for AI, tasks, quotes, contacts, RAG, and pending approvals.
+- [ ] Separate customer-level intelligence from lead-level intelligence in the UI.
+- [ ] Make "next best action" the primary sales work entry point.
+- [ ] Keep quotes, contacts, related products, RAG evidence, open tasks, and channel history visible without overcrowding the main timeline.
+
+### Phase 3: Unified Communication Workspace
+
+- [ ] Refactor Inbox into a HubSpot-like communication workspace.
+- [ ] Keep one unified left conversation list with channel filters, saved views, bulk actions, and assignment controls.
+- [ ] Use a consistent middle conversation/detail pane for Email, WhatsApp, Live Chat, and Telegram.
+- [ ] Add an optional right context rail for linked customer/lead, AI context evidence, RAG snippets, tasks, and recent activity.
+- [ ] Preserve channel-specific capabilities such as email WYSIWYG, WhatsApp media, translation, scheduling, and human takeover while using shared layout patterns.
+
+### Phase 4: Agent Operations Center
+
+- [ ] Reframe Agent Hub as an operations center with clear task queue, approvals, execution history, health, and agent configuration areas.
+- [ ] Make task source, entity, responsible agent, risk, approval state, and execution result visually obvious.
+- [ ] Keep Agent Chat as an assistant surface, not the primary execution workflow.
+- [ ] Add more visual traceability for context evidence, tool results, skipped reasons, and remediation suggestions.
+
+### Phase 5: Dashboard and Growth Operations
+
+- [ ] Rework Dashboard around actionable operating insights instead of only charts.
+- [ ] Highlight follow-up workload, stalled deals, channel conversion trend, agent contribution, lead quality by source, and daily operating summary.
+- [ ] Align gamification surfaces with meaningful CRM outcomes rather than simple activity volume.
+
+### Phase 6: Settings and Admin Consistency
+
+- [ ] Reorganize Settings into predictable admin categories: AI & Integrations, Channels, Users & Roles, Notifications, API Tokens, Data/RAG, Gamification, Currency, and System Health.
+- [ ] Use shared forms, section layouts, validation states, and save feedback.
+- [ ] Keep high-risk settings and destructive actions visually distinct with audit and approval context.
+
+## 参考 HubSpot 的 UI 重构 Roadmap
+
+此路线图用于跟踪参考 HubSpot 信息架构进行的渐进式 UI 重构。目标不是照搬 HubSpot 视觉，而是吸收它清晰的 CRM 工作方式：对象详情页、活动时间线、属性面板、统一沟通工作区、任务/审批运营中心和一致的导航结构。
+
+维护规则：之后每一次 UI 重构都必须同步更新此 Roadmap。`[ ]` 表示未开始，`[-]` 表示进行中，`[x]` 表示已完成。
+
+### 阶段 0：重构基础
+
+- [-] 在大改布局前，先逐步拆分超大页面组件。`Inbox.tsx` 正在通过小组件和 hooks 持续瘦身。
+- [x] 已拆出 Inbox 的会话列表项、侧栏控制、批量操作面板、弹窗、消息列表、回复框、内部备注、待跟进条和渠道详情头部等组件。
+- [x] 已拆出 Inbox 的同步、统一会话动作、批量动作、导航动作、选择状态、选中邮件上下文、待跟进、评论、Telegram/Live Chat 回复等 hooks。
+- [ ] 继续把 `Inbox.tsx` 收敛为页面编排层，再替换整体布局。
+- [ ] 对其他大型详情页/记录页使用同样的渐进式抽组件方式。
+
+### 阶段 1：Design System 基础层
+
+- [ ] 建立共享 UI 基础组件：`PageHeader`、`SectionHeader`、`ActionBar`、`Toolbar`、`FilterBar`、`StatusBadge`、`OwnerStageControl`、`EmptyState`、`ConfirmDialog`、`DataTable`。
+- [ ] 统一运营页面的间距、字体层级、按钮层级、输入框、Tabs、图标和信息密度。
+- [ ] 建立共享布局组件：`CRMWorkspaceLayout`、`RecordPageLayout`、`LeftListMiddleDetailRightPanelLayout`、`WidgetRail`。
+- [ ] 保持 CRM 高频工作场景的紧凑、可扫读、可重复操作，而不是做成营销页风格。
+
+### 阶段 2：客户 / Lead 详情页
+
+- [ ] 将客户/Lead 详情重构为类似 HubSpot 的销售作战室。
+- [ ] 使用清晰三栏结构：左侧身份与属性，中间活动时间线和全渠道历史，右侧 AI、任务、报价、联系人、RAG、待审批 widget。
+- [ ] 在 UI 上明确区分客户级情报和 Lead 级情报。
+- [ ] 把“下一步最佳行动”作为销售工作的主入口。
+- [ ] 在不过度拥挤主时间线的情况下展示报价、联系人、关联产品、RAG 依据、待处理任务和渠道历史。
+
+### 阶段 3：统一沟通工作区
+
+- [ ] 将 Inbox 重构为类似 HubSpot 的统一沟通工作区。
+- [ ] 保留统一左侧会话列表，并支持渠道筛选、保存视图、批量操作和分配控制。
+- [ ] Email、WhatsApp、Live Chat、Telegram 使用一致的中间会话/详情区域。
+- [ ] 增加可选右侧上下文栏，用于展示关联客户/Lead、AI context evidence、RAG snippets、任务和最近活动。
+- [ ] 保留各渠道特有能力，如邮件 WYSIWYG、WhatsApp 媒体、翻译、定时发送和人工接管，同时统一布局模式。
+
+### 阶段 4：Agent 运营中心
+
+- [ ] 将 Agent Hub 收敛为更清晰的运营中心：任务队列、审批、执行历史、健康状态、Agent 配置。
+- [ ] 让任务来源、关联对象、负责 Agent、风险、审批状态和执行结果更直观。
+- [ ] Agent Chat 保持为辅助入口，而不是主执行流程。
+- [ ] 增强 Context Evidence、工具结果、跳过原因和修复建议的可视化。
+
+### 阶段 5：Dashboard 与增长运营
+
+- [ ] Dashboard 从“图表集合”转为更可执行的经营洞察。
+- [ ] 突出待跟进工作量、停滞 Deals、渠道转化趋势、Agent 贡献、线索质量来源分析和每日运营摘要。
+- [ ] 游戏化机制继续与真实销售结果绑定，减少单纯刷操作得分。
+
+### 阶段 6：设置与后台管理一致性
+
+- [ ] 将 Settings 重新组织为清晰的后台分类：AI & Integrations、Channels、Users & Roles、Notifications、API Tokens、Data/RAG、Gamification、Currency、System Health。
+- [ ] 统一表单、分区布局、校验状态和保存反馈。
+- [ ] 高风险设置和破坏性操作需要明显区分，并带审计和审批上下文。
+
 ## Lead Acquisition and Enrichment Channels
 
 The system can be configured to use these channels:
