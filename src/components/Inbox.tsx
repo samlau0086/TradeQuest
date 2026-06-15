@@ -39,6 +39,9 @@ import {
   TelegramHeaderActions,
   TelegramHeaderMeta,
   useActiveConversationComments,
+  useConversationFollowUp,
+  useInboxBulkActions,
+  useUnifiedConversationActions,
   CONVERSATION_AUTO_TRANSLATE_KEY,
   INBOX_OPEN_REQUEST_KEY,
   WHATSAPP_CONVERSATION_POLL_MS,
@@ -784,186 +787,23 @@ ${bodyText}`,
     setSelectedWhatsAppIds(new Set());
   };
 
-  const addWhatsAppConversationComment = async (conversation: InboxWhatsAppConversation, content: string) => {
-    const res = await fetch(`/api/whatsapp-hub/conversations/${conversation.id}/comments`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${localStorage.getItem('token')}`
-      },
-      body: JSON.stringify({ content })
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Failed to add WhatsApp comment.');
-    return data.comments || [...(conversation.comments || []), data.comment].filter(Boolean);
-  };
-
-  const patchUnifiedConversation = async (conversation: UnifiedCommunicationConversation, updates: any) => {
-    const res = await fetch(`/api/conversations/${conversation.id}`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${localStorage.getItem('token')}`
-      },
-      body: JSON.stringify(updates)
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Failed to update conversation.');
-    return data.conversation || { ...conversation, ...updates };
-  };
-
-  const deleteUnifiedConversation = async (conversation: UnifiedCommunicationConversation) => {
-    const res = await fetch(`/api/conversations/${conversation.id}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Failed to delete conversation.');
-    return data.conversation || { ...conversation, deleted_at: new Date().toISOString() };
-  };
-
-  const applyUnifiedConversationUpdate = (conversation: UnifiedCommunicationConversation, updates: Partial<UnifiedCommunicationConversation>) => {
-    setUnifiedConversations(prev => {
-      const exists = prev.some(item => item.id === conversation.id);
-      const next = exists
-        ? prev.map(item => item.id === conversation.id ? { ...item, ...updates } : item)
-        : [{ ...conversation, ...updates }, ...prev];
-      return next;
-    });
-  };
-
-  const updateConversationOwnerStage = async (conversation: UnifiedCommunicationConversation, updates: { ownerId?: string | null; stage?: string | null }) => {
-    const patched = await patchUnifiedConversation(conversation, updates);
-    applyUnifiedConversationUpdate(conversation, {
-      owner_id: patched.owner_id,
-      stage: patched.stage
-    });
-    notify(language === 'zh' ? '会话状态已更新。' : 'Conversation status updated.', 'success');
-  };
-
-  const findEmailUnifiedConversation = (emailId: string) => (
-    unifiedConversationSource.find(conversation => conversation.channel === 'email' && conversation.source_id === emailId)
-  );
-
-  const refreshUnifiedConversationData = async () => {
-    await fetchUnifiedConversations();
-    void fetchEmails();
-    void fetchLiveChatSessions();
-  };
-
-  const handleDeleteSelected = () => {
-    if (selectedCount === 0) return;
-    setConfirmDialog({
-      message: `Are you sure you want to delete/archive ${selectedCount} selected conversation(s)? Emails associated with a client will be soft-deleted pending admin review; Live Chat sessions will be closed.`,
-      onConfirm: async () => {
-        for (const conversation of selectedUnifiedConversations) await deleteUnifiedConversation(conversation);
-        updateWhatsAppConversationState(whatsappConversations.filter(conversation => !selectedWhatsAppIds.has(conversation.id)));
-        clearBulkSelection();
-        if (selectedEmailId && selectedIds.has(selectedEmailId)) selectEmail(null);
-        if (activeWhatsAppConversation && selectedWhatsAppIds.has(activeWhatsAppConversation.id)) setSelectedWhatsAppPhone(null);
-        await refreshUnifiedConversationData();
-        setConfirmDialog(null);
-        notify('Selected conversations updated.', 'success');
-      }
-    });
-  };
-
-  const handleBulkAddTag = async () => {
-    const tag = bulkTagInput.trim().replace(/^#/, '');
-    if (!tag || selectedCount === 0) return;
-    const normalizedTag = `#${tag}`;
-    for (const conversation of selectedUnifiedConversations) {
-      const tagToApply = conversation.channel === 'email' ? normalizedTag : tag;
-      const tags = Array.from(new Set([...(conversation.tags || []), tagToApply]));
-      if ((conversation.channel === 'live_chat' || conversation.channel === 'telegram') && conversation.client_id) {
-        const client = clients.find(item => item.id === conversation.client_id);
-        if (client) {
-          editClient(client.id, {
-            tags: Array.from(new Set([...(client.tags || []), tagToApply]))
-          });
-        }
-      }
-      await patchUnifiedConversation(conversation, { tags });
-    }
-    await refreshUnifiedConversationData();
-    setBulkTagInput('');
-    notify('Tag added to selected items.', 'success');
-  };
-
-  const handleBulkMarkImportant = async () => {
-    if (selectedCount === 0) return;
-    for (const conversation of selectedUnifiedConversations) {
-      await patchUnifiedConversation(conversation, { isImportant: true });
-    }
-    await refreshUnifiedConversationData();
-    notify('Selected items marked important.', 'success');
-  };
-
-  const handleBulkAddComment = async () => {
-    const content = bulkNoteInput.trim();
-    if (!content || selectedCount === 0) return;
-    for (const conversation of selectedUnifiedConversations) {
-      const comment = {
-        id: `uc_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-        author: 'User',
-        content,
-        createdAt: new Date().toISOString(),
-        replies: []
-      };
-      if ((conversation.channel === 'live_chat' || conversation.channel === 'telegram') && conversation.client_id) {
-        const client = clients.find(item => item.id === conversation.client_id);
-        if (client) {
-          editClient(client.id, {
-            comments: [...(client.comments || []), {
-              ...comment,
-              content: `[${conversation.channel === 'telegram' ? 'Telegram' : 'Live Chat'}] ${content}`
-            }]
-          });
-          continue;
-        }
-      }
-      const comments = [...(conversation.comments || []), comment];
-      await patchUnifiedConversation(conversation, { comments });
-    }
-    await refreshUnifiedConversationData();
-    setBulkNoteInput('');
-    notify('Internal comment added to selected items.', 'success');
-  };
-
-  const handleBulkSetFollowUp = async () => {
-    if (!bulkFollowUpAt || selectedCount === 0) return;
-    const dueAt = new Date(bulkFollowUpAt).toISOString();
-    for (const conversation of selectedUnifiedConversations) {
-      const note = bulkNoteInput.trim() || `Follow up: ${conversation.title || conversation.subject || conversation.contact_address || conversation.source_id}`;
-      await patchUnifiedConversation(conversation, { todoAt: dueAt, todoNote: note });
-    }
-    await refreshUnifiedConversationData();
-    setBulkFollowUpAt('');
-    notify('Follow-up reminder set for selected items.', 'success');
-  };
-
-  const handleBulkAssignOwner = async () => {
-    if (selectedCount === 0) return;
-    const ownerId = bulkOwnerId || null;
-    for (const conversation of selectedUnifiedConversations) {
-      await patchUnifiedConversation(conversation, { ownerId });
-      applyUnifiedConversationUpdate(conversation, { owner_id: ownerId || undefined });
-    }
-    setBulkOwnerId('');
-    await refreshUnifiedConversationData();
-    notify(language === 'zh' ? '负责人已批量更新。' : 'Owner updated for selected conversations.', 'success');
-  };
-
-  const handleBulkSetStage = async () => {
-    if (selectedCount === 0 || !bulkStage) return;
-    for (const conversation of selectedUnifiedConversations) {
-      await patchUnifiedConversation(conversation, { stage: bulkStage });
-      applyUnifiedConversationUpdate(conversation, { stage: bulkStage });
-    }
-    setBulkStage('');
-    await refreshUnifiedConversationData();
-    notify(language === 'zh' ? '阶段已批量更新。' : 'Stage updated for selected conversations.', 'success');
-  };
+  const {
+    addWhatsAppConversationComment,
+    patchUnifiedConversation,
+    deleteUnifiedConversation,
+    applyUnifiedConversationUpdate,
+    updateConversationOwnerStage,
+    findEmailUnifiedConversation,
+    refreshUnifiedConversationData,
+  } = useUnifiedConversationActions({
+    language,
+    unifiedConversationSource,
+    setUnifiedConversations,
+    fetchUnifiedConversations,
+    fetchEmails,
+    fetchLiveChatSessions,
+    notify,
+  });
 
   const handleSync = async (options: { silent?: boolean } = {}) => {
     if (syncInFlightRef.current) return;
@@ -1111,6 +951,47 @@ ${bodyText}`,
       || matchWhatsAppClient(activeWhatsAppConversation?.targetPhone || selectedWhatsAppPhone)
       || null
     : null;
+  const {
+    handleDeleteSelected,
+    handleBulkAddTag,
+    handleBulkMarkImportant,
+    handleBulkAddComment,
+    handleBulkSetFollowUp,
+    handleBulkAssignOwner,
+    handleBulkSetStage,
+  } = useInboxBulkActions({
+    language,
+    selectedCount,
+    selectedUnifiedConversations,
+    selectedIds,
+    selectedWhatsAppIds,
+    selectedEmailId,
+    activeWhatsAppConversation,
+    whatsappConversations,
+    clients,
+    bulkTagInput,
+    bulkNoteInput,
+    bulkFollowUpAt,
+    bulkOwnerId,
+    bulkStage,
+    setBulkTagInput,
+    setBulkNoteInput,
+    setBulkFollowUpAt,
+    setBulkOwnerId,
+    setBulkStage,
+    setConfirmDialog,
+    setSelectedWhatsAppPhone,
+    selectEmail,
+    clearBulkSelection,
+    editClient,
+    notify,
+    patchUnifiedConversation,
+    deleteUnifiedConversation,
+    applyUnifiedConversationUpdate,
+    refreshUnifiedConversationData,
+    updateWhatsAppConversationState,
+  });
+
   const activeTelegramClient = selectedTelegramConversation?.client_id
     ? clients.find(client => client.id === selectedTelegramConversation.client_id) || null
     : null;
@@ -1277,8 +1158,6 @@ ${bodyText}`,
     return null;
   }, [activeWhatsAppConversation, selectedEmail, selectedWhatsAppPhone, selectedTelegramConversation, selectedLiveChatConversation, unifiedConversationSource]);
   const activeWhatsAppFollowUp = getWhatsAppFollowUp(activeWhatsAppConversation);
-  const activeFollowUpAt = activeUnifiedConversation?.todo_at || selectedEmail?.todoAt || activeWhatsAppFollowUp?.dueAt || null;
-  const activeFollowUpNote = activeUnifiedConversation?.todo_note || selectedEmail?.todoNote || activeWhatsAppFollowUp?.note || null;
   const {
     activeConversationComments,
     appendActiveConversationComment,
@@ -1301,39 +1180,26 @@ ${bodyText}`,
     updateWhatsAppConversationState,
   });
 
-  const updateActiveConversationFollowUp = async (dueAt: string | null, note: string | null, status: 'open' | 'completed' | 'canceled' = 'open') => {
-    if (activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback) {
-      await patchUnifiedConversation(activeUnifiedConversation, { todoAt: status === 'open' ? dueAt : null, todoNote: status === 'open' ? note : null });
-      applyUnifiedConversationUpdate(activeUnifiedConversation, {
-        todo_at: status === 'open' ? dueAt || undefined : undefined,
-        todo_note: status === 'open' ? note || undefined : undefined
-      });
-    } else if (selectedEmail) {
-      editEmail(selectedEmail.id, {
-        todoAt: status === 'open' ? dueAt as any : null as any,
-        todoNote: status === 'open' ? note as any : null as any
-      });
-      if (status === 'completed') await appendActiveConversationComment(language === 'zh' ? '跟进任务已完成。' : 'Follow-up task completed.');
-    } else if (activeWhatsAppConversation) {
-      const markerPayload = status === 'open'
-        ? { status: 'open', dueAt, note: note || `Follow up WhatsApp conversation with ${activeWhatsAppConversation.clientName || activeWhatsAppConversation.targetPhone}.` }
-        : status === 'completed'
-          ? { status: 'completed', completedAt: new Date().toISOString() }
-          : { status: 'canceled', canceledAt: new Date().toISOString() };
-      const comments = await addWhatsAppConversationComment(activeWhatsAppConversation, `${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify(markerPayload)}`);
-      updateWhatsAppConversationState(whatsappConversations.map(item => (
-        item.id === activeWhatsAppConversation.id ? { ...item, comments } : item
-      )));
-    }
-    notify(
-      status === 'open'
-        ? (language === 'zh' ? '待跟进时间已更新。' : 'Follow-up reminder updated.')
-        : status === 'completed'
-          ? (language === 'zh' ? '待跟进已标记完成。' : 'Follow-up marked complete.')
-          : (language === 'zh' ? '待跟进已取消。' : 'Follow-up cleared.'),
-      'success'
-    );
-  };
+  const {
+    activeFollowUpAt,
+    activeFollowUpNote,
+    updateActiveConversationFollowUp,
+  } = useConversationFollowUp({
+    activeUnifiedConversation,
+    selectedEmail,
+    activeWhatsAppConversation,
+    whatsappConversations,
+    activeWhatsAppFollowUp,
+    language,
+    editEmail,
+    patchUnifiedConversation,
+    applyUnifiedConversationUpdate,
+    addWhatsAppConversationComment,
+    updateWhatsAppConversationState,
+    appendActiveConversationComment,
+    notify,
+    whatsappFollowUpMarker: WHATSAPP_FOLLOW_UP_MARKER,
+  });
 
   const handleSelect = (id: string) => {
     setIsComposing(false);

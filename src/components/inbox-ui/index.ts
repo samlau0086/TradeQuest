@@ -16,6 +16,9 @@ export { LiveChatHeaderActions, LiveChatHeaderMeta } from './LiveChatHeaderContr
 export { StartWhatsAppConversationPane } from './StartWhatsAppConversationPane';
 export { TelegramHeaderActions, TelegramHeaderMeta } from './TelegramHeaderControls';
 export { useActiveConversationComments } from './useActiveConversationComments';
+export { useConversationFollowUp } from './useConversationFollowUp';
+export { useInboxBulkActions } from './useInboxBulkActions';
+export { useUnifiedConversationActions } from './useUnifiedConversationActions';
 export {
   EmailRichTextEditor,
   emailHtmlHasContent,
