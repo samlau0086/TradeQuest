@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { useStore, EmailMessage, LiveChatMessage, LiveChatSession } from '../store';
+import { ContactMethod, useStore, EmailMessage, LiveChatMessage, LiveChatSession } from '../store';
 import { useAuthStore } from '../authStore';
 import { Mail, MailOpen, Send, Reply, Trash2, ArrowLeft, RefreshCw, PenLine, Edit3, User, Sparkles, Loader2, Search, Tag, CalendarClock, UserPlus, MessageSquare, MessageCircle, Paperclip, ChevronDown, ChevronUp, X, Database, CheckCircle2, MoreHorizontal, Star, Clock, Activity, Eye, MousePointerClick, Radar, Timer, Bold, Italic, List, Link2, Image as ImageIcon } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -71,7 +71,6 @@ interface WhatsAppContactOption {
 }
 
 const WHATSAPP_CONVERSATION_CACHE_KEY = 'tradequest.whatsapp.conversations.cache.v1';
-const LIVE_CHAT_SELECTED_SESSION_KEY = 'tradequest.liveChat.selectedSessionId';
 const WHATSAPP_CONVERSATION_POLL_MS = 20_000;
 const WHATSAPP_FOLLOW_UP_MARKER = '__FOLLOW_UP__';
 
@@ -512,7 +511,7 @@ function getInboxFilterForEmail(email: EmailMessage): 'inbox' | 'sent' | 'schedu
 }
 
 export function Inbox() {
-  const { emails, markEmailRead, clients, logs, deals, knowledgeBase, products, addEmail, addLog, addClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail, notify, language, llmConfigs, activeLLMId, llmMappings, inboxFollowUpFilterRequest, setView, fetchEmails, fetchLiveChatSessions, fetchLiveChatMessages, sendLiveChatOperatorMessage, updateLiveChatSession, runLiveChatAgent, connectLiveChatSocket, joinLiveChatSocketSession, liveChatSessions, liveChatMessages, liveChatSocketStatus } = useStore();
+  const { emails, markEmailRead, clients, logs, deals, knowledgeBase, products, addEmail, addLog, addClient, editClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail, notify, language, llmConfigs, activeLLMId, llmMappings, inboxFollowUpFilterRequest, fetchEmails, fetchLiveChatSessions, fetchLiveChatMessages, sendLiveChatOperatorMessage, updateLiveChatSession, runLiveChatAgent, connectLiveChatSocket, joinLiveChatSocketSession, liveChatSessions, liveChatMessages, liveChatSocketStatus } = useStore();
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'inbox-layout' });
   const currentUser = useAuthStore(state => state.profile);
   const [filter, setFilter] = useState<'inbox' | 'sent' | 'scheduled' | 'drafts'>('inbox');
@@ -1108,6 +1107,14 @@ export function Inbox() {
     for (const conversation of selectedUnifiedConversations) {
       const tagToApply = conversation.channel === 'email' ? normalizedTag : tag;
       const tags = Array.from(new Set([...(conversation.tags || []), tagToApply]));
+      if (conversation.channel === 'live_chat' && conversation.client_id) {
+        const client = clients.find(item => item.id === conversation.client_id);
+        if (client) {
+          editClient(client.id, {
+            tags: Array.from(new Set([...(client.tags || []), tagToApply]))
+          });
+        }
+      }
       await patchUnifiedConversation(conversation, { tags });
     }
     await refreshUnifiedConversationData();
@@ -1135,6 +1142,18 @@ export function Inbox() {
         createdAt: new Date().toISOString(),
         replies: []
       };
+      if (conversation.channel === 'live_chat' && conversation.client_id) {
+        const client = clients.find(item => item.id === conversation.client_id);
+        if (client) {
+          editClient(client.id, {
+            comments: [...(client.comments || []), {
+              ...comment,
+              content: `[Live Chat] ${content}`
+            }]
+          });
+          continue;
+        }
+      }
       const comments = [...(conversation.comments || []), comment];
       await patchUnifiedConversation(conversation, { comments });
     }
@@ -1330,6 +1349,25 @@ export function Inbox() {
     : null;
   const activeLiveChatVisitorInfo = activeLiveChatSession?.metadata?.visitorInfo || selectedLiveChatConversation?.metadata?.visitorInfo || {};
   const latestLiveChatVisitorMessage = [...visibleLiveChatMessages].reverse().find(message => message.role === 'visitor') || null;
+  const activeLiveChatContactMethod: ContactMethod | null = activeLiveChatSession?.visitorEmail
+    ? { type: 'email', value: activeLiveChatSession.visitorEmail }
+    : activeLiveChatSession?.visitorPhone
+      ? { type: 'phone', value: activeLiveChatSession.visitorPhone }
+      : null;
+  const activeLiveChatDisplayName = activeLiveChatSession?.visitorName
+    || activeLiveChatSession?.visitorEmail
+    || activeLiveChatSession?.visitorPhone
+    || selectedLiveChatConversation?.contact_name
+    || selectedLiveChatConversation?.contact_address
+    || 'Live Chat Visitor';
+  const activeLinkableContactMethod: ContactMethod | null = selectedEmail && selectedEmailContactAddress
+    ? { type: 'email', value: selectedEmailContactAddress }
+    : selectedLiveChatConversation
+      ? activeLiveChatContactMethod
+      : null;
+  const activeLinkableDisplayName = selectedEmail
+    ? (selectedEmail.senderName || selectedEmailContactAddress)
+    : activeLiveChatDisplayName;
   const activeUnifiedConversation = useMemo(() => {
     if (selectedEmail) {
       return unifiedConversationSource.find(conversation => conversation.channel === 'email' && conversation.source_id === selectedEmail.id)
@@ -1358,7 +1396,9 @@ export function Inbox() {
   const activeWhatsAppFollowUp = getWhatsAppFollowUp(activeWhatsAppConversation);
   const activeFollowUpAt = activeUnifiedConversation?.todo_at || selectedEmail?.todoAt || activeWhatsAppFollowUp?.dueAt || null;
   const activeFollowUpNote = activeUnifiedConversation?.todo_note || selectedEmail?.todoNote || activeWhatsAppFollowUp?.note || null;
-  const activeConversationComments = (activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback)
+  const activeConversationComments = (selectedLiveChatConversation && activeLiveChatClient)
+    ? (activeLiveChatClient.comments || [])
+    : (activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback)
     ? (activeUnifiedConversation.comments || [])
     : (selectedEmail?.comments || []);
 
@@ -1371,7 +1411,15 @@ export function Inbox() {
       attachments,
       replies: []
     };
-    if (activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback) {
+    if (selectedLiveChatConversation && activeLiveChatClient) {
+      editClient(activeLiveChatClient.id, {
+        comments: [...(activeLiveChatClient.comments || []), {
+          ...comment,
+          content: `[Live Chat] ${content}`
+        }]
+      });
+      await refreshUnifiedConversationData();
+    } else if (activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback) {
       await patchUnifiedConversation(activeUnifiedConversation, {
         comments: [...(activeUnifiedConversation.comments || []), comment]
       });
@@ -1387,7 +1435,22 @@ export function Inbox() {
   };
 
   const replyActiveConversationComment = async (commentId: string, content: string, attachments?: any[]) => {
-    if (activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback) {
+    if (selectedLiveChatConversation && activeLiveChatClient) {
+      const reply = {
+        id: `ucr_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        author: 'User',
+        content,
+        createdAt: new Date().toISOString(),
+        attachments,
+        replies: []
+      };
+      const comments = (activeLiveChatClient.comments || []).map((comment: any) => (
+        comment.id === commentId
+          ? { ...comment, replies: [...(comment.replies || []), reply] }
+          : comment
+      ));
+      editClient(activeLiveChatClient.id, { comments });
+    } else if (activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback) {
       const reply = {
         id: `ucr_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
         author: 'User',
@@ -1685,7 +1748,9 @@ export function Inbox() {
   };
 
   const handleCreateLead = () => {
-    if (!selectedEmail || selectedEmail.clientId) return;
+    const canCreateFromEmail = selectedEmail && !selectedEmail.clientId;
+    const canCreateFromLiveChat = selectedLiveChatConversation && !activeLiveChatClient && activeLiveChatContactMethod;
+    if (!canCreateFromEmail && !canCreateFromLiveChat) return;
     setIsCreatingLead(true);
   };
 
@@ -2271,11 +2336,10 @@ export function Inbox() {
               <div
                 key={`lc_${conversation.id}`}
                 onClick={() => {
-                  sessionStorage.setItem(LIVE_CHAT_SELECTED_SESSION_KEY, conversation.source_id);
                   selectEmail(null);
                   setSelectedWhatsAppPhone(null);
                   setSelectedWhatsAppClientId(null);
-                  setView('live-chat');
+                  setSelectedLiveChatConversation(conversation);
                 }}
                 className="cursor-pointer border-b border-slate-800/50 p-4 transition-colors flex gap-3 group relative hover:bg-slate-800/30"
               >
@@ -2862,7 +2926,7 @@ export function Inbox() {
               subtitle={activeLiveChatSession?.visitorEmail || activeLiveChatSession?.visitorPhone || selectedLiveChatConversation.contact_address || activeLiveChatSession?.pageUrl || ''}
               clientId={activeLiveChatClient?.id || selectedLiveChatConversation.client_id}
               clientName={activeLiveChatClient?.name || selectedLiveChatConversation.client_name}
-              tags={activeUnifiedConversation?.tags || activeLiveChatSession?.tags || selectedLiveChatConversation.tags || []}
+              tags={activeLiveChatClient?.tags || activeUnifiedConversation?.tags || activeLiveChatSession?.tags || selectedLiveChatConversation.tags || []}
               ownerId={activeUnifiedConversation?.owner_id}
               stage={activeUnifiedConversation?.stage}
               currentUser={currentUser}
@@ -2918,6 +2982,16 @@ export function Inbox() {
               )}
               meta={(
                 <>
+                  {!activeLiveChatClient && !selectedLiveChatConversation.client_id && activeLiveChatContactMethod && (
+                    <>
+                      <button onClick={handleCreateLead} className="text-cyan-500 flex items-center gap-1 hover:text-cyan-400 bg-slate-800/50 rounded px-1.5 py-0.5">
+                        <UserPlus className="w-3 h-3" /> New Lead
+                      </button>
+                      <button onClick={() => setIsAddingContactToClient(true)} className="text-emerald-400 flex items-center gap-1 hover:text-emerald-300 bg-slate-800/50 rounded px-1.5 py-0.5">
+                        <User className="w-3 h-3" /> Add to Existing Client
+                      </button>
+                    </>
+                  )}
                   {activeLiveChatSession?.visitorEmail && <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">email: {activeLiveChatSession.visitorEmail}</span>}
                   {activeLiveChatSession?.visitorPhone && <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">phone: {activeLiveChatSession.visitorPhone}</span>}
                   {activeLiveChatSession?.pageUrl && <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70 truncate max-w-[360px]">page: {activeLiveChatSession.pageUrl}</span>}
@@ -3013,6 +3087,49 @@ export function Inbox() {
                   });
                 }}
               />
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 text-sm font-bold text-slate-200">
+                      <MessageSquare className="h-4 w-4 text-violet-300" />
+                      {language === 'zh' ? '内部备注' : 'Internal Notes'}
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-500">
+                      {activeLiveChatClient
+                        ? (language === 'zh' ? '已关联客户：备注保存到客户资料。' : 'Linked client: notes are saved to the customer profile.')
+                        : (language === 'zh' ? '未关联客户：备注暂存到当前会话。' : 'Unlinked visitor: notes are saved to this conversation.')}
+                    </div>
+                  </div>
+                </div>
+                <div className="mb-3 space-y-3">
+                  {activeConversationComments.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-slate-800 px-3 py-4 text-center text-xs text-slate-500">
+                      {language === 'zh' ? '暂无内部备注。' : 'No internal notes yet.'}
+                    </div>
+                  ) : activeConversationComments.slice(-5).map(comment => (
+                    <CommentItem key={comment.id} comment={comment} onReply={(cmtId, text, atts) => void replyActiveConversationComment(cmtId, text, atts)} />
+                  ))}
+                </div>
+                <div className="flex items-end gap-2">
+                  <textarea
+                    value={commentText}
+                    onChange={event => setCommentText(event.target.value)}
+                    placeholder={language === 'zh' ? '添加内部备注...' : 'Add an internal note...'}
+                    className="min-h-[64px] flex-1 resize-none rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none placeholder:text-slate-600 focus:border-violet-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!commentText.trim()) return;
+                      void appendActiveConversationComment(commentText.trim()).then(() => setCommentText(''));
+                    }}
+                    disabled={!commentText.trim()}
+                    className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-bold text-white hover:bg-violet-500 disabled:bg-slate-800 disabled:text-slate-500"
+                  >
+                    {language === 'zh' ? '添加' : 'Add'}
+                  </button>
+                </div>
+              </div>
               <div ref={liveChatEndRef} />
             </div>
             <div className="border-t border-slate-800 bg-slate-900/80 p-4">
@@ -3421,21 +3538,34 @@ export function Inbox() {
         )}
       </Panel>
 
-      {isCreatingLead && selectedEmail && (
+      {isCreatingLead && (selectedEmail || selectedLiveChatConversation) && (
         <ClientFormModal
           onClose={() => setIsCreatingLead(false)}
           initialData={{
-            name: filter === 'inbox' ? (selectedEmail.senderName || selectedEmail.sender.split('@')[0]) : (selectedEmail.recipient.split('@')[0]),
+            name: selectedEmail
+              ? (filter === 'inbox' ? (selectedEmail.senderName || selectedEmail.sender.split('@')[0]) : (selectedEmail.recipient.split('@')[0]))
+              : activeLiveChatDisplayName,
             company: 'Unknown',
             country: 'Unknown',
             status: 'Leads',
-            tags: [],
-            contactMethods: [{ type: 'email', value: filter === 'inbox' ? selectedEmail.sender : selectedEmail.recipient }]
+            tags: selectedLiveChatConversation ? ['live-chat'] : [],
+            sourceType: selectedLiveChatConversation ? 'live_chat' : 'email',
+            sourceId: selectedLiveChatConversation?.source_id || selectedEmail?.id,
+            sourceLabel: selectedLiveChatConversation ? `Live Chat: ${activeLiveChatDisplayName}` : selectedEmail?.subject,
+            contactMethods: selectedEmail
+              ? [{ type: 'email', value: filter === 'inbox' ? selectedEmail.sender : selectedEmail.recipient }]
+              : (activeLiveChatContactMethod ? [activeLiveChatContactMethod] : [])
           }}
-          onSave={(newClientId) => {
+          onSave={async (newClientId) => {
             if (activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback) {
-              patchUnifiedConversation(activeUnifiedConversation, { clientId: newClientId }).then(() => refreshUnifiedConversationData());
-            } else {
+              await patchUnifiedConversation(activeUnifiedConversation, { clientId: newClientId });
+            }
+            if (selectedLiveChatConversation) {
+              await updateLiveChatSession(selectedLiveChatConversation.source_id, { clientId: newClientId } as Partial<LiveChatSession>);
+              setSelectedLiveChatConversation(prev => prev ? { ...prev, client_id: newClientId } : prev);
+              await fetchLiveChatSessions();
+              await refreshUnifiedConversationData();
+            } else if (selectedEmail) {
               editEmail(selectedEmail.id, { clientId: newClientId });
             }
             selectClient(newClientId);
@@ -3443,15 +3573,21 @@ export function Inbox() {
         />
       )}
 
-      {isAddingContactToClient && selectedEmail && selectedEmailContactAddress && (
+      {isAddingContactToClient && activeLinkableContactMethod && (
         <AddContactToClientModal
-          contactMethod={{ type: 'email', value: selectedEmailContactAddress }}
-          displayName={selectedEmail.senderName || selectedEmailContactAddress}
+          contactMethod={activeLinkableContactMethod}
+          displayName={activeLinkableDisplayName}
           onClose={() => setIsAddingContactToClient(false)}
-          onLinked={(clientId) => {
+          onLinked={async (clientId) => {
             if (activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback) {
-              patchUnifiedConversation(activeUnifiedConversation, { clientId }).then(() => refreshUnifiedConversationData());
-            } else {
+              await patchUnifiedConversation(activeUnifiedConversation, { clientId });
+            }
+            if (selectedLiveChatConversation) {
+              await updateLiveChatSession(selectedLiveChatConversation.source_id, { clientId } as Partial<LiveChatSession>);
+              setSelectedLiveChatConversation(prev => prev ? { ...prev, client_id: clientId } : prev);
+              await fetchLiveChatSessions();
+              await refreshUnifiedConversationData();
+            } else if (selectedEmail) {
               editEmail(selectedEmail.id, { clientId });
             }
             selectClient(clientId);
