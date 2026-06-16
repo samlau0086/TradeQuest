@@ -517,6 +517,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] Extract WhatsApp composer state into `useWhatsAppComposerState`, isolating body, attachments, media selector, emoji, schedule toggles, and conversation-reset cleanup.
 - [x] Extract WhatsApp chat selection state into `useWhatsAppChatSelection`, isolating display phone resolution, linked CRM client detection, selectable Hub client filtering, sticky Hub sender choice, and invalid sender reset.
 - [x] Extract WhatsApp modal dialogs into `WhatsAppDialogLayer`, isolating media library, New Lead, and Add to Existing Client dialogs from the chat shell.
+- [x] Extract WhatsApp agent context preparation into `useWhatsAppAgentContext`, isolating compressed memory, latest inbound/outbound detection, related deals, unified agent context, and outbound language options.
 - [x] Extract Telegram and Live Chat detail glue code into dedicated containers so `InboxSelectedDetailPanel` is now a thin channel router.
 - [x] Move the long `InboxContentPanel` prop list into a typed `contentPanelProps` object so the Inbox render layout is cleaner and ready for future workspace layout changes.
 - [x] Move the long `InboxConversationSidebar` prop list into a typed `sidebarProps` object so the Inbox render tree reads like a left-list/right-detail workspace shell.
@@ -609,6 +610,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] 已拆出 WhatsApp 输入区状态到 `useWhatsAppComposerState`，隔离正文、附件、媒体库、emoji、定时发送开关和切换会话后的清理。
 - [x] 已拆出 WhatsApp 聊天选择派生状态到 `useWhatsAppChatSelection`，隔离显示号码解析、关联 CRM 客户识别、可选 Hub client 过滤、sticky sender 选择和无效 sender 重置。
 - [x] 已拆出 WhatsApp 弹窗层到 `WhatsAppDialogLayer`，将媒体库、New Lead 和 Add to Existing Client 弹窗从聊天壳层中隔离。
+- [x] 已拆出 WhatsApp 智能体上下文准备到 `useWhatsAppAgentContext`，隔离压缩记忆、最近入站/出站识别、关联 Lead、统一 Agent 上下文和外发语言选项。
 - [x] 已拆出 Inbox 弹窗层 props 装配逻辑，将关闭、上传附件、标签和待跟进等回调 wiring 移出页面组件。
 - [x] 已拆出 Inbox 侧栏 props 装配逻辑，将筛选、列表和批量操作 wiring 移出页面组件。
 - [x] 继续把 `Inbox.tsx` 收敛为页面编排层，再替换整体布局。
