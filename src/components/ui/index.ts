@@ -7,6 +7,7 @@ export type { DataTableColumn } from './DataTable';
 export { EmptyState } from './EmptyState';
 export { FilterBar } from './FilterBar';
 export { IconButton } from './IconButton';
+export { LeftListMiddleDetailRightPanelLayout } from './LeftListMiddleDetailRightPanelLayout';
 export { ModalDialog } from './ModalDialog';
 export { PageHeader } from './PageHeader';
 export { RecordPageLayout } from './RecordPageLayout';
