@@ -29,6 +29,7 @@ import {
 } from './inbox-ui';
 import type {
   InboxChannelFilter,
+  InboxContentPanelProps,
   InboxWhatsAppConversation,
   UnifiedCommunicationConversation,
 } from './inbox-ui';
@@ -536,6 +537,105 @@ export function Inbox() {
     notify,
   });
 
+  const contentPanelProps: InboxContentPanelProps = {
+    isComposing,
+    composeDefaults,
+    setIsComposing,
+    isStartingWhatsApp,
+    setIsStartingWhatsApp,
+    newWhatsAppPhone,
+    visibleWhatsAppContactOptions,
+    setNewWhatsAppPhone,
+    setShowWhatsAppContactPicker,
+    selectedWhatsAppClientId,
+    setSelectedWhatsAppClientId,
+    selectWhatsAppContactOption,
+    startNewWhatsApp,
+    selectedTelegramConversation,
+    language,
+    activeTelegramClient,
+    activeTelegramContactMethod,
+    activeTelegramDisplayName,
+    activeTelegramTranslateEnabled,
+    activeTelegramTranslations,
+    activeTelegramAgentContext,
+    currentUser,
+    telegramMessages,
+    isTelegramMessagesLoading,
+    translatingConversationMessageIds,
+    activeConversationComments,
+    commentText,
+    telegramReply,
+    isSendingTelegramReply,
+    activeFollowUpAt,
+    activeFollowUpNote,
+    setSelectedTelegramConversation,
+    setTelegramMessages,
+    selectClient,
+    updateConversationOwnerStage,
+    setConfirmDialog,
+    deleteUnifiedConversation,
+    refreshUnifiedConversationData,
+    toggleTelegramHumanTakeover,
+    setConversationAutoTranslateEnabled,
+    handleCreateLead,
+    setIsAddingContactToClient,
+    patchUnifiedConversation,
+    applyUnifiedConversationUpdate,
+    draftTelegramReply,
+    appendActiveConversationComment,
+    updateActiveConversationFollowUp,
+    setCommentText,
+    replyActiveConversationComment,
+    setTelegramReply,
+    sendTelegramReply,
+    selectedLiveChatConversation,
+    activeLiveChatClient,
+    activeLiveChatContactMethod,
+    activeLiveChatSession,
+    activeLiveChatTranslateEnabled,
+    activeLiveChatTranslations,
+    activeLiveChatVisitorInfo,
+    activeLiveChatEvidenceItems,
+    activeLiveChatAgentContext,
+    activeUnifiedConversation,
+    visibleLiveChatMessages,
+    liveChatReply,
+    isSendingLiveChatReply,
+    isRunningLiveChatAgent,
+    latestLiveChatVisitorMessage,
+    liveChatEndRef,
+    setSelectedLiveChatConversation,
+    toggleLiveChatHumanTakeover,
+    runSelectedLiveChatAgent,
+    setLiveChatReply,
+    sendLiveChatReply,
+    selectedWhatsAppPhone,
+    setSelectedWhatsAppPhone,
+    activeWhatsAppConversation,
+    activeWhatsAppClient,
+    handleDeleteWhatsAppConversation,
+    loadWhatsAppConversations,
+    selectedEmail,
+    clients,
+    isInboundCustomerEmail,
+    addingToRag,
+    addedToRagId,
+    selectedTrackingEvents,
+    visibleTrackingEvents,
+    isTrackingExpanded,
+    selectedEmailAgentContext,
+    latestInboundEmailForSelectedClient,
+    commentAttachments,
+    selectEmail,
+    setComposeDefaults,
+    handleAddToRag,
+    toggleTrackingExpanded,
+    editEmail,
+    setShowCommentAttachmentModal,
+    setCommentAttachments,
+  };
+
   return (
     <PanelGroup id="inbox-layout" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged} orientation="horizontal" className="flex-1 overflow-hidden bg-slate-900 border-t border-slate-800">
       {/* Sidebar List */}
@@ -607,104 +707,7 @@ export function Inbox() {
 
       {/* Reading Pane / Compose Pane */}
       <Panel id="inbox-content" className={cn("flex flex-col bg-slate-950/50 relative", !selectedEmailId && !selectedWhatsAppPhone && !selectedTelegramConversation && !selectedLiveChatConversation && !isComposing && !isStartingWhatsApp && "hidden md:flex")}>
-        <InboxContentPanel
-          isComposing={isComposing}
-          composeDefaults={composeDefaults}
-          setIsComposing={setIsComposing}
-          isStartingWhatsApp={isStartingWhatsApp}
-          setIsStartingWhatsApp={setIsStartingWhatsApp}
-          newWhatsAppPhone={newWhatsAppPhone}
-          visibleWhatsAppContactOptions={visibleWhatsAppContactOptions}
-          setNewWhatsAppPhone={setNewWhatsAppPhone}
-          setShowWhatsAppContactPicker={setShowWhatsAppContactPicker}
-          selectedWhatsAppClientId={selectedWhatsAppClientId}
-          setSelectedWhatsAppClientId={setSelectedWhatsAppClientId}
-          selectWhatsAppContactOption={selectWhatsAppContactOption}
-          startNewWhatsApp={startNewWhatsApp}
-          selectedTelegramConversation={selectedTelegramConversation}
-          language={language}
-          activeTelegramClient={activeTelegramClient}
-          activeTelegramContactMethod={activeTelegramContactMethod}
-          activeTelegramDisplayName={activeTelegramDisplayName}
-          activeTelegramTranslateEnabled={activeTelegramTranslateEnabled}
-          activeTelegramTranslations={activeTelegramTranslations}
-          activeTelegramAgentContext={activeTelegramAgentContext}
-          currentUser={currentUser}
-          telegramMessages={telegramMessages}
-          isTelegramMessagesLoading={isTelegramMessagesLoading}
-          translatingConversationMessageIds={translatingConversationMessageIds}
-          activeConversationComments={activeConversationComments}
-          commentText={commentText}
-          telegramReply={telegramReply}
-          isSendingTelegramReply={isSendingTelegramReply}
-          activeFollowUpAt={activeFollowUpAt}
-          activeFollowUpNote={activeFollowUpNote}
-          setSelectedTelegramConversation={setSelectedTelegramConversation}
-          setTelegramMessages={setTelegramMessages}
-          selectClient={selectClient}
-          updateConversationOwnerStage={updateConversationOwnerStage}
-          setConfirmDialog={setConfirmDialog}
-          deleteUnifiedConversation={deleteUnifiedConversation}
-          refreshUnifiedConversationData={refreshUnifiedConversationData}
-          toggleTelegramHumanTakeover={toggleTelegramHumanTakeover}
-          setConversationAutoTranslateEnabled={setConversationAutoTranslateEnabled}
-          handleCreateLead={handleCreateLead}
-          setIsAddingContactToClient={setIsAddingContactToClient}
-          patchUnifiedConversation={patchUnifiedConversation}
-          applyUnifiedConversationUpdate={applyUnifiedConversationUpdate}
-          draftTelegramReply={draftTelegramReply}
-          appendActiveConversationComment={appendActiveConversationComment}
-          updateActiveConversationFollowUp={updateActiveConversationFollowUp}
-          setCommentText={setCommentText}
-          replyActiveConversationComment={replyActiveConversationComment}
-          setTelegramReply={setTelegramReply}
-          sendTelegramReply={sendTelegramReply}
-          selectedLiveChatConversation={selectedLiveChatConversation}
-          activeLiveChatClient={activeLiveChatClient}
-          activeLiveChatContactMethod={activeLiveChatContactMethod}
-          activeLiveChatSession={activeLiveChatSession}
-          activeLiveChatTranslateEnabled={activeLiveChatTranslateEnabled}
-          activeLiveChatTranslations={activeLiveChatTranslations}
-          activeLiveChatVisitorInfo={activeLiveChatVisitorInfo}
-          activeLiveChatEvidenceItems={activeLiveChatEvidenceItems}
-          activeLiveChatAgentContext={activeLiveChatAgentContext}
-          activeUnifiedConversation={activeUnifiedConversation}
-          visibleLiveChatMessages={visibleLiveChatMessages}
-          liveChatReply={liveChatReply}
-          isSendingLiveChatReply={isSendingLiveChatReply}
-          isRunningLiveChatAgent={isRunningLiveChatAgent}
-          latestLiveChatVisitorMessage={latestLiveChatVisitorMessage}
-          liveChatEndRef={liveChatEndRef}
-          setSelectedLiveChatConversation={setSelectedLiveChatConversation}
-          toggleLiveChatHumanTakeover={toggleLiveChatHumanTakeover}
-          runSelectedLiveChatAgent={runSelectedLiveChatAgent}
-          setLiveChatReply={setLiveChatReply}
-          sendLiveChatReply={sendLiveChatReply}
-          selectedWhatsAppPhone={selectedWhatsAppPhone}
-          setSelectedWhatsAppPhone={setSelectedWhatsAppPhone}
-          activeWhatsAppConversation={activeWhatsAppConversation}
-          activeWhatsAppClient={activeWhatsAppClient}
-          handleDeleteWhatsAppConversation={handleDeleteWhatsAppConversation}
-          loadWhatsAppConversations={loadWhatsAppConversations}
-          selectedEmail={selectedEmail}
-          clients={clients}
-          isInboundCustomerEmail={isInboundCustomerEmail}
-          addingToRag={addingToRag}
-          addedToRagId={addedToRagId}
-          selectedTrackingEvents={selectedTrackingEvents}
-          visibleTrackingEvents={visibleTrackingEvents}
-          isTrackingExpanded={isTrackingExpanded}
-          selectedEmailAgentContext={selectedEmailAgentContext}
-          latestInboundEmailForSelectedClient={latestInboundEmailForSelectedClient}
-          commentAttachments={commentAttachments}
-          selectEmail={selectEmail}
-          setComposeDefaults={setComposeDefaults}
-          handleAddToRag={handleAddToRag}
-          toggleTrackingExpanded={toggleTrackingExpanded}
-          editEmail={editEmail}
-          setShowCommentAttachmentModal={setShowCommentAttachmentModal}
-          setCommentAttachments={setCommentAttachments}
-        />
+        <InboxContentPanel {...contentPanelProps} />
       </Panel>
 
       <InboxContactLinkingModals
