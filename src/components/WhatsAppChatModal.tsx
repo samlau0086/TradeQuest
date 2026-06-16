@@ -17,13 +17,12 @@ import { useWhatsAppChatMapping } from './useWhatsAppChatMapping';
 import { useWhatsAppConversationMeta, WHATSAPP_FOLLOW_UP_MARKER } from './useWhatsAppConversationMeta';
 import { useWhatsAppConversationSummary } from './useWhatsAppConversationSummary';
 import { useWhatsAppDrafting } from './useWhatsAppDrafting';
+import { useWhatsAppSending } from './useWhatsAppSending';
 import { useWhatsAppTranslation } from './useWhatsAppTranslation';
 import {
   cleanWhatsAppPhone,
   isWhatsAppChatId,
   readCachedWhatsAppTranslations,
-  simpleHash,
-  writeCachedWhatsAppTranslations,
   type WhatsAppConversation,
   type WhatsAppTranslation
 } from './whatsappMessageModel';
@@ -40,13 +39,6 @@ interface Props {
 
 const cleanPhone = cleanWhatsAppPhone;
 const isChatId = isWhatsAppChatId;
-const isInlineMedia = (mimeType: string) => mimeType.startsWith('image/') || mimeType.startsWith('video/');
-
-const dataUrlToFile = async (dataUrl: string, name: string, mimeType: string) => {
-  const response = await fetch(dataUrl);
-  const blob = await response.blob();
-  return new File([blob], name, { type: mimeType || blob.type || 'application/octet-stream' });
-};
 
 export function WhatsAppChatModal({ client, phone, conversation: initialConversation, initialMessage = '', embedded = false, onClose, onOpenInInbox }: Props) {
   const { notify, addLog, selectClient, editClient, language, llmConfigs, activeLLMId, llmMappings, logs, emails, clients, deals, knowledgeBase, products, whatsappHubConfig, whatsappCustomerServiceAgentEnabled, setWhatsAppCustomerServiceAgentEnabled, whatsappAutoTranslateConfig, setWhatsAppAutoTranslateEnabled, whatsappOutboundAutoTranslateConfig, setWhatsAppOutboundAutoTranslateEnabled, incrementAgentHubTaskCount } = useStore();
@@ -60,7 +52,6 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [showEmoji, setShowEmoji] = useState(false);
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
   const [scheduleDateTime, setScheduleDateTime] = useState('');
-  const [sending, setSending] = useState(false);
   const [translations, setTranslations] = useState<Record<string, WhatsAppTranslation>>(() => readCachedWhatsAppTranslations(targetPhone, language));
   const [isCreatingLead, setIsCreatingLead] = useState(false);
   const [isAddingContactToClient, setIsAddingContactToClient] = useState(false);
@@ -258,6 +249,36 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     notify,
     getTranslationLLMConfig
   });
+  const {
+    sending,
+    sendMessage
+  } = useWhatsAppSending({
+    body,
+    setBody,
+    selectedFile,
+    setSelectedFile,
+    selectedMedia,
+    setSelectedMedia,
+    selectedClientId,
+    setSelectedClientId,
+    scheduleEnabled,
+    setScheduleEnabled,
+    scheduleDateTime,
+    setScheduleDateTime,
+    displayPhone,
+    targetPhone,
+    language,
+    activeClient,
+    customerServiceAgentEnabled: whatsappCustomerServiceAgentEnabled,
+    outboundAutoTranslateEnabled: whatsappOutboundAutoTranslateEnabled,
+    translateOutboundMessageText,
+    generateWhatsAppMessageText,
+    incrementAgentHubTaskCount,
+    addLog,
+    notify,
+    loadData,
+    setTranslations
+  });
   useWhatsAppConversationSummary({
     conversation,
     messageCount: messages.length,
@@ -327,151 +348,7 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     setIsCreatingLead(false);
   };
 
-  const sendMessage = async () => {
-    if ((!body.trim() && !selectedFile && !selectedMedia && !whatsappCustomerServiceAgentEnabled) || !displayPhone) return;
-    setSending(true);
-    try {
-      let messageBody = body.trim();
-      let outboundOriginalRecord: {
-        originalText: string;
-        translatedText: string;
-        sourceLanguage: string;
-        targetLanguage: string;
-        changed: boolean;
-        modelId: string | null;
-      } | null = null;
-      if (whatsappCustomerServiceAgentEnabled) {
-        const generated = await generateWhatsAppMessageText(messageBody, 'customer_service');
-        if (!generated) throw new Error('WhatsApp Customer Service Agent did not generate a message.');
-        messageBody = generated;
-        setBody(generated);
-        incrementAgentHubTaskCount('whatsapp_customer_service_agent');
-      }
-      if (whatsappOutboundAutoTranslateEnabled && messageBody) {
-        outboundOriginalRecord = await translateOutboundMessageText(messageBody);
-        messageBody = outboundOriginalRecord.translatedText;
-        setBody(messageBody);
-      }
-      let media: any;
-      const uploadFileToHub = async (fileToUpload: File) => {
-        const form = new FormData();
-        form.append('file', fileToUpload);
-        const uploadResponse = await fetch('/api/whatsapp-hub/upload', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-          body: form
-        });
-        const uploadData = await uploadResponse.json();
-        if (!uploadResponse.ok) throw new Error(uploadData.error || 'Failed to upload WhatsApp media');
-        const file = uploadData.file;
-        return {
-          url: file.url,
-          originalName: file.originalName || fileToUpload.name,
-          mimeType: file.mimeType || fileToUpload.type,
-          sendAsDocument: !isInlineMedia(file.mimeType || fileToUpload.type)
-        };
-      };
-
-      if (selectedFile) {
-        media = await uploadFileToHub(selectedFile);
-      } else if (selectedMedia) {
-        if (selectedMedia.url.startsWith('data:')) {
-          const file = await dataUrlToFile(selectedMedia.url, selectedMedia.name, selectedMedia.type);
-          media = await uploadFileToHub(file);
-        } else {
-          media = {
-            url: selectedMedia.url,
-            originalName: selectedMedia.name,
-            mimeType: selectedMedia.type,
-            sendAsDocument: !isInlineMedia(selectedMedia.type)
-          };
-        }
-      }
-      const response = await fetch('/api/whatsapp-hub/send', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          to: displayPhone,
-          body: messageBody,
-          media,
-          clientId: selectedClientId || undefined,
-          scheduledAt: scheduleEnabled && scheduleDateTime ? new Date(scheduleDateTime).toISOString() : undefined,
-          metadata: { clientId: activeClient?.id, hasMedia: !!media, agentMode: whatsappCustomerServiceAgentEnabled ? 'whatsapp_customer_service_agent' : undefined }
-        })
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Failed to send WhatsApp message');
-      setSelectedClientId(data.selectedClientId || selectedClientId);
-      if (outboundOriginalRecord?.changed && data.messageId) {
-        const originalTranslation: WhatsAppTranslation = {
-          language,
-          kind: 'outbound_original',
-          text: outboundOriginalRecord.originalText,
-          sourceLanguage: outboundOriginalRecord.sourceLanguage,
-          targetLanguage: outboundOriginalRecord.targetLanguage,
-          bodyHash: simpleHash(messageBody),
-          skipped: false,
-          modelId: outboundOriginalRecord.modelId
-        };
-        const saveOriginalResponse = await fetch(`/api/whatsapp-hub/messages/${encodeURIComponent(data.messageId)}/translation`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${localStorage.getItem('token')}`
-          },
-          body: JSON.stringify({
-            language,
-            kind: 'outbound_original',
-            translatedText: outboundOriginalRecord.originalText,
-            sourceLanguage: outboundOriginalRecord.sourceLanguage,
-            targetLanguage: outboundOriginalRecord.targetLanguage,
-            bodyHash: simpleHash(messageBody),
-            skipped: false,
-            modelId: outboundOriginalRecord.modelId
-          })
-        });
-        const savedOriginalData = await saveOriginalResponse.json().catch(() => ({}));
-        if (saveOriginalResponse.ok) {
-          setTranslations(prev => {
-            const next = { ...prev, [data.messageId]: savedOriginalData.translation || originalTranslation };
-            writeCachedWhatsAppTranslations(targetPhone, language, next);
-            return next;
-          });
-        } else {
-          console.warn('Failed to save outbound WhatsApp original text', savedOriginalData.error);
-        }
-      }
-      if (activeClient) {
-        addLog(
-          activeClient.id,
-          data.scheduled
-            ? `WhatsApp Hub message scheduled for ${new Date(data.scheduledAt).toLocaleString()}: ${messageBody.slice(0, 120)}`
-            : `WhatsApp Hub message sent: ${messageBody.slice(0, 120)}`,
-          undefined,
-          'whatsapp',
-          data
-        );
-      }
-      setBody('');
-      setSelectedFile(null);
-      setSelectedMedia(null);
-      if (data.scheduled) {
-        setScheduleEnabled(false);
-        setScheduleDateTime('');
-      }
-      notify(data.scheduled ? 'WhatsApp message scheduled.' : 'WhatsApp message queued.', 'success');
-      await loadData({ sync: false });
-    } catch (error: any) {
-      notify(error.message || 'Failed to send WhatsApp message.', 'error');
-    } finally {
-      setSending(false);
-    }
-  };
-
-  const emojiOptions = ['😀', '😊', '👍', '🙏', '🔥', '🎉', '✅', '📦', '💬', '🤝', '📄', '🚀'];
+  const emojiOptions = ['🙂', '😊', '👍', '🙏', '🔥', '🎉', '✅', '📦', '💬', '🤝', '📄', '🚀'];
 
   return (
     <div className={embedded ? "flex-1 min-h-0 flex flex-col bg-slate-950/50" : "fixed inset-0 bg-black/60 z-[80] flex items-center justify-center p-4"}>
