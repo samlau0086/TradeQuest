@@ -13,6 +13,7 @@ import {
   useInboxBulkActions,
   useInboxConversationList,
   useInboxNavigationActions,
+  useInboxPageVisibility,
   useInboxSelection,
   useInboxSidebarActions,
   useInboxSync,
@@ -742,8 +743,14 @@ export function Inbox() {
     onCloseTodo: () => setTodoModalEmail(null),
   };
 
-  const sidebarHidden = !!(selectedEmailId || selectedWhatsAppPhone || selectedTelegramConversation || selectedLiveChatConversation || isStartingWhatsApp);
-  const contentHidden = !selectedEmailId && !selectedWhatsAppPhone && !selectedTelegramConversation && !selectedLiveChatConversation && !isComposing && !isStartingWhatsApp;
+  const { sidebarHidden, contentHidden } = useInboxPageVisibility({
+    selectedEmailId,
+    selectedWhatsAppPhone,
+    selectedTelegramConversation,
+    selectedLiveChatConversation,
+    isComposing,
+    isStartingWhatsApp,
+  });
 
   return (
     <InboxPageShell
