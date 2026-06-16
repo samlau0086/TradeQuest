@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Client, useStore } from '../store';
 import { useTranslation } from '../lib/i18n';
 import { WhatsAppChatHeader } from './WhatsAppChatHeader';
@@ -16,6 +16,7 @@ import { useWhatsAppComposerState } from './useWhatsAppComposerState';
 import { useWhatsAppConversationMeta } from './useWhatsAppConversationMeta';
 import { useWhatsAppConversationSummary } from './useWhatsAppConversationSummary';
 import { useWhatsAppDrafting } from './useWhatsAppDrafting';
+import { useWhatsAppMessageScroll } from './useWhatsAppMessageScroll';
 import { useWhatsAppSending } from './useWhatsAppSending';
 import { useWhatsAppTranslation } from './useWhatsAppTranslation';
 import {
@@ -72,7 +73,6 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     initialMessage,
     resetKey: `${targetPhone}|${initialConversation?.id || ''}|${language}`
   });
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const {
     hubClients,
     messages,
@@ -88,6 +88,15 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     notify,
     setSelectedClientId,
     setTranslations
+  });
+  const {
+    messagesEndRef,
+    latestMessageId,
+    scrollMessagesToBottom
+  } = useWhatsAppMessageScroll({
+    embedded,
+    targetPhone,
+    messages
   });
   const {
     rawChatId,
@@ -180,12 +189,6 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     knowledgeBase,
     products
   });
-  const latestMessageId = messages[messages.length - 1]?.id || '';
-
-  const scrollMessagesToBottom = (behavior: ScrollBehavior = 'auto') => {
-    messagesEndRef.current?.scrollIntoView({ block: 'end', behavior });
-  };
-
   const getLLMConfig = useCallback((module: string) => {
     const id = llmMappings[module] || activeLLMId;
     return llmConfigs.find(llm => llm.id === id) || null;
@@ -278,19 +281,6 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   useEffect(() => {
     resetConversationMetaInputs();
   }, [targetPhone, initialConversation?.id, language, resetConversationMetaInputs]);
-
-  useEffect(() => {
-    if (embedded) return;
-    if (!targetPhone || messages.length === 0) return;
-    const frame = window.requestAnimationFrame(() => scrollMessagesToBottom('auto'));
-    const shortTimer = window.setTimeout(() => scrollMessagesToBottom('auto'), 80);
-    const mediaTimer = window.setTimeout(() => scrollMessagesToBottom('auto'), 300);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      window.clearTimeout(shortTimer);
-      window.clearTimeout(mediaTimer);
-    };
-  }, [embedded, targetPhone, latestMessageId, messages.length]);
 
   return (
     <div className={embedded ? "flex-1 min-h-0 flex flex-col bg-slate-950/50" : "fixed inset-0 bg-black/60 z-[80] flex items-center justify-center p-4"}>
