@@ -2,6 +2,7 @@ import React from 'react';
 import { FileText } from 'lucide-react';
 import { Deal, Quote } from '../../store';
 import { formatCurrency } from '../../lib/currency';
+import { SectionHeader } from '../ui';
 
 interface ClientQuotesWidgetProps {
   quotes: Quote[];
@@ -13,9 +14,7 @@ interface ClientQuotesWidgetProps {
 export function ClientQuotesWidget({ quotes, leadRecord, currencyRates, onOpenQuote }: ClientQuotesWidgetProps) {
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
-      <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
-        <FileText className="w-4 h-4" /> Quotes
-      </h3>
+      <SectionHeader icon={<FileText className="w-4 h-4" />} className="mb-4">Quotes</SectionHeader>
       <div className="space-y-2">
         {quotes.map(quote => {
           const subtotal = quote.items.reduce((sum, item) => sum + (item.total || item.quantity * item.unitPrice || 0), 0);

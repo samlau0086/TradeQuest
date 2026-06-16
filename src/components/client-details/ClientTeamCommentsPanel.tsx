@@ -2,6 +2,7 @@ import React from 'react';
 import { MessageSquare, Paperclip, Send } from 'lucide-react';
 import { Attachment, Comment } from '../../store';
 import { CommentItem } from '../CommentItem';
+import { SectionHeader } from '../ui';
 
 interface ClientTeamCommentsPanelProps {
   comments: Comment[];
@@ -24,9 +25,7 @@ export function ClientTeamCommentsPanel({
 }: ClientTeamCommentsPanelProps) {
   return (
     <div className="border-t border-slate-800 pt-6 pb-20">
-      <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
-        <MessageSquare className="w-4 h-4" /> Team Comments
-      </h3>
+      <SectionHeader icon={<MessageSquare className="w-4 h-4" />} className="mb-4">Team Comments</SectionHeader>
 
       <div className="space-y-4 mb-6">
         {comments.map((comment) => (

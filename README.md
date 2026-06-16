@@ -515,11 +515,11 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] Extract Inbox dialog slot prop assembly into `useInboxDialogLayerProps`, keeping modal close/upload/tag/follow-up callback wiring outside the page component.
 - [x] Extract Inbox sidebar slot prop assembly into `useInboxSidebarProps`, keeping filter/list/bulk-action wiring outside the page component.
 - [x] Continue reducing `Inbox.tsx` toward a page orchestration layer before replacing its layout.
-- [-] Apply the same gradual extraction pattern to other large record/detail pages before major redesign. `ClientDetails.tsx` is being reduced through extracted UI state, action, selection, and layout layers.
+- [x] Apply the same gradual extraction pattern to other large record/detail pages before major redesign. `ClientDetails.tsx` is now reduced through extracted UI state, action, selection, layout, main/sidebar/comment, and overlay layers.
 
 ### Phase 1: Design System Layer
 
-- [ ] Create shared UI primitives for `PageHeader`, `SectionHeader`, `ActionBar`, `Toolbar`, `FilterBar`, `StatusBadge`, `OwnerStageControl`, `EmptyState`, `ConfirmDialog`, and `DataTable`.
+- [-] Create shared UI primitives for `PageHeader`, `SectionHeader`, `ActionBar`, `Toolbar`, `FilterBar`, `StatusBadge`, `OwnerStageControl`, `EmptyState`, `ConfirmDialog`, and `DataTable`.
 - [ ] Normalize spacing, typography, button hierarchy, input styling, tab styling, icon usage, and density across operational pages.
 - [ ] Add shared layout primitives for `CRMWorkspaceLayout`, `RecordPageLayout`, `LeftListMiddleDetailRightPanelLayout`, and `WidgetRail`.
 - [ ] Keep the UI optimized for repeated CRM work: compact, scannable, keyboard-friendly, and not marketing-page-like.
@@ -579,11 +579,11 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] 已拆出 Inbox 弹窗层 props 装配逻辑，将关闭、上传附件、标签和待跟进等回调 wiring 移出页面组件。
 - [x] 已拆出 Inbox 侧栏 props 装配逻辑，将筛选、列表和批量操作 wiring 移出页面组件。
 - [x] 继续把 `Inbox.tsx` 收敛为页面编排层，再替换整体布局。
-- [-] 对其他大型详情页/记录页使用同样的渐进式抽组件方式。`ClientDetails.tsx` 正在通过 UI 状态、页面动作、数据选择和布局层抽离持续瘦身。
+- [x] 对其他大型详情页/记录页使用同样的渐进式抽组件方式。`ClientDetails.tsx` 已通过 UI 状态、页面动作、数据选择、布局、主栏/侧栏/评论和弹窗层抽离完成瘦身。
 
 ### 阶段 1：Design System 基础层
 
-- [ ] 建立共享 UI 基础组件：`PageHeader`、`SectionHeader`、`ActionBar`、`Toolbar`、`FilterBar`、`StatusBadge`、`OwnerStageControl`、`EmptyState`、`ConfirmDialog`、`DataTable`。
+- [-] 建立共享 UI 基础组件：`PageHeader`、`SectionHeader`、`ActionBar`、`Toolbar`、`FilterBar`、`StatusBadge`、`OwnerStageControl`、`EmptyState`、`ConfirmDialog`、`DataTable`。
 - [ ] 统一运营页面的间距、字体层级、按钮层级、输入框、Tabs、图标和信息密度。
 - [ ] 建立共享布局组件：`CRMWorkspaceLayout`、`RecordPageLayout`、`LeftListMiddleDetailRightPanelLayout`、`WidgetRail`。
 - [ ] 保持 CRM 高频工作场景的紧凑、可扫读、可重复操作，而不是做成营销页风格。

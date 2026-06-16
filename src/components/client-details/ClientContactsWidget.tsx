@@ -2,6 +2,7 @@ import React from 'react';
 import { Globe2, Mail, MessageCircle, Phone, Send } from 'lucide-react';
 import { Client, ClientContact, ContactMethod } from '../../store';
 import { cn } from '../../lib/utils';
+import { SectionHeader } from '../ui';
 
 const CONTACT_ICONS = {
   email: Mail,
@@ -38,9 +39,7 @@ export function ClientContactsWidget({
 
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
-      <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2">
-        Contacts
-      </h3>
+      <SectionHeader className="mb-2">Contacts</SectionHeader>
       <div className="space-y-3">
         {contacts.map((contact) => (
           <div key={contact.id} className="bg-slate-900/50 border border-slate-800 rounded-xl p-3">
