@@ -2,7 +2,7 @@ import React from 'react';
 import { FileText } from 'lucide-react';
 import { Deal, Quote } from '../../store';
 import { formatCurrency } from '../../lib/currency';
-import { SectionHeader } from '../ui';
+import { SectionHeader, StatusBadge } from '../ui';
 
 interface ClientQuotesWidgetProps {
   quotes: Quote[];
@@ -28,9 +28,7 @@ export function ClientQuotesWidget({ quotes, leadRecord, currencyRates, onOpenQu
             >
               <div className="flex items-center justify-between gap-3">
                 <span className="font-mono text-sm font-bold text-slate-100">{quote.quoteNumber}</span>
-                <span className="rounded border border-slate-700 bg-slate-950 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-400">
-                  {quote.status}
-                </span>
+                <StatusBadge>{quote.status}</StatusBadge>
               </div>
               <div className="mt-1 flex items-center justify-between gap-3 text-xs">
                 <span className="text-slate-500">

@@ -2,7 +2,7 @@ import React from 'react';
 import { Globe2, Mail, MessageCircle, Phone, Send } from 'lucide-react';
 import { Client, ClientContact, ContactMethod } from '../../store';
 import { cn } from '../../lib/utils';
-import { SectionHeader } from '../ui';
+import { SectionHeader, StatusBadge } from '../ui';
 
 const CONTACT_ICONS = {
   email: Mail,
@@ -60,7 +60,7 @@ export function ClientContactsWidget({
                 <div className="min-w-0">
                   <div className="text-sm font-bold text-slate-200 flex items-center gap-2">
                     {contact.name || client.name}
-                    {contact.isPrimary && <span className="text-[10px] uppercase px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">Key</span>}
+                    {contact.isPrimary && <StatusBadge tone="cyan">Key</StatusBadge>}
                   </div>
                   {contact.title && <div className="text-[11px] text-slate-500 mt-0.5">{contact.title}</div>}
                 </div>

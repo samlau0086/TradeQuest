@@ -2,6 +2,7 @@ import React from 'react';
 import { ArrowLeft, Building2, Edit, MapPin, Trash2 } from 'lucide-react';
 import { Client, Deal } from '../../store';
 import { LocalTime } from '../LocalTime';
+import { StatusBadge } from '../ui';
 
 interface ClientDetailsHeaderProps {
   client: Client;
@@ -22,12 +23,8 @@ export function ClientDetailsHeader({ client, leadRecord, onClose, onEdit, onDel
           <div className="min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
               <h2 className="text-2xl font-bold text-white truncate">{leadRecord?.name || client.name}</h2>
-              <span className="text-[11px] font-bold px-2.5 py-1 rounded bg-purple-500/20 text-purple-200 border border-purple-500/30">
-                {leadRecord ? 'Lead' : 'Client'}
-              </span>
-              <span className="text-[11px] font-bold px-2.5 py-1 rounded bg-cyan-500/10 text-cyan-200 border border-cyan-500/20">
-                {leadRecord?.status || client.status}
-              </span>
+              <StatusBadge tone="purple" size="sm">{leadRecord ? 'Lead' : 'Client'}</StatusBadge>
+              <StatusBadge tone="cyan" size="sm">{leadRecord?.status || client.status}</StatusBadge>
             </div>
             <div className="mt-2 flex items-center gap-4 text-xs text-slate-500 flex-wrap">
               <span className="inline-flex items-center gap-1.5"><Building2 className="w-3.5 h-3.5" />{client.company || 'No company'}</span>
