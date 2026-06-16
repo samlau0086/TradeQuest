@@ -264,9 +264,9 @@ export function EmailTrackingPanel({
   if (!enabled) return null;
 
   return (
-    <div className="mb-6 bg-slate-800/30 border border-slate-700/50 rounded-xl p-4">
-      <div className="flex items-center gap-2 text-xs font-bold text-slate-400 mb-3 uppercase tracking-wider">
-        <Radar className="w-4 h-4 text-emerald-400" /> Interaction Tracking Activity
+    <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+        <Radar className="w-4 h-4 text-emerald-500" /> Interaction Tracking Activity
       </div>
       {events.length === 0 ? (
         <div className="text-sm text-slate-500 py-2">No tracking events have been recorded yet.</div>
@@ -275,7 +275,7 @@ export function EmailTrackingPanel({
           {visibleEvents.map((event, index) => (
             <div
               key={`${event.created_at || index}-${event.type || 'event'}`}
-              className="flex flex-wrap items-center gap-4 text-sm bg-slate-900/50 p-2.5 rounded-lg border border-slate-800/50"
+              className="flex flex-wrap items-center gap-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm"
             >
               <div className="flex items-center gap-2 min-w-[100px]">
                 {event.type === 'open' ? (
@@ -283,21 +283,21 @@ export function EmailTrackingPanel({
                 ) : (
                   <MousePointerClick className="w-4 h-4 text-fuchsia-500" />
                 )}
-                <span className="text-white font-medium capitalize">{event.type}</span>
+                <span className="font-medium capitalize text-slate-900">{event.type}</span>
               </div>
               <div className="flex items-center gap-2 text-slate-400 text-xs min-w-[140px]">
                 <Clock className="w-3.5 h-3.5" />
                 {new Date(event.created_at).toLocaleString()}
               </div>
               {(event.location?.country || event.location?.city) && (
-                <div className="flex items-center gap-1.5 text-slate-300 text-xs">
+                <div className="flex items-center gap-1.5 text-xs text-slate-600">
                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/50" />
                   {event.location.city ? `${event.location.city}, ` : ''}
                   {event.location.region ? `${event.location.region}, ` : ''}
                   {event.location.country}
                 </div>
               )}
-              <div className="text-slate-500 text-xs ml-auto font-mono bg-slate-800 px-2 py-0.5 rounded" title={event.user_agent}>
+              <div className="ml-auto rounded border border-slate-200 bg-white px-2 py-0.5 font-mono text-xs text-slate-500" title={event.user_agent}>
                 {event.ip_address}
               </div>
               {event.type === 'click' && event.url && (
@@ -314,7 +314,7 @@ export function EmailTrackingPanel({
             <button
               type="button"
               onClick={onToggleExpanded}
-              className="text-xs font-bold text-emerald-300 hover:text-emerald-200 transition-colors"
+              className="text-xs font-bold text-emerald-600 transition-colors hover:text-emerald-500"
             >
               {isExpanded
                 ? (language === 'zh' ? '收起' : 'Show Less')
@@ -349,8 +349,8 @@ export function EmailCommentsPanel({
   onReply,
 }: EmailCommentsPanelProps) {
   return (
-    <div className="mt-12 border-t border-slate-800 pt-6">
-      <h3 className="text-sm border-b border-slate-800 pb-2 font-bold flex items-center text-slate-400 mb-4">
+    <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h3 className="mb-4 flex items-center border-b border-slate-200 pb-2 text-sm font-bold text-slate-700">
         <MessageSquare className="w-4 h-4 mr-2" /> Comments & Notes
       </h3>
       <div className="space-y-4 mb-4">
@@ -362,28 +362,28 @@ export function EmailCommentsPanel({
           />
         ))}
       </div>
-      <div className="bg-slate-900 border border-slate-800 p-2 rounded-lg">
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
         <textarea
           value={commentText}
           onChange={event => onCommentTextChange(event.target.value)}
-          className="w-full bg-transparent text-sm resize-none focus:outline-none text-slate-300 placeholder-slate-600 p-1 min-h-[60px]"
+          className="min-h-[60px] w-full resize-none bg-transparent p-1 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
           placeholder="Add a comment to this email..."
         />
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-2 px-1 mb-2">
             {attachments.map((file, index) => (
-              <div key={`${file.name}:${index}`} className="relative group overflow-hidden border border-slate-700 rounded-md bg-slate-900 w-16 h-16 shrink-0">
+              <div key={`${file.name}:${index}`} className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-white">
                 {file.type.startsWith('image/') ? (
                   <img src={URL.createObjectURL(file)} alt={file.name} className="w-full h-full object-cover" />
                 ) : (
-                  <div className="w-full h-full flex flex-col items-center justify-center text-[10px] text-slate-400 p-1 text-center break-words">
+                    <div className="flex h-full w-full flex-col items-center justify-center break-words p-1 text-center text-[10px] text-slate-500">
                     <Paperclip className="w-3 h-3 mb-1" />
                     <span className="truncate w-full line-clamp-2">{file.name}</span>
                   </div>
                 )}
                 <button
                   onClick={() => onRemoveAttachment(index)}
-                  className="absolute top-0 right-0 bg-red-500/80 hover:bg-red-500 text-white p-0.5 rounded-bl opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="absolute right-0 top-0 rounded-bl bg-red-500/80 p-0.5 text-white opacity-0 transition-opacity hover:bg-red-500 group-hover:opacity-100"
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -393,15 +393,15 @@ export function EmailCommentsPanel({
         )}
         <div className="flex justify-between items-center pt-2">
           <div className="flex items-center gap-2 shrink-0 pb-1">
-            <button onClick={onAttachClick} className="p-1.5 text-slate-500 hover:text-cyan-400 rounded-md transition-colors flex items-center gap-1" title="Attach Files">
+            <button onClick={onAttachClick} className="flex items-center gap-1 rounded-md border border-slate-200 p-1.5 text-slate-500 transition-colors hover:bg-white hover:text-cyan-600" title="Attach Files">
               <Paperclip className="w-4 h-4" />
-              {attachments.length > 0 && <span className="text-xs bg-cyan-600 text-white px-1.5 py-0.5 rounded-full">{attachments.length}</span>}
+                {attachments.length > 0 && <span className="rounded-full bg-cyan-600 px-1.5 py-0.5 text-xs text-white">{attachments.length}</span>}
             </button>
           </div>
           <button
             onClick={onSubmit}
             disabled={!commentText.trim() && attachments.length === 0}
-            className="bg-slate-800 disabled:opacity-50 text-slate-300 px-3 py-1 text-xs rounded hover:text-white"
+            className="rounded-lg bg-cyan-600 px-3 py-1 text-xs text-white disabled:bg-slate-200 disabled:text-slate-500"
           >
             Post Comment
           </button>

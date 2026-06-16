@@ -11,7 +11,6 @@ interface LiveChatHeaderActionsProps {
 }
 
 export function LiveChatHeaderActions({
-  language,
   humanTakeover,
   isRunningAgent,
   onToggleHumanTakeover,
@@ -25,23 +24,21 @@ export function LiveChatHeaderActions({
         className={cn(
           'inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-colors',
           humanTakeover
-            ? 'border-amber-500/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20'
-            : 'border-violet-500/40 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20'
+            ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+            : 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100'
         )}
       >
         {humanTakeover ? <User className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
-        {humanTakeover
-          ? (language === 'zh' ? '人工接管' : 'Human Takeover')
-          : (language === 'zh' ? 'Agent 自动' : 'Agent Auto')}
+        {humanTakeover ? 'Human Takeover' : 'Agent Auto'}
       </button>
       <button
         type="button"
         onClick={() => void onRunAgent()}
         disabled={isRunningAgent}
-        className="inline-flex items-center gap-2 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs font-bold text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-60"
+        className="inline-flex items-center gap-2 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-bold text-cyan-700 hover:bg-cyan-100 disabled:opacity-60"
       >
         {isRunningAgent ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-        {language === 'zh' ? '运行 Agent' : 'Run Agent'}
+        {'Run Agent'}
       </button>
     </>
   );
@@ -67,7 +64,6 @@ interface LiveChatHeaderMetaProps {
 }
 
 export function LiveChatHeaderMeta({
-  language,
   isLinked,
   hasContactMethod,
   translateEnabled,
@@ -87,32 +83,32 @@ export function LiveChatHeaderMeta({
         type="button"
         onClick={onToggleTranslate}
         className={cn(
-          'text-xs flex items-center gap-1 rounded border px-1.5 py-0.5',
+          'flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-semibold',
           translateEnabled
-            ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-200'
-            : 'border-slate-700 bg-slate-800/50 text-slate-400 hover:text-slate-200'
+            ? 'border-cyan-200 bg-cyan-50 text-cyan-700'
+            : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-800'
         )}
       >
-        <Languages className="w-3 h-3" />
-        {language === 'zh' ? '自动翻译' : 'Auto Translate'}
-        <span className={cn('h-1.5 w-1.5 rounded-full', translateEnabled ? 'bg-cyan-300' : 'bg-slate-600')} />
+        <Languages className="h-3 w-3" />
+        {'Auto Translate'}
+        <span className={cn('h-1.5 w-1.5 rounded-full', translateEnabled ? 'bg-cyan-400' : 'bg-slate-300')} />
       </button>
       {!isLinked && hasContactMethod && (
         <>
-          <button onClick={onCreateLead} className="text-cyan-500 flex items-center gap-1 hover:text-cyan-400 bg-slate-800/50 rounded px-1.5 py-0.5">
-            <UserPlus className="w-3 h-3" /> New Lead
+          <button onClick={onCreateLead} className="flex items-center gap-1 rounded-full border border-cyan-200 bg-cyan-50 px-2 py-1 text-cyan-700 transition hover:bg-cyan-100">
+            <UserPlus className="h-3 w-3" /> New Lead
           </button>
-          <button onClick={onAddToExistingClient} className="text-emerald-400 flex items-center gap-1 hover:text-emerald-300 bg-slate-800/50 rounded px-1.5 py-0.5">
-            <User className="w-3 h-3" /> Add to Existing Client
+          <button onClick={onAddToExistingClient} className="flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-700 transition hover:bg-emerald-100">
+            <User className="h-3 w-3" /> Add to Existing Client
           </button>
         </>
       )}
-      {visitorEmail && <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">email: {visitorEmail}</span>}
-      {visitorPhone && <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">phone: {visitorPhone}</span>}
-      {pageUrl && <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70 truncate max-w-[360px]">page: {pageUrl}</span>}
-      {visitorInfo.ip && <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">IP: {visitorInfo.ip}</span>}
-      {browserLabel && <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">{browserLabel}</span>}
-      {visitorInfo.os && <span className="bg-slate-800/70 px-1.5 py-0.5 rounded border border-slate-700/70">{visitorInfo.os}</span>}
+      {visitorEmail && <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">email: {visitorEmail}</span>}
+      {visitorPhone && <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">phone: {visitorPhone}</span>}
+      {pageUrl && <span className="max-w-[360px] truncate rounded-full border border-slate-200 bg-slate-50 px-2 py-1">page: {pageUrl}</span>}
+      {visitorInfo.ip && <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">IP: {visitorInfo.ip}</span>}
+      {browserLabel && <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">{browserLabel}</span>}
+      {visitorInfo.os && <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">{visitorInfo.os}</span>}
     </>
   );
 }
