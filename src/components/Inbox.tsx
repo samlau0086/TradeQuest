@@ -12,6 +12,7 @@ import {
   useEmailQuickActions,
   useInboxBulkActions,
   useInboxConversationList,
+  useInboxContentPanelProps,
   useInboxDialogLayerProps,
   useInboxFollowUpFilterRequest,
   useInboxLifecycleEffects,
@@ -19,6 +20,7 @@ import {
   useInboxPageVisibility,
   useInboxSelection,
   useInboxSidebarActions,
+  useInboxSidebarProps,
   useInboxSync,
   useInboxUiState,
   useLiveChatInboxSession,
@@ -28,8 +30,6 @@ import {
 } from './inbox-ui';
 import type {
   InboxChannelFilter,
-  InboxContentPanelProps,
-  InboxConversationSidebarProps,
   InboxWhatsAppConversation,
   UnifiedCommunicationConversation,
 } from './inbox-ui';
@@ -545,7 +545,7 @@ export function Inbox() {
     notify,
   });
 
-  const contentPanelProps: InboxContentPanelProps = {
+  const contentPanelProps = useInboxContentPanelProps({
     isComposing,
     composeDefaults,
     setIsComposing,
@@ -642,15 +642,14 @@ export function Inbox() {
     editEmail,
     setShowCommentAttachmentModal,
     setCommentAttachments,
-  };
+  });
 
-  const sidebarProps: InboxConversationSidebarProps = {
+  const sidebarProps = useInboxSidebarProps({
     language,
     filter,
     channelFilter,
     search,
     searchTags,
-    tagSuggestions: Array.from(new Set(emails.flatMap(e => e.tags || []))),
     followUpOnly,
     visibleFollowUpCount,
     unifiedConversationList,
@@ -683,7 +682,7 @@ export function Inbox() {
     onSearchTagsChange: setSearchTags,
     onToggleFollowUpOnly: handleToggleFollowUpOnly,
     onClearFollowUpOnly: handleClearFollowUpOnly,
-    onSync: () => handleSync(),
+    onSync: handleSync,
     onToggleSelectAll: toggleSelectAll,
     onClearSelection: clearBulkSelection,
     onBulkTagInputChange: setBulkTagInput,
@@ -704,7 +703,7 @@ export function Inbox() {
     onOwnerStageChange: updateConversationOwnerStage,
     onComposeEmail: handleComposeEmail,
     onStartWhatsApp: handleStartWhatsApp,
-  };
+  });
 
   const dialogLayerProps = useInboxDialogLayerProps({
     isCreatingLead,

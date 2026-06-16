@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useStore } from '../store';
 import { useAuthStore } from '../authStore';
 import { ClientFormModal } from './ClientFormModal';
@@ -20,7 +20,7 @@ import {
   ClientWorkroomPanel,
 } from './client-details';
 import { KnowledgeBaseManager } from './KnowledgeBaseManager';
-import { useClientAiAnalysis, useClientComments, useClientDetailsData } from '../hooks/client-details';
+import { useClientAiAnalysis, useClientComments, useClientDetailsData, useClientDetailsUiState } from '../hooks/client-details';
 
 const INBOX_OPEN_REQUEST_KEY = 'tradequest:inbox-open-request:v1';
 
@@ -32,22 +32,32 @@ const requestInboxOpen = (payload: any) => {
 export function ClientDetails() {
   const { clients, deals, selectedClientId, selectedDealId, selectClient, selectDeal, updateClientStatus, updateDeal, deleteClient, deleteLog, setView, selectEmail, logs, emails, language, currencyRates } = useStore();
   
-  const [showEditModal, setShowEditModal] = useState(false);
-
-  const [expandedContactIdx, setExpandedContactIdx] = useState<string | null>(null);
-  const [showEmailCompose, setShowEmailCompose] = useState(false);
-  const [composeRecipient, setComposeRecipient] = useState('');
-  const [composeInitialBody, setComposeInitialBody] = useState('');
-
-  const [confirmDeleteTarget, setConfirmDeleteTarget] = useState(false);
-  const [eventView, setEventView] = useState<'timeline' | 'list' | 'growth'>('timeline');
-  const [timelineExpanded, setTimelineExpanded] = useState(false);
-  const [eventListExpanded, setEventListExpanded] = useState(false);
-  const [growthLogsExpanded, setGrowthLogsExpanded] = useState(false);
-
-  // Agent State
-  const [agentLoading, setAgentLoading] = useState(false);
-  const [agentSettingsOpen, setAgentSettingsOpen] = useState(false);
+  const {
+    showEditModal,
+    setShowEditModal,
+    expandedContactIdx,
+    setExpandedContactIdx,
+    showEmailCompose,
+    setShowEmailCompose,
+    composeRecipient,
+    setComposeRecipient,
+    composeInitialBody,
+    setComposeInitialBody,
+    confirmDeleteTarget,
+    setConfirmDeleteTarget,
+    eventView,
+    setEventView,
+    timelineExpanded,
+    setTimelineExpanded,
+    eventListExpanded,
+    setEventListExpanded,
+    growthLogsExpanded,
+    setGrowthLogsExpanded,
+    agentLoading,
+    setAgentLoading,
+    agentSettingsOpen,
+    setAgentSettingsOpen,
+  } = useClientDetailsUiState();
 
   const client = clients.find(c => c.id === selectedClientId);
   const selectedDeal = selectedDealId
