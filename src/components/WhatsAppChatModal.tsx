@@ -1,13 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Client, useStore } from '../store';
-import { MediaSelectorModal } from './MediaSelectorModal';
 import { useTranslation } from '../lib/i18n';
 import { getCustomerOutputLanguage, getOutboundLanguage } from '../lib/language';
-import { ClientFormModal, PREFERRED_LANGUAGES } from './ClientFormModal';
-import { AddContactToClientModal } from './AddContactToClientModal';
+import { PREFERRED_LANGUAGES } from './ClientFormModal';
 import { buildUnifiedAgentContext } from '../lib/agentContext';
 import { WhatsAppChatHeader } from './WhatsAppChatHeader';
 import { WhatsAppContextSuggestionsPanel } from './WhatsAppContextSuggestionsPanel';
+import { WhatsAppDialogLayer } from './WhatsAppDialogLayer';
 import { WhatsAppConversationMetaBar } from './WhatsAppConversationMetaBar';
 import { WhatsAppMessageComposer } from './WhatsAppMessageComposer';
 import { WhatsAppMessageList } from './WhatsAppMessageList';
@@ -469,30 +468,20 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
         />
       </div>
 
-      {showMediaSelector && (
-        <MediaSelectorModal
-          onSelect={(_, media) => {
-            selectMedia(media);
-          }}
-          onClose={closeMediaSelector}
-          allowedTypes={[]}
-        />
-      )}
-      {isCreatingLead && (
-        <ClientFormModal
-          onClose={closeCreateLead}
-          initialData={newLeadInitialData}
-          onSave={handleLeadCreated}
-        />
-      )}
-      {isAddingContactToClient && (
-        <AddContactToClientModal
-          contactMethod={{ type: 'whatsapp', value: displayPhone }}
-          displayName={conversation?.clientName || displayPhone}
-          onClose={closeAddToExistingClient}
-          onLinked={handleExistingClientLinked}
-        />
-      )}
+      <WhatsAppDialogLayer
+        showMediaSelector={showMediaSelector}
+        isCreatingLead={isCreatingLead}
+        isAddingContactToClient={isAddingContactToClient}
+        displayPhone={displayPhone}
+        conversationClientName={conversation?.clientName}
+        newLeadInitialData={newLeadInitialData}
+        onSelectMedia={selectMedia}
+        onCloseMediaSelector={closeMediaSelector}
+        onCloseCreateLead={closeCreateLead}
+        onLeadCreated={handleLeadCreated}
+        onCloseAddToExistingClient={closeAddToExistingClient}
+        onExistingClientLinked={handleExistingClientLinked}
+      />
     </div>
   );
 }
