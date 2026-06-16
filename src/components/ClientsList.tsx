@@ -6,7 +6,7 @@ import { useTranslation } from '../lib/i18n';
 import { ClientFormModal } from './ClientFormModal';
 import { UploadCSVModal } from './UploadCSVModal';
 import { WorldMap } from './WorldMap';
-import { DataTable, DataTableColumn } from './ui';
+import { ConfirmDialog, DataTable, DataTableColumn } from './ui';
 
 type ViewMode = 'list' | 'map';
 type SortColumn = 'leadScore' | 'recentEvent';
@@ -375,140 +375,7 @@ const getLeadScoreVisual = (score?: number) => {
               rowClassName="group"
               emptyState={<span className="text-slate-500">{t('noClientsFound')}</span>}
             />
-            <table className="hidden w-full text-sm text-left">
-              <thead className="text-xs text-slate-400 bg-slate-950 uppercase border-b border-slate-800 sticky top-0">
-                <tr>
-                  <th className="px-4 py-3">{t('name')}</th>
-                  <th className="px-4 py-3">{t('company')}</th>
-                  <th className="px-4 py-3">{t('location')}</th>
-                  <th className="px-4 py-3">{t('contactMethod')}</th>
-                  <th className="px-4 py-3">
-                    <button
-                      type="button"
-                      onClick={() => toggleSort('leadScore')}
-                      className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-left font-bold text-slate-400 hover:bg-slate-800 hover:text-cyan-300"
-                      title={language === 'zh' ? '按线索分值排序' : 'Sort by lead score'}
-                    >
-                      {leadScoreHeaderLabel}
-                      <span className="text-[10px] text-cyan-400">{sortColumn === 'leadScore' ? (sortDirection === 'desc' ? '↓' : '↑') : ''}</span>
-                    </button>
-                  </th>
-                  <th className="px-4 py-3">
-                    <button
-                      type="button"
-                      onClick={() => toggleSort('recentEvent')}
-                      className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-left font-bold text-slate-400 hover:bg-slate-800 hover:text-cyan-300"
-                      title={language === 'zh' ? '按最近事件时间排序' : 'Sort by recent event time'}
-                    >
-                      {recentEventHeaderLabel}
-                      <span className="text-[10px] text-cyan-400">{sortColumn === 'recentEvent' ? (sortDirection === 'desc' ? '↓' : '↑') : ''}</span>
-                    </button>
-                  </th>
-                  <th className="px-4 py-3">{language === 'zh' ? '来源' : 'Source'}</th>
-                  <th className="px-4 py-3">{t('tagsLabel').split(' ')[0]}</th>
-                  <th className="px-4 py-3 text-right">{t('actions')}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/50">
-                {sortedClients.map(client => {
-                  const scoreVisual = getLeadScoreVisual(client.leadScore);
-                  const leadScore = Math.max(0, Math.min(100, Number(client.leadScore) || 0));
-                  const recentEvent = latestEventByClient[client.id];
-                  const recentEventDate = recentEvent?.date || client.lastContact;
-                  const recentEventTime = recentEventDate ? new Date(recentEventDate) : null;
-                  const recentEventIsValid = !!recentEventTime && Number.isFinite(recentEventTime.getTime());
-                  return (
-                  <tr key={client.id} className="hover:bg-slate-800/30 transition-colors group">
-                    <td className="px-4 py-3">
-                      <button onClick={() => selectClient(client.id)} className="hover:text-cyan-400 hover:underline text-left font-bold text-slate-200">
-                        {client.name}
-                      </button>
-                    </td>
-                    <td className="px-4 py-3 text-slate-400">{client.company}</td>
-                    <td className="px-4 py-3 text-slate-400 capitalize">{[client.city, client.state, client.country].filter(Boolean).join(', ') || '-'}</td>
-                    <td className="px-4 py-3 text-slate-400">
-                      {client.contactMethods.length > 0 && (
-                        <span className="flex items-center gap-1">
-                          {React.createElement(CONTACT_ICONS[client.contactMethods[0].type] || Mail, { className: 'w-3 h-3' })}
-                          {client.contactMethods[0].value}
-                          {client.contactMethods.length > 1 && <span className="text-[10px] bg-slate-700 px-1 rounded">+{client.contactMethods.length - 1}</span>}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3 min-w-[150px]">
-                        <span className={cn('inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-bold whitespace-nowrap', scoreVisual.className)}>
-                          <span>{scoreVisual.icon}</span>
-                          <span>{scoreVisual.level}</span>
-                          <span>{scoreVisual.label}</span>
-                        </span>
-                        <div className="min-w-[48px] text-right">
-                          <div className="text-sm font-black text-slate-100">{leadScore}</div>
-                          <div className="mt-1 h-1.5 w-12 overflow-hidden rounded-full bg-slate-800">
-                            <div className={cn('h-full rounded-full', leadScore >= 81 ? 'bg-yellow-400' : leadScore >= 61 ? 'bg-orange-400' : leadScore >= 41 ? 'bg-cyan-400' : leadScore >= 21 ? 'bg-blue-400' : 'bg-slate-500')} style={{ width: `${leadScore}%` }} />
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-slate-400">
-                      {recentEventIsValid ? (
-                        <div className="min-w-[170px]">
-                          <div className="text-xs font-bold text-slate-200">
-                            {recentEventTime.toLocaleString()}
-                          </div>
-                          <div className="mt-1 max-w-[220px] truncate text-[11px] text-slate-500" title={recentEvent?.content || ''}>
-                            {recentEvent?.content || (language === 'zh' ? '最近联系' : 'Last contact')}
-                          </div>
-                        </div>
-                      ) : (
-                        <span className="text-slate-600">-</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-slate-400">
-                      {client.sourceLabel ? (
-                        <span className="inline-flex max-w-[220px] items-center rounded-full border border-cyan-500/25 bg-cyan-500/10 px-2 py-1 text-[11px] font-bold text-cyan-200" title={client.sourceLabel}>
-                          <span className="truncate">{client.sourceLabel}</span>
-                        </span>
-                      ) : (
-                        <span className="text-slate-600">-</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-1 flex-wrap">
-                        {client.tags.slice(0, 2).map(t => (
-                          <span key={t} className="text-[10px] bg-slate-900 border border-slate-700 text-slate-400 px-1.5 py-0.5 rounded">
-                            {t}
-                          </span>
-                        ))}
-                        {client.tags.length > 2 && (
-                          <span className="text-[10px] bg-slate-900 border border-slate-700 text-slate-400 px-1.5 py-0.5 rounded">
-                            +{client.tags.length - 2}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => selectClient(client.id)} className="p-1 hover:text-cyan-400 hover:bg-cyan-950/50 rounded transition-colors" title="Edit/View Details">
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => setDeleteClientId(client.id)} className="p-1 hover:text-red-400 hover:bg-red-950/50 rounded transition-colors" title="Delete">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                  );
-                })}
-                {sortedClients.length === 0 && (
-                  <tr>
-                    <td colSpan={9} className="text-center py-8 text-slate-500">
-                      {t('noClientsFound')}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+
           </div>
         ) : (
           <div className="flex-1 bg-slate-900 border border-slate-800 rounded-lg overflow-hidden flex flex-col">
@@ -524,16 +391,15 @@ const getLeadScoreVisual = (score?: number) => {
       {showUploadModal && <UploadCSVModal onClose={() => setShowUploadModal(false)} onUpload={handleCSVUpload} />}
 
       {deleteClientId && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-xl max-w-sm w-full">
-            <h3 className="text-lg font-bold text-white mb-2">{t('deleteClientTitle')}</h3>
-            <p className="text-slate-400 mb-6 text-sm">{t('deleteClientContent')}</p>
-            <div className="flex justify-end gap-3">
-              <button onClick={() => setDeleteClientId(null)} className="px-4 py-2 text-slate-300 hover:text-white transition-colors">{t('cancel')}</button>
-              <button onClick={() => { deleteClient(deleteClientId); setDeleteClientId(null); }} className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg shadow font-medium transition-colors">{t('deleteClientButton')}</button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title={t('deleteClientTitle')}
+          message={t('deleteClientContent')}
+          confirmLabel={t('deleteClientButton')}
+          cancelLabel={t('cancel')}
+          tone="danger"
+          onCancel={() => setDeleteClientId(null)}
+          onConfirm={() => { deleteClient(deleteClientId); setDeleteClientId(null); }}
+        />
       )}
     </div>
   );

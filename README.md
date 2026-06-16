@@ -519,7 +519,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 
 ### Phase 1: Design System Layer
 
-- [-] Create shared UI primitives for `PageHeader`, `SectionHeader`, `ActionBar`, `Toolbar`, `FilterBar`, `StatusBadge`, `OwnerStageControl`, `EmptyState`, `ConfirmDialog`, and `DataTable`. `PageHeader`, `SectionHeader`, `ActionBar`, `Toolbar`, `FilterBar`, `StatusBadge`, `EmptyState`, `IconButton`, `ActionButton`, `ModalDialog`, `ConfirmDialog`, and `DataTable` have initial implementations. Products and Quotes list headers now use the shared page header pattern; Knowledge Base search and bulk controls now use shared filter/action bars; Quotes list uses the shared data table, and Clients list has started rendering through the shared data table with legacy table cleanup still pending.
+- [-] Create shared UI primitives for `PageHeader`, `SectionHeader`, `ActionBar`, `Toolbar`, `FilterBar`, `StatusBadge`, `OwnerStageControl`, `EmptyState`, `ConfirmDialog`, and `DataTable`. `PageHeader`, `SectionHeader`, `ActionBar`, `Toolbar`, `FilterBar`, `StatusBadge`, `EmptyState`, `IconButton`, `ActionButton`, `ModalDialog`, `ConfirmDialog`, and `DataTable` have initial implementations. Products and Quotes list headers now use the shared page header pattern; Knowledge Base search and bulk controls now use shared filter/action bars; Quotes and Clients lists now use the shared data table, and Clients deletion now uses the shared confirm dialog.
 - [ ] Normalize spacing, typography, button hierarchy, input styling, tab styling, icon usage, and density across operational pages.
 - [ ] Add shared layout primitives for `CRMWorkspaceLayout`, `RecordPageLayout`, `LeftListMiddleDetailRightPanelLayout`, and `WidgetRail`.
 - [ ] Keep the UI optimized for repeated CRM work: compact, scannable, keyboard-friendly, and not marketing-page-like.
@@ -583,7 +583,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 
 ### 阶段 1：Design System 基础层
 
-- [-] 建立共享 UI 基础组件：`PageHeader`、`SectionHeader`、`ActionBar`、`Toolbar`、`FilterBar`、`StatusBadge`、`OwnerStageControl`、`EmptyState`、`ConfirmDialog`、`DataTable`。`PageHeader`、`SectionHeader`、`ActionBar`、`Toolbar`、`FilterBar`、`StatusBadge`、`EmptyState`、`IconButton`、`ActionButton`、`ModalDialog`、`ConfirmDialog` 和 `DataTable` 已有初始实现。产品和报价列表标题区已开始使用共享页面标题模式；知识库搜索和批量操作区已开始使用共享筛选/操作栏；报价列表已开始使用共享数据表格，客户列表也已开始通过共享数据表格渲染，旧表格块仍待下一步清理。
+- [-] 建立共享 UI 基础组件：`PageHeader`、`SectionHeader`、`ActionBar`、`Toolbar`、`FilterBar`、`StatusBadge`、`OwnerStageControl`、`EmptyState`、`ConfirmDialog`、`DataTable`。`PageHeader`、`SectionHeader`、`ActionBar`、`Toolbar`、`FilterBar`、`StatusBadge`、`EmptyState`、`IconButton`、`ActionButton`、`ModalDialog`、`ConfirmDialog` 和 `DataTable` 已有初始实现。产品和报价列表标题区已开始使用共享页面标题模式；知识库搜索和批量操作区已开始使用共享筛选/操作栏；报价和客户列表已使用共享数据表格，客户删除确认已使用共享确认弹窗。
 - [ ] 统一运营页面的间距、字体层级、按钮层级、输入框、Tabs、图标和信息密度。
 - [ ] 建立共享布局组件：`CRMWorkspaceLayout`、`RecordPageLayout`、`LeftListMiddleDetailRightPanelLayout`、`WidgetRail`。
 - [ ] 保持 CRM 高频工作场景的紧凑、可扫读、可重复操作，而不是做成营销页风格。
