@@ -29,6 +29,7 @@ import type {
   InboxChannelFilter,
   InboxContentPanelProps,
   InboxConversationSidebarProps,
+  InboxDialogLayerProps,
   InboxWhatsAppConversation,
   UnifiedCommunicationConversation,
 } from './inbox-ui';
@@ -696,6 +697,54 @@ export function Inbox() {
     onStartWhatsApp: handleStartWhatsApp,
   };
 
+  const dialogLayerProps: InboxDialogLayerProps = {
+    isCreatingLead,
+    isAddingContactToClient,
+    filter,
+    selectedEmail,
+    selectedTelegramConversation,
+    selectedLiveChatConversation,
+    activeTelegramDisplayName,
+    activeLiveChatDisplayName,
+    activeTelegramContactMethod,
+    activeLiveChatContactMethod,
+    activeLinkableContactMethod,
+    activeLinkableDisplayName,
+    activeUnifiedConversation,
+    onCloseCreateLead: () => setIsCreatingLead(false),
+    onCloseAddToExistingClient: () => setIsAddingContactToClient(false),
+    patchUnifiedConversation,
+    setSelectedTelegramConversation,
+    setSelectedLiveChatConversation,
+    updateLiveChatSession,
+    fetchLiveChatSessions,
+    refreshUnifiedConversationData,
+    editEmail,
+    selectClient,
+    confirmDialog,
+    alertDialog,
+    showCommentAttachmentModal,
+    tagModalEmail,
+    tagInput,
+    todoModalEmail,
+    todoAt,
+    todoNote,
+    onCloseConfirm: () => setConfirmDialog(null),
+    onCloseAlert: () => setAlertDialog(null),
+    onCloseAttachment: () => setShowCommentAttachmentModal(false),
+    onUploadAttachments: (files) => {
+      setCommentAttachments(prev => [...prev, ...files]);
+      setShowCommentAttachmentModal(false);
+    },
+    onTagInputChange: setTagInput,
+    onSubmitTag: submitTag,
+    onCloseTag: () => setTagModalEmail(null),
+    onTodoAtChange: setTodoAt,
+    onTodoNoteChange: setTodoNote,
+    onSubmitTodo: submitTodo,
+    onCloseTodo: () => setTodoModalEmail(null),
+  };
+
   const sidebarHidden = !!(selectedEmailId || selectedWhatsAppPhone || selectedTelegramConversation || selectedLiveChatConversation || isStartingWhatsApp);
   const contentHidden = !selectedEmailId && !selectedWhatsAppPhone && !selectedTelegramConversation && !selectedLiveChatConversation && !isComposing && !isStartingWhatsApp;
 
@@ -706,53 +755,7 @@ export function Inbox() {
       sidebar={<InboxConversationSidebar {...sidebarProps} />}
       content={<InboxContentPanel {...contentPanelProps} />}
     >
-      <InboxDialogLayer
-        isCreatingLead={isCreatingLead}
-        isAddingContactToClient={isAddingContactToClient}
-        filter={filter}
-        selectedEmail={selectedEmail}
-        selectedTelegramConversation={selectedTelegramConversation}
-        selectedLiveChatConversation={selectedLiveChatConversation}
-        activeTelegramDisplayName={activeTelegramDisplayName}
-        activeLiveChatDisplayName={activeLiveChatDisplayName}
-        activeTelegramContactMethod={activeTelegramContactMethod}
-        activeLiveChatContactMethod={activeLiveChatContactMethod}
-        activeLinkableContactMethod={activeLinkableContactMethod}
-        activeLinkableDisplayName={activeLinkableDisplayName}
-        activeUnifiedConversation={activeUnifiedConversation}
-        onCloseCreateLead={() => setIsCreatingLead(false)}
-        onCloseAddToExistingClient={() => setIsAddingContactToClient(false)}
-        patchUnifiedConversation={patchUnifiedConversation}
-        setSelectedTelegramConversation={setSelectedTelegramConversation}
-        setSelectedLiveChatConversation={setSelectedLiveChatConversation}
-        updateLiveChatSession={updateLiveChatSession}
-        fetchLiveChatSessions={fetchLiveChatSessions}
-        refreshUnifiedConversationData={refreshUnifiedConversationData}
-        editEmail={editEmail}
-        selectClient={selectClient}
-        confirmDialog={confirmDialog}
-        alertDialog={alertDialog}
-        showCommentAttachmentModal={showCommentAttachmentModal}
-        tagModalEmail={tagModalEmail}
-        tagInput={tagInput}
-        todoModalEmail={todoModalEmail}
-        todoAt={todoAt}
-        todoNote={todoNote}
-        onCloseConfirm={() => setConfirmDialog(null)}
-        onCloseAlert={() => setAlertDialog(null)}
-        onCloseAttachment={() => setShowCommentAttachmentModal(false)}
-        onUploadAttachments={(files) => {
-          setCommentAttachments(prev => [...prev, ...files]);
-          setShowCommentAttachmentModal(false);
-        }}
-        onTagInputChange={setTagInput}
-        onSubmitTag={submitTag}
-        onCloseTag={() => setTagModalEmail(null)}
-        onTodoAtChange={setTodoAt}
-        onTodoNoteChange={setTodoNote}
-        onSubmitTodo={submitTodo}
-        onCloseTodo={() => setTodoModalEmail(null)}
-      />
+      <InboxDialogLayer {...dialogLayerProps} />
     </InboxWorkspaceLayout>
   );
 }

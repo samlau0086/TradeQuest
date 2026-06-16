@@ -85,6 +85,7 @@ export type {
 } from './inboxModel';
 export type { InboxConversationChannel } from './ConversationDetailHeader';
 export type { InboxConversationSidebarProps } from './InboxConversationSidebar';
+export type { InboxDialogLayerProps } from './InboxDialogLayer';
 export type {
   AgentContextShape,
   ComposeDefaults,

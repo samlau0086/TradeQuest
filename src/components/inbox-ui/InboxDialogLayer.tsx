@@ -4,7 +4,7 @@ import { InboxAuxiliaryDialogs } from './InboxAuxiliaryDialogs';
 import { InboxContactLinkingModals } from './InboxContactLinkingModals';
 import type { UnifiedCommunicationConversation } from './inboxModel';
 
-interface InboxDialogLayerProps {
+export interface InboxDialogLayerProps {
   isCreatingLead: boolean;
   isAddingContactToClient: boolean;
   filter: 'inbox' | 'sent' | 'scheduled' | 'drafts';
