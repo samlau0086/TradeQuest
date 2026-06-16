@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { useStore } from '../store';
 import { useTranslation } from '../lib/i18n';
-import { Package, Plus, Search, MoreVertical, Edit2, Trash2 } from 'lucide-react';
+import { Package, Plus, MoreVertical, Edit2, Trash2 } from 'lucide-react';
 import { ProductFormModal } from './ProductFormModal';
-import { ActionButton, PageHeader, Toolbar } from './ui';
+import { ActionButton, PageHeader, SearchInput, Toolbar } from './ui';
 
 interface ProductsListProps {
   embedded?: boolean;
@@ -48,16 +48,11 @@ export function ProductsList({ embedded = false }: ProductsListProps) {
           description={`${filteredProducts.length} ${t('items')}`}
           actions={(
             <Toolbar>
-            <div className="relative flex-1 sm:w-64">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input 
-                type="text" 
-                placeholder={t('searchProducts')} 
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-4 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
-              />
-            </div>
+            <SearchInput
+              placeholder={t('searchProducts')}
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
             <ActionButton
               tone="primary"
               icon={<Plus className="w-4 h-4" />}

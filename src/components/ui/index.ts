@@ -8,6 +8,7 @@ export { FilterBar } from './FilterBar';
 export { IconButton } from './IconButton';
 export { ModalDialog } from './ModalDialog';
 export { PageHeader } from './PageHeader';
+export { SearchInput } from './SearchInput';
 export { SectionHeader } from './SectionHeader';
 export { StatusBadge } from './StatusBadge';
 export { Toolbar } from './Toolbar';

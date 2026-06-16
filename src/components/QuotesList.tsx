@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { Quote, useStore } from '../store';
 import { useTranslation } from '../lib/i18n';
-import { FileText, Plus, Search, Download, Edit2, Trash2 } from 'lucide-react';
+import { FileText, Plus, Download, Edit2, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '../lib/utils'; // if needed
 import { QuoteFormModal } from './QuoteFormModal';
 import { generateQuotePDF } from '../lib/pdf';
 import { formatCurrency } from '../lib/currency';
-import { ActionButton, DataTable, DataTableColumn, PageHeader, Toolbar } from './ui';
+import { ActionButton, DataTable, DataTableColumn, PageHeader, SearchInput, Toolbar } from './ui';
 
 interface QuotesListProps {
   embedded?: boolean;
@@ -131,16 +131,12 @@ export function QuotesList({ embedded = false }: QuotesListProps) {
           description={`${filteredQuotes.length} ${t('quoteCount')}`}
           actions={(
             <Toolbar>
-            <div className="relative flex-1 sm:w-64">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input 
-                type="text" 
-                placeholder={t('searchQuotes')} 
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-4 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-              />
-            </div>
+            <SearchInput
+              tone="indigo"
+              placeholder={t('searchQuotes')}
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
             <ActionButton
               tone="indigo"
               icon={<Plus className="w-4 h-4" />}
