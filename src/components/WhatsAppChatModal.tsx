@@ -1416,7 +1416,14 @@ Return only the message text.`,
             );
           })}
           <div ref={messagesEndRef} />
-          <ConversationContextRail>
+          <ConversationContextRail
+            variant="rail"
+            title={language === 'zh' ? '智能体建议' : 'Agent Suggestions'}
+            description={language === 'zh'
+              ? '分析 WhatsApp 对话、客户资料、产品和 RAG 上下文，准备回复、待跟进和内部备注操作。'
+              : 'Analyze WhatsApp, customer, product, and RAG context for reply, follow-up, and internal note actions.'}
+            collapsible
+          >
             <AgentContextSuggestions
               channel="whatsapp"
               cacheKey={whatsappAgentContext.cacheKey}
@@ -1529,7 +1536,14 @@ Return only the message text.`,
               <span className="text-xs text-slate-500">{t('whatsappRetryHint')}</span>
             </div>
           )}
-          <ConversationContextRail>
+          <ConversationContextRail
+            variant="rail"
+            title={language === 'zh' ? '发送前翻译' : 'Translate Before Send'}
+            description={language === 'zh'
+              ? '按当前 WhatsApp 号码保存目标语言和发送前翻译开关，原文仅保存在 CRM 内。'
+              : 'Save target language and translate-before-send for this WhatsApp number; originals stay inside CRM.'}
+            collapsible
+          >
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
             <div className="flex items-center gap-2 text-xs text-slate-400">
               <Languages className="h-4 w-4 text-cyan-300" />
