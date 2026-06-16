@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarClock, FileText, FolderOpen, Languages, Loader2, Maximize2, MessageCircle, Paperclip, Plus, Send, Smile, Sparkles, Tag, User, UserPlus, X } from 'lucide-react';
 import { Client, Comment, MediaItem, useStore } from '../store';
 import { MediaSelectorModal } from './MediaSelectorModal';
 import { useTranslation } from '../lib/i18n';
@@ -9,6 +8,9 @@ import { ClientFormModal, PREFERRED_LANGUAGES } from './ClientFormModal';
 import { AddContactToClientModal } from './AddContactToClientModal';
 import { buildUnifiedAgentContext } from '../lib/agentContext';
 import { ConversationContextRail } from './inbox-ui/ConversationContextRail';
+import { WhatsAppChatHeader } from './WhatsAppChatHeader';
+import { WhatsAppConversationMetaBar } from './WhatsAppConversationMetaBar';
+import { WhatsAppMessageComposer } from './WhatsAppMessageComposer';
 import { WhatsAppMessageList } from './WhatsAppMessageList';
 import { type WhatsAppHubMessage, type WhatsAppTranslation } from './whatsappMessageModel';
 
@@ -1078,216 +1080,52 @@ Return only the message text.`,
   return (
     <div className={embedded ? "flex-1 min-h-0 flex flex-col bg-slate-950/50" : "fixed inset-0 bg-black/60 z-[80] flex items-center justify-center p-4"}>
       <div className={embedded ? "flex-1 min-h-0 bg-slate-950/50 flex flex-col overflow-hidden" : "w-full max-w-3xl h-[80vh] bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl flex flex-col overflow-hidden"}>
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <MessageCircle className="w-5 h-5 text-green-400" />
-              <div>
-              {activeClient ? (
-                <button
-                  onClick={() => selectClient(activeClient.id)}
-                  className="font-bold text-white hover:text-cyan-300 hover:underline flex items-center gap-1"
-                >
-                  <User className="w-3.5 h-3.5" />
-                  {activeClient.name}
-                </button>
-              ) : (
-                <div className="font-bold text-white">{conversation?.clientName || displayPhone}</div>
-              )}
-              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                <span>{displayPhone}</span>
-                {!activeClient && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setIsCreatingLead(true)}
-                      className="inline-flex items-center gap-1 rounded bg-slate-800/70 px-1.5 py-0.5 font-bold text-cyan-400 hover:bg-slate-700 hover:text-cyan-300"
-                    >
-                      <UserPlus className="w-3 h-3" />
-                      New Lead
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsAddingContactToClient(true)}
-                      className="inline-flex items-center gap-1 rounded bg-slate-800/70 px-1.5 py-0.5 font-bold text-emerald-400 hover:bg-slate-700 hover:text-emerald-300"
-                    >
-                      <User className="w-3 h-3" />
-                      Add to Existing Client
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {!embedded && onOpenInInbox && (
-              <button
-                type="button"
-                onClick={onOpenInInbox}
-                className="p-2 text-slate-400 hover:text-cyan-300 hover:bg-slate-800 rounded-lg"
-                title={language === 'zh' ? '在收件箱中打开' : 'Open in inbox'}
-              >
-                <Maximize2 className="w-5 h-5" />
-              </button>
-            )}
-            <button onClick={onClose} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {rawChatId && (
-          <div className="px-4 py-2 border-b border-slate-800 bg-slate-950/70">
-            {mappingEdit ? (
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                <span className="font-mono text-slate-500 truncate max-w-[220px]" title={mappingEdit.chatId}>
-                  {mappingEdit.chatId}
-                </span>
-                <span className="text-slate-600">-&gt;</span>
-                <input
-                  value={mappingEdit.phone}
-                  onChange={event => setMappingEdit(prev => prev ? { ...prev, phone: event.target.value } : prev)}
-                  onKeyDown={event => {
-                    if (event.key === 'Enter') confirmChatIdMapping();
-                    if (event.key === 'Escape') setMappingEdit(null);
-                  }}
-                  placeholder="Enter mobile number"
-                  className="min-w-[180px] flex-1 rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-100 outline-none focus:border-green-400"
-                  autoFocus
-                />
-                <button
-                  type="button"
-                  onClick={confirmChatIdMapping}
-                  disabled={mappingEdit.saving || !cleanPhone(mappingEdit.phone)}
-                  className="rounded bg-green-600 px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-green-500 disabled:bg-slate-800 disabled:text-slate-500"
-                >
-                  {mappingEdit.saving ? 'Saving' : 'Confirm'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMappingEdit(null)}
-                  className="rounded bg-slate-800 px-2.5 py-1.5 text-[10px] font-bold text-slate-300 hover:bg-slate-700"
-                >
-                  Cancel
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onDoubleClick={() => setMappingEdit({ chatId: rawChatId, phone: mappedPhone || '' })}
-                title="Double-click to edit chatId to mobile mapping"
-                className="block max-w-full truncate rounded px-1 py-1 text-left text-[11px] font-mono text-slate-500 hover:bg-slate-900 hover:text-slate-300"
-              >
-                {mappedPhone ? `${mappedPhone} (${rawChatId} -> ${mappedPhone})` : rawChatId}
-              </button>
-            )}
-          </div>
-        )}
-
-        <div className="p-3 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <select
-              value={selectedClientId}
-              onChange={e => setSelectedClientId(e.target.value)}
-              className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none"
-            >
-              <option value="">{t('randomStickyClient')}</option>
-              {selectableHubClients.map(client => (
-                <option key={client.id} value={client.id}>
-                  {client.name || client.id} ({client.status}) {client.quota ? `quota ${client.quota.remaining}/${client.quota.dailyQuota}` : ''}
-                </option>
-              ))}
-            </select>
-            {loading && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setWhatsAppAutoTranslateEnabled(autoTranslateKey, !whatsappAutoTranslateEnabled)}
-              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${
-                whatsappAutoTranslateEnabled
-                  ? 'border-cyan-500/40 bg-cyan-500/15 text-cyan-300'
-                  : 'border-slate-700 bg-slate-950 text-slate-400 hover:border-slate-600 hover:text-slate-200'
-              }`}
-              title={language === 'zh' ? `仅为 ${displayPhone} 自动翻译客户 WhatsApp 消息` : `Auto-translate customer WhatsApp messages for ${displayPhone}`}
-            >
-              <Languages className="h-4 w-4" />
-              <span>{language === 'zh' ? '自动翻译' : 'Auto Translate'}</span>
-              <span className={`h-2 w-2 rounded-full ${whatsappAutoTranslateEnabled ? 'bg-cyan-400' : 'bg-slate-600'}`} />
-            </button>
-            <button
-              type="button"
-              onClick={() => setWhatsAppCustomerServiceAgentEnabled(!whatsappCustomerServiceAgentEnabled)}
-              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${
-                whatsappCustomerServiceAgentEnabled
-                  ? 'border-green-500/40 bg-green-500/15 text-green-300'
-                  : 'border-slate-700 bg-slate-950 text-slate-400 hover:border-slate-600 hover:text-slate-200'
-              }`}
-              title="WhatsApp Customer Service Agent"
-            >
-              <Sparkles className="h-4 w-4" />
-              <span>Agent Mode</span>
-              <span className={`h-2 w-2 rounded-full ${whatsappCustomerServiceAgentEnabled ? 'bg-green-400' : 'bg-slate-600'}`} />
-            </button>
-          </div>
-        </div>
+        <WhatsAppChatHeader
+          activeClient={activeClient}
+          conversationClientName={conversation?.clientName}
+          displayPhone={displayPhone}
+          embedded={embedded}
+          language={language}
+          rawChatId={rawChatId}
+          mappedPhone={mappedPhone}
+          mappingEdit={mappingEdit}
+          selectableHubClients={selectableHubClients}
+          selectedClientId={selectedClientId}
+          loading={loading}
+          autoTranslateEnabled={whatsappAutoTranslateEnabled}
+          customerServiceAgentEnabled={whatsappCustomerServiceAgentEnabled}
+          randomStickyClientLabel={t('randomStickyClient')}
+          onSelectClient={selectClient}
+          onCreateLead={() => setIsCreatingLead(true)}
+          onAddToExistingClient={() => setIsAddingContactToClient(true)}
+          onOpenInInbox={onOpenInInbox}
+          onClose={onClose}
+          onStartMapping={(chatId, phone) => setMappingEdit({ chatId, phone })}
+          onChangeMappingPhone={phone => setMappingEdit(prev => prev ? { ...prev, phone } : prev)}
+          onConfirmMapping={confirmChatIdMapping}
+          onCancelMapping={() => setMappingEdit(null)}
+          canConfirmMapping={!!(mappingEdit && cleanPhone(mappingEdit.phone))}
+          onSelectedClientChange={setSelectedClientId}
+          onToggleAutoTranslate={() => setWhatsAppAutoTranslateEnabled(autoTranslateKey, !whatsappAutoTranslateEnabled)}
+          onToggleCustomerServiceAgent={() => setWhatsAppCustomerServiceAgentEnabled(!whatsappCustomerServiceAgentEnabled)}
+        />
 
         {conversation && (
-          <div className="p-3 border-b border-slate-800 grid grid-cols-1 md:grid-cols-[1fr_1fr] gap-3 bg-slate-900">
-            <div className="space-y-2">
-              <div className="flex flex-wrap gap-1">
-                {(conversation.tags || []).map(tag => (
-                  <button key={tag} onClick={() => removeTag(tag)} className="inline-flex items-center gap-1 px-2 py-1 rounded bg-slate-800 hover:bg-red-950/40 text-xs text-cyan-300 hover:text-red-300 border border-slate-700">
-                    <Tag className="w-3 h-3" />
-                    {tag}
-                    <X className="w-3 h-3" />
-                  </button>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <input
-                  value={tagInput}
-                  onChange={e => setTagInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') addTag(); }}
-                  placeholder={t('addTag')}
-                  className="min-w-0 flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-200 outline-none"
-                />
-                <button onClick={addTag} className="px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">
-                  <Plus className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <div className="max-h-20 overflow-y-auto space-y-1">
-                {visibleConversationComments.slice(-3).map(comment => (
-                  <div key={comment.id} className="group flex items-start gap-2 text-[11px] bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-400">
-                    <div className="min-w-0 flex-1">
-                      <span className="text-slate-300 break-words">{comment.content}</span>
-                      <span className="ml-2 text-slate-600">{new Date(comment.createdAt).toLocaleString()}</span>
-                    </div>
-                    <button
-                      onClick={() => deleteConversationComment(comment.id)}
-                      className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-300 transition-opacity"
-                      title={t('deleteComment')}
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <input
-                  value={commentInput}
-                  onChange={e => setCommentInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') addConversationComment(); }}
-                  placeholder={t('addConversationComment')}
-                  className="min-w-0 flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-200 outline-none"
-                />
-                <button onClick={() => addConversationComment()} className="px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">
-                  <Plus className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          </div>
+          <WhatsAppConversationMetaBar
+            tags={conversation.tags || []}
+            comments={visibleConversationComments}
+            tagInput={tagInput}
+            commentInput={commentInput}
+            addTagLabel={t('addTag')}
+            addCommentLabel={t('addConversationComment')}
+            deleteCommentLabel={t('deleteComment')}
+            onTagInputChange={setTagInput}
+            onCommentInputChange={setCommentInput}
+            onAddTag={addTag}
+            onRemoveTag={removeTag}
+            onAddComment={() => addConversationComment()}
+            onDeleteComment={deleteConversationComment}
+          />
         )}
 
         <div className={embedded ? 'flex-1 min-h-0 bg-slate-950 lg:grid lg:grid-cols-[minmax(0,1fr)_340px]' : 'flex-1 min-h-0 overflow-y-auto bg-slate-950'}>
@@ -1382,162 +1220,68 @@ Return only the message text.`,
           </ConversationContextRail>
         </div>
 
-        <div className="p-4 border-t border-slate-800 space-y-3">
-          {selectedFile && (
-            <div className="flex items-center justify-between gap-3 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300">
-              <span className="truncate flex items-center gap-2">
-                <FileText className="w-4 h-4 text-green-400" />
-                {selectedFile.name}
-              </span>
-              <button onClick={() => setSelectedFile(null)} className="text-slate-500 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-          {selectedMedia && (
-            <div className="flex items-center justify-between gap-3 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300">
-              <span className="truncate flex items-center gap-2">
-                <FileText className="w-4 h-4 text-indigo-400" />
-                {selectedMedia.name}
-              </span>
-              <button onClick={() => setSelectedMedia(null)} className="text-slate-500 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-          {showEmoji && (
-            <div className="flex flex-wrap gap-2 bg-slate-950 border border-slate-700 rounded-lg p-2">
-              {emojiOptions.map(emoji => (
-                <button key={emoji} onClick={() => setBody(prev => `${prev}${emoji}`)} className="text-xl hover:bg-slate-800 rounded p-1">
-                  {emoji}
-                </button>
-              ))}
-            </div>
-          )}
-          {scheduleEnabled && (
-            <div className="flex flex-wrap items-center gap-3 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm">
-              <CalendarClock className="w-4 h-4 text-amber-400" />
-              <span className="text-slate-400">{t('sendLater')}</span>
-              <input
-                type="datetime-local"
-                value={scheduleDateTime}
-                min={new Date().toISOString().slice(0, 16)}
-                onChange={e => setScheduleDateTime(e.target.value)}
-                className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-slate-200 outline-none focus:border-amber-500"
-              />
-              <span className="text-xs text-slate-500">{t('whatsappRetryHint')}</span>
-            </div>
-          )}
-          <ConversationContextRail
-            variant="rail"
-            title={language === 'zh' ? '发送前翻译' : 'Translate Before Send'}
-            description={language === 'zh'
-              ? '按当前 WhatsApp 号码保存目标语言和发送前翻译开关，原文仅保存在 CRM 内。'
-              : 'Save target language and translate-before-send for this WhatsApp number; originals stay inside CRM.'}
-            collapsible
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
-            <div className="flex items-center gap-2 text-xs text-slate-400">
-              <Languages className="h-4 w-4 text-cyan-300" />
-              <span className="font-bold text-slate-200">{language === 'zh' ? '发送前翻译' : 'Translate before send'}</span>
-              <label className="flex items-center gap-1">
-                <span>{language === 'zh' ? '目标语言' : 'Target'}</span>
-                <select
-                  value={outboundAutoTranslateLanguage}
-                  disabled={!activeClient}
-                  onChange={e => {
-                    if (!activeClient) return;
-                    editClient(activeClient.id, { preferredLanguage: e.target.value });
-                    notify(
-                      language === 'zh'
-                        ? `客户偏好语言已更新为 ${e.target.value}。`
-                        : `Client preferred language updated to ${e.target.value}.`,
-                      'success'
-                    );
-                  }}
-                  className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-100 outline-none focus:border-cyan-500 disabled:cursor-not-allowed disabled:opacity-60"
-                  title={activeClient ? (language === 'zh' ? '修改后会同步保存为客户偏好语言' : 'Changing this saves the client preferred language') : (language === 'zh' ? '请先关联客户后再保存偏好语言' : 'Link a client before saving preferred language')}
-                >
-                  {outboundLanguageOptions.map(option => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <button
-              type="button"
-              onClick={() => setWhatsAppOutboundAutoTranslateEnabled(autoTranslateKey, !whatsappOutboundAutoTranslateEnabled)}
-              className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors ${
-                whatsappOutboundAutoTranslateEnabled
-                  ? 'border-cyan-500/50 bg-cyan-500/30'
-                  : 'border-slate-700 bg-slate-900'
-              }`}
-              title={language === 'zh' ? `仅为 ${displayPhone} 保存发送前翻译开关` : `Save translate-before-send for ${displayPhone}`}
-            >
-              <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${whatsappOutboundAutoTranslateEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
-            </button>
-            </div>
-          </ConversationContextRail>
-          <div className="flex gap-3">
-            <div className="flex flex-col gap-2">
-              <label className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg cursor-pointer">
-                <Paperclip className="w-5 h-5" />
-                <input
-                  type="file"
-                  className="hidden"
-                  onChange={e => {
-                    setSelectedFile(e.target.files?.[0] || null);
-                    setSelectedMedia(null);
-                  }}
-                />
-              </label>
-              <button onClick={() => setShowMediaSelector(true)} className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg" title={t('selectFromMediaLibrary')}>
-                <FolderOpen className="w-5 h-5" />
-              </button>
-              <button onClick={() => setShowEmoji(!showEmoji)} className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg">
-                <Smile className="w-5 h-5" />
-              </button>
-              <button
-                onClick={() => {
-                  setScheduleEnabled(prev => {
-                    const next = !prev;
-                    if (next && !scheduleDateTime) setScheduleDateTime(defaultScheduleDateTime());
-                    return next;
-                  });
-                }}
-                className={`p-2 rounded-lg ${scheduleEnabled ? 'bg-amber-600 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}
-                title={t('scheduleMessage')}
-              >
-                <CalendarClock className="w-5 h-5" />
-              </button>
-              <button
-                onClick={() => generateWhatsAppMessage()}
-                disabled={generating || !body.trim()}
-                className="p-2 bg-cyan-900/50 hover:bg-cyan-800 disabled:bg-slate-800 disabled:text-slate-600 text-cyan-300 rounded-lg"
-                title={t('generateWhatsAppWithAI')}
-              >
-                {generating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
-              </button>
-            </div>
-            <textarea
-              value={body}
-              onChange={e => setBody(e.target.value)}
-              placeholder={whatsappCustomerServiceAgentEnabled ? 'Agent mode: optional guidance, or leave blank to auto-reply from context.' : t('typeWhatsAppMessage')}
-              className="flex-1 min-h-16 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 outline-none resize-none focus:border-green-500"
-            />
-            <button
-              onClick={sendMessage}
-              disabled={sending || translatingOutbound || (!body.trim() && !selectedFile && !selectedMedia && !whatsappCustomerServiceAgentEnabled) || (scheduleEnabled && !scheduleDateTime)}
-              className="px-4 py-2 bg-green-600 hover:bg-green-500 disabled:bg-slate-800 disabled:text-slate-500 rounded-xl font-bold text-white flex items-center gap-2 self-end"
-            >
-              {(sending || translatingOutbound) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              {translatingOutbound
-                ? (language === 'zh' ? '翻译中' : 'Translating')
-                : whatsappCustomerServiceAgentEnabled ? (scheduleEnabled ? 'Agent Schedule' : 'Agent Send') : (scheduleEnabled ? t('schedule') : t('send'))}
-            </button>
-          </div>
-        </div>
+        <WhatsAppMessageComposer
+          language={language}
+          displayPhone={displayPhone}
+          selectedFile={selectedFile}
+          selectedMedia={selectedMedia}
+          showEmoji={showEmoji}
+          emojiOptions={emojiOptions}
+          scheduleEnabled={scheduleEnabled}
+          scheduleDateTime={scheduleDateTime}
+          outboundAutoTranslateLanguage={outboundAutoTranslateLanguage}
+          outboundLanguageOptions={outboundLanguageOptions}
+          hasActiveClient={!!activeClient}
+          outboundAutoTranslateEnabled={whatsappOutboundAutoTranslateEnabled}
+          body={body}
+          customerServiceAgentEnabled={whatsappCustomerServiceAgentEnabled}
+          generating={generating}
+          sending={sending}
+          translatingOutbound={translatingOutbound}
+          canSend={!(sending || translatingOutbound || (!body.trim() && !selectedFile && !selectedMedia && !whatsappCustomerServiceAgentEnabled) || (scheduleEnabled && !scheduleDateTime))}
+          canGenerate={!!body.trim()}
+          sendLaterLabel={t('sendLater')}
+          retryHintLabel={t('whatsappRetryHint')}
+          selectFromMediaLibraryLabel={t('selectFromMediaLibrary')}
+          scheduleMessageLabel={t('scheduleMessage')}
+          generateWithAiLabel={t('generateWhatsAppWithAI')}
+          typeMessageLabel={t('typeWhatsAppMessage')}
+          scheduleLabel={t('schedule')}
+          sendLabel={t('send')}
+          onClearSelectedFile={() => setSelectedFile(null)}
+          onClearSelectedMedia={() => setSelectedMedia(null)}
+          onFileSelected={file => {
+            setSelectedFile(file);
+            setSelectedMedia(null);
+          }}
+          onOpenMediaSelector={() => setShowMediaSelector(true)}
+          onToggleEmoji={() => setShowEmoji(!showEmoji)}
+          onPickEmoji={emoji => setBody(prev => `${prev}${emoji}`)}
+          onToggleSchedule={() => {
+            setScheduleEnabled(prev => {
+              const next = !prev;
+              if (next && !scheduleDateTime) setScheduleDateTime(defaultScheduleDateTime());
+              return next;
+            });
+          }}
+          onScheduleDateTimeChange={setScheduleDateTime}
+          onTargetLanguageChange={value => {
+            if (!activeClient) return;
+            editClient(activeClient.id, { preferredLanguage: value });
+            notify(
+              language === 'zh'
+                ? `客户偏好语言已更新为 ${value}。`
+                : `Client preferred language updated to ${value}.`,
+              'success'
+            );
+          }}
+          onToggleOutboundAutoTranslate={() => setWhatsAppOutboundAutoTranslateEnabled(autoTranslateKey, !whatsappOutboundAutoTranslateEnabled)}
+          onBodyChange={setBody}
+          onGenerate={() => generateWhatsAppMessage()}
+          onSend={sendMessage}
+        />
       </div>
+
       {showMediaSelector && (
         <MediaSelectorModal
           onSelect={(_, media) => {
