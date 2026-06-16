@@ -44,6 +44,7 @@ export { useInboxPageVisibility } from './useInboxPageVisibility';
 export { useInboxSelection } from './useInboxSelection';
 export { useInboxSidebarActions } from './useInboxSidebarActions';
 export { useInboxSync } from './useInboxSync';
+export { useInboxUiState } from './useInboxUiState';
 export { useLiveChatInboxSession } from './useLiveChatInboxSession';
 export { useSelectedEmailContext } from './useSelectedEmailContext';
 export { useUnifiedConversationActions } from './useUnifiedConversationActions';

@@ -509,6 +509,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] Move the long `InboxDialogLayer` prop list into a typed `dialogLayerProps` object so the Inbox render tree is now composed from sidebar, content, and dialog slots.
 - [x] Extract `InboxPageShell` to compose sidebar, content, workspace layout, and dialog layer from typed slot props.
 - [x] Extract Inbox responsive sidebar/content visibility rules into `useInboxPageVisibility`.
+- [x] Move Inbox local UI state declarations into `useInboxUiState` as a first step toward making `Inbox.tsx` a page orchestration layer.
 - [ ] Continue reducing `Inbox.tsx` toward a page orchestration layer before replacing its layout.
 - [ ] Apply the same gradual extraction pattern to other large record/detail pages before major redesign.
 
