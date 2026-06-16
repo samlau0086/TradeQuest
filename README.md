@@ -515,7 +515,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] Extract Inbox dialog slot prop assembly into `useInboxDialogLayerProps`, keeping modal close/upload/tag/follow-up callback wiring outside the page component.
 - [x] Extract Inbox sidebar slot prop assembly into `useInboxSidebarProps`, keeping filter/list/bulk-action wiring outside the page component.
 - [x] Continue reducing `Inbox.tsx` toward a page orchestration layer before replacing its layout.
-- [-] Apply the same gradual extraction pattern to other large record/detail pages before major redesign.
+- [-] Apply the same gradual extraction pattern to other large record/detail pages before major redesign. `ClientDetails.tsx` is being reduced through extracted UI state, action, selection, and layout layers.
 
 ### Phase 1: Design System Layer
 
@@ -579,7 +579,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] 已拆出 Inbox 弹窗层 props 装配逻辑，将关闭、上传附件、标签和待跟进等回调 wiring 移出页面组件。
 - [x] 已拆出 Inbox 侧栏 props 装配逻辑，将筛选、列表和批量操作 wiring 移出页面组件。
 - [x] 继续把 `Inbox.tsx` 收敛为页面编排层，再替换整体布局。
-- [-] 对其他大型详情页/记录页使用同样的渐进式抽组件方式。
+- [-] 对其他大型详情页/记录页使用同样的渐进式抽组件方式。`ClientDetails.tsx` 正在通过 UI 状态、页面动作、数据选择和布局层抽离持续瘦身。
 
 ### 阶段 1：Design System 基础层
 

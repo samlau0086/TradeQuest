@@ -4,6 +4,7 @@ export { ClientContactActionBox } from './ClientContactActionBox';
 export { ClientContactsWidget } from './ClientContactsWidget';
 export { ClientConversationNotesWidget } from './ClientConversationNotesWidget';
 export { ClientDeleteConfirmDialog } from './ClientDeleteConfirmDialog';
+export { ClientDetailsLayout } from './ClientDetailsLayout';
 export { ClientDetailsHeader } from './ClientDetailsHeader';
 export { ClientEmailComposeOverlay } from './ClientEmailComposeOverlay';
 export { ClientEventPanel } from './ClientEventPanel';
