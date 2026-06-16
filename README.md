@@ -520,7 +520,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 ### Phase 1: Design System Layer
 
 - [-] Create shared UI primitives for `PageHeader`, `SectionHeader`, `ActionBar`, `Toolbar`, `FilterBar`, `StatusBadge`, `OwnerStageControl`, `EmptyState`, `ConfirmDialog`, and `DataTable`. `PageHeader`, `SectionHeader`, `ActionBar`, `Toolbar`, `FilterBar`, `StatusBadge`, `EmptyState`, `IconButton`, `ActionButton`, `ModalDialog`, `ConfirmDialog`, and `DataTable` have initial implementations. Products and Quotes list headers now use the shared page header pattern; Knowledge Base search and bulk controls now use shared filter/action bars; Quotes and Clients lists now use the shared data table; Clients header actions and deletion now use shared header/action/confirm primitives.
-- [-] Normalize spacing, typography, button hierarchy, input styling, tab styling, icon usage, and density across operational pages. Shared `SearchInput` has been introduced and is now used by Products and Quotes list searches.
+- [-] Normalize spacing, typography, button hierarchy, input styling, tab styling, icon usage, and density across operational pages. Shared `SearchInput` has been introduced and is now used by Products and Quotes list searches. Shared `TagSearchInput` now powers the Clients list tag/country search field.
 - [ ] Add shared layout primitives for `CRMWorkspaceLayout`, `RecordPageLayout`, `LeftListMiddleDetailRightPanelLayout`, and `WidgetRail`.
 - [ ] Keep the UI optimized for repeated CRM work: compact, scannable, keyboard-friendly, and not marketing-page-like.
 
@@ -584,7 +584,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 ### 阶段 1：Design System 基础层
 
 - [-] 建立共享 UI 基础组件：`PageHeader`、`SectionHeader`、`ActionBar`、`Toolbar`、`FilterBar`、`StatusBadge`、`OwnerStageControl`、`EmptyState`、`ConfirmDialog`、`DataTable`。`PageHeader`、`SectionHeader`、`ActionBar`、`Toolbar`、`FilterBar`、`StatusBadge`、`EmptyState`、`IconButton`、`ActionButton`、`ModalDialog`、`ConfirmDialog` 和 `DataTable` 已有初始实现。产品和报价列表标题区已开始使用共享页面标题模式；知识库搜索和批量操作区已开始使用共享筛选/操作栏；报价和客户列表已使用共享数据表格，客户头部操作和删除确认已使用共享标题/操作/确认组件。
-- [-] 统一运营页面的间距、字体层级、按钮层级、输入框、Tabs、图标和信息密度。已加入共享 `SearchInput`，产品和报价列表搜索已开始使用统一搜索输入。
+- [-] 统一运营页面的间距、字体层级、按钮层级、输入框、Tabs、图标和信息密度。已加入共享 `SearchInput`，产品和报价列表搜索已开始使用统一搜索输入；客户列表的标签/国家搜索已开始使用共享 `TagSearchInput`。
 - [ ] 建立共享布局组件：`CRMWorkspaceLayout`、`RecordPageLayout`、`LeftListMiddleDetailRightPanelLayout`、`WidgetRail`。
 - [ ] 保持 CRM 高频工作场景的紧凑、可扫读、可重复操作，而不是做成营销页风格。
 

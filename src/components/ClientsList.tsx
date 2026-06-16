@@ -1,12 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { Client, useStore, ContactMethod } from '../store';
 import { cn } from '../lib/utils';
-import { Mail, Phone, MessageCircle, Send, Edit2, Trash2, Plus, Download, Upload, List as ListIcon, Map as MapIcon, X, Search } from 'lucide-react';
+import { Mail, Phone, MessageCircle, Send, Edit2, Trash2, Plus, Download, Upload, List as ListIcon, Map as MapIcon, X } from 'lucide-react';
 import { useTranslation } from '../lib/i18n';
 import { ClientFormModal } from './ClientFormModal';
 import { UploadCSVModal } from './UploadCSVModal';
 import { WorldMap } from './WorldMap';
-import { ActionButton, ConfirmDialog, DataTable, DataTableColumn, IconButton, PageHeader, Toolbar } from './ui';
+import { ActionButton, ConfirmDialog, DataTable, DataTableColumn, IconButton, PageHeader, TagSearchInput, Toolbar } from './ui';
 
 type ViewMode = 'list' | 'map';
 type SortColumn = 'leadScore' | 'recentEvent';
@@ -313,8 +313,10 @@ const getLeadScoreVisual = (score?: number) => {
               <MapIcon className="w-4 h-4" />
             </button>
           </div>
-          <div className="flex min-h-[36px] w-full flex-wrap items-center gap-2 rounded border border-slate-800 bg-slate-950 px-2 transition-colors focus-within:border-cyan-500 sm:w-[450px]">
-            {countryFilter && (
+          <TagSearchInput
+            tags={searchTags}
+            onRemoveTag={(index) => setSearchTags(tags => tags.filter((_, tagIndex) => tagIndex !== index))}
+            leadingChips={countryFilter && (
               <span className="flex items-center gap-1 bg-indigo-950 text-indigo-400 text-xs px-2 py-0.5 rounded border border-indigo-800/50">
                 <MapIcon className="w-3 h-3" />
                 {countryFilter}
@@ -323,20 +325,10 @@ const getLeadScoreVisual = (score?: number) => {
                 </button>
               </span>
             )}
-            {searchTags.map((tag, i) => (
-              <span key={i} className="flex items-center gap-1 bg-slate-800 text-slate-300 text-xs px-2 py-0.5 rounded border border-slate-700">
-                {tag}
-                <button onClick={() => setSearchTags(tags => tags.filter((_, index) => index !== i))} className="hover:text-red-400 ml-1">
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            ))}
-            <input
-              type="text"
-              placeholder={(countryFilter || searchTags.length > 0) ? "Search more..." : t('search')}
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              onKeyDown={e => {
+            placeholder={(countryFilter || searchTags.length > 0) ? "Search more..." : t('search')}
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onKeyDown={e => {
                 if (e.key === 'Tab') {
                   e.preventDefault();
                   if (search.trim()) {
@@ -346,10 +338,8 @@ const getLeadScoreVisual = (score?: number) => {
                 } else if (e.key === 'Backspace' && !search && searchTags.length > 0) {
                   setSearchTags(searchTags.slice(0, -1));
                 }
-              }}
-              className="bg-transparent text-sm text-slate-200 focus:outline-none flex-1 py-1.5 w-full min-w-[100px]"
-            />
-          </div>
+            }}
+          />
           <IconButton icon={<Upload className="w-4 h-4" />} label="Upload CSV" onClick={() => setShowUploadModal(true)} />
           <IconButton icon={<Download className="w-4 h-4" />} label="Export CSV" onClick={() => {}} />
           <ActionButton tone="primary" size="sm" icon={<Plus className="w-4 h-4" />} onClick={() => setShowAddModal(true)}>

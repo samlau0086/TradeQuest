@@ -11,4 +11,5 @@ export { PageHeader } from './PageHeader';
 export { SearchInput } from './SearchInput';
 export { SectionHeader } from './SectionHeader';
 export { StatusBadge } from './StatusBadge';
+export { TagSearchInput } from './TagSearchInput';
 export { Toolbar } from './Toolbar';
