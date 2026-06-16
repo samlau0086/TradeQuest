@@ -1,6 +1,7 @@
 export { ActionButton } from './ActionButton';
 export { ActionBar } from './ActionBar';
 export { ConfirmDialog } from './ConfirmDialog';
+export { CRMWorkspaceLayout } from './CRMWorkspaceLayout';
 export { DataTable } from './DataTable';
 export type { DataTableColumn } from './DataTable';
 export { EmptyState } from './EmptyState';
