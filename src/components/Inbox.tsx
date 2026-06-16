@@ -12,6 +12,7 @@ import {
   useEmailQuickActions,
   useInboxBulkActions,
   useInboxConversationList,
+  useInboxFollowUpFilterRequest,
   useInboxNavigationActions,
   useInboxPageVisibility,
   useInboxSelection,
@@ -166,20 +167,6 @@ export function Inbox() {
   }, [search, searchTags]);
 
   useEffect(() => {
-    if (!inboxFollowUpFilterRequest) return;
-    setFilter('inbox');
-    setChannelFilter('all');
-    setEmailListMode('list');
-    setFollowUpOnly(true);
-    clearBulkSelection();
-    setIsComposing(false);
-    setIsStartingWhatsApp(false);
-    setSelectedWhatsAppPhone(null);
-    setSelectedWhatsAppClientId(null);
-    selectEmail(null);
-  }, [inboxFollowUpFilterRequest]);
-
-  useEffect(() => {
     const poll = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return;
       void syncWhatsAppConversations(search);
@@ -232,6 +219,22 @@ export function Inbox() {
     emails,
     whatsappConversations,
     unifiedConversations,
+  });
+
+  useInboxFollowUpFilterRequest({
+    request: inboxFollowUpFilterRequest,
+    clearBulkSelection,
+    selectEmail,
+    setFilter,
+    setChannelFilter,
+    setEmailListMode,
+    setFollowUpOnly,
+    setIsComposing,
+    setIsStartingWhatsApp,
+    setSelectedWhatsAppPhone,
+    setSelectedWhatsAppClientId,
+    setSelectedTelegramConversation,
+    setSelectedLiveChatConversation,
   });
 
   const {
