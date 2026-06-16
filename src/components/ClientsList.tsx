@@ -6,7 +6,7 @@ import { useTranslation } from '../lib/i18n';
 import { ClientFormModal } from './ClientFormModal';
 import { UploadCSVModal } from './UploadCSVModal';
 import { WorldMap } from './WorldMap';
-import { ConfirmDialog, DataTable, DataTableColumn } from './ui';
+import { ActionButton, ConfirmDialog, DataTable, DataTableColumn, IconButton, PageHeader, Toolbar } from './ui';
 
 type ViewMode = 'list' | 'map';
 type SortColumn = 'leadScore' | 'recentEvent';
@@ -291,10 +291,13 @@ const getLeadScoreVisual = (score?: number) => {
 
   return (
     <div className="flex-1 flex flex-col bg-slate-900 border-l border-slate-800">
-      <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
-        <h2 className="font-bold text-slate-200">{t('clientsMenu')}</h2>
-        <div className="flex items-center gap-3">
-          <div className="flex bg-slate-950 rounded-lg p-1 mr-2 border border-slate-800">
+      <PageHeader
+        className="border-b border-slate-800 bg-slate-900/50 p-4"
+        title={t('clientsMenu')}
+        description={`${sortedClients.length} ${language === 'zh' ? '个客户' : 'clients'}`}
+        actions={(
+          <Toolbar className="flex-wrap justify-end">
+          <div className="mr-2 flex rounded-lg border border-slate-800 bg-slate-950 p-1">
             <button
               onClick={() => setViewMode('list')}
               className={cn("p-1.5 rounded-md transition-colors", viewMode === 'list' ? "bg-slate-800 text-cyan-400" : "text-slate-500 hover:text-slate-300")}
@@ -310,7 +313,7 @@ const getLeadScoreVisual = (score?: number) => {
               <MapIcon className="w-4 h-4" />
             </button>
           </div>
-          <div className="flex flex-wrap items-center gap-2 bg-slate-950 border border-slate-800 rounded px-2 w-[450px] min-h-[36px] focus-within:border-cyan-500 transition-colors">
+          <div className="flex min-h-[36px] w-full flex-wrap items-center gap-2 rounded border border-slate-800 bg-slate-950 px-2 transition-colors focus-within:border-cyan-500 sm:w-[450px]">
             {countryFilter && (
               <span className="flex items-center gap-1 bg-indigo-950 text-indigo-400 text-xs px-2 py-0.5 rounded border border-indigo-800/50">
                 <MapIcon className="w-3 h-3" />
@@ -347,18 +350,14 @@ const getLeadScoreVisual = (score?: number) => {
               className="bg-transparent text-sm text-slate-200 focus:outline-none flex-1 py-1.5 w-full min-w-[100px]"
             />
           </div>
-          <button onClick={() => setShowUploadModal(true)} className="p-2 hover:bg-slate-800 rounded text-slate-400 hover:text-cyan-400" title="Upload CSV">
-            <Upload className="w-4 h-4" />
-          </button>
-          <button onClick={() => {}} className="p-2 hover:bg-slate-800 rounded text-slate-400 hover:text-cyan-400" title="Export CSV">
-            <Download className="w-4 h-4" />
-          </button>
-          <button onClick={() => setShowAddModal(true)} className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white px-3 py-1.5 rounded text-sm font-medium transition-colors">
-            <Plus className="w-4 h-4" />
+          <IconButton icon={<Upload className="w-4 h-4" />} label="Upload CSV" onClick={() => setShowUploadModal(true)} />
+          <IconButton icon={<Download className="w-4 h-4" />} label="Export CSV" onClick={() => {}} />
+          <ActionButton tone="primary" size="sm" icon={<Plus className="w-4 h-4" />} onClick={() => setShowAddModal(true)}>
             {t('addClient')}
-          </button>
-        </div>
-      </div>
+          </ActionButton>
+          </Toolbar>
+        )}
+      />
 
       <div className="flex-1 p-6 flex flex-col min-h-0 overflow-hidden">
         {viewMode === 'list' ? (
