@@ -552,7 +552,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 
 ### Phase 3: Unified Communication Workspace
 
-- [ ] Refactor Inbox into a HubSpot-like communication workspace.
+- [-] Refactor Inbox into a HubSpot-like communication workspace. The first visible pass is now in progress: the Inbox uses a CRM-style page header, lighter workspace shell, cleaner conversation queue controls, refreshed conversation cards, and a more intentional empty workspace state while keeping the existing email/WhatsApp/Live Chat/Telegram behavior intact.
 - [ ] Keep one unified left conversation list with channel filters, saved views, bulk actions, and assignment controls.
 - [-] Use a consistent middle conversation/detail pane for Email, WhatsApp, Live Chat, and Telegram. Email, WhatsApp, Live Chat, and Telegram now use the pilot pattern: messages/content/internal notes stay in the main pane while channel context and Agent suggestions sit in a dedicated right rail on large screens.
 - [-] Add an optional right context rail for linked customer/lead, AI context evidence, RAG snippets, tasks, and recent activity. The initial Email, WhatsApp, Live Chat, and Telegram right rails are now in place.

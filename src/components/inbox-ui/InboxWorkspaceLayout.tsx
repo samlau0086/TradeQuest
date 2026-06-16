@@ -26,7 +26,10 @@ export function InboxWorkspaceLayout({
       defaultLayout={defaultLayout}
       onLayoutChanged={onLayoutChanged}
       orientation="horizontal"
-      className={cn(THREE_PANE_WORKSPACE_STYLES.root, 'bg-slate-900 border-t border-slate-800')}
+      className={cn(
+        THREE_PANE_WORKSPACE_STYLES.root,
+        'rounded-lg border border-slate-200 bg-white shadow-sm',
+      )}
     >
       <Panel
         id="inbox-list"
@@ -35,20 +38,20 @@ export function InboxWorkspaceLayout({
         maxSize={500}
         className={cn(
           THREE_PANE_WORKSPACE_STYLES.left,
-          'flex flex-col transition-transform relative z-10',
+          'relative z-10 flex flex-col border-r border-slate-200 bg-white transition-transform',
           sidebarHidden && 'hidden md:flex',
         )}
       >
         {sidebar}
       </Panel>
 
-      <PanelResizeHandle className="w-1 bg-slate-800 hover:bg-cyan-500 cursor-col-resize transition-colors hidden md:block" />
+      <PanelResizeHandle className="hidden w-1 cursor-col-resize bg-slate-100 transition-colors hover:bg-[#ff7a59] md:block" />
 
       <Panel
         id="inbox-content"
         className={cn(
           THREE_PANE_WORKSPACE_STYLES.middle,
-          'flex flex-col bg-slate-950/50 relative',
+          'relative flex flex-col bg-slate-950',
           contentHidden && 'hidden md:flex',
         )}
       >

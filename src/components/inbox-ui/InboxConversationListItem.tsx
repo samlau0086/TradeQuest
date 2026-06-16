@@ -42,9 +42,9 @@ export function InboxConversationListItem({
   const isWhatsApp = conversation.channel === 'whatsapp';
   const isLiveChat = conversation.channel === 'live_chat';
   const isTelegram = conversation.channel === 'telegram';
-  const Icon = isWhatsApp ? MessageCircle : isLiveChat ? MessageSquare : isTelegram ? Send : (conversation.read ? MailOpen : Mail);
-  const iconColor = isWhatsApp ? 'text-green-400' : isLiveChat ? 'text-violet-300' : isTelegram ? 'text-sky-300' : conversation.read ? 'text-slate-500' : 'text-cyan-400';
-  const iconBg = isWhatsApp ? 'bg-green-950/50 border-green-900/60' : isLiveChat ? 'bg-violet-950/50 border-violet-900/60' : isTelegram ? 'bg-sky-950/50 border-sky-900/60' : 'bg-cyan-950/50 border-cyan-900/60';
+  const Icon = isWhatsApp ? MessageCircle : isLiveChat ? MessageSquare : isTelegram ? Send : conversation.read ? MailOpen : Mail;
+  const iconColor = isWhatsApp ? 'text-green-500' : isLiveChat ? 'text-violet-500' : isTelegram ? 'text-sky-500' : conversation.read ? 'text-slate-500' : 'text-cyan-500';
+  const iconBg = isWhatsApp ? 'bg-green-50 border-green-200' : isLiveChat ? 'bg-violet-50 border-violet-200' : isTelegram ? 'bg-sky-50 border-sky-200' : 'bg-cyan-50 border-cyan-200';
   const channelLabel = isWhatsApp
     ? `WhatsApp ${conversation.direction === 'outbound' ? 'sent' : 'inbox'}`
     : isLiveChat
@@ -59,42 +59,57 @@ export function InboxConversationListItem({
               ? 'Email sent'
               : 'Email inbox';
   const title = isEmail
-    ? (filter === 'inbox' ? (email?.senderName || conversation.contact_name || conversation.contact_address || 'Email') : (conversation.contact_address || conversation.contact_name || 'Email'))
+    ? filter === 'inbox'
+      ? email?.senderName || conversation.contact_name || conversation.contact_address || 'Email'
+      : conversation.contact_address || conversation.contact_name || 'Email'
     : clientName || conversation.client_name || conversation.title || conversation.contact_name || conversation.contact_address || (isWhatsApp ? 'WhatsApp' : isTelegram ? 'Telegram' : 'Live Chat');
-  const subtitle = isEmail ? (conversation.subject || conversation.title || '(No Subject)') : (conversation.contact_address || conversation.client_company || '');
+  const subtitle = isEmail ? conversation.subject || conversation.title || '(No Subject)' : conversation.contact_address || conversation.client_company || '';
 
   return (
     <div
       onClick={onSelect}
       className={cn(
-        "cursor-pointer border-b border-slate-800/50 p-4 transition-colors flex gap-3 group relative",
-        isSelected ? (isWhatsApp ? "bg-green-950/20" : isLiveChat ? "bg-violet-950/20" : isTelegram ? "bg-sky-950/20" : "bg-cyan-950/20") : "hover:bg-slate-800/30",
-        isEmail && !conversation.read && filter === 'inbox' && "bg-slate-800/40"
+        'group relative mx-3 my-2 flex cursor-pointer gap-3 rounded-lg border p-4 transition-all',
+        isSelected
+          ? isWhatsApp
+            ? 'border-green-200 bg-green-50 shadow-sm'
+            : isLiveChat
+              ? 'border-violet-200 bg-violet-50 shadow-sm'
+              : isTelegram
+                ? 'border-sky-200 bg-sky-50 shadow-sm'
+                : 'border-cyan-200 bg-cyan-50 shadow-sm'
+          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50 hover:shadow-sm',
+        isEmail && !conversation.read && filter === 'inbox' && !isSelected && 'border-l-4 border-l-[#ff7a59]'
       )}
     >
       <div
-        className={cn("pt-0.5 transition-opacity", isChecked ? "opacity-100" : "opacity-0 group-hover:opacity-100")}
+        className={cn('pt-0.5 transition-opacity', isChecked ? 'opacity-100' : 'opacity-0 group-hover:opacity-100')}
         onClick={onToggleSelection}
       >
         <input
           type="checkbox"
           checked={isChecked}
           onChange={() => {}}
-          className={cn("rounded border-slate-700 bg-slate-800 focus:ring-cyan-500", isWhatsApp ? "text-green-500" : isLiveChat ? "text-violet-500" : isTelegram ? "text-sky-500" : "text-cyan-500")}
+          className={cn(
+            'rounded border-slate-300 bg-white focus:ring-cyan-500',
+            isWhatsApp ? 'text-green-500' : isLiveChat ? 'text-violet-500' : isTelegram ? 'text-sky-500' : 'text-cyan-500'
+          )}
         />
       </div>
-      <div className="pt-0.5 flex-shrink-0">
-        <div className={cn("w-7 h-7 rounded-full border flex items-center justify-center", iconBg)}>
-          <Icon className={cn("w-4 h-4", iconColor)} />
+
+      <div className="shrink-0 pt-0.5">
+        <div className={cn('flex h-8 w-8 items-center justify-center rounded-full border', iconBg)}>
+          <Icon className={cn('h-4 w-4', iconColor)} />
         </div>
       </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between mb-1 gap-2">
-          <span className={cn("text-sm font-bold truncate", isEmail && !conversation.read && filter === 'inbox' ? "text-white" : "text-slate-200")}>
+
+      <div className="min-w-0 flex-1">
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <span className={cn('truncate text-sm font-bold', isEmail && !conversation.read && filter === 'inbox' ? 'text-slate-950' : 'text-slate-800')}>
             {title}
           </span>
-          <div className="flex items-center gap-1 shrink-0">
-            <span className="text-[10px] text-slate-500">
+          <div className="flex shrink-0 items-center gap-1">
+            <span className="text-[10px] text-slate-400">
               {conversation.last_message_at ? new Date(conversation.last_message_at).toLocaleDateString() : channelLabel}
             </span>
             {(conversation.is_important || (conversation.tags || []).includes('important')) && (
@@ -107,47 +122,57 @@ export function InboxConversationListItem({
                   event.stopPropagation();
                   onDeleteWhatsApp();
                 }}
-                className="opacity-0 group-hover:opacity-100 p-1 rounded text-slate-500 hover:text-red-300 hover:bg-red-500/10 transition-opacity"
+                className="rounded p-1 text-slate-400 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-500 group-hover:opacity-100"
                 title="Delete WhatsApp conversation"
               >
-                <Trash2 className="w-3.5 h-3.5" />
+                <Trash2 className="h-3.5 w-3.5" />
               </button>
             )}
           </div>
         </div>
-        <div className={cn(
-          "text-[10px] font-bold uppercase mb-1",
-          isWhatsApp ? 'text-green-400' : isLiveChat ? 'text-violet-300' : isTelegram ? 'text-sky-300' : 'text-cyan-400'
-        )}>
+
+        <div
+          className={cn(
+            'mb-1 text-[10px] font-bold uppercase',
+            isWhatsApp ? 'text-green-500' : isLiveChat ? 'text-violet-500' : isTelegram ? 'text-sky-500' : 'text-cyan-500'
+          )}
+        >
           {channelLabel}
         </div>
+
         {subtitle && (
-          <div className={cn("text-xs font-medium mb-1 truncate", isEmail && !conversation.read && filter === 'inbox' ? "text-slate-200" : "text-slate-400")}>
+          <div className={cn('mb-1 truncate text-xs font-medium', isEmail && !conversation.read && filter === 'inbox' ? 'text-slate-700' : 'text-slate-500')}>
             {subtitle}
           </div>
         )}
+
         {conversation.last_message_preview && (
-          <div className="text-xs text-slate-500 line-clamp-2">
+          <div className="line-clamp-2 text-xs text-slate-500">
             {conversation.last_message_preview}
           </div>
         )}
+
         {conversation.tags && conversation.tags.length > 0 && (
-          <div className="flex gap-1 mt-2 overflow-x-auto scrollbar-hide">
+          <div className="mt-2 flex gap-1 overflow-x-auto scrollbar-hide">
             {conversation.tags.slice(0, 4).map(tag => (
-              <span key={tag} className={cn(
-                "text-[9px] bg-slate-800 px-1.5 py-0.5 rounded-full whitespace-nowrap",
-                isWhatsApp ? 'text-green-300' : isLiveChat ? 'text-violet-200' : isTelegram ? 'text-sky-200' : 'text-slate-400'
-              )}>
+              <span
+                key={tag}
+                className={cn(
+                  'whitespace-nowrap rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold',
+                  isWhatsApp ? 'text-green-700' : isLiveChat ? 'text-violet-700' : isTelegram ? 'text-sky-700' : 'text-slate-600'
+                )}
+              >
                 {tag}
               </span>
             ))}
           </div>
         )}
+
         <div className="mt-3 grid grid-cols-2 gap-2" onClick={event => event.stopPropagation()}>
           <select
             value={conversation.owner_id || ''}
             onChange={event => onOwnerStageChange({ ownerId: event.target.value || null })}
-            className="min-w-0 rounded border border-slate-800 bg-slate-950 px-2 py-1 text-[10px] font-bold text-slate-400 outline-none hover:border-slate-700 focus:border-blue-500"
+            className="min-w-0 rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-600 outline-none hover:border-slate-300 focus:border-blue-500"
             title={language === 'zh' ? '负责人' : 'Owner'}
           >
             <option value="">{language === 'zh' ? '未分配' : 'Unassigned'}</option>
@@ -158,7 +183,7 @@ export function InboxConversationListItem({
           <select
             value={conversation.stage || ''}
             onChange={event => onOwnerStageChange({ stage: event.target.value || null })}
-            className="min-w-0 rounded border border-slate-800 bg-slate-950 px-2 py-1 text-[10px] font-bold text-slate-400 outline-none hover:border-slate-700 focus:border-purple-500"
+            className="min-w-0 rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-600 outline-none hover:border-slate-300 focus:border-purple-500"
             title={language === 'zh' ? '阶段' : 'Stage'}
           >
             <option value="">{language === 'zh' ? '未设阶段' : 'No stage'}</option>
