@@ -34,14 +34,14 @@ export function WhatsAppConversationMetaBar({
   onDeleteComment,
 }: WhatsAppConversationMetaBarProps) {
   return (
-    <div className="p-3 border-b border-slate-800 grid grid-cols-1 md:grid-cols-[1fr_1fr] gap-3 bg-slate-900">
+    <div className="grid grid-cols-1 gap-3 border-b border-slate-200 bg-white px-5 py-3 md:grid-cols-[1fr_1fr]">
       <div className="space-y-2">
         <div className="flex flex-wrap gap-1">
           {tags.map(tag => (
             <button
               key={tag}
               onClick={() => onRemoveTag(tag)}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded bg-slate-800 hover:bg-red-950/40 text-xs text-cyan-300 hover:text-red-300 border border-slate-700"
+              className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700 hover:border-red-200 hover:bg-red-50 hover:text-red-500"
             >
               <Tag className="w-3 h-3" />
               {tag}
@@ -55,9 +55,9 @@ export function WhatsAppConversationMetaBar({
             onChange={event => onTagInputChange(event.target.value)}
             onKeyDown={event => { if (event.key === 'Enter') onAddTag(); }}
             placeholder={addTagLabel}
-            className="min-w-0 flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-200 outline-none"
+            className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs text-slate-900 outline-none"
           />
-          <button onClick={onAddTag} className="px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">
+          <button onClick={onAddTag} className="rounded-lg border border-slate-200 bg-white px-2 text-slate-600 hover:bg-slate-50">
             <Plus className="w-4 h-4" />
           </button>
         </div>
@@ -66,14 +66,14 @@ export function WhatsAppConversationMetaBar({
       <div className="space-y-2">
         <div className="max-h-20 overflow-y-auto space-y-1">
           {comments.slice(-3).map(comment => (
-            <div key={comment.id} className="group flex items-start gap-2 text-[11px] bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-400">
+            <div key={comment.id} className="group flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-500">
               <div className="min-w-0 flex-1">
-                <span className="text-slate-300 break-words">{comment.content}</span>
-                <span className="ml-2 text-slate-600">{new Date(comment.createdAt).toLocaleString()}</span>
+                <span className="break-words text-slate-700">{comment.content}</span>
+                <span className="ml-2 text-slate-400">{new Date(comment.createdAt).toLocaleString()}</span>
               </div>
               <button
                 onClick={() => onDeleteComment(comment.id)}
-                className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-300 transition-opacity"
+                className="text-slate-400 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
                 title={deleteCommentLabel}
               >
                 <X className="w-3 h-3" />
@@ -87,9 +87,9 @@ export function WhatsAppConversationMetaBar({
             onChange={event => onCommentInputChange(event.target.value)}
             onKeyDown={event => { if (event.key === 'Enter') onAddComment(); }}
             placeholder={addCommentLabel}
-            className="min-w-0 flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-200 outline-none"
+            className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs text-slate-900 outline-none"
           />
-          <button onClick={onAddComment} className="px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">
+          <button onClick={onAddComment} className="rounded-lg border border-slate-200 bg-white px-2 text-slate-600 hover:bg-slate-50">
             <Plus className="w-4 h-4" />
           </button>
         </div>

@@ -76,29 +76,31 @@ export function WhatsAppChatHeader({
 }: WhatsAppChatHeaderProps) {
   return (
     <>
-      <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+      <div className={embedded ? "flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4" : "flex items-center justify-between border-b border-slate-800 p-4"}>
         <div className="flex items-center gap-3">
-          <MessageCircle className="w-5 h-5 text-green-400" />
+          <div className={embedded ? "flex h-11 w-11 items-center justify-center rounded-xl border border-green-200 bg-green-50 shadow-sm" : ""}>
+            <MessageCircle className={embedded ? "h-5 w-5 text-green-600" : "w-5 h-5 text-green-400"} />
+          </div>
           <div>
             {activeClient ? (
               <button
                 onClick={() => onSelectClient(activeClient.id)}
-                className="font-bold text-white hover:text-cyan-300 hover:underline flex items-center gap-1"
+                className={embedded ? "flex items-center gap-1 font-bold text-slate-950 transition hover:text-cyan-700 hover:underline" : "font-bold text-white hover:text-cyan-300 hover:underline flex items-center gap-1"}
               >
                 <User className="w-3.5 h-3.5" />
                 {activeClient.name}
               </button>
             ) : (
-              <div className="font-bold text-white">{conversationClientName || displayPhone}</div>
+              <div className={embedded ? "font-bold text-slate-950" : "font-bold text-white"}>{conversationClientName || displayPhone}</div>
             )}
-            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <div className={embedded ? "flex flex-wrap items-center gap-2 text-xs text-slate-500" : "flex flex-wrap items-center gap-2 text-xs text-slate-500"}>
               <span>{displayPhone}</span>
               {!activeClient && (
                 <>
                   <button
                     type="button"
                     onClick={onCreateLead}
-                    className="inline-flex items-center gap-1 rounded bg-slate-800/70 px-1.5 py-0.5 font-bold text-cyan-400 hover:bg-slate-700 hover:text-cyan-300"
+                    className={embedded ? "inline-flex items-center gap-1 rounded-full border border-cyan-200 bg-cyan-50 px-2 py-1 font-bold text-cyan-700 transition hover:bg-cyan-100" : "inline-flex items-center gap-1 rounded bg-slate-800/70 px-1.5 py-0.5 font-bold text-cyan-400 hover:bg-slate-700 hover:text-cyan-300"}
                   >
                     <UserPlus className="w-3 h-3" />
                     New Lead
@@ -106,7 +108,7 @@ export function WhatsAppChatHeader({
                   <button
                     type="button"
                     onClick={onAddToExistingClient}
-                    className="inline-flex items-center gap-1 rounded bg-slate-800/70 px-1.5 py-0.5 font-bold text-emerald-400 hover:bg-slate-700 hover:text-emerald-300"
+                    className={embedded ? "inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 font-bold text-emerald-700 transition hover:bg-emerald-100" : "inline-flex items-center gap-1 rounded bg-slate-800/70 px-1.5 py-0.5 font-bold text-emerald-400 hover:bg-slate-700 hover:text-emerald-300"}
                   >
                     <User className="w-3 h-3" />
                     Add to Existing Client
@@ -127,14 +129,14 @@ export function WhatsAppChatHeader({
               <Maximize2 className="w-5 h-5" />
             </button>
           )}
-          <button onClick={onClose} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg">
+          <button onClick={onClose} className={embedded ? "rounded-md border border-slate-200 p-2 text-slate-400 transition hover:bg-slate-50 hover:text-slate-800" : "p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg"}>
             <X className="w-5 h-5" />
           </button>
         </div>
       </div>
 
       {rawChatId && (
-        <div className="px-4 py-2 border-b border-slate-800 bg-slate-950/70">
+        <div className={embedded ? "border-b border-slate-200 bg-white px-5 py-2" : "px-4 py-2 border-b border-slate-800 bg-slate-950/70"}>
           {mappingEdit ? (
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="font-mono text-slate-500 truncate max-w-[220px]" title={mappingEdit.chatId}>
@@ -149,21 +151,21 @@ export function WhatsAppChatHeader({
                   if (event.key === 'Escape') onCancelMapping();
                 }}
                 placeholder="Enter mobile number"
-                className="min-w-[180px] flex-1 rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-100 outline-none focus:border-green-400"
+                className={embedded ? "min-w-[180px] flex-1 rounded border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs text-slate-900 outline-none focus:border-green-500" : "min-w-[180px] flex-1 rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-100 outline-none focus:border-green-400"}
                 autoFocus
               />
               <button
                 type="button"
                 onClick={onConfirmMapping}
                 disabled={mappingEdit.saving || !canConfirmMapping}
-                className="rounded bg-green-600 px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-green-500 disabled:bg-slate-800 disabled:text-slate-500"
+                className={embedded ? "rounded bg-green-600 px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-green-500 disabled:bg-slate-200 disabled:text-slate-500" : "rounded bg-green-600 px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-green-500 disabled:bg-slate-800 disabled:text-slate-500"}
               >
                 {mappingEdit.saving ? 'Saving' : 'Confirm'}
               </button>
               <button
                 type="button"
                 onClick={onCancelMapping}
-                className="rounded bg-slate-800 px-2.5 py-1.5 text-[10px] font-bold text-slate-300 hover:bg-slate-700"
+                className={embedded ? "rounded border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-600 hover:bg-slate-50" : "rounded bg-slate-800 px-2.5 py-1.5 text-[10px] font-bold text-slate-300 hover:bg-slate-700"}
               >
                 Cancel
               </button>
@@ -173,7 +175,7 @@ export function WhatsAppChatHeader({
               type="button"
               onDoubleClick={() => onStartMapping(rawChatId, mappedPhone || '')}
               title="Double-click to edit chatId to mobile mapping"
-              className="block max-w-full truncate rounded px-1 py-1 text-left text-[11px] font-mono text-slate-500 hover:bg-slate-900 hover:text-slate-300"
+              className={embedded ? "block max-w-full truncate rounded px-1 py-1 text-left text-[11px] font-mono text-slate-500 hover:bg-slate-50 hover:text-slate-700" : "block max-w-full truncate rounded px-1 py-1 text-left text-[11px] font-mono text-slate-500 hover:bg-slate-900 hover:text-slate-300"}
             >
               {mappedPhone ? `${mappedPhone} (${rawChatId} -> ${mappedPhone})` : rawChatId}
             </button>
@@ -181,12 +183,12 @@ export function WhatsAppChatHeader({
         </div>
       )}
 
-      <div className="p-3 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
+      <div className={embedded ? "flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-3" : "p-3 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3"}>
         <div className="flex items-center gap-3 min-w-0">
           <select
             value={selectedClientId}
             onChange={event => onSelectedClientChange(event.target.value)}
-            className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none"
+            className={embedded ? "rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-300" : "bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none"}
           >
             <option value="">{randomStickyClientLabel}</option>
             {selectableHubClients.map(client => (
@@ -195,7 +197,7 @@ export function WhatsAppChatHeader({
               </option>
             ))}
           </select>
-          {loading && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
+          {loading && <Loader2 className={embedded ? "h-4 w-4 animate-spin text-slate-400" : "w-4 h-4 animate-spin text-slate-400"} />}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -203,28 +205,28 @@ export function WhatsAppChatHeader({
             onClick={onToggleAutoTranslate}
             className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${
               autoTranslateEnabled
-                ? 'border-cyan-500/40 bg-cyan-500/15 text-cyan-300'
-                : 'border-slate-700 bg-slate-950 text-slate-400 hover:border-slate-600 hover:text-slate-200'
+                ? embedded ? 'border-cyan-200 bg-cyan-50 text-cyan-700' : 'border-cyan-500/40 bg-cyan-500/15 text-cyan-300'
+                : embedded ? 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-800' : 'border-slate-700 bg-slate-950 text-slate-400 hover:border-slate-600 hover:text-slate-200'
             }`}
             title={language === 'zh' ? `仅为 ${displayPhone} 自动翻译客户 WhatsApp 消息` : `Auto-translate customer WhatsApp messages for ${displayPhone}`}
           >
             <Languages className="h-4 w-4" />
             <span>{language === 'zh' ? '自动翻译' : 'Auto Translate'}</span>
-            <span className={`h-2 w-2 rounded-full ${autoTranslateEnabled ? 'bg-cyan-400' : 'bg-slate-600'}`} />
+            <span className={`h-2 w-2 rounded-full ${autoTranslateEnabled ? 'bg-cyan-400' : embedded ? 'bg-slate-300' : 'bg-slate-600'}`} />
           </button>
           <button
             type="button"
             onClick={onToggleCustomerServiceAgent}
             className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${
               customerServiceAgentEnabled
-                ? 'border-green-500/40 bg-green-500/15 text-green-300'
-                : 'border-slate-700 bg-slate-950 text-slate-400 hover:border-slate-600 hover:text-slate-200'
+                ? embedded ? 'border-green-200 bg-green-50 text-green-700' : 'border-green-500/40 bg-green-500/15 text-green-300'
+                : embedded ? 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-800' : 'border-slate-700 bg-slate-950 text-slate-400 hover:border-slate-600 hover:text-slate-200'
             }`}
             title="WhatsApp Customer Service Agent"
           >
             <Sparkles className="h-4 w-4" />
             <span>Agent Mode</span>
-            <span className={`h-2 w-2 rounded-full ${customerServiceAgentEnabled ? 'bg-green-400' : 'bg-slate-600'}`} />
+            <span className={`h-2 w-2 rounded-full ${customerServiceAgentEnabled ? 'bg-green-400' : embedded ? 'bg-slate-300' : 'bg-slate-600'}`} />
           </button>
         </div>
       </div>

@@ -283,8 +283,8 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   }, [targetPhone, initialConversation?.id, language, resetConversationMetaInputs]);
 
   return (
-    <div className={embedded ? "flex-1 min-h-0 flex flex-col bg-slate-950/50" : "fixed inset-0 bg-black/60 z-[80] flex items-center justify-center p-4"}>
-      <div className={embedded ? "flex-1 min-h-0 bg-slate-950/50 flex flex-col overflow-hidden" : "w-full max-w-3xl h-[80vh] bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl flex flex-col overflow-hidden"}>
+    <div className={embedded ? "flex min-h-0 flex-1 flex-col bg-[#f3f6fb]" : "fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4"}>
+      <div className={embedded ? "flex min-h-0 flex-1 flex-col overflow-hidden bg-[#f3f6fb]" : "flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl"}>
         <WhatsAppChatHeader
           activeClient={activeClient}
           conversationClientName={conversation?.clientName}
@@ -333,8 +333,8 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
           />
         )}
 
-        <div className={embedded ? 'flex-1 min-h-0 bg-slate-950 lg:grid lg:grid-cols-[minmax(0,1fr)_340px]' : 'flex-1 min-h-0 overflow-y-auto bg-slate-950'}>
-          <section className={embedded ? 'min-h-0 overflow-y-auto p-4 space-y-3' : 'p-4 space-y-3'}>
+        <div className={embedded ? 'flex-1 min-h-0 bg-[#f3f6fb] lg:grid lg:grid-cols-[minmax(0,1fr)_360px]' : 'flex-1 min-h-0 overflow-y-auto bg-slate-950'}>
+          <section className={embedded ? 'min-h-0 overflow-y-auto bg-[#f3f6fb] p-5 space-y-4' : 'p-4 space-y-3'}>
             <WhatsAppMessageList
               messages={messages}
               loading={loading}

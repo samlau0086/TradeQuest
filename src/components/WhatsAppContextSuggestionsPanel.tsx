@@ -31,7 +31,6 @@ interface WhatsAppContextSuggestionsPanelProps {
 
 export function WhatsAppContextSuggestionsPanel({
   embedded,
-  language,
   conversation,
   activeClient,
   displayPhone,
@@ -53,9 +52,9 @@ export function WhatsAppContextSuggestionsPanel({
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${localStorage.getItem('token')}`
+        Authorization: `Bearer ${localStorage.getItem('token')}`,
       },
-      body: JSON.stringify({ agentContextAnalysis: insight, agentContextAnalysisKey: key })
+      body: JSON.stringify({ agentContextAnalysis: insight, agentContextAnalysisKey: key }),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || 'Failed to save WhatsApp analysis');
@@ -64,10 +63,15 @@ export function WhatsAppContextSuggestionsPanel({
 
   const deleteConversation = async () => {
     if (!conversation?.id) throw new Error('No WhatsApp conversation is selected.');
-    const response = await fetch(conversation.unifiedId ? `/api/conversations/${encodeURIComponent(conversation.unifiedId)}` : `/api/whatsapp-hub/conversations/${encodeURIComponent(conversation.id)}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-    });
+    const response = await fetch(
+      conversation.unifiedId
+        ? `/api/conversations/${encodeURIComponent(conversation.unifiedId)}`
+        : `/api/whatsapp-hub/conversations/${encodeURIComponent(conversation.id)}`,
+      {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      }
+    );
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || 'Failed to delete WhatsApp conversation.');
     notify('WhatsApp conversation deleted.', 'success');
@@ -77,11 +81,9 @@ export function WhatsAppContextSuggestionsPanel({
   return (
     <ConversationContextRail
       variant="rail"
-      title={language === 'zh' ? '智能体建议' : 'Agent Suggestions'}
-      description={language === 'zh'
-        ? '分析 WhatsApp 对话、客户资料、产品和 RAG 上下文，准备回复、待跟进和内部备注操作。'
-        : 'Analyze WhatsApp, customer, product, and RAG context for reply, follow-up, and internal note actions.'}
-      className={embedded ? 'min-h-0 overflow-y-auto border-t border-slate-800 bg-slate-950/60 p-4 lg:border-l lg:border-t-0' : 'border-t border-slate-800 bg-slate-950/60 p-4'}
+      title="Agent Suggestions"
+      description="Analyze WhatsApp, customer, product, and RAG context for reply, follow-up, and internal note actions."
+      className={embedded ? 'min-h-0 overflow-y-auto border-t border-slate-200 bg-white p-4 lg:border-l lg:border-t-0' : 'border-t border-slate-800 bg-slate-950/60 p-4'}
       collapsible
     >
       <AgentContextSuggestions
@@ -101,9 +103,11 @@ export function WhatsAppContextSuggestionsPanel({
         hasCustomerMessage={whatsappAgentContext.hasCustomerMessage}
         autoScrollOnOpen={embedded}
         onDraftReply={() => generateWhatsAppMessage(
-          body.trim() || (latestInboundMessage
-            ? `Reply to the latest inbound customer WhatsApp message from ${contactName}: ${latestInboundMessage.body}`
-            : `Draft a polite WhatsApp follow-up to ${contactName}. There is no inbound customer message yet, so do not answer our own outbound messages.`)
+          body.trim() || (
+            latestInboundMessage
+              ? `Reply to the latest inbound customer WhatsApp message from ${contactName}: ${latestInboundMessage.body}`
+              : `Draft a polite WhatsApp follow-up to ${contactName}. There is no inbound customer message yet, so do not answer our own outbound messages.`
+          )
         )}
         onAddComment={() => addConversationComment(`Agent suggestion: review WhatsApp conversation with ${contactName} and prepare the next best reply.`)}
         followUpAt={whatsappFollowUp?.dueAt}
@@ -111,15 +115,15 @@ export function WhatsAppContextSuggestionsPanel({
         onSetFollowUp={(dueAt, note) => addConversationComment(`${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
           status: 'open',
           dueAt,
-          note: note || `Follow up WhatsApp conversation with ${contactName}.`
+          note: note || `Follow up WhatsApp conversation with ${contactName}.`,
         })}`)}
         onClearFollowUp={() => addConversationComment(`${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
           status: 'canceled',
-          canceledAt: new Date().toISOString()
+          canceledAt: new Date().toISOString(),
         })}`)}
         onCompleteFollowUp={() => addConversationComment(`${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
           status: 'completed',
-          completedAt: new Date().toISOString()
+          completedAt: new Date().toISOString(),
         })}`)}
         onDeleteItem={deleteConversation}
         onSaveAnalysis={saveAnalysis}
