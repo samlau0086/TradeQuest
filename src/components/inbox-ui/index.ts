@@ -1,6 +1,7 @@
 export { CONVERSATION_STAGES } from './constants';
 export { ComposeEmail } from './ComposeEmail';
 export { ConversationDetailHeader } from './ConversationDetailHeader';
+export { ConversationContextRail } from './ConversationContextRail';
 export { LiveChatAgentSuggestionsPanel, TelegramAgentSuggestionsPanel } from './ConversationAgentPanels';
 export { ConversationFollowUpStrip } from './ConversationFollowUpStrip';
 export { ConversationInternalNotesPanel } from './ConversationInternalNotesPanel';

@@ -1,5 +1,6 @@
 import React from 'react';
 import type { AgentContextSuggestionInsight, Client, ContactMethod, LiveChatSession } from '../../store';
+import { ConversationContextRail } from './ConversationContextRail';
 import { ConversationDetailHeader } from './ConversationDetailHeader';
 import { LiveChatAgentSuggestionsPanel } from './ConversationAgentPanels';
 import { ConversationFollowUpStrip } from './ConversationFollowUpStrip';
@@ -167,8 +168,10 @@ export function LiveChatConversationPane({
         onComplete={onCompleteConversationFollowUp}
       />
       <div className="flex-1 overflow-y-auto bg-slate-950/50 p-6 space-y-4">
-        <LiveChatCustomerInsightCard client={activeLiveChatClient} />
-        <LiveChatEvidencePanel language={language} items={activeLiveChatEvidenceItems} />
+        <ConversationContextRail>
+          <LiveChatCustomerInsightCard client={activeLiveChatClient} />
+          <LiveChatEvidencePanel language={language} items={activeLiveChatEvidenceItems} />
+        </ConversationContextRail>
         <ConversationMessageList
           channel="live_chat"
           language={language}
@@ -177,30 +180,32 @@ export function LiveChatConversationPane({
           translations={activeLiveChatTranslations}
           translatingIds={translatingConversationMessageIds}
         />
-        <LiveChatAgentSuggestionsPanel
-          language={language}
-          cacheKey={activeLiveChatAgentContext.cacheKey}
-          conversationId={selectedLiveChatConversation.id}
-          clientId={clientId}
-          clientName={clientName}
-          persistedInsight={selectedLiveChatConversation.agent_context_analysis_key === activeLiveChatAgentContext.cacheKey ? selectedLiveChatConversation.agent_context_analysis : undefined}
-          persistedInsightKey={selectedLiveChatConversation.agent_context_analysis_key}
-          subject={selectedLiveChatConversation.title || 'Live Chat conversation'}
-          body={activeLiveChatAgentContext.body}
-          additionalContext={activeLiveChatAgentContext.additionalContext}
-          hasClient={!!clientId}
-          hasKnowledge={!!activeLiveChatClient}
-          hasCustomerMessage={activeLiveChatAgentContext.hasCustomerMessage}
-          onDraftReply={onRunAgent}
-          onAddComment={onAddSuggestionComment}
-          followUpAt={activeFollowUpAt}
-          followUpNote={activeFollowUpNote}
-          onSetFollowUp={onSetAgentFollowUp}
-          onClearFollowUp={onClearAgentFollowUp}
-          onCompleteFollowUp={onCompleteAgentFollowUp}
-          onSaveAnalysis={onSaveAnalysis}
-          onDeleteItem={onDeleteConversation}
-        />
+        <ConversationContextRail>
+          <LiveChatAgentSuggestionsPanel
+            language={language}
+            cacheKey={activeLiveChatAgentContext.cacheKey}
+            conversationId={selectedLiveChatConversation.id}
+            clientId={clientId}
+            clientName={clientName}
+            persistedInsight={selectedLiveChatConversation.agent_context_analysis_key === activeLiveChatAgentContext.cacheKey ? selectedLiveChatConversation.agent_context_analysis : undefined}
+            persistedInsightKey={selectedLiveChatConversation.agent_context_analysis_key}
+            subject={selectedLiveChatConversation.title || 'Live Chat conversation'}
+            body={activeLiveChatAgentContext.body}
+            additionalContext={activeLiveChatAgentContext.additionalContext}
+            hasClient={!!clientId}
+            hasKnowledge={!!activeLiveChatClient}
+            hasCustomerMessage={activeLiveChatAgentContext.hasCustomerMessage}
+            onDraftReply={onRunAgent}
+            onAddComment={onAddSuggestionComment}
+            followUpAt={activeFollowUpAt}
+            followUpNote={activeFollowUpNote}
+            onSetFollowUp={onSetAgentFollowUp}
+            onClearFollowUp={onClearAgentFollowUp}
+            onCompleteFollowUp={onCompleteAgentFollowUp}
+            onSaveAnalysis={onSaveAnalysis}
+            onDeleteItem={onDeleteConversation}
+          />
+        </ConversationContextRail>
         <ConversationInternalNotesPanel
           language={language}
           comments={activeConversationComments}

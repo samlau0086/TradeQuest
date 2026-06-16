@@ -8,6 +8,7 @@ import { getCustomerOutputLanguage, getOutboundLanguage } from '../lib/language'
 import { ClientFormModal, PREFERRED_LANGUAGES } from './ClientFormModal';
 import { AddContactToClientModal } from './AddContactToClientModal';
 import { buildUnifiedAgentContext } from '../lib/agentContext';
+import { ConversationContextRail } from './inbox-ui/ConversationContextRail';
 
 interface WhatsAppHubClient {
   id: string;
@@ -1415,69 +1416,71 @@ Return only the message text.`,
             );
           })}
           <div ref={messagesEndRef} />
-          <AgentContextSuggestions
-            channel="whatsapp"
-            cacheKey={whatsappAgentContext.cacheKey}
-            contextLookup={conversation?.unifiedId ? { conversationId: conversation.unifiedId } : undefined}
-            clientId={conversation?.clientId || activeClient?.id}
-            whatsappNumber={displayPhone}
-            persistedInsight={conversation?.agentContextAnalysisKey === whatsappAgentContext.cacheKey ? conversation?.agentContextAnalysis : undefined}
-            persistedInsightKey={conversation?.agentContextAnalysisKey}
-            subject={conversation?.clientName || activeClient?.name || displayPhone}
-            body={whatsappAgentContext.body}
-            additionalContext={whatsappAgentContext.additionalContext}
-            clientName={conversation?.clientName || activeClient?.name}
-            hasClient={!!(conversation?.clientId || activeClient?.id)}
-            hasKnowledge={!!activeClient}
-            hasCustomerMessage={whatsappAgentContext.hasCustomerMessage}
-            autoScrollOnOpen={embedded}
-            onDraftReply={() => generateWhatsAppMessage(
-              body.trim() || (latestInboundMessage
-                ? `Reply to the latest inbound customer WhatsApp message from ${conversation?.clientName || activeClient?.name || displayPhone}: ${latestInboundMessage.body}`
-                : `Draft a polite WhatsApp follow-up to ${conversation?.clientName || activeClient?.name || displayPhone}. There is no inbound customer message yet, so do not answer our own outbound messages.`)
-            )}
-            onAddComment={() => addConversationComment(`Agent suggestion: review WhatsApp conversation with ${conversation?.clientName || activeClient?.name || displayPhone} and prepare the next best reply.`)}
-            followUpAt={whatsappFollowUp?.dueAt}
-            followUpNote={whatsappFollowUp?.note}
-            onSetFollowUp={(dueAt, note) => addConversationComment(`${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
-              status: 'open',
-              dueAt,
-              note: note || `Follow up WhatsApp conversation with ${conversation?.clientName || activeClient?.name || displayPhone}.`
-            })}`)}
-            onClearFollowUp={() => addConversationComment(`${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
-              status: 'canceled',
-              canceledAt: new Date().toISOString()
-            })}`)}
-            onCompleteFollowUp={() => addConversationComment(`${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
-              status: 'completed',
-              completedAt: new Date().toISOString()
-            })}`)}
-            onDeleteItem={async () => {
-              if (!conversation?.id) throw new Error('No WhatsApp conversation is selected.');
-              const response = await fetch(conversation.unifiedId ? `/api/conversations/${encodeURIComponent(conversation.unifiedId)}` : `/api/whatsapp-hub/conversations/${encodeURIComponent(conversation.id)}`, {
-                method: 'DELETE',
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-              });
-              const data = await response.json().catch(() => ({}));
-              if (!response.ok) throw new Error(data.error || 'Failed to delete WhatsApp conversation.');
-              notify('WhatsApp conversation deleted.', 'success');
-              onClose();
-            }}
-            onSaveAnalysis={async (key, insight) => {
-              if (!conversation?.id) return;
-              const response = await fetch(`/api/whatsapp-hub/conversations/${conversation.id}`, {
-                method: 'PATCH',
-                headers: {
-                  'Content-Type': 'application/json',
-                  Authorization: `Bearer ${localStorage.getItem('token')}`
-                },
-                body: JSON.stringify({ agentContextAnalysis: insight, agentContextAnalysisKey: key })
-              });
-              const data = await response.json().catch(() => ({}));
-              if (!response.ok) throw new Error(data.error || 'Failed to save WhatsApp analysis');
-              setConversation(prev => prev ? { ...prev, agentContextAnalysis: insight, agentContextAnalysisKey: key } : prev);
-            }}
-          />
+          <ConversationContextRail>
+            <AgentContextSuggestions
+              channel="whatsapp"
+              cacheKey={whatsappAgentContext.cacheKey}
+              contextLookup={conversation?.unifiedId ? { conversationId: conversation.unifiedId } : undefined}
+              clientId={conversation?.clientId || activeClient?.id}
+              whatsappNumber={displayPhone}
+              persistedInsight={conversation?.agentContextAnalysisKey === whatsappAgentContext.cacheKey ? conversation?.agentContextAnalysis : undefined}
+              persistedInsightKey={conversation?.agentContextAnalysisKey}
+              subject={conversation?.clientName || activeClient?.name || displayPhone}
+              body={whatsappAgentContext.body}
+              additionalContext={whatsappAgentContext.additionalContext}
+              clientName={conversation?.clientName || activeClient?.name}
+              hasClient={!!(conversation?.clientId || activeClient?.id)}
+              hasKnowledge={!!activeClient}
+              hasCustomerMessage={whatsappAgentContext.hasCustomerMessage}
+              autoScrollOnOpen={embedded}
+              onDraftReply={() => generateWhatsAppMessage(
+                body.trim() || (latestInboundMessage
+                  ? `Reply to the latest inbound customer WhatsApp message from ${conversation?.clientName || activeClient?.name || displayPhone}: ${latestInboundMessage.body}`
+                  : `Draft a polite WhatsApp follow-up to ${conversation?.clientName || activeClient?.name || displayPhone}. There is no inbound customer message yet, so do not answer our own outbound messages.`)
+              )}
+              onAddComment={() => addConversationComment(`Agent suggestion: review WhatsApp conversation with ${conversation?.clientName || activeClient?.name || displayPhone} and prepare the next best reply.`)}
+              followUpAt={whatsappFollowUp?.dueAt}
+              followUpNote={whatsappFollowUp?.note}
+              onSetFollowUp={(dueAt, note) => addConversationComment(`${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
+                status: 'open',
+                dueAt,
+                note: note || `Follow up WhatsApp conversation with ${conversation?.clientName || activeClient?.name || displayPhone}.`
+              })}`)}
+              onClearFollowUp={() => addConversationComment(`${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
+                status: 'canceled',
+                canceledAt: new Date().toISOString()
+              })}`)}
+              onCompleteFollowUp={() => addConversationComment(`${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
+                status: 'completed',
+                completedAt: new Date().toISOString()
+              })}`)}
+              onDeleteItem={async () => {
+                if (!conversation?.id) throw new Error('No WhatsApp conversation is selected.');
+                const response = await fetch(conversation.unifiedId ? `/api/conversations/${encodeURIComponent(conversation.unifiedId)}` : `/api/whatsapp-hub/conversations/${encodeURIComponent(conversation.id)}`, {
+                  method: 'DELETE',
+                  headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.error || 'Failed to delete WhatsApp conversation.');
+                notify('WhatsApp conversation deleted.', 'success');
+                onClose();
+              }}
+              onSaveAnalysis={async (key, insight) => {
+                if (!conversation?.id) return;
+                const response = await fetch(`/api/whatsapp-hub/conversations/${conversation.id}`, {
+                  method: 'PATCH',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${localStorage.getItem('token')}`
+                  },
+                  body: JSON.stringify({ agentContextAnalysis: insight, agentContextAnalysisKey: key })
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.error || 'Failed to save WhatsApp analysis');
+                setConversation(prev => prev ? { ...prev, agentContextAnalysis: insight, agentContextAnalysisKey: key } : prev);
+              }}
+            />
+          </ConversationContextRail>
         </div>
 
         <div className="p-4 border-t border-slate-800 space-y-3">
@@ -1526,7 +1529,8 @@ Return only the message text.`,
               <span className="text-xs text-slate-500">{t('whatsappRetryHint')}</span>
             </div>
           )}
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
+          <ConversationContextRail>
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
             <div className="flex items-center gap-2 text-xs text-slate-400">
               <Languages className="h-4 w-4 text-cyan-300" />
               <span className="font-bold text-slate-200">{language === 'zh' ? '发送前翻译' : 'Translate before send'}</span>
@@ -1566,7 +1570,8 @@ Return only the message text.`,
             >
               <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${whatsappOutboundAutoTranslateEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
             </button>
-          </div>
+            </div>
+          </ConversationContextRail>
           <div className="flex gap-3">
             <div className="flex flex-col gap-2">
               <label className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg cursor-pointer">

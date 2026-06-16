@@ -1,5 +1,6 @@
 import React from 'react';
 import type { EmailMessage } from '../../store';
+import { ConversationContextRail } from './ConversationContextRail';
 import { ConversationDetailHeader } from './ConversationDetailHeader';
 import { ConversationFollowUpStrip } from './ConversationFollowUpStrip';
 import {
@@ -169,33 +170,35 @@ export function EmailConversationPane({
 
         <EmailBodyPanel subject={selectedEmail.subject} body={selectedEmail.body} />
 
-        <EmailAgentSuggestionsPanel
-          cacheKey={cacheKey}
-          contextLookup={activeUnifiedConversation?.id ? { conversationId: activeUnifiedConversation.id } : undefined}
-          clientId={selectedEmail.clientId}
-          emailAddress={emailAddress}
-          defaultAnalysisMode={['sent', 'outbound', 'scheduled'].includes(selectedEmail.type) ? 'manual' : undefined}
-          persistedInsight={selectedEmail.agentContextAnalysisKey === cacheKey ? selectedEmail.agentContextAnalysis : undefined}
-          persistedInsightKey={selectedEmail.agentContextAnalysisKey}
-          subject={selectedEmail.subject}
-          body={selectedEmailAgentContext.body}
-          additionalContext={selectedEmailAgentContext.additionalContext}
-          clientName={clientName}
-          hasClient={!!selectedEmail.clientId}
-          hasKnowledge={addedToRagId === selectedEmail.id}
-          hasCustomerMessage={selectedEmailAgentContext.hasCustomerMessage}
-          followUpAt={activeFollowUpAt || selectedEmail.todoAt}
-          followUpNote={activeFollowUpNote || selectedEmail.todoNote}
-          onDraftReply={onDraftAgentReply}
-          onAddComment={onAddAgentComment}
-          onCreateLead={!selectedEmail.clientId ? onCreateLead : undefined}
-          onAddToKnowledge={selectedEmail.clientId ? onAddToRag : undefined}
-          onSetFollowUp={onSetFollowUp}
-          onClearFollowUp={onClearFollowUp}
-          onCompleteFollowUp={onCompleteFollowUp}
-          onDeleteItem={onDeleteEmail}
-          onSaveAnalysis={onSaveAnalysis}
-        />
+        <ConversationContextRail>
+          <EmailAgentSuggestionsPanel
+            cacheKey={cacheKey}
+            contextLookup={activeUnifiedConversation?.id ? { conversationId: activeUnifiedConversation.id } : undefined}
+            clientId={selectedEmail.clientId}
+            emailAddress={emailAddress}
+            defaultAnalysisMode={['sent', 'outbound', 'scheduled'].includes(selectedEmail.type) ? 'manual' : undefined}
+            persistedInsight={selectedEmail.agentContextAnalysisKey === cacheKey ? selectedEmail.agentContextAnalysis : undefined}
+            persistedInsightKey={selectedEmail.agentContextAnalysisKey}
+            subject={selectedEmail.subject}
+            body={selectedEmailAgentContext.body}
+            additionalContext={selectedEmailAgentContext.additionalContext}
+            clientName={clientName}
+            hasClient={!!selectedEmail.clientId}
+            hasKnowledge={addedToRagId === selectedEmail.id}
+            hasCustomerMessage={selectedEmailAgentContext.hasCustomerMessage}
+            followUpAt={activeFollowUpAt || selectedEmail.todoAt}
+            followUpNote={activeFollowUpNote || selectedEmail.todoNote}
+            onDraftReply={onDraftAgentReply}
+            onAddComment={onAddAgentComment}
+            onCreateLead={!selectedEmail.clientId ? onCreateLead : undefined}
+            onAddToKnowledge={selectedEmail.clientId ? onAddToRag : undefined}
+            onSetFollowUp={onSetFollowUp}
+            onClearFollowUp={onClearFollowUp}
+            onCompleteFollowUp={onCompleteFollowUp}
+            onDeleteItem={onDeleteEmail}
+            onSaveAnalysis={onSaveAnalysis}
+          />
+        </ConversationContextRail>
 
         <EmailAttachmentsPanel attachments={selectedEmail.attachments} />
 

@@ -1,5 +1,6 @@
 import React from 'react';
 import type { AgentContextSuggestionInsight, Client, ContactMethod } from '../../store';
+import { ConversationContextRail } from './ConversationContextRail';
 import { ConversationDetailHeader } from './ConversationDetailHeader';
 import { TelegramAgentSuggestionsPanel } from './ConversationAgentPanels';
 import { ConversationFollowUpStrip } from './ConversationFollowUpStrip';
@@ -163,31 +164,33 @@ export function TelegramConversationPane({
           translations={activeTelegramTranslations}
           translatingIds={translatingConversationMessageIds}
         />
-        <TelegramAgentSuggestionsPanel
-          language={language}
-          cacheKey={activeTelegramAgentContext.cacheKey}
-          conversationId={selectedTelegramConversation.id}
-          clientId={clientId}
-          clientName={clientName}
-          persistedInsight={selectedTelegramConversation.agent_context_analysis_key === activeTelegramAgentContext.cacheKey ? selectedTelegramConversation.agent_context_analysis : undefined}
-          persistedInsightKey={selectedTelegramConversation.agent_context_analysis_key}
-          subject={selectedTelegramConversation.title || activeTelegramDisplayName || 'Telegram conversation'}
-          body={activeTelegramAgentContext.body}
-          additionalContext={activeTelegramAgentContext.additionalContext}
-          hasClient={!!clientId}
-          hasKnowledge={!!activeTelegramClient}
-          hasCustomerMessage={activeTelegramAgentContext.hasCustomerMessage}
-          onDraftReply={onDraftReply}
-          onAddComment={onAddSuggestionComment}
-          onCreateLead={onCreateLead}
-          followUpAt={activeFollowUpAt}
-          followUpNote={activeFollowUpNote}
-          onSetFollowUp={onSetAgentFollowUp}
-          onClearFollowUp={onClearAgentFollowUp}
-          onCompleteFollowUp={onCompleteAgentFollowUp}
-          onSaveAnalysis={onSaveAnalysis}
-          onDeleteItem={onDeleteConversation}
-        />
+        <ConversationContextRail>
+          <TelegramAgentSuggestionsPanel
+            language={language}
+            cacheKey={activeTelegramAgentContext.cacheKey}
+            conversationId={selectedTelegramConversation.id}
+            clientId={clientId}
+            clientName={clientName}
+            persistedInsight={selectedTelegramConversation.agent_context_analysis_key === activeTelegramAgentContext.cacheKey ? selectedTelegramConversation.agent_context_analysis : undefined}
+            persistedInsightKey={selectedTelegramConversation.agent_context_analysis_key}
+            subject={selectedTelegramConversation.title || activeTelegramDisplayName || 'Telegram conversation'}
+            body={activeTelegramAgentContext.body}
+            additionalContext={activeTelegramAgentContext.additionalContext}
+            hasClient={!!clientId}
+            hasKnowledge={!!activeTelegramClient}
+            hasCustomerMessage={activeTelegramAgentContext.hasCustomerMessage}
+            onDraftReply={onDraftReply}
+            onAddComment={onAddSuggestionComment}
+            onCreateLead={onCreateLead}
+            followUpAt={activeFollowUpAt}
+            followUpNote={activeFollowUpNote}
+            onSetFollowUp={onSetAgentFollowUp}
+            onClearFollowUp={onClearAgentFollowUp}
+            onCompleteFollowUp={onCompleteAgentFollowUp}
+            onSaveAnalysis={onSaveAnalysis}
+            onDeleteItem={onDeleteConversation}
+          />
+        </ConversationContextRail>
         <ConversationInternalNotesPanel
           language={language}
           comments={activeConversationComments}
