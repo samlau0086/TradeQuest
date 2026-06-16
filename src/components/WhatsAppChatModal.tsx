@@ -13,6 +13,7 @@ import { WhatsAppMessageComposer } from './WhatsAppMessageComposer';
 import { WhatsAppMessageList } from './WhatsAppMessageList';
 import { useWhatsAppChatData } from './useWhatsAppChatData';
 import { useWhatsAppChatMapping } from './useWhatsAppChatMapping';
+import { useWhatsAppChatSelection } from './useWhatsAppChatSelection';
 import { useWhatsAppClientLinking } from './useWhatsAppClientLinking';
 import { useWhatsAppComposerState } from './useWhatsAppComposerState';
 import { useWhatsAppConversationMeta } from './useWhatsAppConversationMeta';
@@ -91,38 +92,27 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     setSelectedClientId,
     setTranslations
   });
-  const rawChatId = conversation?.rawChatId || (isChatId(targetPhone) ? targetPhone : '');
-  const mappedPhone = conversation?.contactPhone || (!isChatId(targetPhone) ? targetPhone : '');
-  const displayPhone = mappedPhone || targetPhone;
-  const autoTranslateKey = useMemo(() => (cleanPhone(displayPhone) || displayPhone || targetPhone).trim().toLowerCase(), [displayPhone, targetPhone]);
+  const {
+    rawChatId,
+    mappedPhone,
+    displayPhone,
+    autoTranslateKey,
+    selectableHubClients,
+    activeClient,
+    mappingHubClientId,
+  } = useWhatsAppChatSelection({
+    client,
+    clients,
+    conversation,
+    targetPhone,
+    hubClients,
+    hubActors: whatsappHubConfig.actors,
+    messages,
+    selectedClientId,
+    setSelectedClientId
+  });
   const whatsappAutoTranslateEnabled = Boolean(autoTranslateKey && whatsappAutoTranslateConfig?.[autoTranslateKey]);
   const whatsappOutboundAutoTranslateEnabled = Boolean(autoTranslateKey && whatsappOutboundAutoTranslateConfig?.[autoTranslateKey]);
-  const selectableHubClients = useMemo(() => {
-    const actorClientIds = new Set((whatsappHubConfig.actors || [])
-      .filter(actor => actor.enabled !== false && actor.clientId)
-      .map(actor => actor.clientId));
-    if (actorClientIds.size === 0) return hubClients;
-    return hubClients.filter(client => actorClientIds.has(client.id));
-  }, [hubClients, whatsappHubConfig.actors]);
-  const activeClient = useMemo(() => {
-    if (client) return client;
-    if (conversation?.clientId) return clients.find(item => item.id === conversation.clientId) || null;
-    return clients.find(item => item.contactMethods?.some(method => (
-      mappedPhone && ['whatsapp', 'phone'].includes(method.type) && cleanPhone(method.value).endsWith(mappedPhone.slice(-8))
-    ))) || null;
-  }, [client, conversation?.clientId, clients, mappedPhone]);
-  const mappingHubClientId = useMemo(() => (
-    selectedClientId
-    || messages.find(message => message.direction === 'outbound' && message.client_id)?.client_id
-    || selectableHubClients.find(item => item.status === 'online')?.id
-    || selectableHubClients[0]?.id
-    || ''
-  ), [messages, selectableHubClients, selectedClientId]);
-  useEffect(() => {
-    if (selectedClientId && selectableHubClients.length > 0 && !selectableHubClients.some(item => item.id === selectedClientId)) {
-      setSelectedClientId('');
-    }
-  }, [selectableHubClients, selectedClientId]);
   const {
     mappingEdit,
     canConfirmMapping,
