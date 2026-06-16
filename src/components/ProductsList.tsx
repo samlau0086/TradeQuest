@@ -3,6 +3,7 @@ import { useStore } from '../store';
 import { useTranslation } from '../lib/i18n';
 import { Package, Plus, Search, MoreVertical, Edit2, Trash2 } from 'lucide-react';
 import { ProductFormModal } from './ProductFormModal';
+import { ActionButton, PageHeader, Toolbar } from './ui';
 
 interface ProductsListProps {
   embedded?: boolean;
@@ -41,17 +42,12 @@ export function ProductsList({ embedded = false }: ProductsListProps) {
   return (
     <div className={embedded ? "space-y-6" : "flex-1 bg-slate-900 overflow-y-auto p-6"}>
       <div className="w-full space-y-6">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-slate-800 rounded-lg">
-              <Package className="w-5 h-5 text-cyan-400" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-white">{t('productsExplorer')}</h1>
-              <p className="text-sm text-slate-400">{filteredProducts.length} {t('items')}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 w-full sm:w-auto">
+        <PageHeader
+          icon={<Package className="h-5 w-5 text-cyan-400" />}
+          title={t('productsExplorer')}
+          description={`${filteredProducts.length} ${t('items')}`}
+          actions={(
+            <Toolbar>
             <div className="relative flex-1 sm:w-64">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input 
@@ -62,15 +58,16 @@ export function ProductsList({ embedded = false }: ProductsListProps) {
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-4 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
               />
             </div>
-            <button 
+            <ActionButton
+              tone="primary"
+              icon={<Plus className="w-4 h-4" />}
               onClick={() => { setEditProductId(undefined); setShowModal(true); }}
-              className="flex items-center gap-2 px-3 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-sm font-bold shadow-sm transition-colors"
             >
-              <Plus className="w-4 h-4" />
               {t('newProduct')}
-            </button>
-          </div>
-        </div>
+            </ActionButton>
+            </Toolbar>
+          )}
+        />
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredProducts.map(product => (

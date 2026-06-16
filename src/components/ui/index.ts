@@ -3,5 +3,7 @@ export { ConfirmDialog } from './ConfirmDialog';
 export { EmptyState } from './EmptyState';
 export { IconButton } from './IconButton';
 export { ModalDialog } from './ModalDialog';
+export { PageHeader } from './PageHeader';
 export { SectionHeader } from './SectionHeader';
 export { StatusBadge } from './StatusBadge';
+export { Toolbar } from './Toolbar';
