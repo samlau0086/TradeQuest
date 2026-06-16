@@ -505,6 +505,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] Extract WhatsApp chat header controls into `WhatsAppChatHeader`, isolating linked client actions, chatId mapping, Hub client selection, auto-translation, and Agent Mode toggles.
 - [x] Extract WhatsApp conversation metadata into `WhatsAppConversationMetaBar`, isolating tags and internal comment controls from the chat modal.
 - [x] Extract WhatsApp composer controls into `WhatsAppMessageComposer`, isolating attachments, media library, emoji, scheduling, translate-before-send, AI draft, and send controls.
+- [x] Extract WhatsApp chat data loading into `useWhatsAppChatData`, isolating Hub client/message loading, local message cache hydration, background sync, focus polling, and sticky sender selection.
 - [x] Extract Telegram and Live Chat detail glue code into dedicated containers so `InboxSelectedDetailPanel` is now a thin channel router.
 - [x] Move the long `InboxContentPanel` prop list into a typed `contentPanelProps` object so the Inbox render layout is cleaner and ready for future workspace layout changes.
 - [x] Move the long `InboxConversationSidebar` prop list into a typed `sidebarProps` object so the Inbox render tree reads like a left-list/right-detail workspace shell.
@@ -585,6 +586,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] 已拆出 WhatsApp 聊天顶部控制区到 `WhatsAppChatHeader`，隔离关联客户操作、chatId 映射、Hub client 选择、自动翻译和 Agent Mode 开关。
 - [x] 已拆出 WhatsApp 会话元信息区到 `WhatsAppConversationMetaBar`，将标签和内部备注控制从聊天 modal 中隔离。
 - [x] 已拆出 WhatsApp 输入发送区到 `WhatsAppMessageComposer`，隔离附件、媒体库、emoji、定时发送、发送前翻译、AI 起草和发送按钮。
+- [x] 已拆出 WhatsApp 聊天数据加载到 `useWhatsAppChatData`，隔离 Hub client/message 加载、本地消息缓存恢复、后台同步、窗口聚焦轮询和 sticky sender 选择。
 - [x] 已拆出 Inbox 弹窗层 props 装配逻辑，将关闭、上传附件、标签和待跟进等回调 wiring 移出页面组件。
 - [x] 已拆出 Inbox 侧栏 props 装配逻辑，将筛选、列表和批量操作 wiring 移出页面组件。
 - [x] 继续把 `Inbox.tsx` 收敛为页面编排层，再替换整体布局。

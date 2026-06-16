@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Client, Comment, MediaItem, useStore } from '../store';
+import { Client, MediaItem, useStore } from '../store';
 import { MediaSelectorModal } from './MediaSelectorModal';
 import { useTranslation } from '../lib/i18n';
 import { AgentContextSuggestions } from './AgentContextSuggestions';
@@ -12,15 +12,17 @@ import { WhatsAppChatHeader } from './WhatsAppChatHeader';
 import { WhatsAppConversationMetaBar } from './WhatsAppConversationMetaBar';
 import { WhatsAppMessageComposer } from './WhatsAppMessageComposer';
 import { WhatsAppMessageList } from './WhatsAppMessageList';
-import { type WhatsAppHubMessage, type WhatsAppTranslation } from './whatsappMessageModel';
-
-interface WhatsAppHubClient {
-  id: string;
-  name: string;
-  phone?: string;
-  status: string;
-  quota?: { sentToday: number; dailyQuota: number; remaining: number; replyRate: number };
-}
+import { useWhatsAppChatData } from './useWhatsAppChatData';
+import {
+  cleanWhatsAppPhone,
+  isWhatsAppChatId,
+  readCachedWhatsAppTranslations,
+  simpleHash,
+  writeCachedWhatsAppTranslations,
+  type WhatsAppConversation,
+  type WhatsAppHubMessage,
+  type WhatsAppTranslation
+} from './whatsappMessageModel';
 
 interface Props {
   client?: Client | null;
@@ -32,98 +34,10 @@ interface Props {
   onOpenInInbox?: () => void;
 }
 
-interface WhatsAppConversation {
-  id: string;
-  unifiedId?: string;
-  targetPhone: string;
-  contactPhone?: string;
-  rawChatId?: string;
-  conversationKey?: string;
-  clientId?: string;
-  clientName?: string;
-  clientCompany?: string;
-  tags: string[];
-  comments: Comment[];
-  agentContextAnalysis?: any;
-  agentContextAnalysisKey?: string;
-  whatsappSummary?: string;
-  whatsappSummaryKeyPoints?: string[];
-  whatsappSummaryNextStep?: string;
-  whatsappSummaryMessageId?: string;
-  whatsappSummaryUpdatedAt?: string | null;
-}
-
-const cleanPhone = (value: string) => value.replace(/[^0-9]/g, '');
-const isChatId = (value: string) => /@(?:lid|c\.us|g\.us|broadcast)$/i.test(value || '');
-
+const cleanPhone = cleanWhatsAppPhone;
+const isChatId = isWhatsAppChatId;
 const isInlineMedia = (mimeType: string) => mimeType.startsWith('image/') || mimeType.startsWith('video/');
-const WHATSAPP_ACTIVE_CHAT_POLL_MS = 12_000;
 const WHATSAPP_FOLLOW_UP_MARKER = '__FOLLOW_UP__';
-
-const whatsappMessageCacheKey = (targetPhone: string) => `tradequest.whatsapp.messages.cache.v1.${targetPhone}`;
-const whatsappTranslationCacheKey = (targetPhone: string, language: 'en' | 'zh') => `tradequest.whatsapp.translations.v2.${language}.${targetPhone}`;
-
-function readCachedWhatsAppMessages(targetPhone: string): WhatsAppHubMessage[] {
-  try {
-    const raw = sessionStorage.getItem(whatsappMessageCacheKey(targetPhone));
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeCachedWhatsAppMessages(targetPhone: string, messages: WhatsAppHubMessage[]) {
-  try {
-    sessionStorage.setItem(whatsappMessageCacheKey(targetPhone), JSON.stringify(messages.slice(-300)));
-  } catch {
-    // Session storage is only a speed cache.
-  }
-}
-
-function mapUnifiedWhatsAppMessage(row: any): WhatsAppHubMessage {
-  const payload = row.payload || {};
-  return {
-    id: row.source_message_id || row.id,
-    client_id: payload.hubClientId || payload.clientId || payload.client_id || '',
-    direction: row.direction === 'inbound' ? 'inbound' : 'outbound',
-    sender: row.sender || '',
-    recipient: row.recipient || '',
-    body: row.body || '',
-    message_type: row.message_type || payload.messageType || 'text',
-    payload,
-    translation: payload.translation,
-    created_at: row.source_created_at || row.created_at,
-    received_at: row.created_at
-  };
-}
-
-function readCachedWhatsAppTranslations(targetPhone: string, language: 'en' | 'zh'): Record<string, WhatsAppTranslation> {
-  try {
-    const raw = localStorage.getItem(whatsappTranslationCacheKey(targetPhone, language));
-    const parsed = raw ? JSON.parse(raw) : {};
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeCachedWhatsAppTranslations(targetPhone: string, language: 'en' | 'zh', translations: Record<string, WhatsAppTranslation>) {
-  try {
-    localStorage.setItem(whatsappTranslationCacheKey(targetPhone, language), JSON.stringify(translations));
-  } catch {
-    // Browser translation cache is optional; database remains the source of truth.
-  }
-}
-
-function simpleHash(value: string) {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = ((hash << 5) - hash) + value.charCodeAt(index);
-    hash |= 0;
-  }
-  return String(Math.abs(hash));
-}
 
 const dataUrlToFile = async (dataUrl: string, name: string, mimeType: string) => {
   const response = await fetch(dataUrl);
@@ -134,10 +48,7 @@ const dataUrlToFile = async (dataUrl: string, name: string, mimeType: string) =>
 export function WhatsAppChatModal({ client, phone, conversation: initialConversation, initialMessage = '', embedded = false, onClose, onOpenInInbox }: Props) {
   const { notify, addLog, selectClient, editClient, language, llmConfigs, activeLLMId, llmMappings, logs, emails, clients, deals, knowledgeBase, products, whatsappHubConfig, whatsappCustomerServiceAgentEnabled, setWhatsAppCustomerServiceAgentEnabled, whatsappAutoTranslateConfig, setWhatsAppAutoTranslateEnabled, whatsappOutboundAutoTranslateConfig, setWhatsAppOutboundAutoTranslateEnabled, incrementAgentHubTaskCount } = useStore();
   const t = useTranslation(language);
-  const [hubClients, setHubClients] = useState<WhatsAppHubClient[]>([]);
   const targetPhone = useMemo(() => isChatId(phone) ? phone.trim() : cleanPhone(phone), [phone]);
-  const [messages, setMessages] = useState<WhatsAppHubMessage[]>(() => readCachedWhatsAppMessages(targetPhone));
-  const [conversation, setConversation] = useState<WhatsAppConversation | null>(initialConversation || null);
   const [selectedClientId, setSelectedClientId] = useState('');
   const [body, setBody] = useState(initialMessage);
   const [tagInput, setTagInput] = useState('');
@@ -148,7 +59,6 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [showEmoji, setShowEmoji] = useState(false);
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
   const [scheduleDateTime, setScheduleDateTime] = useState('');
-  const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [translatingOutbound, setTranslatingOutbound] = useState(false);
@@ -157,14 +67,27 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [isCreatingLead, setIsCreatingLead] = useState(false);
   const [isAddingContactToClient, setIsAddingContactToClient] = useState(false);
   const [mappingEdit, setMappingEdit] = useState<{ chatId: string; phone: string; saving?: boolean } | null>(null);
-  const syncInFlightRef = useRef(false);
-  const loadRequestRef = useRef(0);
   const summaryRequestRef = useRef<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const {
+    hubClients,
+    messages,
+    conversation,
+    setConversation,
+    loading,
+    loadData
+  } = useWhatsAppChatData({
+    targetPhone,
+    messageLookupTarget: targetPhone,
+    language,
+    initialConversation,
+    notify,
+    setSelectedClientId,
+    setTranslations
+  });
   const rawChatId = conversation?.rawChatId || (isChatId(targetPhone) ? targetPhone : '');
   const mappedPhone = conversation?.contactPhone || (!isChatId(targetPhone) ? targetPhone : '');
   const displayPhone = mappedPhone || targetPhone;
-  const messageLookupTarget = mappedPhone || targetPhone;
   const autoTranslateKey = useMemo(() => (cleanPhone(displayPhone) || displayPhone || targetPhone).trim().toLowerCase(), [displayPhone, targetPhone]);
   const whatsappAutoTranslateEnabled = Boolean(autoTranslateKey && whatsappAutoTranslateConfig?.[autoTranslateKey]);
   const whatsappOutboundAutoTranslateEnabled = Boolean(autoTranslateKey && whatsappOutboundAutoTranslateConfig?.[autoTranslateKey]);
@@ -425,123 +348,14 @@ ${bodyText}`,
     }
   };
 
-  const loadCachedMessages = async (options: { notifyErrors?: boolean; requestId?: number } = {}) => {
-    const requestId = options.requestId ?? loadRequestRef.current;
-    const expectedTargetPhone = targetPhone;
-    const expectedLookupTarget = messageLookupTarget;
-    if (!expectedTargetPhone) return;
-    try {
-      const messageQuery = isChatId(expectedLookupTarget)
-        ? `chatId=${encodeURIComponent(expectedLookupTarget)}&language=${encodeURIComponent(language)}`
-        : `targetPhone=${encodeURIComponent(expectedLookupTarget)}&language=${encodeURIComponent(language)}`;
-      const unifiedId = conversation?.unifiedId;
-      const [clientsRes, messagesRes] = await Promise.all([
-        fetch('/api/whatsapp-hub/clients', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }),
-        unifiedId
-          ? fetch(`/api/conversations/${encodeURIComponent(unifiedId)}/messages`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
-          : fetch(`/api/whatsapp-hub/messages?${messageQuery}&limit=200`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
-      ]);
-      const clientsData = await clientsRes.json();
-      const messagesData = await messagesRes.json();
-      if (!clientsRes.ok) throw new Error(clientsData.error || 'Failed to load WhatsApp clients');
-      if (!messagesRes.ok) throw new Error(messagesData.error || 'Failed to load WhatsApp messages');
-      if (requestId !== loadRequestRef.current || expectedTargetPhone !== targetPhone || expectedLookupTarget !== messageLookupTarget) return;
-      setHubClients(clientsData.clients || []);
-      const nextMessages = unifiedId
-        ? (messagesData.messages || []).map(mapUnifiedWhatsAppMessage)
-        : (messagesData.messages || []).slice().reverse();
-      setMessages(nextMessages);
-      writeCachedWhatsAppMessages(expectedTargetPhone, nextMessages);
-      const cachedTranslations = readCachedWhatsAppTranslations(expectedTargetPhone, language);
-      const mergedTranslations = nextMessages.reduce((acc: Record<string, WhatsAppTranslation>, message: WhatsAppHubMessage) => {
-        const bodyHash = simpleHash(String(message.body || '').trim());
-        const cached = cachedTranslations[message.id];
-        if (cached?.bodyHash === bodyHash) {
-          acc[message.id] = cached;
-        } else if (message.translation?.bodyHash === bodyHash) {
-          acc[message.id] = message.translation;
-        }
-        return acc;
-      }, {});
-      setTranslations(mergedTranslations);
-      writeCachedWhatsAppTranslations(expectedTargetPhone, language, mergedTranslations);
-      const sticky = nextMessages.find((message: WhatsAppHubMessage) => message.direction === 'outbound' && message.client_id)?.client_id;
-      if (sticky) setSelectedClientId(sticky);
-      if (!unifiedId) {
-        const conversationsRes = await fetch(`/api/whatsapp-hub/conversations?search=${encodeURIComponent(expectedLookupTarget)}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
-        const conversationsData = await conversationsRes.json();
-        if (requestId !== loadRequestRef.current || expectedTargetPhone !== targetPhone || expectedLookupTarget !== messageLookupTarget) return;
-        if (conversationsRes.ok) {
-          const matched = (conversationsData.conversations || []).find((item: WhatsAppConversation) => (
-            item.targetPhone === expectedLookupTarget || item.contactPhone === expectedLookupTarget || item.rawChatId === expectedTargetPhone || item.conversationKey === expectedLookupTarget
-          ));
-          if (matched) setConversation(matched);
-        }
-      }
-    } catch (error: any) {
-      if (options.notifyErrors !== false) {
-        notify(error.message || 'WhatsApp Actor Hub is not configured.', 'error');
-      }
-      throw error;
-    }
-  };
-
-  const syncLatestMessages = async (requestId = loadRequestRef.current) => {
-    const expectedLookupTarget = messageLookupTarget;
-    if (!targetPhone || syncInFlightRef.current) return;
-    syncInFlightRef.current = true;
-    try {
-      const syncRes = await fetch('/api/whatsapp-hub/sync', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify(isChatId(expectedLookupTarget)
-          ? { chatId: expectedLookupTarget, limit: 500 }
-          : { targetPhone: expectedLookupTarget, limit: 500 })
-      });
-      if (syncRes.ok && requestId === loadRequestRef.current && expectedLookupTarget === messageLookupTarget) {
-        await loadCachedMessages({ notifyErrors: false, requestId });
-      }
-    } catch (error) {
-      console.warn('WhatsApp background sync unavailable in chat modal', error);
-    } finally {
-      syncInFlightRef.current = false;
-    }
-  };
-
-  const loadData = async (options: { sync?: boolean } = {}) => {
-    const requestId = loadRequestRef.current;
-    if (!targetPhone) return;
-    setLoading(true);
-    try {
-      await loadCachedMessages({ notifyErrors: true, requestId });
-      if (options.sync !== false && requestId === loadRequestRef.current) {
-        void syncLatestMessages(requestId);
-      }
-    } catch {
-      // loadCachedMessages already surfaced a user-facing notification.
-    } finally {
-      if (requestId === loadRequestRef.current) setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    loadRequestRef.current += 1;
-    syncInFlightRef.current = false;
-    setMessages(readCachedWhatsAppMessages(targetPhone));
-    setConversation(initialConversation || null);
-    setSelectedClientId('');
     setBody(initialMessage);
     setTagInput('');
     setCommentInput('');
     setSelectedFile(null);
     setSelectedMedia(null);
     setMappingEdit(null);
-    setTranslations(readCachedWhatsAppTranslations(targetPhone, language));
     setTranslatingIds(new Set());
-    loadData();
   }, [targetPhone, initialConversation?.id, initialMessage, language]);
 
   useEffect(() => {
@@ -608,21 +422,6 @@ ${bodyText}`,
     })();
     return () => controller.abort();
   }, [whatsappAutoTranslateEnabled, latestMessageId, messages.length, language, targetPhone]);
-
-  useEffect(() => {
-    const poll = window.setInterval(() => {
-      if (document.visibilityState !== 'visible') return;
-      void syncLatestMessages();
-    }, WHATSAPP_ACTIVE_CHAT_POLL_MS);
-    const handleFocus = () => {
-      void syncLatestMessages();
-    };
-    window.addEventListener('focus', handleFocus);
-    return () => {
-      window.clearInterval(poll);
-      window.removeEventListener('focus', handleFocus);
-    };
-  }, [targetPhone, messageLookupTarget]);
 
   const confirmChatIdMapping = async () => {
     if (!mappingEdit?.chatId) return;

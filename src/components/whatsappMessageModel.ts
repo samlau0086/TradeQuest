@@ -1,3 +1,13 @@
+import { type Comment } from '../store';
+
+export interface WhatsAppHubClient {
+  id: string;
+  name: string;
+  phone?: string;
+  status: string;
+  quota?: { sentToday: number; dailyQuota: number; remaining: number; replyRate: number };
+}
+
 export interface WhatsAppTranslation {
   language?: string;
   kind?: 'inbound_translation' | 'outbound_original' | string;
@@ -22,6 +32,95 @@ export interface WhatsAppHubMessage {
   translation?: WhatsAppTranslation;
   created_at: string;
   received_at?: string;
+}
+
+export interface WhatsAppConversation {
+  id: string;
+  unifiedId?: string;
+  targetPhone: string;
+  contactPhone?: string;
+  rawChatId?: string;
+  conversationKey?: string;
+  clientId?: string;
+  clientName?: string;
+  clientCompany?: string;
+  tags: string[];
+  comments: Comment[];
+  agentContextAnalysis?: any;
+  agentContextAnalysisKey?: string;
+  whatsappSummary?: string;
+  whatsappSummaryKeyPoints?: string[];
+  whatsappSummaryNextStep?: string;
+  whatsappSummaryMessageId?: string;
+  whatsappSummaryUpdatedAt?: string | null;
+}
+
+export const cleanWhatsAppPhone = (value: string) => value.replace(/[^0-9]/g, '');
+export const isWhatsAppChatId = (value: string) => /@(?:lid|c\.us|g\.us|broadcast)$/i.test(value || '');
+
+export function simpleHash(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) - hash) + value.charCodeAt(index);
+    hash |= 0;
+  }
+  return String(Math.abs(hash));
+}
+
+const whatsappMessageCacheKey = (targetPhone: string) => `tradequest.whatsapp.messages.cache.v1.${targetPhone}`;
+const whatsappTranslationCacheKey = (targetPhone: string, language: 'en' | 'zh') => `tradequest.whatsapp.translations.v2.${language}.${targetPhone}`;
+
+export function readCachedWhatsAppMessages(targetPhone: string): WhatsAppHubMessage[] {
+  try {
+    const raw = sessionStorage.getItem(whatsappMessageCacheKey(targetPhone));
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function writeCachedWhatsAppMessages(targetPhone: string, messages: WhatsAppHubMessage[]) {
+  try {
+    sessionStorage.setItem(whatsappMessageCacheKey(targetPhone), JSON.stringify(messages.slice(-300)));
+  } catch {
+    // Session storage is only a speed cache.
+  }
+}
+
+export function readCachedWhatsAppTranslations(targetPhone: string, language: 'en' | 'zh'): Record<string, WhatsAppTranslation> {
+  try {
+    const raw = localStorage.getItem(whatsappTranslationCacheKey(targetPhone, language));
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function writeCachedWhatsAppTranslations(targetPhone: string, language: 'en' | 'zh', translations: Record<string, WhatsAppTranslation>) {
+  try {
+    localStorage.setItem(whatsappTranslationCacheKey(targetPhone, language), JSON.stringify(translations));
+  } catch {
+    // Browser translation cache is optional; database remains the source of truth.
+  }
+}
+
+export function mapUnifiedWhatsAppMessage(row: any): WhatsAppHubMessage {
+  const payload = row.payload || {};
+  return {
+    id: row.source_message_id || row.id,
+    client_id: payload.hubClientId || payload.clientId || payload.client_id || '',
+    direction: row.direction === 'inbound' ? 'inbound' : 'outbound',
+    sender: row.sender || '',
+    recipient: row.recipient || '',
+    body: row.body || '',
+    message_type: row.message_type || payload.messageType || 'text',
+    payload,
+    translation: payload.translation,
+    created_at: row.source_created_at || row.created_at,
+    received_at: row.created_at
+  };
 }
 
 export const resolveWhatsAppMediaUrl = (url: string, hubBaseUrl?: string) => {
