@@ -170,7 +170,14 @@ export function EmailConversationPane({
 
         <EmailBodyPanel subject={selectedEmail.subject} body={selectedEmail.body} />
 
-        <ConversationContextRail>
+        <ConversationContextRail
+          variant="rail"
+          title={language === 'zh' ? '智能体建议' : 'Agent Suggestions'}
+          description={language === 'zh'
+            ? '分析邮件、客户资料、产品和 RAG 上下文，准备回复、待跟进和知识库操作。'
+            : 'Analyze email, customer, product, and RAG context for reply, follow-up, and knowledge actions.'}
+          collapsible
+        >
           <EmailAgentSuggestionsPanel
             cacheKey={cacheKey}
             contextLookup={activeUnifiedConversation?.id ? { conversationId: activeUnifiedConversation.id } : undefined}

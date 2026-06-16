@@ -164,7 +164,14 @@ export function TelegramConversationPane({
           translations={activeTelegramTranslations}
           translatingIds={translatingConversationMessageIds}
         />
-        <ConversationContextRail>
+        <ConversationContextRail
+          variant="rail"
+          title={language === 'zh' ? '智能体建议' : 'Agent Suggestions'}
+          description={language === 'zh'
+            ? '分析 Telegram 对话并准备回复、待跟进和内部备注操作。'
+            : 'Analyze this Telegram conversation and prepare reply, follow-up, and internal note actions.'}
+          collapsible
+        >
           <TelegramAgentSuggestionsPanel
             language={language}
             cacheKey={activeTelegramAgentContext.cacheKey}

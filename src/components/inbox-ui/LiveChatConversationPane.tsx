@@ -168,7 +168,14 @@ export function LiveChatConversationPane({
         onComplete={onCompleteConversationFollowUp}
       />
       <div className="flex-1 overflow-y-auto bg-slate-950/50 p-6 space-y-4">
-        <ConversationContextRail>
+        <ConversationContextRail
+          variant="rail"
+          title={language === 'zh' ? '客户与访客上下文' : 'Customer & Visitor Context'}
+          description={language === 'zh'
+            ? '客户摘要、最佳下一步和访客证据会作为 Live Chat Agent 的上下文。'
+            : 'Customer summary, next step, and visitor evidence used by the Live Chat Agent.'}
+          collapsible
+        >
           <LiveChatCustomerInsightCard client={activeLiveChatClient} />
           <LiveChatEvidencePanel language={language} items={activeLiveChatEvidenceItems} />
         </ConversationContextRail>
@@ -180,7 +187,14 @@ export function LiveChatConversationPane({
           translations={activeLiveChatTranslations}
           translatingIds={translatingConversationMessageIds}
         />
-        <ConversationContextRail>
+        <ConversationContextRail
+          variant="rail"
+          title={language === 'zh' ? '智能体建议' : 'Agent Suggestions'}
+          description={language === 'zh'
+            ? '分析当前对话并生成回复、待跟进和内部备注操作。'
+            : 'Analyze this conversation and prepare reply, follow-up, and internal note actions.'}
+          collapsible
+        >
           <LiveChatAgentSuggestionsPanel
             language={language}
             cacheKey={activeLiveChatAgentContext.cacheKey}
