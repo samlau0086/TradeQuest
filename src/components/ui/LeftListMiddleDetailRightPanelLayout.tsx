@@ -14,6 +14,13 @@ interface LeftListMiddleDetailRightPanelLayoutProps {
   showRight?: boolean;
 }
 
+export const THREE_PANE_WORKSPACE_STYLES = {
+  root: 'flex min-h-0 flex-1 overflow-hidden',
+  left: 'min-h-0 shrink-0 overflow-hidden border-r border-slate-800',
+  middle: 'min-h-0 flex-1 overflow-hidden',
+  right: 'min-h-0 shrink-0 overflow-hidden border-l border-slate-800',
+} as const;
+
 export function LeftListMiddleDetailRightPanelLayout({
   left,
   middle,
@@ -27,21 +34,21 @@ export function LeftListMiddleDetailRightPanelLayout({
   showRight = true,
 }: LeftListMiddleDetailRightPanelLayoutProps) {
   return (
-    <div className={cn('flex min-h-0 flex-1 overflow-hidden', className)}>
+    <div className={cn(THREE_PANE_WORKSPACE_STYLES.root, className)}>
       {showLeft && (
-        <aside className={cn('min-h-0 shrink-0 overflow-hidden border-r border-slate-800', leftClassName)}>
+        <aside className={cn(THREE_PANE_WORKSPACE_STYLES.left, leftClassName)}>
           {left}
         </aside>
       )}
 
       {showMiddle && (
-        <main className={cn('min-h-0 flex-1 overflow-hidden', middleClassName)}>
+        <main className={cn(THREE_PANE_WORKSPACE_STYLES.middle, middleClassName)}>
           {middle}
         </main>
       )}
 
       {right && showRight && (
-        <aside className={cn('min-h-0 shrink-0 overflow-hidden border-l border-slate-800', rightClassName)}>
+        <aside className={cn(THREE_PANE_WORKSPACE_STYLES.right, rightClassName)}>
           {right}
         </aside>
       )}

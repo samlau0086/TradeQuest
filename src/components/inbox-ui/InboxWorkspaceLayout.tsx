@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle, useDefaultLayout } from 'react-resizable-panels';
 import { cn } from '../../lib/utils';
+import { THREE_PANE_WORKSPACE_STYLES } from '../ui';
 
 interface InboxWorkspaceLayoutProps {
   sidebarHidden: boolean;
@@ -25,14 +26,18 @@ export function InboxWorkspaceLayout({
       defaultLayout={defaultLayout}
       onLayoutChanged={onLayoutChanged}
       orientation="horizontal"
-      className="flex-1 overflow-hidden bg-slate-900 border-t border-slate-800"
+      className={cn(THREE_PANE_WORKSPACE_STYLES.root, 'bg-slate-900 border-t border-slate-800')}
     >
       <Panel
         id="inbox-list"
         defaultSize={320}
         minSize={250}
         maxSize={500}
-        className={cn('flex flex-col transition-transform relative z-10', sidebarHidden && 'hidden md:flex')}
+        className={cn(
+          THREE_PANE_WORKSPACE_STYLES.left,
+          'flex flex-col transition-transform relative z-10',
+          sidebarHidden && 'hidden md:flex',
+        )}
       >
         {sidebar}
       </Panel>
@@ -41,7 +46,11 @@ export function InboxWorkspaceLayout({
 
       <Panel
         id="inbox-content"
-        className={cn('flex flex-col bg-slate-950/50 relative', contentHidden && 'hidden md:flex')}
+        className={cn(
+          THREE_PANE_WORKSPACE_STYLES.middle,
+          'flex flex-col bg-slate-950/50 relative',
+          contentHidden && 'hidden md:flex',
+        )}
       >
         {content}
       </Panel>
