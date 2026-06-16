@@ -507,6 +507,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] Extract WhatsApp composer controls into `WhatsAppMessageComposer`, isolating attachments, media library, emoji, scheduling, translate-before-send, AI draft, and send controls.
 - [x] Extract WhatsApp chat data loading into `useWhatsAppChatData`, isolating Hub client/message loading, local message cache hydration, background sync, focus polling, and sticky sender selection.
 - [x] Extract WhatsApp translation execution into `useWhatsAppTranslation`, isolating inbound auto-translation, outbound translate-before-send, translation persistence, local translation cache writes, and translation loading state.
+- [x] Extract WhatsApp conversation summarization into `useWhatsAppConversationSummary`, isolating long-thread compression, request de-duplication, and conversation summary write-back.
 - [x] Extract Telegram and Live Chat detail glue code into dedicated containers so `InboxSelectedDetailPanel` is now a thin channel router.
 - [x] Move the long `InboxContentPanel` prop list into a typed `contentPanelProps` object so the Inbox render layout is cleaner and ready for future workspace layout changes.
 - [x] Move the long `InboxConversationSidebar` prop list into a typed `sidebarProps` object so the Inbox render tree reads like a left-list/right-detail workspace shell.
@@ -589,6 +590,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] 已拆出 WhatsApp 输入发送区到 `WhatsAppMessageComposer`，隔离附件、媒体库、emoji、定时发送、发送前翻译、AI 起草和发送按钮。
 - [x] 已拆出 WhatsApp 聊天数据加载到 `useWhatsAppChatData`，隔离 Hub client/message 加载、本地消息缓存恢复、后台同步、窗口聚焦轮询和 sticky sender 选择。
 - [x] 已拆出 WhatsApp 翻译执行到 `useWhatsAppTranslation`，隔离入站自动翻译、发送前翻译、翻译持久化、本地翻译缓存写入和翻译中状态。
+- [x] 已拆出 WhatsApp 会话摘要压缩到 `useWhatsAppConversationSummary`，隔离长对话压缩、请求去重和会话摘要回写。
 - [x] 已拆出 Inbox 弹窗层 props 装配逻辑，将关闭、上传附件、标签和待跟进等回调 wiring 移出页面组件。
 - [x] 已拆出 Inbox 侧栏 props 装配逻辑，将筛选、列表和批量操作 wiring 移出页面组件。
 - [x] 继续把 `Inbox.tsx` 收敛为页面编排层，再替换整体布局。

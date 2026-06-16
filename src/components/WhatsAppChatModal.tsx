@@ -13,6 +13,7 @@ import { WhatsAppConversationMetaBar } from './WhatsAppConversationMetaBar';
 import { WhatsAppMessageComposer } from './WhatsAppMessageComposer';
 import { WhatsAppMessageList } from './WhatsAppMessageList';
 import { useWhatsAppChatData } from './useWhatsAppChatData';
+import { useWhatsAppConversationSummary } from './useWhatsAppConversationSummary';
 import { useWhatsAppTranslation } from './useWhatsAppTranslation';
 import {
   cleanWhatsAppPhone,
@@ -65,7 +66,6 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [isCreatingLead, setIsCreatingLead] = useState(false);
   const [isAddingContactToClient, setIsAddingContactToClient] = useState(false);
   const [mappingEdit, setMappingEdit] = useState<{ chatId: string; phone: string; saving?: boolean } | null>(null);
-  const summaryRequestRef = useRef<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const {
     hubClients,
@@ -227,6 +227,12 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     notify,
     getTranslationLLMConfig
   });
+  useWhatsAppConversationSummary({
+    conversation,
+    messageCount: messages.length,
+    latestMessageId,
+    setConversation
+  });
 
   useEffect(() => {
     setBody(initialMessage);
@@ -249,34 +255,6 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
       window.clearTimeout(mediaTimer);
     };
   }, [embedded, targetPhone, latestMessageId, messages.length]);
-
-  useEffect(() => {
-    if (!conversation?.id || messages.length <= 30 || !latestMessageId) return;
-    if (conversation.whatsappSummaryMessageId === latestMessageId) return;
-    const requestKey = `${conversation.id}:${latestMessageId}`;
-    if (summaryRequestRef.current.has(requestKey)) return;
-    summaryRequestRef.current.add(requestKey);
-    const controller = new AbortController();
-    void (async () => {
-      try {
-        const response = await fetch(`/api/whatsapp-hub/conversations/${encodeURIComponent(conversation.id)}/summarize`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-          signal: controller.signal
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || 'Failed to summarize WhatsApp conversation');
-        if (data.conversation) {
-          setConversation(prev => prev && prev.id === data.conversation.id ? { ...prev, ...data.conversation } : prev);
-        }
-      } catch (error) {
-        if (!controller.signal.aborted) {
-          console.warn('WhatsApp conversation summarization skipped', error);
-        }
-      }
-    })();
-    return () => controller.abort();
-  }, [conversation?.id, conversation?.whatsappSummaryMessageId, latestMessageId, messages.length]);
 
   const confirmChatIdMapping = async () => {
     if (!mappingEdit?.chatId) return;
