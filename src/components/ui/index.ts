@@ -2,5 +2,6 @@ export { ActionButton } from './ActionButton';
 export { ConfirmDialog } from './ConfirmDialog';
 export { EmptyState } from './EmptyState';
 export { IconButton } from './IconButton';
+export { ModalDialog } from './ModalDialog';
 export { SectionHeader } from './SectionHeader';
 export { StatusBadge } from './StatusBadge';

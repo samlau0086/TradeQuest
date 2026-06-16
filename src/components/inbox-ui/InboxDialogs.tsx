@@ -1,5 +1,4 @@
-import React from 'react';
-import { ConfirmDialog } from '../ui';
+import { ActionButton, ConfirmDialog, ModalDialog } from '../ui';
 
 interface InboxConfirmDialogProps {
   message: string;
@@ -26,20 +25,13 @@ interface InboxNotificationDialogProps {
 
 export function InboxNotificationDialog({ message, onClose }: InboxNotificationDialogProps) {
   return (
-    <div className="fixed inset-0 bg-black/50 z-[60] flex flex-col items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 max-w-sm w-full shadow-2xl">
-        <h3 className="text-lg font-bold text-cyan-400 mb-4">Notification</h3>
-        <p className="text-slate-300 text-sm mb-6">{message}</p>
-        <div className="flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm bg-cyan-600 text-white hover:bg-cyan-500 rounded transition-colors shadow shadow-cyan-600/20"
-          >
-            OK
-          </button>
-        </div>
-      </div>
-    </div>
+    <ModalDialog
+      title="Notification"
+      titleClassName="text-cyan-400"
+      footer={<ActionButton tone="primary" onClick={onClose}>OK</ActionButton>}
+    >
+      <p className="text-sm text-slate-300">{message}</p>
+    </ModalDialog>
   );
 }
 
@@ -52,27 +44,28 @@ interface EmailTagDialogProps {
 
 export function EmailTagDialog({ tagInput, onTagInputChange, onSubmit, onClose }: EmailTagDialogProps) {
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex flex-col items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 max-w-sm w-full">
-        <h3 className="text-lg font-bold text-white mb-4">Add Tag</h3>
-        <input
-          type="text"
-          value={tagInput}
-          onChange={e => onTagInputChange(e.target.value)}
-          placeholder="e.g. VIP, Urgent"
-          className="w-full bg-slate-800 border-slate-700 text-white rounded p-2 mb-4"
-          autoFocus
-          onKeyDown={e => {
-            if (e.key === 'Enter') onSubmit();
-            else if (e.key === 'Escape') onClose();
-          }}
-        />
-        <div className="flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 text-slate-400 hover:text-white">Cancel</button>
-          <button onClick={onSubmit} disabled={!tagInput.trim()} className="px-4 py-2 bg-cyan-600 text-white rounded-md disabled:opacity-50">Add</button>
-        </div>
-      </div>
-    </div>
+    <ModalDialog
+      title="Add Tag"
+      footer={(
+        <>
+          <ActionButton tone="ghost" onClick={onClose}>Cancel</ActionButton>
+          <ActionButton tone="primary" onClick={onSubmit} disabled={!tagInput.trim()}>Add</ActionButton>
+        </>
+      )}
+    >
+      <input
+        type="text"
+        value={tagInput}
+        onChange={e => onTagInputChange(e.target.value)}
+        placeholder="e.g. VIP, Urgent"
+        className="w-full rounded border border-slate-700 bg-slate-800 p-2 text-white"
+        autoFocus
+        onKeyDown={e => {
+          if (e.key === 'Enter') onSubmit();
+          else if (e.key === 'Escape') onClose();
+        }}
+      />
+    </ModalDialog>
   );
 }
 
@@ -94,28 +87,30 @@ export function EmailTodoDialog({
   onClose,
 }: EmailTodoDialogProps) {
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex flex-col items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 max-w-md w-full">
-        <h3 className="text-lg font-bold text-white mb-4">Add Email to Todo</h3>
-        <label className="text-xs text-slate-400 block mb-1">Due Date & Time</label>
-        <input
-          type="datetime-local"
-          value={todoAt}
-          onChange={e => onTodoAtChange(e.target.value)}
-          className="w-full bg-slate-800 border border-slate-700 text-white rounded p-2 mb-4"
-        />
-        <label className="text-xs text-slate-400 block mb-1">Note (Optional)</label>
-        <textarea
-          value={todoNote}
-          onChange={e => onTodoNoteChange(e.target.value)}
-          placeholder="E.g. Follow up with a proposal..."
-          className="w-full bg-slate-800 border border-slate-700 text-white rounded p-2 mb-4 min-h-[80px]"
-        />
-        <div className="flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 text-slate-400 hover:text-white">Cancel</button>
-          <button onClick={onSubmit} disabled={!todoAt} className="px-4 py-2 bg-cyan-600 text-white rounded-md disabled:opacity-50">Save</button>
-        </div>
-      </div>
-    </div>
+    <ModalDialog
+      title="Add Email to Todo"
+      className="max-w-md"
+      footer={(
+        <>
+          <ActionButton tone="ghost" onClick={onClose}>Cancel</ActionButton>
+          <ActionButton tone="primary" onClick={onSubmit} disabled={!todoAt}>Save</ActionButton>
+        </>
+      )}
+    >
+      <label className="mb-1 block text-xs text-slate-400">Due Date & Time</label>
+      <input
+        type="datetime-local"
+        value={todoAt}
+        onChange={e => onTodoAtChange(e.target.value)}
+        className="mb-4 w-full rounded border border-slate-700 bg-slate-800 p-2 text-white"
+      />
+      <label className="mb-1 block text-xs text-slate-400">Note (Optional)</label>
+      <textarea
+        value={todoNote}
+        onChange={e => onTodoNoteChange(e.target.value)}
+        placeholder="E.g. Follow up with a proposal..."
+        className="min-h-[80px] w-full rounded border border-slate-700 bg-slate-800 p-2 text-white"
+      />
+    </ModalDialog>
   );
 }
