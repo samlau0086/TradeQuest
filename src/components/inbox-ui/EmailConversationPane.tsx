@@ -12,6 +12,7 @@ import {
   EmailHeaderMeta,
   EmailTrackingPanel,
 } from './EmailDetailPanels';
+import { ConversationSplitPane } from './ConversationSplitPane';
 import type { UnifiedCommunicationConversation } from './inboxModel';
 
 interface EmailConversationPaneProps {
@@ -158,70 +159,73 @@ export function EmailConversationPane({
         onComplete={onCompleteFollowUp}
       />
 
-      <div className="flex-1 min-h-0 bg-slate-950/50 lg:grid lg:grid-cols-[minmax(0,1fr)_340px]">
-        <section className="min-h-0 overflow-y-auto p-6 space-y-4 scrollbar-thin">
-          <EmailTrackingPanel
-            language={language}
-            enabled={(selectedEmail.type === 'sent' || selectedEmail.type === 'scheduled' || selectedEmail.type === 'outbound') && (selectedEmail.body?.includes('/api/track/open/') || !!selectedEmail.enableTracking)}
-            events={selectedTrackingEvents}
-            visibleEvents={visibleTrackingEvents}
-            isExpanded={isTrackingExpanded}
-            onToggleExpanded={onToggleTrackingExpanded}
-          />
+      <ConversationSplitPane
+        mainClassName="scrollbar-thin"
+        main={(
+          <>
+            <EmailTrackingPanel
+              language={language}
+              enabled={(selectedEmail.type === 'sent' || selectedEmail.type === 'scheduled' || selectedEmail.type === 'outbound') && (selectedEmail.body?.includes('/api/track/open/') || !!selectedEmail.enableTracking)}
+              events={selectedTrackingEvents}
+              visibleEvents={visibleTrackingEvents}
+              isExpanded={isTrackingExpanded}
+              onToggleExpanded={onToggleTrackingExpanded}
+            />
 
-          <EmailBodyPanel subject={selectedEmail.subject} body={selectedEmail.body} />
-          <EmailAttachmentsPanel attachments={selectedEmail.attachments} />
+            <EmailBodyPanel subject={selectedEmail.subject} body={selectedEmail.body} />
+            <EmailAttachmentsPanel attachments={selectedEmail.attachments} />
 
-          <EmailCommentsPanel
-            comments={activeConversationComments}
-            commentText={commentText}
-            attachments={commentAttachments}
-            onCommentTextChange={onCommentTextChange}
-            onAttachClick={onAttachClick}
-            onRemoveAttachment={onRemoveAttachment}
-            onReply={onReplyComment}
-            onSubmit={onSubmitComment}
-          />
-        </section>
-
-        <ConversationContextRail
-          variant="rail"
-          title={language === 'zh' ? 'Email 上下文' : 'Email Context'}
-          description={language === 'zh'
-            ? '邮件分析、客户资料、产品和 RAG 依据集中在这里，便于准备回复和下一步。'
-            : 'Email analysis, customer profile, product, and RAG context for preparing replies and next steps.'}
-          className="min-h-0 overflow-y-auto border-t border-slate-800 bg-slate-950/60 p-4 lg:border-l lg:border-t-0"
-          collapsible
-        >
-          <EmailAgentSuggestionsPanel
-            cacheKey={cacheKey}
-            contextLookup={activeUnifiedConversation?.id ? { conversationId: activeUnifiedConversation.id } : undefined}
-            clientId={selectedEmail.clientId}
-            emailAddress={emailAddress}
-            defaultAnalysisMode={['sent', 'outbound', 'scheduled'].includes(selectedEmail.type) ? 'manual' : undefined}
-            persistedInsight={selectedEmail.agentContextAnalysisKey === cacheKey ? selectedEmail.agentContextAnalysis : undefined}
-            persistedInsightKey={selectedEmail.agentContextAnalysisKey}
-            subject={selectedEmail.subject}
-            body={selectedEmailAgentContext.body}
-            additionalContext={selectedEmailAgentContext.additionalContext}
-            clientName={clientName}
-            hasClient={!!selectedEmail.clientId}
-            hasKnowledge={addedToRagId === selectedEmail.id}
-            hasCustomerMessage={selectedEmailAgentContext.hasCustomerMessage}
-            followUpAt={activeFollowUpAt || selectedEmail.todoAt}
-            followUpNote={activeFollowUpNote || selectedEmail.todoNote}
-            onDraftReply={onDraftAgentReply}
-            onAddComment={onAddAgentComment}
-            onCreateLead={!selectedEmail.clientId ? onCreateLead : undefined}
-            onAddToKnowledge={selectedEmail.clientId ? onAddToRag : undefined}
-            onSetFollowUp={onSetFollowUp}
-            onClearFollowUp={onClearFollowUp}
-            onCompleteFollowUp={onCompleteFollowUp}
-            onDeleteItem={onDeleteEmail}
-            onSaveAnalysis={onSaveAnalysis}
-          />
-        </ConversationContextRail>
-      </div>
+            <EmailCommentsPanel
+              comments={activeConversationComments}
+              commentText={commentText}
+              attachments={commentAttachments}
+              onCommentTextChange={onCommentTextChange}
+              onAttachClick={onAttachClick}
+              onRemoveAttachment={onRemoveAttachment}
+              onReply={onReplyComment}
+              onSubmit={onSubmitComment}
+            />
+          </>
+        )}
+        rail={(
+          <ConversationContextRail
+            variant="rail"
+            title={language === 'zh' ? 'Email 上下文' : 'Email Context'}
+            description={language === 'zh'
+              ? '邮件分析、客户资料、产品和 RAG 依据集中在这里，便于准备回复和下一步。'
+              : 'Email analysis, customer profile, product, and RAG context for preparing replies and next steps.'}
+            collapsible
+          >
+            <EmailAgentSuggestionsPanel
+              cacheKey={cacheKey}
+              contextLookup={activeUnifiedConversation?.id ? { conversationId: activeUnifiedConversation.id } : undefined}
+              clientId={selectedEmail.clientId}
+              emailAddress={emailAddress}
+              defaultAnalysisMode={['sent', 'outbound', 'scheduled'].includes(selectedEmail.type) ? 'manual' : undefined}
+              persistedInsight={selectedEmail.agentContextAnalysisKey === cacheKey ? selectedEmail.agentContextAnalysis : undefined}
+              persistedInsightKey={selectedEmail.agentContextAnalysisKey}
+              subject={selectedEmail.subject}
+              body={selectedEmailAgentContext.body}
+              additionalContext={selectedEmailAgentContext.additionalContext}
+              clientName={clientName}
+              hasClient={!!selectedEmail.clientId}
+              hasKnowledge={addedToRagId === selectedEmail.id}
+              hasCustomerMessage={selectedEmailAgentContext.hasCustomerMessage}
+              followUpAt={activeFollowUpAt || selectedEmail.todoAt}
+              followUpNote={activeFollowUpNote || selectedEmail.todoNote}
+              onDraftReply={onDraftAgentReply}
+              onAddComment={onAddAgentComment}
+              onCreateLead={!selectedEmail.clientId ? onCreateLead : undefined}
+              onAddToKnowledge={selectedEmail.clientId ? onAddToRag : undefined}
+              onSetFollowUp={onSetFollowUp}
+              onClearFollowUp={onClearFollowUp}
+              onCompleteFollowUp={onCompleteFollowUp}
+              onDeleteItem={onDeleteEmail}
+              onSaveAnalysis={onSaveAnalysis}
+            />
+          </ConversationContextRail>
+        )}
+      />
     </>
   );
 }

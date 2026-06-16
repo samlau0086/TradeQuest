@@ -7,6 +7,7 @@ import { ConversationFollowUpStrip } from './ConversationFollowUpStrip';
 import { ConversationInternalNotesPanel } from './ConversationInternalNotesPanel';
 import { ConversationMessageList } from './ConversationMessageList';
 import { ConversationReplyComposer } from './ConversationReplyComposer';
+import { ConversationSplitPane } from './ConversationSplitPane';
 import { LiveChatCustomerInsightCard, LiveChatEvidencePanel } from './LiveChatContextWidgets';
 import { LiveChatHeaderActions, LiveChatHeaderMeta } from './LiveChatHeaderControls';
 import type { ConversationMessageTranslation, UnifiedCommunicationConversation } from './inboxModel';
@@ -166,68 +167,70 @@ export function LiveChatConversationPane({
         onClear={onClearConversationFollowUp}
         onComplete={onCompleteConversationFollowUp}
       />
-      <div className="flex-1 min-h-0 bg-slate-950/50 lg:grid lg:grid-cols-[minmax(0,1fr)_340px]">
-        <section className="min-h-0 overflow-y-auto p-6 space-y-4">
-          <ConversationMessageList
-            channel="live_chat"
-            language={language}
-            messages={visibleLiveChatMessages}
-            translateEnabled={activeLiveChatTranslateEnabled}
-            translations={activeLiveChatTranslations}
-            translatingIds={translatingConversationMessageIds}
-          />
-          <ConversationInternalNotesPanel
-            language={language}
-            comments={activeConversationComments}
-            commentText={commentText}
-            accent="violet"
-            isLinked={!!activeLiveChatClient}
-            linkedDescription="Linked client: notes are saved to the customer profile."
-            unlinkedDescription="Unlinked visitor: notes are saved to this conversation."
-            onCommentTextChange={onCommentTextChange}
-            onReply={onReplyComment}
-            onSubmit={onSubmitComment}
-          />
-          <div ref={liveChatEndRef} />
-        </section>
-
-        <ConversationContextRail
-          variant="rail"
-          title={language === 'zh' ? 'Live Chat 上下文' : 'Live Chat Context'}
-          description={language === 'zh'
-            ? '客户摘要、访客证据和 Agent 建议集中在这里，便于边看消息边判断下一步。'
-            : 'Customer summary, visitor evidence, and Agent suggestions for deciding the next action.'}
-          className="min-h-0 overflow-y-auto border-t border-slate-800 bg-slate-950/60 p-4 lg:border-l lg:border-t-0"
-          collapsible
-        >
-          <LiveChatCustomerInsightCard client={activeLiveChatClient} />
-          <LiveChatEvidencePanel language={language} items={activeLiveChatEvidenceItems} />
-          <LiveChatAgentSuggestionsPanel
-            language={language}
-            cacheKey={activeLiveChatAgentContext.cacheKey}
-            conversationId={selectedLiveChatConversation.id}
-            clientId={clientId}
-            clientName={clientName}
-            persistedInsight={selectedLiveChatConversation.agent_context_analysis_key === activeLiveChatAgentContext.cacheKey ? selectedLiveChatConversation.agent_context_analysis : undefined}
-            persistedInsightKey={selectedLiveChatConversation.agent_context_analysis_key}
-            subject={selectedLiveChatConversation.title || 'Live Chat conversation'}
-            body={activeLiveChatAgentContext.body}
-            additionalContext={activeLiveChatAgentContext.additionalContext}
-            hasClient={!!clientId}
-            hasKnowledge={!!activeLiveChatClient}
-            hasCustomerMessage={activeLiveChatAgentContext.hasCustomerMessage}
-            onDraftReply={onRunAgent}
-            onAddComment={onAddSuggestionComment}
-            followUpAt={activeFollowUpAt}
-            followUpNote={activeFollowUpNote}
-            onSetFollowUp={onSetAgentFollowUp}
-            onClearFollowUp={onClearAgentFollowUp}
-            onCompleteFollowUp={onCompleteAgentFollowUp}
-            onSaveAnalysis={onSaveAnalysis}
-            onDeleteItem={onDeleteConversation}
-          />
-        </ConversationContextRail>
-      </div>
+      <ConversationSplitPane
+        main={(
+          <>
+            <ConversationMessageList
+              channel="live_chat"
+              language={language}
+              messages={visibleLiveChatMessages}
+              translateEnabled={activeLiveChatTranslateEnabled}
+              translations={activeLiveChatTranslations}
+              translatingIds={translatingConversationMessageIds}
+            />
+            <ConversationInternalNotesPanel
+              language={language}
+              comments={activeConversationComments}
+              commentText={commentText}
+              accent="violet"
+              isLinked={!!activeLiveChatClient}
+              linkedDescription="Linked client: notes are saved to the customer profile."
+              unlinkedDescription="Unlinked visitor: notes are saved to this conversation."
+              onCommentTextChange={onCommentTextChange}
+              onReply={onReplyComment}
+              onSubmit={onSubmitComment}
+            />
+            <div ref={liveChatEndRef} />
+          </>
+        )}
+        rail={(
+          <ConversationContextRail
+            variant="rail"
+            title={language === 'zh' ? 'Live Chat 上下文' : 'Live Chat Context'}
+            description={language === 'zh'
+              ? '客户摘要、访客证据和 Agent 建议集中在这里，便于边看消息边判断下一步。'
+              : 'Customer summary, visitor evidence, and Agent suggestions for deciding the next action.'}
+            collapsible
+          >
+            <LiveChatCustomerInsightCard client={activeLiveChatClient} />
+            <LiveChatEvidencePanel language={language} items={activeLiveChatEvidenceItems} />
+            <LiveChatAgentSuggestionsPanel
+              language={language}
+              cacheKey={activeLiveChatAgentContext.cacheKey}
+              conversationId={selectedLiveChatConversation.id}
+              clientId={clientId}
+              clientName={clientName}
+              persistedInsight={selectedLiveChatConversation.agent_context_analysis_key === activeLiveChatAgentContext.cacheKey ? selectedLiveChatConversation.agent_context_analysis : undefined}
+              persistedInsightKey={selectedLiveChatConversation.agent_context_analysis_key}
+              subject={selectedLiveChatConversation.title || 'Live Chat conversation'}
+              body={activeLiveChatAgentContext.body}
+              additionalContext={activeLiveChatAgentContext.additionalContext}
+              hasClient={!!clientId}
+              hasKnowledge={!!activeLiveChatClient}
+              hasCustomerMessage={activeLiveChatAgentContext.hasCustomerMessage}
+              onDraftReply={onRunAgent}
+              onAddComment={onAddSuggestionComment}
+              followUpAt={activeFollowUpAt}
+              followUpNote={activeFollowUpNote}
+              onSetFollowUp={onSetAgentFollowUp}
+              onClearFollowUp={onClearAgentFollowUp}
+              onCompleteFollowUp={onCompleteAgentFollowUp}
+              onSaveAnalysis={onSaveAnalysis}
+              onDeleteItem={onDeleteConversation}
+            />
+          </ConversationContextRail>
+        )}
+      />
       <ConversationReplyComposer
         language={language}
         value={liveChatReply}

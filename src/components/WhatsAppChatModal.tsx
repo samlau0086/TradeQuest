@@ -1344,7 +1344,8 @@ Return only the message text.`,
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-950">
+        <div className={embedded ? 'flex-1 min-h-0 bg-slate-950 lg:grid lg:grid-cols-[minmax(0,1fr)_340px]' : 'flex-1 min-h-0 overflow-y-auto bg-slate-950'}>
+          <section className={embedded ? 'min-h-0 overflow-y-auto p-4 space-y-3' : 'p-4 space-y-3'}>
           {messages.length === 0 && !loading && (
             <div className="text-center text-slate-500 text-sm py-10">{t('noWhatsAppMessages')}</div>
           )}
@@ -1416,12 +1417,14 @@ Return only the message text.`,
             );
           })}
           <div ref={messagesEndRef} />
+          </section>
           <ConversationContextRail
             variant="rail"
             title={language === 'zh' ? '智能体建议' : 'Agent Suggestions'}
             description={language === 'zh'
               ? '分析 WhatsApp 对话、客户资料、产品和 RAG 上下文，准备回复、待跟进和内部备注操作。'
               : 'Analyze WhatsApp, customer, product, and RAG context for reply, follow-up, and internal note actions.'}
+            className={embedded ? 'min-h-0 overflow-y-auto border-t border-slate-800 bg-slate-950/60 p-4 lg:border-l lg:border-t-0' : 'border-t border-slate-800 bg-slate-950/60 p-4'}
             collapsible
           >
             <AgentContextSuggestions

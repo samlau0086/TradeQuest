@@ -7,6 +7,7 @@ import { ConversationFollowUpStrip } from './ConversationFollowUpStrip';
 import { ConversationInternalNotesPanel } from './ConversationInternalNotesPanel';
 import { ConversationMessageList } from './ConversationMessageList';
 import { ConversationReplyComposer } from './ConversationReplyComposer';
+import { ConversationSplitPane } from './ConversationSplitPane';
 import { TelegramHeaderActions, TelegramHeaderMeta } from './TelegramHeaderControls';
 import type { ConversationMessageTranslation, UnifiedCommunicationConversation } from './inboxModel';
 
@@ -154,67 +155,69 @@ export function TelegramConversationPane({
         onClear={onClearConversationFollowUp}
         onComplete={onCompleteConversationFollowUp}
       />
-      <div className="flex-1 min-h-0 bg-slate-950/50 lg:grid lg:grid-cols-[minmax(0,1fr)_340px]">
-        <section className="min-h-0 overflow-y-auto p-6 space-y-4">
-          <ConversationMessageList
-            channel="telegram"
-            language={language}
-            messages={telegramMessages}
-            isLoading={isTelegramMessagesLoading}
-            translateEnabled={activeTelegramTranslateEnabled}
-            translations={activeTelegramTranslations}
-            translatingIds={translatingConversationMessageIds}
-          />
-          <ConversationInternalNotesPanel
-            language={language}
-            comments={activeConversationComments}
-            commentText={commentText}
-            accent="sky"
-            isLinked={!!activeTelegramClient}
-            linkedDescription="Linked client: notes are saved to the customer profile."
-            unlinkedDescription="Unlinked Telegram user: notes are saved to this conversation."
-            onCommentTextChange={onCommentTextChange}
-            onReply={onReplyComment}
-            onSubmit={onSubmitComment}
-          />
-        </section>
-
-        <ConversationContextRail
-          variant="rail"
-          title={language === 'zh' ? 'Telegram 上下文' : 'Telegram Context'}
-          description={language === 'zh'
-            ? 'Telegram 对话分析、客户关联和 Agent 建议集中在这里，便于判断下一步。'
-            : 'Telegram analysis, linked customer context, and Agent suggestions for deciding the next action.'}
-          className="min-h-0 overflow-y-auto border-t border-slate-800 bg-slate-950/60 p-4 lg:border-l lg:border-t-0"
-          collapsible
-        >
-          <TelegramAgentSuggestionsPanel
-            language={language}
-            cacheKey={activeTelegramAgentContext.cacheKey}
-            conversationId={selectedTelegramConversation.id}
-            clientId={clientId}
-            clientName={clientName}
-            persistedInsight={selectedTelegramConversation.agent_context_analysis_key === activeTelegramAgentContext.cacheKey ? selectedTelegramConversation.agent_context_analysis : undefined}
-            persistedInsightKey={selectedTelegramConversation.agent_context_analysis_key}
-            subject={selectedTelegramConversation.title || activeTelegramDisplayName || 'Telegram conversation'}
-            body={activeTelegramAgentContext.body}
-            additionalContext={activeTelegramAgentContext.additionalContext}
-            hasClient={!!clientId}
-            hasKnowledge={!!activeTelegramClient}
-            hasCustomerMessage={activeTelegramAgentContext.hasCustomerMessage}
-            onDraftReply={onDraftReply}
-            onAddComment={onAddSuggestionComment}
-            onCreateLead={onCreateLead}
-            followUpAt={activeFollowUpAt}
-            followUpNote={activeFollowUpNote}
-            onSetFollowUp={onSetAgentFollowUp}
-            onClearFollowUp={onClearAgentFollowUp}
-            onCompleteFollowUp={onCompleteAgentFollowUp}
-            onSaveAnalysis={onSaveAnalysis}
-            onDeleteItem={onDeleteConversation}
-          />
-        </ConversationContextRail>
-      </div>
+      <ConversationSplitPane
+        main={(
+          <>
+            <ConversationMessageList
+              channel="telegram"
+              language={language}
+              messages={telegramMessages}
+              isLoading={isTelegramMessagesLoading}
+              translateEnabled={activeTelegramTranslateEnabled}
+              translations={activeTelegramTranslations}
+              translatingIds={translatingConversationMessageIds}
+            />
+            <ConversationInternalNotesPanel
+              language={language}
+              comments={activeConversationComments}
+              commentText={commentText}
+              accent="sky"
+              isLinked={!!activeTelegramClient}
+              linkedDescription="Linked client: notes are saved to the customer profile."
+              unlinkedDescription="Unlinked Telegram user: notes are saved to this conversation."
+              onCommentTextChange={onCommentTextChange}
+              onReply={onReplyComment}
+              onSubmit={onSubmitComment}
+            />
+          </>
+        )}
+        rail={(
+          <ConversationContextRail
+            variant="rail"
+            title={language === 'zh' ? 'Telegram 上下文' : 'Telegram Context'}
+            description={language === 'zh'
+              ? 'Telegram 对话分析、客户关联和 Agent 建议集中在这里，便于判断下一步。'
+              : 'Telegram analysis, linked customer context, and Agent suggestions for deciding the next action.'}
+            collapsible
+          >
+            <TelegramAgentSuggestionsPanel
+              language={language}
+              cacheKey={activeTelegramAgentContext.cacheKey}
+              conversationId={selectedTelegramConversation.id}
+              clientId={clientId}
+              clientName={clientName}
+              persistedInsight={selectedTelegramConversation.agent_context_analysis_key === activeTelegramAgentContext.cacheKey ? selectedTelegramConversation.agent_context_analysis : undefined}
+              persistedInsightKey={selectedTelegramConversation.agent_context_analysis_key}
+              subject={selectedTelegramConversation.title || activeTelegramDisplayName || 'Telegram conversation'}
+              body={activeTelegramAgentContext.body}
+              additionalContext={activeTelegramAgentContext.additionalContext}
+              hasClient={!!clientId}
+              hasKnowledge={!!activeTelegramClient}
+              hasCustomerMessage={activeTelegramAgentContext.hasCustomerMessage}
+              onDraftReply={onDraftReply}
+              onAddComment={onAddSuggestionComment}
+              onCreateLead={onCreateLead}
+              followUpAt={activeFollowUpAt}
+              followUpNote={activeFollowUpNote}
+              onSetFollowUp={onSetAgentFollowUp}
+              onClearFollowUp={onClearAgentFollowUp}
+              onCompleteFollowUp={onCompleteAgentFollowUp}
+              onSaveAnalysis={onSaveAnalysis}
+              onDeleteItem={onDeleteConversation}
+            />
+          </ConversationContextRail>
+        )}
+      />
       <ConversationReplyComposer
         language={language}
         value={telegramReply}
