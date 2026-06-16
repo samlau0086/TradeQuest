@@ -17,22 +17,20 @@ interface ConversationMessageListProps {
 
 const channelAccent = {
   telegram: {
-    outboundBorder: 'border-sky-500/30',
-    outboundBg: 'bg-sky-600/20',
-    outboundText: 'text-sky-50',
+    outboundBorder: 'border-sky-200',
+    outboundBg: 'bg-sky-50',
+    outboundText: 'text-sky-950',
     loadingText: 'Loading Telegram messages...',
     emptyText: 'No Telegram messages saved yet.',
-    defaultInboundSender: 'Telegram',
   },
   live_chat: {
-    outboundBorder: 'border-violet-500/30',
-    outboundBg: 'bg-violet-600/20',
-    outboundText: 'text-violet-50',
+    outboundBorder: 'border-violet-200',
+    outboundBg: 'bg-violet-50',
+    outboundText: 'text-violet-950',
     loadingText: 'Loading Live Chat messages...',
     emptyText: 'No Live Chat messages saved yet.',
-    defaultInboundSender: 'Visitor',
   },
-};
+} as const;
 
 function getMessageId(channel: ConversationMessageChannel, message: any, index: number) {
   return String(message.id || message.sourceId || `${channel}_${message.createdAt || message.source_created_at || message.sourceCreatedAt || index}`);
@@ -76,18 +74,27 @@ export function ConversationMessageList({
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-16 text-sm text-slate-500">
+      <div className="flex items-center justify-center rounded-2xl border border-slate-200 bg-white py-16 text-sm text-slate-500 shadow-sm">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {accent.loadingText}
       </div>
     );
   }
 
   if (messages.length === 0) {
-    return <div className="py-16 text-center text-sm text-slate-500 italic">{accent.emptyText}</div>;
+    return <div className="rounded-2xl border border-dashed border-slate-300 bg-white py-16 text-center text-sm italic text-slate-500 shadow-sm">{accent.emptyText}</div>;
   }
 
   return (
-    <>
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-4">
+        <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+          {channel === 'telegram' ? 'Telegram Thread' : 'Live Chat Thread'}
+        </div>
+        <div className="mt-1 text-sm text-slate-500">
+          {messages.length} {messages.length === 1 ? 'message' : 'messages'}
+        </div>
+      </div>
+
       {messages.map((message, index) => {
         const id = getMessageId(channel, message, index);
         const outbound = isOutboundMessage(channel, message);
@@ -96,39 +103,39 @@ export function ConversationMessageList({
         const createdAt = getCreatedAt(channel, message);
 
         return (
-          <div key={id} className={cn('flex', outbound ? 'justify-end' : 'justify-start')}>
+          <div key={id} className={cn('mb-4 flex last:mb-0', outbound ? 'justify-end' : 'justify-start')}>
             <div
               className={cn(
                 'max-w-[78%] rounded-2xl border px-4 py-3 text-sm shadow-sm',
                 outbound
                   ? `${accent.outboundBorder} ${accent.outboundBg} ${accent.outboundText}`
-                  : 'border-slate-800 bg-slate-900 text-slate-100'
+                  : 'border-slate-200 bg-slate-50 text-slate-900'
               )}
             >
-              <div className="mb-1 flex items-center gap-2 text-[10px] uppercase tracking-wide text-slate-500">
+              <div className="mb-1 flex items-center gap-2 text-[10px] uppercase tracking-[0.14em] text-slate-400">
                 <span>{getSenderLabel(channel, message, outbound)}</span>
                 <span>{getTypeLabel(channel, message)}</span>
               </div>
               <div className="whitespace-pre-wrap leading-relaxed">{getBodyText(channel, message)}</div>
               {!outbound && ((translateEnabled && isTranslating) || translation?.text) && (
-                <div className="mt-3 border-t border-slate-700/70 pt-2 text-xs leading-relaxed text-cyan-100">
-                  <div className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-cyan-300">
+                <div className="mt-3 border-t border-slate-200 pt-2 text-xs leading-relaxed text-slate-700">
+                  <div className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.14em] text-cyan-600">
                     <Languages className="h-3 w-3" />
-                    {language === 'zh' ? '翻译' : 'Translation'}
+                    {language === 'zh' ? '缈昏瘧' : 'Translation'}
                     {isTranslating && <Loader2 className="h-3 w-3 animate-spin" />}
                   </div>
                   <div className="whitespace-pre-wrap">
-                    {translation?.text || (language === 'zh' ? '翻译中...' : 'Translating...')}
+                    {translation?.text || (language === 'zh' ? '缈昏瘧涓?..' : 'Translating...')}
                   </div>
                 </div>
               )}
-              <div className="mt-2 text-[10px] text-slate-500">
+              <div className="mt-2 text-[10px] text-slate-400">
                 {createdAt ? new Date(createdAt).toLocaleString() : ''}
               </div>
             </div>
           </div>
         );
       })}
-    </>
+    </div>
   );
 }

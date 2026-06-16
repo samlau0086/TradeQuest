@@ -22,21 +22,28 @@ export function ConversationSplitPane({
     <div
       className={cn(
         split
-          ? 'flex-1 min-h-0 bg-slate-950/50 lg:grid lg:grid-cols-[minmax(0,1fr)_340px]'
-          : 'flex-1 min-h-0 overflow-y-auto bg-slate-950',
+          ? 'flex-1 min-h-0 bg-[#f3f6fb] lg:grid lg:grid-cols-[minmax(0,1fr)_360px]'
+          : 'flex-1 min-h-0 overflow-y-auto bg-[#f3f6fb]',
         className,
       )}
       data-conversation-split-pane="true"
     >
-      <section className={cn(split ? 'min-h-0 overflow-y-auto p-6 space-y-4' : 'p-4 space-y-3', mainClassName)}>
+      <section
+        className={cn(
+          split
+            ? 'min-h-0 overflow-y-auto bg-[#f3f6fb] p-5 space-y-4'
+            : 'bg-[#f3f6fb] p-4 space-y-3',
+          mainClassName,
+        )}
+      >
         {main}
       </section>
       {rail && (
         <div
           className={cn(
             split
-              ? 'min-h-0 overflow-y-auto border-t border-slate-800 bg-slate-950/60 p-4 lg:border-l lg:border-t-0'
-              : 'border-t border-slate-800 bg-slate-950/60 p-4',
+              ? 'min-h-0 overflow-y-auto border-t border-slate-200 bg-white p-4 lg:border-l lg:border-t-0'
+              : 'border-t border-slate-200 bg-white p-4',
             railClassName,
           )}
         >
