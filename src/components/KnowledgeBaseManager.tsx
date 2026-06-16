@@ -6,6 +6,7 @@ import { cn } from '../lib/utils';
 
 import { useTranslation } from '../lib/i18n';
 import { UploadDocModal } from './UploadDocModal';
+import { ActionBar, FilterBar } from './ui';
 
 interface KnowledgeImportReport {
   importBatchId?: string;
@@ -315,7 +316,7 @@ export function KnowledgeBaseManager({ clientId = null }: { clientId?: string | 
         </div>
       )}
 
-      <div className="flex flex-col gap-2 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+      <FilterBar>
         <div className="relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
           <input
@@ -333,10 +334,10 @@ export function KnowledgeBaseManager({ clientId = null }: { clientId?: string | 
           {isPageLoading && <Loader2 className="h-4 w-4 animate-spin" />}
           {language === 'zh' ? '刷新' : 'Refresh'}
         </button>
-      </div>
+      </FilterBar>
 
       {totalItems > 0 && (
-        <div className="flex flex-col gap-2 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+        <ActionBar>
           <div className="flex flex-wrap items-center gap-3">
             <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-300">
               <input
@@ -399,7 +400,7 @@ export function KnowledgeBaseManager({ clientId = null }: { clientId?: string | 
               {language === 'zh' ? '下一页' : 'Next'}
             </button>
           </div>
-        </div>
+        </ActionBar>
       )}
 
       <div className="grid gap-4">

@@ -1,6 +1,8 @@
 export { ActionButton } from './ActionButton';
+export { ActionBar } from './ActionBar';
 export { ConfirmDialog } from './ConfirmDialog';
 export { EmptyState } from './EmptyState';
+export { FilterBar } from './FilterBar';
 export { IconButton } from './IconButton';
 export { ModalDialog } from './ModalDialog';
 export { PageHeader } from './PageHeader';
