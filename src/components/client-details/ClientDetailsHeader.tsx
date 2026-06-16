@@ -2,7 +2,7 @@ import React from 'react';
 import { ArrowLeft, Building2, Edit, MapPin, Trash2 } from 'lucide-react';
 import { Client, Deal } from '../../store';
 import { LocalTime } from '../LocalTime';
-import { IconButton, StatusBadge } from '../ui';
+import { ActionButton, IconButton, StatusBadge } from '../ui';
 
 interface ClientDetailsHeaderProps {
   client: Client;
@@ -37,9 +37,7 @@ export function ClientDetailsHeader({ client, leadRecord, onClose, onEdit, onDel
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <button onClick={onEdit} className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800 hover:text-white transition-colors">
-            <Edit className="w-4 h-4" /> Edit Info
-          </button>
+          <ActionButton icon={<Edit className="w-4 h-4" />} onClick={onEdit}>Edit Info</ActionButton>
           <IconButton
             icon={<Trash2 className="w-4 h-4" />}
             label="Delete client"

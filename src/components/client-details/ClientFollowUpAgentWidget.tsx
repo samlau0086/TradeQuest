@@ -1,5 +1,6 @@
 import React from 'react';
 import { Loader2, Settings, Sparkles, Workflow } from 'lucide-react';
+import { ActionButton } from '../ui';
 
 interface ClientFollowUpAgentWidgetProps {
   enabled?: boolean;
@@ -42,12 +43,14 @@ export function ClientFollowUpAgentWidget({
         {!enabled ? (
           <div className="text-center py-4">
             <p className="text-slate-400 text-xs mb-3">Automate follow-ups and analyze client journey using AI.</p>
-            <button
+            <ActionButton
               onClick={onOpenSettings}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-3 py-1.5 rounded-lg inline-flex items-center gap-2 transition-colors font-medium border border-indigo-500 shadow-lg shadow-indigo-900/20"
+              tone="indigo"
+              size="sm"
+              icon={<Workflow className="w-3 h-3" />}
             >
-              <Workflow className="w-3 h-3" /> Enable Agent
-            </button>
+              Enable Agent
+            </ActionButton>
           </div>
         ) : (
           <>
@@ -80,14 +83,15 @@ export function ClientFollowUpAgentWidget({
               )}
 
               <div className="flex justify-end pt-2">
-                <button
+                <ActionButton
                   onClick={onRunAgent}
                   disabled={loading}
-                  className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs px-3 py-1.5 rounded font-medium flex items-center gap-2 transition-colors shadow shadow-indigo-900/20"
+                  tone="indigo"
+                  size="sm"
+                  icon={loading ? <Loader2 className="w-3 h-3 animate-spin"/> : <Sparkles className="w-3 h-3" />}
                 >
-                  {loading ? <Loader2 className="w-3 h-3 animate-spin"/> : <Sparkles className="w-3 h-3" />}
                   Run Agent
-                </button>
+                </ActionButton>
               </div>
             </div>
           </>
