@@ -5,6 +5,7 @@ export { ClientContactsWidget } from './ClientContactsWidget';
 export { ClientConversationNotesWidget } from './ClientConversationNotesWidget';
 export { ClientDeleteConfirmDialog } from './ClientDeleteConfirmDialog';
 export { ClientDetailsLayout } from './ClientDetailsLayout';
+export { ClientDetailsMainColumn } from './ClientDetailsMainColumn';
 export { ClientDetailsOverlays } from './ClientDetailsOverlays';
 export { ClientDetailsSidebarColumn } from './ClientDetailsSidebarColumn';
 export { ClientDetailsHeader } from './ClientDetailsHeader';

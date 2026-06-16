@@ -3,12 +3,11 @@ import { useStore } from '../store';
 
 import {
   ClientDetailsLayout,
+  ClientDetailsMainColumn,
   ClientDetailsOverlays,
   ClientDetailsSidebarColumn,
   ClientDetailsHeader,
-  ClientEventPanel,
   ClientTeamCommentsPanel,
-  ClientWorkroomPanel,
 } from './client-details';
 import { useClientAiAnalysis, useClientComments, useClientDetailsActions, useClientDetailsData, useClientDetailsSelection, useClientDetailsUiState } from '../hooks/client-details';
 
@@ -147,48 +146,43 @@ export function ClientDetails() {
   );
 
   const mainColumn = (
-    <>
-      <ClientWorkroomPanel
-        quoteCount={relatedQuotes.length}
-        contactMethodCount={contactMethodCount}
-        ragCount={clientKnowledge.length}
-        todoCount={pendingFollowUps.length + relatedAgentTasks.length}
-        loading={loading}
-        primaryNextStep={primaryNextStep}
-        primarySummary={primarySummary}
-        clientSummaryText={clientSummaryText}
-        clientNextStepText={clientNextStepText}
-        leadSummaryText={leadSummaryText}
-        leadNextStepText={leadNextStepText}
-        hasLeadRecord={!!leadRecord}
-        todoItems={workroomTodoItems}
-        ragItems={clientKnowledge}
-        channelHighlights={channelHighlights.map(({ action, ...item }) => ({ ...item, onClick: action }))}
-        onRefreshAiRecommendation={() => handleAnalyze(true)}
-        onOpenCommunication={() => openEmailInInbox(relatedEmails[0]?.id)}
-        onOpenAgentHub={openAgentHub}
-        onOpenKnowledgeBase={openKnowledgeBase}
-      />
-
-      <ClientEventPanel
-        eventView={eventView}
-        onEventViewChange={setEventView}
-        sortedLogs={sortedLeadLogs}
-        visibleTimelineLogs={visibleTimelineLogs}
-        visibleEventListLogs={visibleEventListLogs}
-        visibleGrowthLogs={visibleGrowthLogs}
-        growthLogs={growthLogs}
-        isDormant={!!client.isDormant}
-        timelineExpanded={timelineExpanded}
-        eventListExpanded={eventListExpanded}
-        growthLogsExpanded={growthLogsExpanded}
-        onToggleTimelineExpanded={() => setTimelineExpanded(prev => !prev)}
-        onToggleEventListExpanded={() => setEventListExpanded(prev => !prev)}
-        onToggleGrowthLogsExpanded={() => setGrowthLogsExpanded(prev => !prev)}
-        onDeleteGrowthLog={deleteLog}
-        onOpenEmail={openEmailInInbox}
-      />
-    </>
+    <ClientDetailsMainColumn
+      quoteCount={relatedQuotes.length}
+      contactMethodCount={contactMethodCount}
+      ragCount={clientKnowledge.length}
+      todoCount={pendingFollowUps.length + relatedAgentTasks.length}
+      loading={loading}
+      primaryNextStep={primaryNextStep}
+      primarySummary={primarySummary}
+      clientSummaryText={clientSummaryText}
+      clientNextStepText={clientNextStepText}
+      leadSummaryText={leadSummaryText}
+      leadNextStepText={leadNextStepText}
+      hasLeadRecord={!!leadRecord}
+      todoItems={workroomTodoItems}
+      ragItems={clientKnowledge}
+      channelHighlights={channelHighlights}
+      eventView={eventView}
+      sortedLogs={sortedLeadLogs}
+      visibleTimelineLogs={visibleTimelineLogs}
+      visibleEventListLogs={visibleEventListLogs}
+      visibleGrowthLogs={visibleGrowthLogs}
+      growthLogs={growthLogs}
+      isDormant={!!client.isDormant}
+      timelineExpanded={timelineExpanded}
+      eventListExpanded={eventListExpanded}
+      growthLogsExpanded={growthLogsExpanded}
+      onRefreshAiRecommendation={() => handleAnalyze(true)}
+      onOpenCommunication={() => openEmailInInbox(relatedEmails[0]?.id)}
+      onOpenAgentHub={openAgentHub}
+      onOpenKnowledgeBase={openKnowledgeBase}
+      onEventViewChange={setEventView}
+      onToggleTimelineExpanded={() => setTimelineExpanded(prev => !prev)}
+      onToggleEventListExpanded={() => setEventListExpanded(prev => !prev)}
+      onToggleGrowthLogsExpanded={() => setGrowthLogsExpanded(prev => !prev)}
+      onDeleteGrowthLog={deleteLog}
+      onOpenEmail={openEmailInInbox}
+    />
   );
 
   const sidebarColumn = (
