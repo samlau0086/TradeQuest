@@ -1,6 +1,7 @@
 import React from 'react';
 import { Languages, Loader2, Sparkles, User, UserPlus } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { ConversationToolbarButton, ConversationToolbarPill } from './ConversationToolbar';
 
 interface LiveChatHeaderActionsProps {
   language: 'en' | 'zh';
@@ -18,28 +19,25 @@ export function LiveChatHeaderActions({
 }: LiveChatHeaderActionsProps) {
   return (
     <>
-      <button
+      <ConversationToolbarButton
         type="button"
         onClick={onToggleHumanTakeover}
-        className={cn(
-          'inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-colors',
-          humanTakeover
-            ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
-            : 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100'
-        )}
+        tone={humanTakeover ? 'warning' : 'violet'}
+        compact
       >
         {humanTakeover ? <User className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
         {humanTakeover ? 'Human Takeover' : 'Agent Auto'}
-      </button>
-      <button
+      </ConversationToolbarButton>
+      <ConversationToolbarButton
         type="button"
         onClick={() => void onRunAgent()}
         disabled={isRunningAgent}
-        className="inline-flex items-center gap-2 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-bold text-cyan-700 hover:bg-cyan-100 disabled:opacity-60"
+        tone="info"
+        compact
       >
         {isRunningAgent ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
         {'Run Agent'}
-      </button>
+      </ConversationToolbarButton>
     </>
   );
 }
@@ -79,36 +77,32 @@ export function LiveChatHeaderMeta({
 
   return (
     <>
-      <button
+      <ConversationToolbarButton
         type="button"
         onClick={onToggleTranslate}
-        className={cn(
-          'flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-semibold',
-          translateEnabled
-            ? 'border-cyan-200 bg-cyan-50 text-cyan-700'
-            : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-800'
-        )}
+        tone={translateEnabled ? 'info' : 'default'}
+        compact
       >
         <Languages className="h-3 w-3" />
         {'Auto Translate'}
         <span className={cn('h-1.5 w-1.5 rounded-full', translateEnabled ? 'bg-cyan-400' : 'bg-slate-300')} />
-      </button>
+      </ConversationToolbarButton>
       {!isLinked && hasContactMethod && (
         <>
-          <button onClick={onCreateLead} className="flex items-center gap-1 rounded-full border border-cyan-200 bg-cyan-50 px-2 py-1 text-cyan-700 transition hover:bg-cyan-100">
+          <ConversationToolbarButton tone="info" compact onClick={onCreateLead}>
             <UserPlus className="h-3 w-3" /> New Lead
-          </button>
-          <button onClick={onAddToExistingClient} className="flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-700 transition hover:bg-emerald-100">
+          </ConversationToolbarButton>
+          <ConversationToolbarButton tone="success" compact onClick={onAddToExistingClient}>
             <User className="h-3 w-3" /> Add to Existing Client
-          </button>
+          </ConversationToolbarButton>
         </>
       )}
-      {visitorEmail && <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">email: {visitorEmail}</span>}
-      {visitorPhone && <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">phone: {visitorPhone}</span>}
-      {pageUrl && <span className="max-w-[360px] truncate rounded-full border border-slate-200 bg-slate-50 px-2 py-1">page: {pageUrl}</span>}
-      {visitorInfo.ip && <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">IP: {visitorInfo.ip}</span>}
-      {browserLabel && <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">{browserLabel}</span>}
-      {visitorInfo.os && <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">{visitorInfo.os}</span>}
+      {visitorEmail && <ConversationToolbarPill>email: {visitorEmail}</ConversationToolbarPill>}
+      {visitorPhone && <ConversationToolbarPill>phone: {visitorPhone}</ConversationToolbarPill>}
+      {pageUrl && <ConversationToolbarPill className="max-w-[360px] truncate">page: {pageUrl}</ConversationToolbarPill>}
+      {visitorInfo.ip && <ConversationToolbarPill>IP: {visitorInfo.ip}</ConversationToolbarPill>}
+      {browserLabel && <ConversationToolbarPill>{browserLabel}</ConversationToolbarPill>}
+      {visitorInfo.os && <ConversationToolbarPill>{visitorInfo.os}</ConversationToolbarPill>}
     </>
   );
 }

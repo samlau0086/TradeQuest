@@ -2,6 +2,7 @@ import React from 'react';
 import { CheckCircle2, Clock, Database, Eye, Loader2, MessageSquare, MousePointerClick, Paperclip, PenLine, Radar, Reply, User, UserPlus, X } from 'lucide-react';
 import { CommentItem } from '../CommentItem';
 import { AgentContextSuggestions } from '../AgentContextSuggestions';
+import { ConversationToolbarButton, ConversationToolbarPill } from './ConversationToolbar';
 
 interface EmailAttachment {
   name: string;
@@ -138,22 +139,22 @@ export function EmailHeaderMeta({
     <>
       {!isLinked && (
         <>
-          <button onClick={onCreateLead} className="flex items-center gap-1 rounded-full border border-cyan-200 bg-cyan-50 px-2 py-1 text-cyan-700 transition hover:bg-cyan-100">
+          <ConversationToolbarButton tone="info" compact onClick={onCreateLead}>
             <UserPlus className="w-3 h-3" /> New Lead
-          </button>
-          <button onClick={onAddToExistingClient} className="flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-700 transition hover:bg-emerald-100">
+          </ConversationToolbarButton>
+          <ConversationToolbarButton tone="success" compact onClick={onAddToExistingClient}>
             <User className="w-3 h-3" /> Add to Existing Client
-          </button>
+          </ConversationToolbarButton>
         </>
       )}
       {isInbound && senderIp && (
-        <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">IP: {senderIp}</span>
+        <ConversationToolbarPill>IP: {senderIp}</ConversationToolbarPill>
       )}
       {isInbound && senderCountry && (
-        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-700">{senderCountry}</span>
+        <ConversationToolbarPill tone="success">{senderCountry}</ConversationToolbarPill>
       )}
-      {cc && <span>Cc: {cc}</span>}
-      {bcc && <span>Bcc: {bcc}</span>}
+      {cc && <ConversationToolbarPill>Cc: {cc}</ConversationToolbarPill>}
+      {bcc && <ConversationToolbarPill>Bcc: {bcc}</ConversationToolbarPill>}
     </>
   );
 }
@@ -180,27 +181,30 @@ export function EmailHeaderActions({
   return (
     <>
       {isDraft ? (
-        <button
+        <ConversationToolbarButton
           onClick={onEditDraft}
-          className="rounded-md border border-slate-200 p-2 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900"
+          compact
           title="Edit Draft"
         >
           <PenLine className="w-4 h-4" />
-        </button>
+          <span>Edit Draft</span>
+        </ConversationToolbarButton>
       ) : (
-        <button
+        <ConversationToolbarButton
           onClick={onReply}
-          className="rounded-md border border-slate-200 p-2 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900"
+          compact
           title="Reply"
         >
           <Reply className="w-4 h-4" />
-        </button>
+          <span>Reply</span>
+        </ConversationToolbarButton>
       )}
       {hasClient && (
-        <button
+        <ConversationToolbarButton
           onClick={onAddToRag}
           disabled={isAddingToRag}
-          className="flex items-center gap-1 rounded-md border border-indigo-200 p-2 text-indigo-600 transition-colors hover:bg-indigo-50 hover:text-indigo-700"
+          tone="violet"
+          compact
           title="Add to Knowledge Base (RAG)"
         >
           {isAddingToRag ? (
@@ -210,7 +214,8 @@ export function EmailHeaderActions({
           ) : (
             <Database className="w-4 h-4" />
           )}
-        </button>
+          <span>{isAddedToRag ? 'Saved to RAG' : 'Add to RAG'}</span>
+        </ConversationToolbarButton>
       )}
     </>
   );

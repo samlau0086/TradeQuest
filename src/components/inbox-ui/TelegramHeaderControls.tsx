@@ -1,6 +1,7 @@
 import React from 'react';
 import { Languages, Sparkles, User, UserPlus } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { ConversationToolbarButton, ConversationToolbarPill } from './ConversationToolbar';
 
 interface TelegramHeaderActionsProps {
   language: 'en' | 'zh';
@@ -13,20 +14,16 @@ export function TelegramHeaderActions({
   onToggleHumanTakeover,
 }: TelegramHeaderActionsProps) {
   return (
-    <button
+    <ConversationToolbarButton
       type="button"
       onClick={onToggleHumanTakeover}
-      className={cn(
-        'inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-colors',
-        humanTakeover
-          ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
-          : 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100'
-      )}
+      tone={humanTakeover ? 'warning' : 'sky'}
+      compact
       title={humanTakeover ? 'Human takeover is active' : 'Telegram Agent auto-reply is enabled when the agent is active'}
     >
       {humanTakeover ? <User className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
       {humanTakeover ? 'Human Takeover' : 'Agent Auto'}
-    </button>
+    </ConversationToolbarButton>
   );
 }
 
@@ -56,36 +53,32 @@ export function TelegramHeaderMeta({
 }: TelegramHeaderMetaProps) {
   return (
     <>
-      <button
+      <ConversationToolbarButton
         type="button"
         onClick={onToggleTranslate}
-        className={cn(
-          'flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-semibold',
-          translateEnabled
-            ? 'border-cyan-200 bg-cyan-50 text-cyan-700'
-            : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-800'
-        )}
+        tone={translateEnabled ? 'info' : 'default'}
+        compact
       >
         <Languages className="h-3 w-3" />
         {'Auto Translate'}
         <span className={cn('h-1.5 w-1.5 rounded-full', translateEnabled ? 'bg-cyan-400' : 'bg-slate-300')} />
-      </button>
+      </ConversationToolbarButton>
       {!isLinked && hasContactMethod && (
         <>
-          <button onClick={onCreateLead} className="flex items-center gap-1 rounded-full border border-cyan-200 bg-cyan-50 px-2 py-1 text-cyan-700 transition hover:bg-cyan-100">
+          <ConversationToolbarButton tone="info" compact onClick={onCreateLead}>
             <UserPlus className="h-3 w-3" /> New Lead
-          </button>
-          <button onClick={onAddToExistingClient} className="flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-700 transition hover:bg-emerald-100">
+          </ConversationToolbarButton>
+          <ConversationToolbarButton tone="success" compact onClick={onAddToExistingClient}>
             <User className="h-3 w-3" /> Add to Existing Client
-          </button>
+          </ConversationToolbarButton>
         </>
       )}
-      {chatId && <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">chat: {chatId}</span>}
-      {userId && <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">user: {userId}</span>}
+      {chatId && <ConversationToolbarPill>chat: {chatId}</ConversationToolbarPill>}
+      {userId && <ConversationToolbarPill>user: {userId}</ConversationToolbarPill>}
       {humanTakeover && (
-        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">
+        <ConversationToolbarPill tone="warning">
           {'Agent paused'}
-        </span>
+        </ConversationToolbarPill>
       )}
     </>
   );
