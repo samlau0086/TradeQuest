@@ -519,7 +519,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 
 ### Phase 1: Design System Layer
 
-- [-] Create shared UI primitives for `PageHeader`, `SectionHeader`, `ActionBar`, `Toolbar`, `FilterBar`, `StatusBadge`, `OwnerStageControl`, `EmptyState`, `ConfirmDialog`, and `DataTable`. `SectionHeader`, `StatusBadge`, and `EmptyState` have initial implementations.
+- [-] Create shared UI primitives for `PageHeader`, `SectionHeader`, `ActionBar`, `Toolbar`, `FilterBar`, `StatusBadge`, `OwnerStageControl`, `EmptyState`, `ConfirmDialog`, and `DataTable`. `SectionHeader`, `StatusBadge`, `EmptyState`, and `IconButton` have initial implementations.
 - [ ] Normalize spacing, typography, button hierarchy, input styling, tab styling, icon usage, and density across operational pages.
 - [ ] Add shared layout primitives for `CRMWorkspaceLayout`, `RecordPageLayout`, `LeftListMiddleDetailRightPanelLayout`, and `WidgetRail`.
 - [ ] Keep the UI optimized for repeated CRM work: compact, scannable, keyboard-friendly, and not marketing-page-like.
@@ -583,7 +583,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 
 ### 阶段 1：Design System 基础层
 
-- [-] 建立共享 UI 基础组件：`PageHeader`、`SectionHeader`、`ActionBar`、`Toolbar`、`FilterBar`、`StatusBadge`、`OwnerStageControl`、`EmptyState`、`ConfirmDialog`、`DataTable`。`SectionHeader`、`StatusBadge` 和 `EmptyState` 已有初始实现。
+- [-] 建立共享 UI 基础组件：`PageHeader`、`SectionHeader`、`ActionBar`、`Toolbar`、`FilterBar`、`StatusBadge`、`OwnerStageControl`、`EmptyState`、`ConfirmDialog`、`DataTable`。`SectionHeader`、`StatusBadge`、`EmptyState` 和 `IconButton` 已有初始实现。
 - [ ] 统一运营页面的间距、字体层级、按钮层级、输入框、Tabs、图标和信息密度。
 - [ ] 建立共享布局组件：`CRMWorkspaceLayout`、`RecordPageLayout`、`LeftListMiddleDetailRightPanelLayout`、`WidgetRail`。
 - [ ] 保持 CRM 高频工作场景的紧凑、可扫读、可重复操作，而不是做成营销页风格。
