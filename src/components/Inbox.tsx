@@ -3,10 +3,7 @@ import { useStore, EmailMessage } from '../store';
 import { useAuthStore } from '../authStore';
 import {
   CONVERSATION_STAGES,
-  InboxContentPanel,
-  InboxConversationSidebar,
-  InboxDialogLayer,
-  InboxWorkspaceLayout,
+  InboxPageShell,
   useActiveConversationComments,
   useActiveConversationContext,
   useConversationFollowUp,
@@ -749,14 +746,13 @@ export function Inbox() {
   const contentHidden = !selectedEmailId && !selectedWhatsAppPhone && !selectedTelegramConversation && !selectedLiveChatConversation && !isComposing && !isStartingWhatsApp;
 
   return (
-    <InboxWorkspaceLayout
+    <InboxPageShell
       sidebarHidden={sidebarHidden}
       contentHidden={contentHidden}
-      sidebar={<InboxConversationSidebar {...sidebarProps} />}
-      content={<InboxContentPanel {...contentPanelProps} />}
-    >
-      <InboxDialogLayer {...dialogLayerProps} />
-    </InboxWorkspaceLayout>
+      sidebarProps={sidebarProps}
+      contentPanelProps={contentPanelProps}
+      dialogLayerProps={dialogLayerProps}
+    />
   );
 }
 

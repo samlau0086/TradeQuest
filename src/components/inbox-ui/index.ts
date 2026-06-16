@@ -15,6 +15,7 @@ export { InboxContentPanel } from './InboxContentPanel';
 export { InboxDialogLayer } from './InboxDialogLayer';
 export { InboxEmailDetailContainer } from './InboxEmailDetailContainer';
 export { InboxLiveChatDetailContainer } from './InboxLiveChatDetailContainer';
+export { InboxPageShell } from './InboxPageShell';
 export { InboxSelectedDetailPanel } from './InboxSelectedDetailPanel';
 export { InboxTelegramDetailContainer } from './InboxTelegramDetailContainer';
 export { InboxWhatsAppDetailContainer } from './InboxWhatsAppDetailContainer';
