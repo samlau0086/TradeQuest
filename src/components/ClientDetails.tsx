@@ -2,21 +2,14 @@ import React from 'react';
 import { useStore } from '../store';
 
 import {
-  ClientAiRadarCard,
-  ClientContactActionBox,
-  ClientContactsWidget,
-  ClientConversationNotesWidget,
   ClientDetailsLayout,
   ClientDetailsOverlays,
+  ClientDetailsSidebarColumn,
   ClientDetailsHeader,
   ClientEventPanel,
-  ClientFollowUpAgentWidget,
-  ClientProfileSidebarWidgets,
-  ClientQuotesWidget,
   ClientTeamCommentsPanel,
   ClientWorkroomPanel,
 } from './client-details';
-import { KnowledgeBaseManager } from './KnowledgeBaseManager';
 import { useClientAiAnalysis, useClientComments, useClientDetailsActions, useClientDetailsData, useClientDetailsSelection, useClientDetailsUiState } from '../hooks/client-details';
 
 export function ClientDetails() {
@@ -199,70 +192,34 @@ export function ClientDetails() {
   );
 
   const sidebarColumn = (
-    <>
-      <ClientProfileSidebarWidgets
-        client={client}
-        leadRecord={leadRecord}
-        summaryText={summaryText}
-        onStatusChange={(status) => {
-          if (leadRecord) updateDeal(leadRecord.id, { status });
-          else updateClientStatus(client.id, status);
-        }}
-      />
-
-      <ClientQuotesWidget
-        quotes={relatedQuotes}
-        leadRecord={leadRecord}
-        currencyRates={currencyRates}
-        onOpenQuote={openQuote}
-      />
-
-      <ClientAiRadarCard
-        visibleAiData={visibleAiData}
-        loading={loading}
-        leadScore={leadScore}
-        summaryText={summaryText}
-        nextStepText={nextStepText}
-        hasLeadRecord={!!leadRecord}
-        onAnalyze={handleAnalyze}
-        onInsertIcebreaker={handleInsertIcebreaker}
-      />
-
-      <ClientContactsWidget
-        client={client}
-        contacts={displayContacts}
-        expandedContactIdx={expandedContactIdx}
-        onExpandedContactChange={setExpandedContactIdx}
-        renderContactAction={(method, closeContactAction) => (
-          <ClientContactActionBox
-            method={method}
-            client={client}
-            onClose={closeContactAction}
-            onOpenEmailCompose={(email) => {
-              setComposeRecipient(email);
-              setShowEmailCompose(true);
-              closeContactAction();
-            }}
-          />
-        )}
-      />
-
-      <ClientFollowUpAgentWidget
-        enabled={client.agentEnabled}
-        mode={client.agentMode}
-        summary={client.agentSummary}
-        nextStep={client.agentNextStep}
-        loading={agentLoading}
-        onOpenSettings={() => setAgentSettingsOpen(true)}
-        onRunAgent={runAgent}
-      />
-
-      <ClientConversationNotesWidget tags={client.tags || []} />
-
-      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
-        <KnowledgeBaseManager clientId={client.id} />
-      </div>
-    </>
+    <ClientDetailsSidebarColumn
+      client={client}
+      leadRecord={leadRecord}
+      summaryText={summaryText}
+      relatedQuotes={relatedQuotes}
+      currencyRates={currencyRates}
+      visibleAiData={visibleAiData}
+      loading={loading}
+      leadScore={leadScore}
+      nextStepText={nextStepText}
+      contacts={displayContacts}
+      expandedContactIdx={expandedContactIdx}
+      agentLoading={agentLoading}
+      onStatusChange={(status) => {
+        if (leadRecord) updateDeal(leadRecord.id, { status });
+        else updateClientStatus(client.id, status);
+      }}
+      onOpenQuote={openQuote}
+      onAnalyze={handleAnalyze}
+      onInsertIcebreaker={handleInsertIcebreaker}
+      onExpandedContactChange={setExpandedContactIdx}
+      onOpenEmailCompose={(email) => {
+        setComposeRecipient(email);
+        setShowEmailCompose(true);
+      }}
+      onOpenAgentSettings={() => setAgentSettingsOpen(true)}
+      onRunAgent={runAgent}
+    />
   );
 
   const comments = (

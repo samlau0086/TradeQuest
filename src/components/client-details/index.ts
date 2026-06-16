@@ -6,6 +6,7 @@ export { ClientConversationNotesWidget } from './ClientConversationNotesWidget';
 export { ClientDeleteConfirmDialog } from './ClientDeleteConfirmDialog';
 export { ClientDetailsLayout } from './ClientDetailsLayout';
 export { ClientDetailsOverlays } from './ClientDetailsOverlays';
+export { ClientDetailsSidebarColumn } from './ClientDetailsSidebarColumn';
 export { ClientDetailsHeader } from './ClientDetailsHeader';
 export { ClientEmailComposeOverlay } from './ClientEmailComposeOverlay';
 export { ClientEventPanel } from './ClientEventPanel';
