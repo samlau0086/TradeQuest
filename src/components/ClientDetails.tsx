@@ -2,12 +2,12 @@ import React from 'react';
 import { useStore } from '../store';
 
 import {
+  ClientDetailsCommentsSection,
   ClientDetailsLayout,
   ClientDetailsMainColumn,
   ClientDetailsOverlays,
   ClientDetailsSidebarColumn,
   ClientDetailsHeader,
-  ClientTeamCommentsPanel,
 } from './client-details';
 import { useClientAiAnalysis, useClientComments, useClientDetailsActions, useClientDetailsData, useClientDetailsSelection, useClientDetailsUiState } from '../hooks/client-details';
 
@@ -217,7 +217,7 @@ export function ClientDetails() {
   );
 
   const comments = (
-    <ClientTeamCommentsPanel
+    <ClientDetailsCommentsSection
       comments={leadComments}
       commentText={commentText}
       fileInputRef={fileInputRef}
