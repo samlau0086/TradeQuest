@@ -15,6 +15,9 @@ interface DataTableProps<T> {
   renderCell: (row: T, column: DataTableColumn) => ReactNode;
   emptyState?: ReactNode;
   className?: string;
+  tableClassName?: string;
+  headClassName?: string;
+  bodyClassName?: string;
   rowClassName?: string | ((row: T) => string);
 }
 
@@ -31,12 +34,15 @@ export function DataTable<T>({
   renderCell,
   emptyState,
   className,
+  tableClassName,
+  headClassName,
+  bodyClassName,
   rowClassName,
 }: DataTableProps<T>) {
   return (
     <div className={cn('overflow-hidden rounded-xl border border-slate-800 bg-slate-950', className)}>
-      <table className="w-full text-left text-sm text-slate-300">
-        <thead className="border-b border-slate-800 bg-slate-900/50 text-xs uppercase text-slate-400">
+      <table className={cn('w-full text-left text-sm text-slate-300', tableClassName)}>
+        <thead className={cn('border-b border-slate-800 bg-slate-900/50 text-xs uppercase text-slate-400', headClassName)}>
           <tr>
             {columns.map(column => (
               <th
@@ -48,7 +54,7 @@ export function DataTable<T>({
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-800">
+        <tbody className={cn('divide-y divide-slate-800', bodyClassName)}>
           {rows.map(row => (
             <tr
               key={getRowKey(row)}

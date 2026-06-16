@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import { useStore, ContactMethod } from '../store';
+import { Client, useStore, ContactMethod } from '../store';
 import { cn } from '../lib/utils';
 import { Mail, Phone, MessageCircle, Send, Edit2, Trash2, Plus, Download, Upload, List as ListIcon, Map as MapIcon, X, Search } from 'lucide-react';
 import { useTranslation } from '../lib/i18n';
 import { ClientFormModal } from './ClientFormModal';
 import { UploadCSVModal } from './UploadCSVModal';
 import { WorldMap } from './WorldMap';
+import { DataTable, DataTableColumn } from './ui';
 
 type ViewMode = 'list' | 'map';
 type SortColumn = 'leadScore' | 'recentEvent';
@@ -154,6 +155,140 @@ const getLeadScoreVisual = (score?: number) => {
 
   const recentEventHeaderLabel = language === 'zh' ? '最近事件时间' : 'Recent Event';
 
+  const clientColumns: DataTableColumn[] = [
+    { key: 'name', header: t('name') },
+    { key: 'company', header: t('company') },
+    { key: 'location', header: t('location') },
+    { key: 'contact', header: t('contactMethod') },
+    {
+      key: 'leadScore',
+      header: (
+        <button
+          type="button"
+          onClick={() => toggleSort('leadScore')}
+          className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-left font-bold text-slate-400 hover:bg-slate-800 hover:text-cyan-300"
+          title={language === 'zh' ? '按线索分值排序' : 'Sort by lead score'}
+        >
+          {leadScoreHeaderLabel}
+          <span className="text-[10px] text-cyan-400">{sortColumn === 'leadScore' ? (sortDirection === 'desc' ? '↓' : '↑') : ''}</span>
+        </button>
+      )
+    },
+    {
+      key: 'recentEvent',
+      header: (
+        <button
+          type="button"
+          onClick={() => toggleSort('recentEvent')}
+          className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-left font-bold text-slate-400 hover:bg-slate-800 hover:text-cyan-300"
+          title={language === 'zh' ? '按最近事件时间排序' : 'Sort by recent event time'}
+        >
+          {recentEventHeaderLabel}
+          <span className="text-[10px] text-cyan-400">{sortColumn === 'recentEvent' ? (sortDirection === 'desc' ? '↓' : '↑') : ''}</span>
+        </button>
+      )
+    },
+    { key: 'source', header: language === 'zh' ? '来源' : 'Source' },
+    { key: 'tags', header: t('tagsLabel').split(' ')[0] },
+    { key: 'actions', header: t('actions'), align: 'right' }
+  ];
+
+  const renderClientCell = (client: Client, column: DataTableColumn) => {
+    const contactMethods = client.contactMethods || [];
+    const scoreVisual = getLeadScoreVisual(client.leadScore);
+    const leadScore = Math.max(0, Math.min(100, Number(client.leadScore) || 0));
+    const recentEvent = latestEventByClient[client.id];
+    const recentEventDate = recentEvent?.date || client.lastContact;
+    const recentEventTime = recentEventDate ? new Date(recentEventDate) : null;
+    const recentEventIsValid = !!recentEventTime && Number.isFinite(recentEventTime.getTime());
+
+    switch (column.key) {
+      case 'name':
+        return (
+          <button onClick={() => selectClient(client.id)} className="hover:text-cyan-400 hover:underline text-left font-bold text-slate-200">
+            {client.name}
+          </button>
+        );
+      case 'company':
+        return <span className="text-slate-400">{client.company}</span>;
+      case 'location':
+        return <span className="capitalize text-slate-400">{[client.city, client.state, client.country].filter(Boolean).join(', ') || '-'}</span>;
+      case 'contact':
+        return contactMethods.length > 0 ? (
+          <span className="flex items-center gap-1 text-slate-400">
+            {React.createElement(CONTACT_ICONS[contactMethods[0].type] || Mail, { className: 'w-3 h-3' })}
+            {contactMethods[0].value}
+            {contactMethods.length > 1 && <span className="text-[10px] bg-slate-700 px-1 rounded">+{contactMethods.length - 1}</span>}
+          </span>
+        ) : null;
+      case 'leadScore':
+        return (
+          <div className="flex items-center gap-3 min-w-[150px]">
+            <span className={cn('inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-bold whitespace-nowrap', scoreVisual.className)}>
+              <span>{scoreVisual.icon}</span>
+              <span>{scoreVisual.level}</span>
+              <span>{scoreVisual.label}</span>
+            </span>
+            <div className="min-w-[48px] text-right">
+              <div className="text-sm font-black text-slate-100">{leadScore}</div>
+              <div className="mt-1 h-1.5 w-12 overflow-hidden rounded-full bg-slate-800">
+                <div className={cn('h-full rounded-full', leadScore >= 81 ? 'bg-yellow-400' : leadScore >= 61 ? 'bg-orange-400' : leadScore >= 41 ? 'bg-cyan-400' : leadScore >= 21 ? 'bg-blue-400' : 'bg-slate-500')} style={{ width: `${leadScore}%` }} />
+              </div>
+            </div>
+          </div>
+        );
+      case 'recentEvent':
+        return recentEventIsValid ? (
+          <div className="min-w-[170px] text-slate-400">
+            <div className="text-xs font-bold text-slate-200">
+              {recentEventTime.toLocaleString()}
+            </div>
+            <div className="mt-1 max-w-[220px] truncate text-[11px] text-slate-500" title={recentEvent?.content || ''}>
+              {recentEvent?.content || (language === 'zh' ? '最近联系' : 'Last contact')}
+            </div>
+          </div>
+        ) : (
+          <span className="text-slate-600">-</span>
+        );
+      case 'source':
+        return client.sourceLabel ? (
+          <span className="inline-flex max-w-[220px] items-center rounded-full border border-cyan-500/25 bg-cyan-500/10 px-2 py-1 text-[11px] font-bold text-cyan-200" title={client.sourceLabel}>
+            <span className="truncate">{client.sourceLabel}</span>
+          </span>
+        ) : (
+          <span className="text-slate-600">-</span>
+        );
+      case 'tags':
+        return (
+          <div className="flex gap-1 flex-wrap">
+            {client.tags.slice(0, 2).map(tag => (
+              <span key={tag} className="text-[10px] bg-slate-900 border border-slate-700 text-slate-400 px-1.5 py-0.5 rounded">
+                {tag}
+              </span>
+            ))}
+            {client.tags.length > 2 && (
+              <span className="text-[10px] bg-slate-900 border border-slate-700 text-slate-400 px-1.5 py-0.5 rounded">
+                +{client.tags.length - 2}
+              </span>
+            )}
+          </div>
+        );
+      case 'actions':
+        return (
+          <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={() => selectClient(client.id)} className="p-1 hover:text-cyan-400 hover:bg-cyan-950/50 rounded transition-colors" title="Edit/View Details">
+              <Edit2 className="w-4 h-4" />
+            </button>
+            <button onClick={() => setDeleteClientId(client.id)} className="p-1 hover:text-red-400 hover:bg-red-950/50 rounded transition-colors" title="Delete">
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col bg-slate-900 border-l border-slate-800">
       <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
@@ -228,7 +363,19 @@ const getLeadScoreVisual = (score?: number) => {
       <div className="flex-1 p-6 flex flex-col min-h-0 overflow-hidden">
         {viewMode === 'list' ? (
           <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-auto shadow-xl flex-1">
-            <table className="w-full text-sm text-left">
+            <DataTable
+              columns={clientColumns}
+              rows={sortedClients}
+              getRowKey={client => client.id}
+              renderCell={renderClientCell}
+              className="min-w-[1100px] rounded-lg border-0 bg-slate-900"
+              tableClassName="text-sm"
+              headClassName="sticky top-0 bg-slate-950"
+              bodyClassName="divide-y divide-slate-800/50"
+              rowClassName="group"
+              emptyState={<span className="text-slate-500">{t('noClientsFound')}</span>}
+            />
+            <table className="hidden w-full text-sm text-left">
               <thead className="text-xs text-slate-400 bg-slate-950 uppercase border-b border-slate-800 sticky top-0">
                 <tr>
                   <th className="px-4 py-3">{t('name')}</th>
