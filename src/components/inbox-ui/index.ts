@@ -82,6 +82,7 @@ export type {
   UnifiedCommunicationConversation,
 } from './inboxModel';
 export type { InboxConversationChannel } from './ConversationDetailHeader';
+export type { InboxConversationSidebarProps } from './InboxConversationSidebar';
 export type {
   AgentContextShape,
   ComposeDefaults,

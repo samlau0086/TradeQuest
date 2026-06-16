@@ -12,7 +12,7 @@ import {
 
 type InboxMailFilter = 'inbox' | 'sent' | 'scheduled' | 'drafts';
 
-interface InboxConversationSidebarProps {
+export interface InboxConversationSidebarProps {
   language: string;
   filter: InboxMailFilter;
   channelFilter: InboxChannelFilter;

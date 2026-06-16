@@ -30,6 +30,7 @@ import {
 import type {
   InboxChannelFilter,
   InboxContentPanelProps,
+  InboxConversationSidebarProps,
   InboxWhatsAppConversation,
   UnifiedCommunicationConversation,
 } from './inbox-ui';
@@ -636,71 +637,73 @@ export function Inbox() {
     setCommentAttachments,
   };
 
+  const sidebarProps: InboxConversationSidebarProps = {
+    language,
+    filter,
+    channelFilter,
+    search,
+    searchTags,
+    tagSuggestions: Array.from(new Set(emails.flatMap(e => e.tags || []))),
+    followUpOnly,
+    visibleFollowUpCount,
+    unifiedConversationList,
+    selectableVisibleCount,
+    totalVisibleCount,
+    isUnifiedConversationLoading,
+    isSyncing,
+    isWhatsAppBackgroundSyncing,
+    syncError,
+    lastSyncAt,
+    selectedEmailId,
+    selectedWhatsAppPhone,
+    selectedTelegramConversation,
+    selectedLiveChatConversation,
+    selectedConversationIds,
+    emails,
+    clients,
+    currentUser,
+    selectedCount,
+    allVisibleSelected,
+    someVisibleSelected,
+    bulkTagInput,
+    bulkNoteInput,
+    bulkOwnerId,
+    bulkStage,
+    bulkFollowUpAt,
+    onFilterChange: handleFilterChange,
+    onChannelFilterChange: handleChannelFilterChange,
+    onSearchChange: setSearch,
+    onSearchTagsChange: setSearchTags,
+    onToggleFollowUpOnly: handleToggleFollowUpOnly,
+    onClearFollowUpOnly: handleClearFollowUpOnly,
+    onSync: () => handleSync(),
+    onToggleSelectAll: toggleSelectAll,
+    onClearSelection: clearBulkSelection,
+    onBulkTagInputChange: setBulkTagInput,
+    onBulkNoteInputChange: setBulkNoteInput,
+    onBulkOwnerIdChange: setBulkOwnerId,
+    onBulkStageChange: setBulkStage,
+    onBulkFollowUpAtChange: setBulkFollowUpAt,
+    onAddTag: handleBulkAddTag,
+    onAddComment: handleBulkAddComment,
+    onAssignOwner: handleBulkAssignOwner,
+    onSetStage: handleBulkSetStage,
+    onSetFollowUp: handleBulkSetFollowUp,
+    onMarkImportant: handleBulkMarkImportant,
+    onDeleteSelected: handleDeleteSelected,
+    onSelectConversation: handleSelectUnifiedConversation,
+    onToggleConversationSelection: toggleUnifiedSelection,
+    onDeleteWhatsAppConversation: handleDeleteWhatsAppConversation,
+    onOwnerStageChange: updateConversationOwnerStage,
+    onComposeEmail: handleComposeEmail,
+    onStartWhatsApp: handleStartWhatsApp,
+  };
+
   return (
     <PanelGroup id="inbox-layout" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged} orientation="horizontal" className="flex-1 overflow-hidden bg-slate-900 border-t border-slate-800">
       {/* Sidebar List */}
       <Panel id="inbox-list" defaultSize={320} minSize={250} maxSize={500} className={cn("flex flex-col transition-transform relative z-10", (selectedEmailId || selectedWhatsAppPhone || selectedTelegramConversation || selectedLiveChatConversation || isStartingWhatsApp) && "hidden md:flex")}>
-        <InboxConversationSidebar
-          language={language}
-          filter={filter}
-          channelFilter={channelFilter}
-          search={search}
-          searchTags={searchTags}
-          tagSuggestions={Array.from(new Set(emails.flatMap(e => e.tags || [])))}
-          followUpOnly={followUpOnly}
-          visibleFollowUpCount={visibleFollowUpCount}
-          unifiedConversationList={unifiedConversationList}
-          selectableVisibleCount={selectableVisibleCount}
-          totalVisibleCount={totalVisibleCount}
-          isUnifiedConversationLoading={isUnifiedConversationLoading}
-          isSyncing={isSyncing}
-          isWhatsAppBackgroundSyncing={isWhatsAppBackgroundSyncing}
-          syncError={syncError}
-          lastSyncAt={lastSyncAt}
-          selectedEmailId={selectedEmailId}
-          selectedWhatsAppPhone={selectedWhatsAppPhone}
-          selectedTelegramConversation={selectedTelegramConversation}
-          selectedLiveChatConversation={selectedLiveChatConversation}
-          selectedConversationIds={selectedConversationIds}
-          emails={emails}
-          clients={clients}
-          currentUser={currentUser}
-          selectedCount={selectedCount}
-          allVisibleSelected={allVisibleSelected}
-          someVisibleSelected={someVisibleSelected}
-          bulkTagInput={bulkTagInput}
-          bulkNoteInput={bulkNoteInput}
-          bulkOwnerId={bulkOwnerId}
-          bulkStage={bulkStage}
-          bulkFollowUpAt={bulkFollowUpAt}
-          onFilterChange={handleFilterChange}
-          onChannelFilterChange={handleChannelFilterChange}
-          onSearchChange={setSearch}
-          onSearchTagsChange={setSearchTags}
-          onToggleFollowUpOnly={handleToggleFollowUpOnly}
-          onClearFollowUpOnly={handleClearFollowUpOnly}
-          onSync={() => handleSync()}
-          onToggleSelectAll={toggleSelectAll}
-          onClearSelection={clearBulkSelection}
-          onBulkTagInputChange={setBulkTagInput}
-          onBulkNoteInputChange={setBulkNoteInput}
-          onBulkOwnerIdChange={setBulkOwnerId}
-          onBulkStageChange={setBulkStage}
-          onBulkFollowUpAtChange={setBulkFollowUpAt}
-          onAddTag={handleBulkAddTag}
-          onAddComment={handleBulkAddComment}
-          onAssignOwner={handleBulkAssignOwner}
-          onSetStage={handleBulkSetStage}
-          onSetFollowUp={handleBulkSetFollowUp}
-          onMarkImportant={handleBulkMarkImportant}
-          onDeleteSelected={handleDeleteSelected}
-          onSelectConversation={handleSelectUnifiedConversation}
-          onToggleConversationSelection={toggleUnifiedSelection}
-          onDeleteWhatsAppConversation={handleDeleteWhatsAppConversation}
-          onOwnerStageChange={updateConversationOwnerStage}
-          onComposeEmail={handleComposeEmail}
-          onStartWhatsApp={handleStartWhatsApp}
-        />
+        <InboxConversationSidebar {...sidebarProps} />
       </Panel>
 
       <PanelResizeHandle className="w-1 bg-slate-800 hover:bg-cyan-500 cursor-col-resize transition-colors hidden md:block" />
