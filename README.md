@@ -514,6 +514,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] Extract WhatsApp sending into `useWhatsAppSending`, isolating media upload, Agent Mode send generation, translate-before-send persistence, Hub send calls, CRM logging, and post-send cleanup.
 - [x] Extract WhatsApp client linking into `useWhatsAppClientLinking`, isolating New Lead/Add to Existing Client dialog state, conversation-to-client patching, and post-create linking.
 - [x] Extract WhatsApp agent context suggestions into `WhatsAppContextSuggestionsPanel`, isolating the context rail, draft/comment/follow-up actions, delete action, and persisted analysis write-back.
+- [x] Extract WhatsApp composer state into `useWhatsAppComposerState`, isolating body, attachments, media selector, emoji, schedule toggles, and conversation-reset cleanup.
 - [x] Extract Telegram and Live Chat detail glue code into dedicated containers so `InboxSelectedDetailPanel` is now a thin channel router.
 - [x] Move the long `InboxContentPanel` prop list into a typed `contentPanelProps` object so the Inbox render layout is cleaner and ready for future workspace layout changes.
 - [x] Move the long `InboxConversationSidebar` prop list into a typed `sidebarProps` object so the Inbox render tree reads like a left-list/right-detail workspace shell.
@@ -603,6 +604,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] 已拆出 WhatsApp 发送逻辑到 `useWhatsAppSending`，隔离媒体上传、Agent Mode 发送生成、发送前翻译持久化、Hub 发送调用、CRM 日志和发送后清理。
 - [x] 已拆出 WhatsApp 客户关联逻辑到 `useWhatsAppClientLinking`，隔离 New Lead/Add to Existing Client 弹窗状态、会话关联客户 PATCH 和创建后自动关联。
 - [x] 已拆出 WhatsApp 智能体上下文建议到 `WhatsAppContextSuggestionsPanel`，隔离建议侧栏、起草/备注/待跟进操作、删除操作和分析结果回写。
+- [x] 已拆出 WhatsApp 输入区状态到 `useWhatsAppComposerState`，隔离正文、附件、媒体库、emoji、定时发送开关和切换会话后的清理。
 - [x] 已拆出 Inbox 弹窗层 props 装配逻辑，将关闭、上传附件、标签和待跟进等回调 wiring 移出页面组件。
 - [x] 已拆出 Inbox 侧栏 props 装配逻辑，将筛选、列表和批量操作 wiring 移出页面组件。
 - [x] 继续把 `Inbox.tsx` 收敛为页面编排层，再替换整体布局。

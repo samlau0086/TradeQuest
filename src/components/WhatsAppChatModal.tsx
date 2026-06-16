@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Client, MediaItem, useStore } from '../store';
+import { Client, useStore } from '../store';
 import { MediaSelectorModal } from './MediaSelectorModal';
 import { useTranslation } from '../lib/i18n';
 import { getCustomerOutputLanguage, getOutboundLanguage } from '../lib/language';
@@ -14,6 +14,7 @@ import { WhatsAppMessageList } from './WhatsAppMessageList';
 import { useWhatsAppChatData } from './useWhatsAppChatData';
 import { useWhatsAppChatMapping } from './useWhatsAppChatMapping';
 import { useWhatsAppClientLinking } from './useWhatsAppClientLinking';
+import { useWhatsAppComposerState } from './useWhatsAppComposerState';
 import { useWhatsAppConversationMeta } from './useWhatsAppConversationMeta';
 import { useWhatsAppConversationSummary } from './useWhatsAppConversationSummary';
 import { useWhatsAppDrafting } from './useWhatsAppDrafting';
@@ -45,14 +46,34 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const t = useTranslation(language);
   const targetPhone = useMemo(() => isChatId(phone) ? phone.trim() : cleanPhone(phone), [phone]);
   const [selectedClientId, setSelectedClientId] = useState('');
-  const [body, setBody] = useState(initialMessage);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [selectedMedia, setSelectedMedia] = useState<MediaItem | null>(null);
-  const [showMediaSelector, setShowMediaSelector] = useState(false);
-  const [showEmoji, setShowEmoji] = useState(false);
-  const [scheduleEnabled, setScheduleEnabled] = useState(false);
-  const [scheduleDateTime, setScheduleDateTime] = useState('');
   const [translations, setTranslations] = useState<Record<string, WhatsAppTranslation>>(() => readCachedWhatsAppTranslations(targetPhone, language));
+  const {
+    body,
+    setBody,
+    selectedFile,
+    setSelectedFile,
+    selectedMedia,
+    setSelectedMedia,
+    showMediaSelector,
+    showEmoji,
+    scheduleEnabled,
+    setScheduleEnabled,
+    scheduleDateTime,
+    setScheduleDateTime,
+    emojiOptions,
+    clearSelectedFile,
+    clearSelectedMedia,
+    openMediaSelector,
+    closeMediaSelector,
+    toggleEmoji,
+    pickEmoji,
+    selectFile,
+    selectMedia,
+    toggleSchedule
+  } = useWhatsAppComposerState({
+    initialMessage,
+    resetKey: `${targetPhone}|${initialConversation?.id || ''}|${language}`
+  });
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const {
     hubClients,
@@ -303,11 +324,8 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   });
 
   useEffect(() => {
-    setBody(initialMessage);
     resetConversationMetaInputs();
-    setSelectedFile(null);
-    setSelectedMedia(null);
-  }, [targetPhone, initialConversation?.id, initialMessage, language, resetConversationMetaInputs]);
+  }, [targetPhone, initialConversation?.id, language, resetConversationMetaInputs]);
 
   useEffect(() => {
     if (embedded) return;
@@ -321,14 +339,6 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
       window.clearTimeout(mediaTimer);
     };
   }, [embedded, targetPhone, latestMessageId, messages.length]);
-
-  const defaultScheduleDateTime = () => {
-    const date = new Date(Date.now() + 15 * 60 * 1000);
-    date.setSeconds(0, 0);
-    return date.toISOString().slice(0, 16);
-  };
-
-  const emojiOptions = ['🙂', '😊', '👍', '🙏', '🔥', '🎉', '✅', '📦', '💬', '🤝', '📄', '🚀'];
 
   return (
     <div className={embedded ? "flex-1 min-h-0 flex flex-col bg-slate-950/50" : "fixed inset-0 bg-black/60 z-[80] flex items-center justify-center p-4"}>
@@ -444,22 +454,13 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
           typeMessageLabel={t('typeWhatsAppMessage')}
           scheduleLabel={t('schedule')}
           sendLabel={t('send')}
-          onClearSelectedFile={() => setSelectedFile(null)}
-          onClearSelectedMedia={() => setSelectedMedia(null)}
-          onFileSelected={file => {
-            setSelectedFile(file);
-            setSelectedMedia(null);
-          }}
-          onOpenMediaSelector={() => setShowMediaSelector(true)}
-          onToggleEmoji={() => setShowEmoji(!showEmoji)}
-          onPickEmoji={emoji => setBody(prev => `${prev}${emoji}`)}
-          onToggleSchedule={() => {
-            setScheduleEnabled(prev => {
-              const next = !prev;
-              if (next && !scheduleDateTime) setScheduleDateTime(defaultScheduleDateTime());
-              return next;
-            });
-          }}
+          onClearSelectedFile={clearSelectedFile}
+          onClearSelectedMedia={clearSelectedMedia}
+          onFileSelected={selectFile}
+          onOpenMediaSelector={openMediaSelector}
+          onToggleEmoji={toggleEmoji}
+          onPickEmoji={pickEmoji}
+          onToggleSchedule={toggleSchedule}
           onScheduleDateTimeChange={setScheduleDateTime}
           onTargetLanguageChange={value => {
             if (!activeClient) return;
@@ -481,10 +482,9 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
       {showMediaSelector && (
         <MediaSelectorModal
           onSelect={(_, media) => {
-            setSelectedMedia(media);
-            setSelectedFile(null);
+            selectMedia(media);
           }}
-          onClose={() => setShowMediaSelector(false)}
+          onClose={closeMediaSelector}
           allowedTypes={[]}
         />
       )}
