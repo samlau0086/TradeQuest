@@ -13,6 +13,8 @@ import { WhatsAppConversationMetaBar } from './WhatsAppConversationMetaBar';
 import { WhatsAppMessageComposer } from './WhatsAppMessageComposer';
 import { WhatsAppMessageList } from './WhatsAppMessageList';
 import { useWhatsAppChatData } from './useWhatsAppChatData';
+import { useWhatsAppChatMapping } from './useWhatsAppChatMapping';
+import { useWhatsAppConversationMeta, WHATSAPP_FOLLOW_UP_MARKER } from './useWhatsAppConversationMeta';
 import { useWhatsAppConversationSummary } from './useWhatsAppConversationSummary';
 import { useWhatsAppTranslation } from './useWhatsAppTranslation';
 import {
@@ -38,7 +40,6 @@ interface Props {
 const cleanPhone = cleanWhatsAppPhone;
 const isChatId = isWhatsAppChatId;
 const isInlineMedia = (mimeType: string) => mimeType.startsWith('image/') || mimeType.startsWith('video/');
-const WHATSAPP_FOLLOW_UP_MARKER = '__FOLLOW_UP__';
 
 const dataUrlToFile = async (dataUrl: string, name: string, mimeType: string) => {
   const response = await fetch(dataUrl);
@@ -52,8 +53,6 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const targetPhone = useMemo(() => isChatId(phone) ? phone.trim() : cleanPhone(phone), [phone]);
   const [selectedClientId, setSelectedClientId] = useState('');
   const [body, setBody] = useState(initialMessage);
-  const [tagInput, setTagInput] = useState('');
-  const [commentInput, setCommentInput] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedMedia, setSelectedMedia] = useState<MediaItem | null>(null);
   const [showMediaSelector, setShowMediaSelector] = useState(false);
@@ -65,7 +64,6 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [translations, setTranslations] = useState<Record<string, WhatsAppTranslation>>(() => readCachedWhatsAppTranslations(targetPhone, language));
   const [isCreatingLead, setIsCreatingLead] = useState(false);
   const [isAddingContactToClient, setIsAddingContactToClient] = useState(false);
-  const [mappingEdit, setMappingEdit] = useState<{ chatId: string; phone: string; saving?: boolean } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const {
     hubClients,
@@ -115,6 +113,39 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
       setSelectedClientId('');
     }
   }, [selectableHubClients, selectedClientId]);
+  const {
+    mappingEdit,
+    canConfirmMapping,
+    startMapping,
+    changeMappingPhone,
+    cancelMapping,
+    confirmMapping
+  } = useWhatsAppChatMapping({
+    conversation,
+    activeClientId: activeClient?.id,
+    hubClientId: mappingHubClientId,
+    resetKey: targetPhone,
+    notify,
+    setConversation,
+    reloadConversation: () => loadData({ sync: false })
+  });
+  const {
+    tagInput,
+    setTagInput,
+    commentInput,
+    setCommentInput,
+    visibleConversationComments,
+    whatsappFollowUp,
+    resetConversationMetaInputs,
+    addTag,
+    removeTag,
+    addConversationComment,
+    deleteConversationComment
+  } = useWhatsAppConversationMeta({
+    conversation,
+    setConversation,
+    notify
+  });
   const relatedDeals = useMemo(() => (
     activeClient
       ? deals
@@ -172,17 +203,6 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     memory: whatsappMemoryContext || 'Compressed WhatsApp memory: N/A',
     currentMessageId: latestInboundMessage?.id || latestOutboundMessage?.id
   });
-  const visibleConversationComments = (conversation?.comments || []).filter(comment => !String(comment.content || '').startsWith(WHATSAPP_FOLLOW_UP_MARKER));
-  const whatsappFollowUp = useMemo(() => {
-    const marker = [...(conversation?.comments || [])].reverse().find(comment => String(comment.content || '').startsWith(WHATSAPP_FOLLOW_UP_MARKER));
-    if (!marker) return null;
-    try {
-      const parsed = JSON.parse(String(marker.content).slice(WHATSAPP_FOLLOW_UP_MARKER.length));
-      return parsed?.status === 'open' ? { dueAt: parsed.dueAt as string, note: parsed.note as string } : null;
-    } catch {
-      return null;
-    }
-  }, [conversation?.comments]);
   const outboundLanguage = getCustomerOutputLanguage({
     lastCommunicationText: latestInboundMessage?.body,
     preferredLanguage: activeClient?.preferredLanguage,
@@ -236,12 +256,10 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
 
   useEffect(() => {
     setBody(initialMessage);
-    setTagInput('');
-    setCommentInput('');
+    resetConversationMetaInputs();
     setSelectedFile(null);
     setSelectedMedia(null);
-    setMappingEdit(null);
-  }, [targetPhone, initialConversation?.id, initialMessage, language]);
+  }, [targetPhone, initialConversation?.id, initialMessage, language, resetConversationMetaInputs]);
 
   useEffect(() => {
     if (embedded) return;
@@ -256,153 +274,10 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     };
   }, [embedded, targetPhone, latestMessageId, messages.length]);
 
-  const confirmChatIdMapping = async () => {
-    if (!mappingEdit?.chatId) return;
-    const phone = cleanPhone(mappingEdit.phone);
-    if (!phone) {
-      notify('Phone is required to map this WhatsApp chatId.', 'warning');
-      return;
-    }
-    if (!mappingHubClientId) {
-      notify('Please select or connect a WhatsApp Hub client before confirming this mapping.', 'warning');
-      return;
-    }
-    setMappingEdit(prev => prev ? { ...prev, saving: true } : prev);
-    try {
-      const response = await fetch('/api/whatsapp-hub/contact-mappings', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          conversationId: conversation?.id,
-          chatId: mappingEdit.chatId,
-          phone,
-          hubClientId: mappingHubClientId,
-          crmClientId: activeClient?.id
-        })
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'Failed to update WhatsApp chatId mapping.');
-      if (data.conversation) setConversation(data.conversation);
-      setMappingEdit(null);
-      notify('WhatsApp chatId mapping updated.', 'success');
-      await loadData({ sync: false });
-    } catch (error: any) {
-      notify(error.message || 'Failed to update WhatsApp chatId mapping.', 'error');
-      setMappingEdit(prev => prev ? { ...prev, saving: false } : prev);
-    }
-  };
-
   const defaultScheduleDateTime = () => {
     const date = new Date(Date.now() + 15 * 60 * 1000);
     date.setSeconds(0, 0);
     return date.toISOString().slice(0, 16);
-  };
-
-  const updateConversationTags = async (nextTags: string[]) => {
-    if (!conversation?.id) return;
-    const unifiedId = conversation.unifiedId;
-    const response = await fetch(unifiedId ? `/api/conversations/${unifiedId}` : `/api/whatsapp-hub/conversations/${conversation.id}`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${localStorage.getItem('token')}`
-      },
-      body: JSON.stringify({ tags: nextTags })
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || 'Failed to update WhatsApp tags');
-    setConversation(prev => prev ? { ...prev, tags: nextTags } : prev);
-  };
-
-  const addTag = async () => {
-    const tag = tagInput.trim().replace(/^#/, '');
-    if (!tag || !conversation) return;
-    const nextTags = Array.from(new Set([...(conversation.tags || []), tag]));
-    try {
-      await updateConversationTags(nextTags);
-      setTagInput('');
-    } catch (error: any) {
-      notify(error.message || 'Failed to update WhatsApp tags.', 'error');
-    }
-  };
-
-  const removeTag = async (tag: string) => {
-    if (!conversation) return;
-    try {
-      await updateConversationTags((conversation.tags || []).filter(item => item !== tag));
-    } catch (error: any) {
-      notify(error.message || 'Failed to update WhatsApp tags.', 'error');
-    }
-  };
-
-  const addConversationComment = async (content = commentInput) => {
-    if (!conversation?.id || !content.trim()) return;
-    try {
-      const comment = { id: `uc_${Date.now()}_${Math.floor(Math.random() * 1000)}`, author: 'User', content: content.trim(), createdAt: new Date().toISOString(), replies: [] };
-      if (conversation.unifiedId) {
-        const nextComments = [...(conversation.comments || []), comment];
-        const response = await fetch(`/api/conversations/${conversation.unifiedId}`, {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${localStorage.getItem('token')}`
-          },
-          body: JSON.stringify({ comments: nextComments })
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || 'Failed to add WhatsApp comment');
-        setConversation(prev => prev ? { ...prev, comments: data.conversation?.comments || nextComments } : prev);
-        if (content === commentInput) setCommentInput('');
-        return;
-      }
-      const response = await fetch(`/api/whatsapp-hub/conversations/${conversation.id}/comments`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({ content })
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Failed to add WhatsApp comment');
-      setConversation(prev => prev ? { ...prev, comments: data.comments || [...(prev.comments || []), data.comment] } : prev);
-      if (content === commentInput) setCommentInput('');
-    } catch (error: any) {
-      notify(error.message || 'Failed to add WhatsApp comment.', 'error');
-    }
-  };
-
-  const deleteConversationComment = async (commentId: string) => {
-    if (!conversation?.id) return;
-    try {
-      if (conversation.unifiedId) {
-        const nextComments = (conversation.comments || []).filter(comment => comment.id !== commentId);
-        const response = await fetch(`/api/conversations/${conversation.unifiedId}`, {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${localStorage.getItem('token')}`
-          },
-          body: JSON.stringify({ comments: nextComments })
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || 'Failed to delete WhatsApp comment');
-        setConversation(prev => prev ? { ...prev, comments: data.conversation?.comments || nextComments } : prev);
-        return;
-      }
-      const response = await fetch(`/api/whatsapp-hub/conversations/${conversation.id}/comments/${commentId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Failed to delete WhatsApp comment');
-      setConversation(prev => prev ? { ...prev, comments: data.comments || (prev.comments || []).filter(comment => comment.id !== commentId) } : prev);
-    } catch (error: any) {
-      notify(error.message || 'Failed to delete WhatsApp comment.', 'error');
-    }
   };
 
   const linkConversationToClient = async (clientId: string) => {
@@ -732,11 +607,11 @@ Return only the message text.`,
           onAddToExistingClient={() => setIsAddingContactToClient(true)}
           onOpenInInbox={onOpenInInbox}
           onClose={onClose}
-          onStartMapping={(chatId, phone) => setMappingEdit({ chatId, phone })}
-          onChangeMappingPhone={phone => setMappingEdit(prev => prev ? { ...prev, phone } : prev)}
-          onConfirmMapping={confirmChatIdMapping}
-          onCancelMapping={() => setMappingEdit(null)}
-          canConfirmMapping={!!(mappingEdit && cleanPhone(mappingEdit.phone))}
+          onStartMapping={startMapping}
+          onChangeMappingPhone={changeMappingPhone}
+          onConfirmMapping={confirmMapping}
+          onCancelMapping={cancelMapping}
+          canConfirmMapping={canConfirmMapping}
           onSelectedClientChange={setSelectedClientId}
           onToggleAutoTranslate={() => setWhatsAppAutoTranslateEnabled(autoTranslateKey, !whatsappAutoTranslateEnabled)}
           onToggleCustomerServiceAgent={() => setWhatsAppCustomerServiceAgentEnabled(!whatsappCustomerServiceAgentEnabled)}
