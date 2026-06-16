@@ -14,6 +14,7 @@ export { InboxContactLinkingModals } from './InboxContactLinkingModals';
 export { InboxContentPanel } from './InboxContentPanel';
 export { InboxEmailDetailContainer } from './InboxEmailDetailContainer';
 export { InboxSelectedDetailPanel } from './InboxSelectedDetailPanel';
+export { InboxWhatsAppDetailContainer } from './InboxWhatsAppDetailContainer';
 export { InboxConversationSidebar } from './InboxConversationSidebar';
 export { InboxConversationListItem } from './InboxConversationListItem';
 export { EmailTagDialog, EmailTodoDialog, InboxConfirmDialog, InboxNotificationDialog } from './InboxDialogs';

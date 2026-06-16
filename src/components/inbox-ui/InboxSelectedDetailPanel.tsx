@@ -1,80 +1,73 @@
 import React from 'react';
 import { InboxEmailDetailContainer } from './InboxEmailDetailContainer';
+import { InboxWhatsAppDetailContainer } from './InboxWhatsAppDetailContainer';
 import { LiveChatConversationPane } from './LiveChatConversationPane';
 import { TelegramConversationPane } from './TelegramConversationPane';
-import { WhatsAppConversationPane } from './WhatsAppConversationPane';
 import type { InboxSelectedDetailPanelProps } from './InboxContentPanelTypes';
 
 export function InboxSelectedDetailPanel(props: InboxSelectedDetailPanelProps) {
   const {
-  selectedTelegramConversation,
-  language,
-  activeTelegramClient,
-  activeTelegramContactMethod,
-  activeTelegramDisplayName,
-  activeTelegramTranslateEnabled,
-  activeTelegramTranslations,
-  activeTelegramAgentContext,
-  currentUser,
-  telegramMessages,
-  isTelegramMessagesLoading,
-  translatingConversationMessageIds,
-  activeConversationComments,
-  commentText,
-  telegramReply,
-  isSendingTelegramReply,
-  activeFollowUpAt,
-  activeFollowUpNote,
-  setSelectedTelegramConversation,
-  setTelegramMessages,
-  selectClient,
-  updateConversationOwnerStage,
-  setConfirmDialog,
-  deleteUnifiedConversation,
-  refreshUnifiedConversationData,
-  toggleTelegramHumanTakeover,
-  setConversationAutoTranslateEnabled,
-  handleCreateLead,
-  setIsAddingContactToClient,
-  patchUnifiedConversation,
-  applyUnifiedConversationUpdate,
-  draftTelegramReply,
-  appendActiveConversationComment,
-  updateActiveConversationFollowUp,
-  setCommentText,
-  replyActiveConversationComment,
-  setTelegramReply,
-  sendTelegramReply,
-  selectedLiveChatConversation,
-  activeLiveChatClient,
-  activeLiveChatContactMethod,
-  activeLiveChatSession,
-  activeLiveChatTranslateEnabled,
-  activeLiveChatTranslations,
-  activeLiveChatVisitorInfo,
-  activeLiveChatEvidenceItems,
-  activeLiveChatAgentContext,
-  activeUnifiedConversation,
-  visibleLiveChatMessages,
-  liveChatReply,
-  isSendingLiveChatReply,
-  isRunningLiveChatAgent,
-  latestLiveChatVisitorMessage,
-  liveChatEndRef,
-  setSelectedLiveChatConversation,
-  toggleLiveChatHumanTakeover,
-  runSelectedLiveChatAgent,
-  setLiveChatReply,
-  sendLiveChatReply,
-  selectedWhatsAppPhone,
-  setSelectedWhatsAppPhone,
-  selectedWhatsAppClientId,
-  setSelectedWhatsAppClientId,
-  activeWhatsAppConversation,
-  activeWhatsAppClient,
-  handleDeleteWhatsAppConversation,
-  loadWhatsAppConversations,
-  selectedEmail,
+    selectedTelegramConversation,
+    language,
+    activeTelegramClient,
+    activeTelegramContactMethod,
+    activeTelegramDisplayName,
+    activeTelegramTranslateEnabled,
+    activeTelegramTranslations,
+    activeTelegramAgentContext,
+    currentUser,
+    telegramMessages,
+    isTelegramMessagesLoading,
+    translatingConversationMessageIds,
+    activeConversationComments,
+    commentText,
+    telegramReply,
+    isSendingTelegramReply,
+    activeFollowUpAt,
+    activeFollowUpNote,
+    setSelectedTelegramConversation,
+    setTelegramMessages,
+    selectClient,
+    updateConversationOwnerStage,
+    setConfirmDialog,
+    deleteUnifiedConversation,
+    refreshUnifiedConversationData,
+    toggleTelegramHumanTakeover,
+    setConversationAutoTranslateEnabled,
+    handleCreateLead,
+    setIsAddingContactToClient,
+    patchUnifiedConversation,
+    applyUnifiedConversationUpdate,
+    draftTelegramReply,
+    appendActiveConversationComment,
+    updateActiveConversationFollowUp,
+    setCommentText,
+    replyActiveConversationComment,
+    setTelegramReply,
+    sendTelegramReply,
+    selectedLiveChatConversation,
+    activeLiveChatClient,
+    activeLiveChatContactMethod,
+    activeLiveChatSession,
+    activeLiveChatTranslateEnabled,
+    activeLiveChatTranslations,
+    activeLiveChatVisitorInfo,
+    activeLiveChatEvidenceItems,
+    activeLiveChatAgentContext,
+    activeUnifiedConversation,
+    visibleLiveChatMessages,
+    liveChatReply,
+    isSendingLiveChatReply,
+    isRunningLiveChatAgent,
+    latestLiveChatVisitorMessage,
+    liveChatEndRef,
+    setSelectedLiveChatConversation,
+    toggleLiveChatHumanTakeover,
+    runSelectedLiveChatAgent,
+    setLiveChatReply,
+    sendLiveChatReply,
+    selectedWhatsAppPhone,
+    selectedEmail,
   } = props;
   if (selectedTelegramConversation) {
     return (
@@ -267,38 +260,7 @@ export function InboxSelectedDetailPanel(props: InboxSelectedDetailPanelProps) {
   }
 
   if (selectedWhatsAppPhone) {
-    return (
-      <WhatsAppConversationPane
-        language={language}
-        selectedWhatsAppPhone={selectedWhatsAppPhone}
-        activeWhatsAppConversation={activeWhatsAppConversation}
-        activeWhatsAppClient={activeWhatsAppClient}
-        activeUnifiedConversation={activeUnifiedConversation}
-        currentUser={currentUser}
-        activeFollowUpAt={activeFollowUpAt}
-        activeFollowUpNote={activeFollowUpNote}
-        onBack={() => { setSelectedWhatsAppPhone(null); setSelectedWhatsAppClientId(null); }}
-        onClientClick={() => {
-          const id = activeWhatsAppClient?.id || activeWhatsAppConversation?.clientId;
-          if (id) selectClient(id);
-        }}
-        onOwnerChange={activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback ? (ownerId) => {
-          updateConversationOwnerStage(activeUnifiedConversation, { ownerId });
-        } : undefined}
-        onStageChange={activeUnifiedConversation && !activeUnifiedConversation.metadata?.localFallback ? (stage) => {
-          updateConversationOwnerStage(activeUnifiedConversation, { stage });
-        } : undefined}
-        onDeleteConversation={handleDeleteWhatsAppConversation}
-        onSetFollowUp={(dueAt, note) => updateActiveConversationFollowUp(dueAt, note, 'open')}
-        onClearFollowUp={() => updateActiveConversationFollowUp(null, null, 'canceled')}
-        onCompleteFollowUp={() => updateActiveConversationFollowUp(null, null, 'completed')}
-        onCloseChat={() => {
-          setSelectedWhatsAppPhone(null);
-          setSelectedWhatsAppClientId(null);
-          loadWhatsAppConversations();
-        }}
-      />
-    );
+    return <InboxWhatsAppDetailContainer {...props} />;
   }
 
   if (selectedEmail) {

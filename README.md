@@ -500,6 +500,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] Add explicit props typing to the extracted Inbox right-side content panel to make future UI layout changes safer.
 - [x] Split selected conversation detail routing into `InboxSelectedDetailPanel`, leaving `InboxContentPanel` as a thin compose/start/detail/empty-state orchestrator.
 - [x] Extract the Email detail glue code into `InboxEmailDetailContainer`, keeping email-specific delete, reply, draft, RAG, follow-up, and comment actions out of the shared selected-detail router.
+- [x] Extract the WhatsApp detail glue code into `InboxWhatsAppDetailContainer`, keeping WhatsApp-specific close, refresh, ownership, stage, delete, and follow-up actions isolated.
 - [ ] Continue reducing `Inbox.tsx` toward a page orchestration layer before replacing its layout.
 - [ ] Apply the same gradual extraction pattern to other large record/detail pages before major redesign.
 
