@@ -501,6 +501,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] Split selected conversation detail routing into `InboxSelectedDetailPanel`, leaving `InboxContentPanel` as a thin compose/start/detail/empty-state orchestrator.
 - [x] Extract the Email detail glue code into `InboxEmailDetailContainer`, keeping email-specific delete, reply, draft, RAG, follow-up, and comment actions out of the shared selected-detail router.
 - [x] Extract the WhatsApp detail glue code into `InboxWhatsAppDetailContainer`, keeping WhatsApp-specific close, refresh, ownership, stage, delete, and follow-up actions isolated.
+- [x] Extract WhatsApp message rendering into `WhatsAppMessageList` and move WhatsApp media/translation display helpers into a shared message model.
 - [x] Extract Telegram and Live Chat detail glue code into dedicated containers so `InboxSelectedDetailPanel` is now a thin channel router.
 - [x] Move the long `InboxContentPanel` prop list into a typed `contentPanelProps` object so the Inbox render layout is cleaner and ready for future workspace layout changes.
 - [x] Move the long `InboxConversationSidebar` prop list into a typed `sidebarProps` object so the Inbox render tree reads like a left-list/right-detail workspace shell.
@@ -538,7 +539,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [ ] Keep one unified left conversation list with channel filters, saved views, bulk actions, and assignment controls.
 - [-] Use a consistent middle conversation/detail pane for Email, WhatsApp, Live Chat, and Telegram. Email, WhatsApp, Live Chat, and Telegram now use the pilot pattern: messages/content/internal notes stay in the main pane while channel context and Agent suggestions sit in a dedicated right rail on large screens.
 - [-] Add an optional right context rail for linked customer/lead, AI context evidence, RAG snippets, tasks, and recent activity. The initial Email, WhatsApp, Live Chat, and Telegram right rails are now in place.
-- [-] Extract shared conversation split layout. `ConversationSplitPane` now powers the Email, Live Chat, and Telegram detail panes; WhatsApp already follows the same visual split in embedded mode and remains a follow-up candidate once its modal internals are further split.
+- [-] Extract shared conversation split layout. `ConversationSplitPane` now powers the Email, Live Chat, and Telegram detail panes; WhatsApp already follows the same visual split in embedded mode, with message rendering split out as the next step toward adopting the shared layout primitive.
 - [ ] Preserve channel-specific capabilities such as email WYSIWYG, WhatsApp media, translation, scheduling, and human takeover while using shared layout patterns.
 
 ### Phase 4: Agent Operations Center
@@ -577,6 +578,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] 已拆出创建 Lead 和添加到已有客户的弹窗编排逻辑，统一放入联系人关联组件。
 - [x] 已拆出确认、通知、附件上传、标签和待办设置等辅助弹窗。
 - [x] 已拆出 Inbox 右侧内容面板，将写邮件、发起 WhatsApp、Email、WhatsApp、Live Chat、Telegram 和空状态从页面壳层中隔离。
+- [x] 已拆出 WhatsApp 消息渲染到 `WhatsAppMessageList`，并将 WhatsApp 媒体/翻译展示辅助逻辑移动到共享消息模型。
 - [x] 已拆出 Inbox 弹窗层 props 装配逻辑，将关闭、上传附件、标签和待跟进等回调 wiring 移出页面组件。
 - [x] 已拆出 Inbox 侧栏 props 装配逻辑，将筛选、列表和批量操作 wiring 移出页面组件。
 - [x] 继续把 `Inbox.tsx` 收敛为页面编排层，再替换整体布局。
@@ -603,7 +605,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [ ] 保留统一左侧会话列表，并支持渠道筛选、保存视图、批量操作和分配控制。
 - [-] Email、WhatsApp、Live Chat、Telegram 使用一致的中间会话/详情区域。Email、WhatsApp、Live Chat 和 Telegram 已开始使用试点布局：消息/正文和内部备注保留在主区域，渠道上下文和 Agent 建议在大屏进入独立右侧 rail。
 - [-] 增加可选右侧上下文栏，用于展示关联客户/Lead、AI context evidence、RAG snippets、任务和最近活动。Email、WhatsApp、Live Chat 和 Telegram 的初始右侧上下文 rail 已落地。
-- [-] 抽出共享沟通详情分栏布局。`ConversationSplitPane` 已用于 Email、Live Chat 和 Telegram 详情；WhatsApp 在内嵌模式下已保持同样视觉分栏，后续在继续拆分 modal 内部结构后再接入该共享组件。
+- [-] 抽出共享沟通详情分栏布局。`ConversationSplitPane` 已用于 Email、Live Chat 和 Telegram 详情；WhatsApp 在内嵌模式下已保持同样视觉分栏，并已先拆出消息渲染层，下一步可更安全地接入共享布局组件。
 - [ ] 保留各渠道特有能力，如邮件 WYSIWYG、WhatsApp 媒体、翻译、定时发送和人工接管，同时统一布局模式。
 
 ### 阶段 4：Agent 运营中心
