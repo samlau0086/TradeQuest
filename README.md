@@ -497,6 +497,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] Extract Inbox create-lead and add-to-existing-client modal orchestration into a shared contact-linking component.
 - [x] Extract Inbox auxiliary dialogs for confirmation, notification, attachment upload, tags, and follow-up scheduling.
 - [x] Extract Inbox right-side content panel so compose, WhatsApp start, Email, WhatsApp, Live Chat, Telegram, and empty states are isolated from the page shell.
+- [x] Add explicit props typing to the extracted Inbox right-side content panel to make future UI layout changes safer.
 - [ ] Continue reducing `Inbox.tsx` toward a page orchestration layer before replacing its layout.
 - [ ] Apply the same gradual extraction pattern to other large record/detail pages before major redesign.
 
