@@ -6,7 +6,7 @@ import { useTranslation } from '../lib/i18n';
 import { ClientFormModal } from './ClientFormModal';
 import { UploadCSVModal } from './UploadCSVModal';
 import { WorldMap } from './WorldMap';
-import { ActionButton, ConfirmDialog, DataTable, DataTableColumn, IconButton, PageHeader, TagSearchInput, Toolbar } from './ui';
+import { ActionButton, ConfirmDialog, DataTable, DataTableColumn, IconButton, PageHeader, SegmentedControl, TagSearchInput, Toolbar } from './ui';
 
 type ViewMode = 'list' | 'map';
 type SortColumn = 'leadScore' | 'recentEvent';
@@ -297,22 +297,16 @@ const getLeadScoreVisual = (score?: number) => {
         description={`${sortedClients.length} ${language === 'zh' ? '个客户' : 'clients'}`}
         actions={(
           <Toolbar className="flex-wrap justify-end">
-          <div className="mr-2 flex rounded-lg border border-slate-800 bg-slate-950 p-1">
-            <button
-              onClick={() => setViewMode('list')}
-              className={cn("p-1.5 rounded-md transition-colors", viewMode === 'list' ? "bg-slate-800 text-cyan-400" : "text-slate-500 hover:text-slate-300")}
-              title="List View"
-            >
-              <ListIcon className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('map')}
-              className={cn("p-1.5 rounded-md transition-colors", viewMode === 'map' ? "bg-slate-800 text-cyan-400" : "text-slate-500 hover:text-slate-300")}
-              title="Map View"
-            >
-              <MapIcon className="w-4 h-4" />
-            </button>
-          </div>
+          <SegmentedControl<ViewMode>
+            value={viewMode}
+            onChange={setViewMode}
+            size="icon"
+            className="mr-2"
+            options={[
+              { value: 'list', label: 'List', title: 'List View', icon: <ListIcon className="w-4 h-4" /> },
+              { value: 'map', label: 'Map', title: 'Map View', icon: <MapIcon className="w-4 h-4" /> }
+            ]}
+          />
           <TagSearchInput
             tags={searchTags}
             onRemoveTag={(index) => setSearchTags(tags => tags.filter((_, tagIndex) => tagIndex !== index))}
