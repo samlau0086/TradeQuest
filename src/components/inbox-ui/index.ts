@@ -39,6 +39,7 @@ export { useConversationReplyActions } from './useConversationReplyActions';
 export { useEmailQuickActions } from './useEmailQuickActions';
 export { useInboxBulkActions } from './useInboxBulkActions';
 export { useInboxConversationList } from './useInboxConversationList';
+export { useInboxDialogLayerProps } from './useInboxDialogLayerProps';
 export { useInboxFollowUpFilterRequest } from './useInboxFollowUpFilterRequest';
 export { useInboxLifecycleEffects } from './useInboxLifecycleEffects';
 export { useInboxNavigationActions } from './useInboxNavigationActions';

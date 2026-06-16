@@ -12,6 +12,7 @@ import {
   useEmailQuickActions,
   useInboxBulkActions,
   useInboxConversationList,
+  useInboxDialogLayerProps,
   useInboxFollowUpFilterRequest,
   useInboxLifecycleEffects,
   useInboxNavigationActions,
@@ -29,7 +30,6 @@ import type {
   InboxChannelFilter,
   InboxContentPanelProps,
   InboxConversationSidebarProps,
-  InboxDialogLayerProps,
   InboxWhatsAppConversation,
   UnifiedCommunicationConversation,
 } from './inbox-ui';
@@ -706,7 +706,7 @@ export function Inbox() {
     onStartWhatsApp: handleStartWhatsApp,
   };
 
-  const dialogLayerProps: InboxDialogLayerProps = {
+  const dialogLayerProps = useInboxDialogLayerProps({
     isCreatingLead,
     isAddingContactToClient,
     filter,
@@ -720,8 +720,6 @@ export function Inbox() {
     activeLinkableContactMethod,
     activeLinkableDisplayName,
     activeUnifiedConversation,
-    onCloseCreateLead: () => setIsCreatingLead(false),
-    onCloseAddToExistingClient: () => setIsAddingContactToClient(false),
     patchUnifiedConversation,
     setSelectedTelegramConversation,
     setSelectedLiveChatConversation,
@@ -738,21 +736,20 @@ export function Inbox() {
     todoModalEmail,
     todoAt,
     todoNote,
-    onCloseConfirm: () => setConfirmDialog(null),
-    onCloseAlert: () => setAlertDialog(null),
-    onCloseAttachment: () => setShowCommentAttachmentModal(false),
-    onUploadAttachments: (files) => {
-      setCommentAttachments(prev => [...prev, ...files]);
-      setShowCommentAttachmentModal(false);
-    },
-    onTagInputChange: setTagInput,
-    onSubmitTag: submitTag,
-    onCloseTag: () => setTagModalEmail(null),
-    onTodoAtChange: setTodoAt,
-    onTodoNoteChange: setTodoNote,
-    onSubmitTodo: submitTodo,
-    onCloseTodo: () => setTodoModalEmail(null),
-  };
+    setIsCreatingLead,
+    setIsAddingContactToClient,
+    setConfirmDialog,
+    setAlertDialog,
+    setShowCommentAttachmentModal,
+    setCommentAttachments,
+    setTagInput,
+    submitTag,
+    setTagModalEmail,
+    setTodoAt,
+    setTodoNote,
+    submitTodo,
+    setTodoModalEmail,
+  });
 
   const { sidebarHidden, contentHidden } = useInboxPageVisibility({
     selectedEmailId,
