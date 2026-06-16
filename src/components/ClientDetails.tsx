@@ -1,17 +1,14 @@
 import React from 'react';
 import { useStore } from '../store';
-import { ClientFormModal } from './ClientFormModal';
 
 import {
-  ClientAgentSettingsModal,
   ClientAiRadarCard,
   ClientContactActionBox,
   ClientContactsWidget,
   ClientConversationNotesWidget,
-  ClientDeleteConfirmDialog,
   ClientDetailsLayout,
+  ClientDetailsOverlays,
   ClientDetailsHeader,
-  ClientEmailComposeOverlay,
   ClientEventPanel,
   ClientFollowUpAgentWidget,
   ClientProfileSidebarWidgets,
@@ -281,36 +278,29 @@ export function ClientDetails() {
   );
 
   const overlays = (
-    <>
-      {showEditModal && <ClientFormModal clientId={client.id} onClose={() => setShowEditModal(false)} />}
-      
-      {agentSettingsOpen && <ClientAgentSettingsModal client={client} onClose={() => setAgentSettingsOpen(false)} />}
-
-      {confirmDeleteTarget && (
-        <ClientDeleteConfirmDialog
-          onCancel={() => setConfirmDeleteTarget(false)}
-          onConfirm={() => {
-            deleteClient(client.id);
-            setConfirmDeleteTarget(false);
-          }}
-        />
-      )}
-
-      {/* Gmail-style sticky Compose block in corner */}
-      {showEmailCompose && (
-        <ClientEmailComposeOverlay
-          language={language}
-          recipient={composeRecipient}
-          subject={leadRecord ? `Follow up: ${leadRecord.name}` : `Follow up from ${client.company || client.name}`}
-          initialBody={composeInitialBody}
-          onOpenInInbox={openEmailComposeInInbox}
-          onClose={() => {
-            setShowEmailCompose(false);
-            setComposeInitialBody('');
-          }}
-        />
-      )}
-    </>
+    <ClientDetailsOverlays
+      client={client}
+      leadRecord={leadRecord}
+      language={language}
+      showEditModal={showEditModal}
+      agentSettingsOpen={agentSettingsOpen}
+      confirmDeleteTarget={confirmDeleteTarget}
+      showEmailCompose={showEmailCompose}
+      composeRecipient={composeRecipient}
+      composeInitialBody={composeInitialBody}
+      onCloseEditModal={() => setShowEditModal(false)}
+      onCloseAgentSettings={() => setAgentSettingsOpen(false)}
+      onCancelDelete={() => setConfirmDeleteTarget(false)}
+      onConfirmDelete={() => {
+        deleteClient(client.id);
+        setConfirmDeleteTarget(false);
+      }}
+      onOpenEmailComposeInInbox={openEmailComposeInInbox}
+      onCloseEmailCompose={() => {
+        setShowEmailCompose(false);
+        setComposeInitialBody('');
+      }}
+    />
   );
 
   return (
