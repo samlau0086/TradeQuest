@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef } from 'react';
 import { useStore, EmailMessage } from '../store';
 import { useAuthStore } from '../authStore';
 import {
@@ -13,6 +13,7 @@ import {
   useInboxBulkActions,
   useInboxConversationList,
   useInboxFollowUpFilterRequest,
+  useInboxLifecycleEffects,
   useInboxNavigationActions,
   useInboxPageVisibility,
   useInboxSelection,
@@ -22,7 +23,6 @@ import {
   useLiveChatInboxSession,
   useSelectedEmailContext,
   useUnifiedConversationActions,
-  WHATSAPP_CONVERSATION_POLL_MS,
   WHATSAPP_FOLLOW_UP_MARKER,
 } from './inbox-ui';
 import type {
@@ -149,37 +149,15 @@ export function Inbox() {
     liveChatMessages,
   });
 
-  useEffect(() => {
-    const closeMenu = () => setActiveMenu(null);
-    document.addEventListener('click', closeMenu);
-    return () => document.removeEventListener('click', closeMenu);
-  }, []);
-
-  useEffect(() => {
-    void loadWhatsAppConversations();
-  }, []);
-
-  useEffect(() => {
-    const handle = window.setTimeout(() => {
-      void fetchUnifiedConversations(search, searchTags);
-    }, 300);
-    return () => window.clearTimeout(handle);
-  }, [search, searchTags]);
-
-  useEffect(() => {
-    const poll = window.setInterval(() => {
-      if (document.visibilityState !== 'visible') return;
-      void syncWhatsAppConversations(search);
-    }, WHATSAPP_CONVERSATION_POLL_MS);
-    const handleFocus = () => {
-      void syncWhatsAppConversations(search);
-    };
-    window.addEventListener('focus', handleFocus);
-    return () => {
-      window.clearInterval(poll);
-      window.removeEventListener('focus', handleFocus);
-    };
-  }, [search]);
+  useInboxLifecycleEffects({
+    search,
+    searchTags,
+    setActiveMenu,
+    loadWhatsAppConversations,
+    fetchUnifiedConversations,
+    syncWhatsAppConversations,
+    handleSync,
+  });
 
   const {
     unifiedConversationSource,
@@ -291,13 +269,6 @@ export function Inbox() {
     patchUnifiedConversation,
     refreshUnifiedConversationData,
   });
-
-  useEffect(() => {
-    const initialSync = window.setTimeout(() => handleSync({ silent: true }), 15000);
-    return () => {
-      window.clearTimeout(initialSync);
-    };
-  }, []);
 
   const {
     selectedEmail,
