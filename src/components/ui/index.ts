@@ -17,3 +17,4 @@ export type { SegmentedControlOption } from './SegmentedControl';
 export { StatusBadge } from './StatusBadge';
 export { TagSearchInput } from './TagSearchInput';
 export { Toolbar } from './Toolbar';
+export { WidgetRail } from './WidgetRail';

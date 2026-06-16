@@ -7,6 +7,7 @@ import { ClientConversationNotesWidget } from './ClientConversationNotesWidget';
 import { ClientFollowUpAgentWidget } from './ClientFollowUpAgentWidget';
 import { ClientProfileSidebarWidgets } from './ClientProfileSidebarWidgets';
 import { ClientQuotesWidget } from './ClientQuotesWidget';
+import { WidgetRail } from '../ui';
 
 interface ClientDetailsSidebarColumnProps {
   client: Client;
@@ -54,7 +55,7 @@ export function ClientDetailsSidebarColumn({
   onRunAgent,
 }: ClientDetailsSidebarColumnProps) {
   return (
-    <>
+    <WidgetRail>
       <ClientProfileSidebarWidgets
         client={client}
         leadRecord={leadRecord}
@@ -113,6 +114,6 @@ export function ClientDetailsSidebarColumn({
       <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
         <KnowledgeBaseManager clientId={client.id} />
       </div>
-    </>
+    </WidgetRail>
   );
 }

@@ -38,7 +38,7 @@ export function RecordPageLayout({
               {mainColumn}
             </div>
             {sidebarColumn && (
-              <div className="min-w-0 space-y-6">
+              <div className="min-w-0">
                 {sidebarColumn}
               </div>
             )}
