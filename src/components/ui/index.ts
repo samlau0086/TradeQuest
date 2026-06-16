@@ -9,6 +9,7 @@ export { FilterBar } from './FilterBar';
 export { IconButton } from './IconButton';
 export { ModalDialog } from './ModalDialog';
 export { PageHeader } from './PageHeader';
+export { RecordPageLayout } from './RecordPageLayout';
 export { SearchInput } from './SearchInput';
 export { SectionHeader } from './SectionHeader';
 export { SegmentedControl } from './SegmentedControl';
