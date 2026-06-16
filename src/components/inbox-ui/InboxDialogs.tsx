@@ -1,4 +1,5 @@
 import React from 'react';
+import { ConfirmDialog } from '../ui';
 
 interface InboxConfirmDialogProps {
   message: string;
@@ -8,26 +9,13 @@ interface InboxConfirmDialogProps {
 
 export function InboxConfirmDialog({ message, onConfirm, onCancel }: InboxConfirmDialogProps) {
   return (
-    <div className="fixed inset-0 bg-black/50 z-[60] flex flex-col items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 max-w-sm w-full shadow-2xl">
-        <h3 className="text-lg font-bold text-white mb-4">Confirm Action</h3>
-        <p className="text-slate-300 text-sm mb-6">{message}</p>
-        <div className="flex justify-end gap-3">
-          <button
-            onClick={onCancel}
-            className="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            className="px-4 py-2 text-sm bg-red-600 text-white hover:bg-red-500 rounded transition-colors shadow shadow-red-600/20"
-          >
-            Confirm
-          </button>
-        </div>
-      </div>
-    </div>
+    <ConfirmDialog
+      title="Confirm Action"
+      message={message}
+      tone="danger"
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+    />
   );
 }
 
