@@ -2,20 +2,19 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Client, MediaItem, useStore } from '../store';
 import { MediaSelectorModal } from './MediaSelectorModal';
 import { useTranslation } from '../lib/i18n';
-import { AgentContextSuggestions } from './AgentContextSuggestions';
 import { getCustomerOutputLanguage, getOutboundLanguage } from '../lib/language';
 import { ClientFormModal, PREFERRED_LANGUAGES } from './ClientFormModal';
 import { AddContactToClientModal } from './AddContactToClientModal';
 import { buildUnifiedAgentContext } from '../lib/agentContext';
-import { ConversationContextRail } from './inbox-ui/ConversationContextRail';
 import { WhatsAppChatHeader } from './WhatsAppChatHeader';
+import { WhatsAppContextSuggestionsPanel } from './WhatsAppContextSuggestionsPanel';
 import { WhatsAppConversationMetaBar } from './WhatsAppConversationMetaBar';
 import { WhatsAppMessageComposer } from './WhatsAppMessageComposer';
 import { WhatsAppMessageList } from './WhatsAppMessageList';
 import { useWhatsAppChatData } from './useWhatsAppChatData';
 import { useWhatsAppChatMapping } from './useWhatsAppChatMapping';
 import { useWhatsAppClientLinking } from './useWhatsAppClientLinking';
-import { useWhatsAppConversationMeta, WHATSAPP_FOLLOW_UP_MARKER } from './useWhatsAppConversationMeta';
+import { useWhatsAppConversationMeta } from './useWhatsAppConversationMeta';
 import { useWhatsAppConversationSummary } from './useWhatsAppConversationSummary';
 import { useWhatsAppDrafting } from './useWhatsAppDrafting';
 import { useWhatsAppSending } from './useWhatsAppSending';
@@ -399,79 +398,22 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
               onMediaLoaded={() => scrollMessagesToBottom('auto')}
             />
           </section>
-          <ConversationContextRail
-            variant="rail"
-            title={language === 'zh' ? '智能体建议' : 'Agent Suggestions'}
-            description={language === 'zh'
-              ? '分析 WhatsApp 对话、客户资料、产品和 RAG 上下文，准备回复、待跟进和内部备注操作。'
-              : 'Analyze WhatsApp, customer, product, and RAG context for reply, follow-up, and internal note actions.'}
-            className={embedded ? 'min-h-0 overflow-y-auto border-t border-slate-800 bg-slate-950/60 p-4 lg:border-l lg:border-t-0' : 'border-t border-slate-800 bg-slate-950/60 p-4'}
-            collapsible
-          >
-            <AgentContextSuggestions
-              channel="whatsapp"
-              cacheKey={whatsappAgentContext.cacheKey}
-              contextLookup={conversation?.unifiedId ? { conversationId: conversation.unifiedId } : undefined}
-              clientId={conversation?.clientId || activeClient?.id}
-              whatsappNumber={displayPhone}
-              persistedInsight={conversation?.agentContextAnalysisKey === whatsappAgentContext.cacheKey ? conversation?.agentContextAnalysis : undefined}
-              persistedInsightKey={conversation?.agentContextAnalysisKey}
-              subject={conversation?.clientName || activeClient?.name || displayPhone}
-              body={whatsappAgentContext.body}
-              additionalContext={whatsappAgentContext.additionalContext}
-              clientName={conversation?.clientName || activeClient?.name}
-              hasClient={!!(conversation?.clientId || activeClient?.id)}
-              hasKnowledge={!!activeClient}
-              hasCustomerMessage={whatsappAgentContext.hasCustomerMessage}
-              autoScrollOnOpen={embedded}
-              onDraftReply={() => generateWhatsAppMessage(
-                body.trim() || (latestInboundMessage
-                  ? `Reply to the latest inbound customer WhatsApp message from ${conversation?.clientName || activeClient?.name || displayPhone}: ${latestInboundMessage.body}`
-                  : `Draft a polite WhatsApp follow-up to ${conversation?.clientName || activeClient?.name || displayPhone}. There is no inbound customer message yet, so do not answer our own outbound messages.`)
-              )}
-              onAddComment={() => addConversationComment(`Agent suggestion: review WhatsApp conversation with ${conversation?.clientName || activeClient?.name || displayPhone} and prepare the next best reply.`)}
-              followUpAt={whatsappFollowUp?.dueAt}
-              followUpNote={whatsappFollowUp?.note}
-              onSetFollowUp={(dueAt, note) => addConversationComment(`${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
-                status: 'open',
-                dueAt,
-                note: note || `Follow up WhatsApp conversation with ${conversation?.clientName || activeClient?.name || displayPhone}.`
-              })}`)}
-              onClearFollowUp={() => addConversationComment(`${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
-                status: 'canceled',
-                canceledAt: new Date().toISOString()
-              })}`)}
-              onCompleteFollowUp={() => addConversationComment(`${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
-                status: 'completed',
-                completedAt: new Date().toISOString()
-              })}`)}
-              onDeleteItem={async () => {
-                if (!conversation?.id) throw new Error('No WhatsApp conversation is selected.');
-                const response = await fetch(conversation.unifiedId ? `/api/conversations/${encodeURIComponent(conversation.unifiedId)}` : `/api/whatsapp-hub/conversations/${encodeURIComponent(conversation.id)}`, {
-                  method: 'DELETE',
-                  headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                });
-                const data = await response.json().catch(() => ({}));
-                if (!response.ok) throw new Error(data.error || 'Failed to delete WhatsApp conversation.');
-                notify('WhatsApp conversation deleted.', 'success');
-                onClose();
-              }}
-              onSaveAnalysis={async (key, insight) => {
-                if (!conversation?.id) return;
-                const response = await fetch(`/api/whatsapp-hub/conversations/${conversation.id}`, {
-                  method: 'PATCH',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${localStorage.getItem('token')}`
-                  },
-                  body: JSON.stringify({ agentContextAnalysis: insight, agentContextAnalysisKey: key })
-                });
-                const data = await response.json().catch(() => ({}));
-                if (!response.ok) throw new Error(data.error || 'Failed to save WhatsApp analysis');
-                setConversation(prev => prev ? { ...prev, agentContextAnalysis: insight, agentContextAnalysisKey: key } : prev);
-              }}
-            />
-          </ConversationContextRail>
+          <WhatsAppContextSuggestionsPanel
+            embedded={embedded}
+            language={language}
+            conversation={conversation}
+            activeClient={activeClient}
+            displayPhone={displayPhone}
+            body={body}
+            latestInboundMessage={latestInboundMessage}
+            whatsappAgentContext={whatsappAgentContext}
+            whatsappFollowUp={whatsappFollowUp}
+            generateWhatsAppMessage={generateWhatsAppMessage}
+            addConversationComment={addConversationComment}
+            notify={notify}
+            onClose={onClose}
+            setConversation={setConversation}
+          />
         </div>
 
         <WhatsAppMessageComposer
