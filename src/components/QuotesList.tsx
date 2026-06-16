@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useStore } from '../store';
+import { Quote, useStore } from '../store';
 import { useTranslation } from '../lib/i18n';
 import { FileText, Plus, Search, Download, Edit2, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
@@ -7,7 +7,7 @@ import { cn } from '../lib/utils'; // if needed
 import { QuoteFormModal } from './QuoteFormModal';
 import { generateQuotePDF } from '../lib/pdf';
 import { formatCurrency } from '../lib/currency';
-import { ActionButton, PageHeader, Toolbar } from './ui';
+import { ActionButton, DataTable, DataTableColumn, PageHeader, Toolbar } from './ui';
 
 interface QuotesListProps {
   embedded?: boolean;
@@ -56,6 +56,72 @@ export function QuotesList({ embedded = false }: QuotesListProps) {
     await generateQuotePDF(quote, client, products);
   };
 
+  const quoteColumns: DataTableColumn[] = [
+    { key: 'quoteNumber', header: t('quoteNo') },
+    { key: 'date', header: t('date') },
+    { key: 'client', header: t('client') },
+    { key: 'total', header: 'Total' },
+    { key: 'stage', header: t('stage') },
+    { key: 'actions', header: t('actions'), align: 'right' },
+  ];
+
+  const renderQuoteCell = (quote: Quote, column: DataTableColumn) => {
+    const client = clients.find(c => c.id === quote.clientId);
+    const subtotal = quote.items.reduce((sum, item) => sum + (item.total || item.quantity * item.unitPrice || 0), 0);
+    const fees = quote.fees.reduce((sum, fee) => sum + (fee.amount || 0), 0);
+
+    switch (column.key) {
+      case 'quoteNumber':
+        return <span className="font-mono font-medium text-slate-200">{quote.quoteNumber}</span>;
+      case 'date':
+        return quote.createdAt ? format(new Date(quote.createdAt), 'MMM d, yyyy') : '-';
+      case 'client':
+        return client ? (
+          <div>
+            <div className="font-medium text-slate-200">{client.name}</div>
+            {client.company && <div className="text-xs text-slate-400">{client.company}</div>}
+          </div>
+        ) : (
+          <span className="text-slate-500 italic">{t('generalNoClient')}</span>
+        );
+      case 'total':
+        return (
+          <div>
+            <div className="font-mono text-slate-200">{formatCurrency(subtotal + fees, quote.currency || 'USD', currencyRates)}</div>
+            <div className="text-[10px] text-slate-500">{quote.currency || 'USD'}</div>
+          </div>
+        );
+      case 'stage':
+        return (
+          <span className={cn(
+            "px-2 pl-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 w-max",
+            quote.status === 'Draft' ? "bg-slate-800 text-slate-400" :
+            quote.status === 'Sent' ? "bg-indigo-950 text-indigo-400" :
+            quote.status === 'Accepted' ? "bg-emerald-950 text-emerald-400" :
+            "bg-rose-950 text-rose-400"
+          )}>
+            {quote.status}
+          </span>
+        );
+      case 'actions':
+        return (
+          <div className="flex justify-end gap-1">
+            <button onClick={() => handleEdit(quote.id)} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors" title={t('viewEdit')}>
+              <Edit2 className="w-4 h-4" />
+            </button>
+            <button onClick={() => handleDownload(quote.id)} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors" title={t('downloadPdf')}>
+              <Download className="w-4 h-4" />
+            </button>
+            <button onClick={() => handleDelete(quote.id)} className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-950/50 rounded transition-colors" title={t('deleteClientButton')}>
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className={embedded ? "space-y-6" : "flex-1 bg-slate-900 overflow-y-auto p-6"}>
       <div className="w-full space-y-6">
@@ -86,84 +152,19 @@ export function QuotesList({ embedded = false }: QuotesListProps) {
           )}
         />
 
-        <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden">
-          <table className="w-full text-left text-sm text-slate-300">
-            <thead className="bg-slate-900/50 text-xs uppercase text-slate-400 border-b border-slate-800">
-              <tr>
-                <th className="px-4 py-3 font-medium">{t('quoteNo')}</th>
-                <th className="px-4 py-3 font-medium">{t('date')}</th>
-                <th className="px-4 py-3 font-medium">{t('client')}</th>
-                <th className="px-4 py-3 font-medium">Total</th>
-                <th className="px-4 py-3 font-medium">{t('stage')}</th>
-                <th className="px-4 py-3 font-medium text-right">{t('actions')}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {filteredQuotes.map(quote => {
-                const client = clients.find(c => c.id === quote.clientId);
-                const subtotal = quote.items.reduce((sum, item) => sum + (item.total || item.quantity * item.unitPrice || 0), 0);
-                const fees = quote.fees.reduce((sum, fee) => sum + (fee.amount || 0), 0);
-                return (
-                  <tr key={quote.id} className="hover:bg-slate-800/30 transition-colors">
-                    <td className="px-4 py-3 font-mono font-medium text-slate-200">
-                      {quote.quoteNumber}
-                    </td>
-                    <td className="px-4 py-3">
-                      {quote.createdAt ? format(new Date(quote.createdAt), 'MMM d, yyyy') : '-'}
-                    </td>
-                    <td className="px-4 py-3">
-                      {client ? (
-                        <div>
-                          <div className="font-medium text-slate-200">{client.name}</div>
-                          {client.company && <div className="text-xs text-slate-400">{client.company}</div>}
-                        </div>
-                      ) : (
-                        <span className="text-slate-500 italic">{t('generalNoClient')}</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="font-mono text-slate-200">{formatCurrency(subtotal + fees, quote.currency || 'USD', currencyRates)}</div>
-                      <div className="text-[10px] text-slate-500">{quote.currency || 'USD'}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={cn(
-                        "px-2 pl-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 w-max",
-                        quote.status === 'Draft' ? "bg-slate-800 text-slate-400" :
-                        quote.status === 'Sent' ? "bg-indigo-950 text-indigo-400" :
-                        quote.status === 'Accepted' ? "bg-emerald-950 text-emerald-400" :
-                        "bg-rose-950 text-rose-400"
-                      )}>
-                        {quote.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex justify-end gap-1">
-                        <button onClick={() => handleEdit(quote.id)} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors" title={t('viewEdit')}>
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => handleDownload(quote.id)} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors" title={t('downloadPdf')}>
-                          <Download className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => handleDelete(quote.id)} className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-950/50 rounded transition-colors" title={t('deleteClientButton')}>
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-              {filteredQuotes.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center">
-                    <FileText className="w-12 h-12 text-slate-700 mx-auto mb-4" />
-                    <h3 className="text-lg font-bold text-slate-400 mb-1">{t('noQuotes')}</h3>
-                    <p className="text-slate-500">{t('createFirstQuote')}</p>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          columns={quoteColumns}
+          rows={filteredQuotes}
+          getRowKey={quote => quote.id}
+          renderCell={renderQuoteCell}
+          emptyState={(
+            <>
+              <FileText className="w-12 h-12 text-slate-700 mx-auto mb-4" />
+              <h3 className="text-lg font-bold text-slate-400 mb-1">{t('noQuotes')}</h3>
+              <p className="text-slate-500">{t('createFirstQuote')}</p>
+            </>
+          )}
+        />
       </div>
 
       {showModal && (
