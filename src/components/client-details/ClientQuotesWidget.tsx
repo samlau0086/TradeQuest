@@ -2,7 +2,7 @@ import React from 'react';
 import { FileText } from 'lucide-react';
 import { Deal, Quote } from '../../store';
 import { formatCurrency } from '../../lib/currency';
-import { SectionHeader, StatusBadge } from '../ui';
+import { EmptyState, SectionHeader, StatusBadge } from '../ui';
 
 interface ClientQuotesWidgetProps {
   quotes: Quote[];
@@ -42,9 +42,7 @@ export function ClientQuotesWidget({ quotes, leadRecord, currencyRates, onOpenQu
           );
         })}
         {quotes.length === 0 && (
-          <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-500">
-            {leadRecord ? 'No quotes linked to this lead yet.' : 'No quotes linked to this client yet.'}
-          </div>
+          <EmptyState>{leadRecord ? 'No quotes linked to this lead yet.' : 'No quotes linked to this client yet.'}</EmptyState>
         )}
       </div>
     </div>

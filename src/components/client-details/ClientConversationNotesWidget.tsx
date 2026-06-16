@@ -1,6 +1,6 @@
 import React from 'react';
 import { Tag } from 'lucide-react';
-import { SectionHeader } from '../ui';
+import { EmptyState, SectionHeader } from '../ui';
 
 interface ClientConversationNotesWidgetProps {
   tags?: string[];
@@ -14,7 +14,7 @@ export function ClientConversationNotesWidget({ tags = [] }: ClientConversationN
         {tags.map(tag => (
           <span key={tag} className="rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs text-slate-300">{tag}</span>
         ))}
-        {tags.length === 0 && <span className="text-sm text-slate-500">No tags yet.</span>}
+        {tags.length === 0 && <EmptyState tone="subtle" size="compact">No tags yet.</EmptyState>}
       </div>
     </div>
   );

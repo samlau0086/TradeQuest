@@ -1,6 +1,7 @@
 import React from 'react';
 import { BadgeDollarSign, Building2, FileText, MapPin, MessageSquare, Workflow } from 'lucide-react';
 import { Client, ClientStatus, Deal } from '../../store';
+import { EmptyState } from '../ui';
 
 interface ClientProfileSidebarWidgetsProps {
   client: Client;
@@ -26,9 +27,7 @@ export function ClientProfileSidebarWidgets({
             Client profile update is waiting for review.
           </div>
         ) : (
-          <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-500">
-            No pending approval items.
-          </div>
+          <EmptyState>No pending approval items.</EmptyState>
         )}
       </div>
 

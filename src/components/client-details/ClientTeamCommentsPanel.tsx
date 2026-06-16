@@ -2,7 +2,7 @@ import React from 'react';
 import { MessageSquare, Paperclip, Send } from 'lucide-react';
 import { Attachment, Comment } from '../../store';
 import { CommentItem } from '../CommentItem';
-import { SectionHeader } from '../ui';
+import { EmptyState, SectionHeader } from '../ui';
 
 interface ClientTeamCommentsPanelProps {
   comments: Comment[];
@@ -32,7 +32,7 @@ export function ClientTeamCommentsPanel({
           <CommentItem key={comment.id} comment={comment} onReply={onReply} onDelete={onDelete} />
         ))}
         {comments.length === 0 && (
-          <div className="text-center text-xs text-slate-500 py-4 italic">No comments yet.</div>
+          <EmptyState tone="subtle" className="py-4 text-center text-xs italic">No comments yet.</EmptyState>
         )}
       </div>
 
