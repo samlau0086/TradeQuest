@@ -512,6 +512,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] Extract WhatsApp conversation metadata writes into `useWhatsAppConversationMeta`, isolating tag updates, internal comments, follow-up marker parsing, and comment deletion.
 - [x] Extract WhatsApp AI drafting into `useWhatsAppDrafting`, isolating customer-service/draft prompt execution, CRM/RAG/product context assembly, and AI generation loading state.
 - [x] Extract WhatsApp sending into `useWhatsAppSending`, isolating media upload, Agent Mode send generation, translate-before-send persistence, Hub send calls, CRM logging, and post-send cleanup.
+- [x] Extract WhatsApp client linking into `useWhatsAppClientLinking`, isolating New Lead/Add to Existing Client dialog state, conversation-to-client patching, and post-create linking.
 - [x] Extract Telegram and Live Chat detail glue code into dedicated containers so `InboxSelectedDetailPanel` is now a thin channel router.
 - [x] Move the long `InboxContentPanel` prop list into a typed `contentPanelProps` object so the Inbox render layout is cleaner and ready for future workspace layout changes.
 - [x] Move the long `InboxConversationSidebar` prop list into a typed `sidebarProps` object so the Inbox render tree reads like a left-list/right-detail workspace shell.
@@ -599,6 +600,7 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] 已拆出 WhatsApp 会话元信息写入到 `useWhatsAppConversationMeta`，隔离标签更新、内部备注、待跟进 marker 解析和备注删除。
 - [x] 已拆出 WhatsApp AI 起草到 `useWhatsAppDrafting`，隔离客服/起草 prompt 执行、CRM/RAG/产品上下文组装和 AI 生成中状态。
 - [x] 已拆出 WhatsApp 发送逻辑到 `useWhatsAppSending`，隔离媒体上传、Agent Mode 发送生成、发送前翻译持久化、Hub 发送调用、CRM 日志和发送后清理。
+- [x] 已拆出 WhatsApp 客户关联逻辑到 `useWhatsAppClientLinking`，隔离 New Lead/Add to Existing Client 弹窗状态、会话关联客户 PATCH 和创建后自动关联。
 - [x] 已拆出 Inbox 弹窗层 props 装配逻辑，将关闭、上传附件、标签和待跟进等回调 wiring 移出页面组件。
 - [x] 已拆出 Inbox 侧栏 props 装配逻辑，将筛选、列表和批量操作 wiring 移出页面组件。
 - [x] 继续把 `Inbox.tsx` 收敛为页面编排层，再替换整体布局。

@@ -14,6 +14,7 @@ import { WhatsAppMessageComposer } from './WhatsAppMessageComposer';
 import { WhatsAppMessageList } from './WhatsAppMessageList';
 import { useWhatsAppChatData } from './useWhatsAppChatData';
 import { useWhatsAppChatMapping } from './useWhatsAppChatMapping';
+import { useWhatsAppClientLinking } from './useWhatsAppClientLinking';
 import { useWhatsAppConversationMeta, WHATSAPP_FOLLOW_UP_MARKER } from './useWhatsAppConversationMeta';
 import { useWhatsAppConversationSummary } from './useWhatsAppConversationSummary';
 import { useWhatsAppDrafting } from './useWhatsAppDrafting';
@@ -53,8 +54,6 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
   const [scheduleDateTime, setScheduleDateTime] = useState('');
   const [translations, setTranslations] = useState<Record<string, WhatsAppTranslation>>(() => readCachedWhatsAppTranslations(targetPhone, language));
-  const [isCreatingLead, setIsCreatingLead] = useState(false);
-  const [isAddingContactToClient, setIsAddingContactToClient] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const {
     hubClients,
@@ -119,6 +118,24 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     notify,
     setConversation,
     reloadConversation: () => loadData({ sync: false })
+  });
+  const {
+    isCreatingLead,
+    isAddingContactToClient,
+    openCreateLead,
+    closeCreateLead,
+    openAddToExistingClient,
+    closeAddToExistingClient,
+    newLeadInitialData,
+    handleLeadCreated,
+    handleExistingClientLinked
+  } = useWhatsAppClientLinking({
+    clients,
+    conversation,
+    displayPhone,
+    setConversation,
+    selectClient,
+    notify
   });
   const {
     tagInput,
@@ -312,42 +329,6 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
     return date.toISOString().slice(0, 16);
   };
 
-  const linkConversationToClient = async (clientId: string) => {
-    const linkedClient = useStore.getState().clients.find(item => item.id === clientId);
-    if (conversation?.id) {
-      try {
-        const response = await fetch(conversation.unifiedId ? `/api/conversations/${conversation.unifiedId}` : `/api/whatsapp-hub/conversations/${conversation.id}`, {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${localStorage.getItem('token')}`
-          },
-          body: JSON.stringify({
-            clientId,
-            clientName: linkedClient?.name || displayPhone,
-            clientCompany: linkedClient?.company || ''
-          })
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || 'Failed to link WhatsApp conversation');
-      } catch (error: any) {
-        notify(error.message || 'Failed to link WhatsApp conversation.', 'warning');
-      }
-    }
-    setConversation(prev => prev ? {
-      ...prev,
-      clientId,
-      clientName: linkedClient?.name || displayPhone,
-      clientCompany: linkedClient?.company || ''
-    } : prev);
-    selectClient(clientId);
-  };
-
-  const handleLeadCreated = async (newClientId: string) => {
-    await linkConversationToClient(newClientId);
-    setIsCreatingLead(false);
-  };
-
   const emojiOptions = ['🙂', '😊', '👍', '🙏', '🔥', '🎉', '✅', '📦', '💬', '🤝', '📄', '🚀'];
 
   return (
@@ -369,8 +350,8 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
           customerServiceAgentEnabled={whatsappCustomerServiceAgentEnabled}
           randomStickyClientLabel={t('randomStickyClient')}
           onSelectClient={selectClient}
-          onCreateLead={() => setIsCreatingLead(true)}
-          onAddToExistingClient={() => setIsAddingContactToClient(true)}
+          onCreateLead={openCreateLead}
+          onAddToExistingClient={openAddToExistingClient}
           onOpenInInbox={onOpenInInbox}
           onClose={onClose}
           onStartMapping={startMapping}
@@ -567,22 +548,8 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
       )}
       {isCreatingLead && (
         <ClientFormModal
-          onClose={() => setIsCreatingLead(false)}
-          initialData={{
-            name: conversation?.clientName || displayPhone,
-            company: conversation?.clientCompany || 'Unknown',
-            country: 'Unknown',
-            status: 'Leads',
-            tags: ['whatsapp'],
-            contactMethods: [{ type: 'whatsapp', value: displayPhone }],
-            contacts: [{
-              id: `contact_${Date.now()}`,
-              name: conversation?.clientName || displayPhone,
-              title: '',
-              isPrimary: true,
-              contactMethods: [{ type: 'whatsapp', value: displayPhone }]
-            }]
-          }}
+          onClose={closeCreateLead}
+          initialData={newLeadInitialData}
           onSave={handleLeadCreated}
         />
       )}
@@ -590,10 +557,8 @@ export function WhatsAppChatModal({ client, phone, conversation: initialConversa
         <AddContactToClientModal
           contactMethod={{ type: 'whatsapp', value: displayPhone }}
           displayName={conversation?.clientName || displayPhone}
-          onClose={() => setIsAddingContactToClient(false)}
-          onLinked={async (clientId) => {
-            await linkConversationToClient(clientId);
-          }}
+          onClose={closeAddToExistingClient}
+          onLinked={handleExistingClientLinked}
         />
       )}
     </div>
