@@ -154,22 +154,38 @@ export function TelegramConversationPane({
         onClear={onClearConversationFollowUp}
         onComplete={onCompleteConversationFollowUp}
       />
-      <div className="flex-1 overflow-y-auto bg-slate-950/50 p-6 space-y-4">
-        <ConversationMessageList
-          channel="telegram"
-          language={language}
-          messages={telegramMessages}
-          isLoading={isTelegramMessagesLoading}
-          translateEnabled={activeTelegramTranslateEnabled}
-          translations={activeTelegramTranslations}
-          translatingIds={translatingConversationMessageIds}
-        />
+      <div className="flex-1 min-h-0 bg-slate-950/50 lg:grid lg:grid-cols-[minmax(0,1fr)_340px]">
+        <section className="min-h-0 overflow-y-auto p-6 space-y-4">
+          <ConversationMessageList
+            channel="telegram"
+            language={language}
+            messages={telegramMessages}
+            isLoading={isTelegramMessagesLoading}
+            translateEnabled={activeTelegramTranslateEnabled}
+            translations={activeTelegramTranslations}
+            translatingIds={translatingConversationMessageIds}
+          />
+          <ConversationInternalNotesPanel
+            language={language}
+            comments={activeConversationComments}
+            commentText={commentText}
+            accent="sky"
+            isLinked={!!activeTelegramClient}
+            linkedDescription="Linked client: notes are saved to the customer profile."
+            unlinkedDescription="Unlinked Telegram user: notes are saved to this conversation."
+            onCommentTextChange={onCommentTextChange}
+            onReply={onReplyComment}
+            onSubmit={onSubmitComment}
+          />
+        </section>
+
         <ConversationContextRail
           variant="rail"
-          title={language === 'zh' ? '智能体建议' : 'Agent Suggestions'}
+          title={language === 'zh' ? 'Telegram 上下文' : 'Telegram Context'}
           description={language === 'zh'
-            ? '分析 Telegram 对话并准备回复、待跟进和内部备注操作。'
-            : 'Analyze this Telegram conversation and prepare reply, follow-up, and internal note actions.'}
+            ? 'Telegram 对话分析、客户关联和 Agent 建议集中在这里，便于判断下一步。'
+            : 'Telegram analysis, linked customer context, and Agent suggestions for deciding the next action.'}
+          className="min-h-0 overflow-y-auto border-t border-slate-800 bg-slate-950/60 p-4 lg:border-l lg:border-t-0"
           collapsible
         >
           <TelegramAgentSuggestionsPanel
@@ -198,18 +214,6 @@ export function TelegramConversationPane({
             onDeleteItem={onDeleteConversation}
           />
         </ConversationContextRail>
-        <ConversationInternalNotesPanel
-          language={language}
-          comments={activeConversationComments}
-          commentText={commentText}
-          accent="sky"
-          isLinked={!!activeTelegramClient}
-          linkedDescription="Linked client: notes are saved to the customer profile."
-          unlinkedDescription="Unlinked Telegram user: notes are saved to this conversation."
-          onCommentTextChange={onCommentTextChange}
-          onReply={onReplyComment}
-          onSubmit={onSubmitComment}
-        />
       </div>
       <ConversationReplyComposer
         language={language}

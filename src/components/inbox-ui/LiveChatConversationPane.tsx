@@ -85,7 +85,6 @@ export function LiveChatConversationPane({
   liveChatReply,
   isSendingLiveChatReply,
   isRunningLiveChatAgent,
-  latestLiveChatVisitorMessage,
   liveChatEndRef,
   activeFollowUpAt,
   activeFollowUpNote,
@@ -167,34 +166,42 @@ export function LiveChatConversationPane({
         onClear={onClearConversationFollowUp}
         onComplete={onCompleteConversationFollowUp}
       />
-      <div className="flex-1 overflow-y-auto bg-slate-950/50 p-6 space-y-4">
+      <div className="flex-1 min-h-0 bg-slate-950/50 lg:grid lg:grid-cols-[minmax(0,1fr)_340px]">
+        <section className="min-h-0 overflow-y-auto p-6 space-y-4">
+          <ConversationMessageList
+            channel="live_chat"
+            language={language}
+            messages={visibleLiveChatMessages}
+            translateEnabled={activeLiveChatTranslateEnabled}
+            translations={activeLiveChatTranslations}
+            translatingIds={translatingConversationMessageIds}
+          />
+          <ConversationInternalNotesPanel
+            language={language}
+            comments={activeConversationComments}
+            commentText={commentText}
+            accent="violet"
+            isLinked={!!activeLiveChatClient}
+            linkedDescription="Linked client: notes are saved to the customer profile."
+            unlinkedDescription="Unlinked visitor: notes are saved to this conversation."
+            onCommentTextChange={onCommentTextChange}
+            onReply={onReplyComment}
+            onSubmit={onSubmitComment}
+          />
+          <div ref={liveChatEndRef} />
+        </section>
+
         <ConversationContextRail
           variant="rail"
-          title={language === 'zh' ? '客户与访客上下文' : 'Customer & Visitor Context'}
+          title={language === 'zh' ? 'Live Chat 上下文' : 'Live Chat Context'}
           description={language === 'zh'
-            ? '客户摘要、最佳下一步和访客证据会作为 Live Chat Agent 的上下文。'
-            : 'Customer summary, next step, and visitor evidence used by the Live Chat Agent.'}
+            ? '客户摘要、访客证据和 Agent 建议集中在这里，便于边看消息边判断下一步。'
+            : 'Customer summary, visitor evidence, and Agent suggestions for deciding the next action.'}
+          className="min-h-0 overflow-y-auto border-t border-slate-800 bg-slate-950/60 p-4 lg:border-l lg:border-t-0"
           collapsible
         >
           <LiveChatCustomerInsightCard client={activeLiveChatClient} />
           <LiveChatEvidencePanel language={language} items={activeLiveChatEvidenceItems} />
-        </ConversationContextRail>
-        <ConversationMessageList
-          channel="live_chat"
-          language={language}
-          messages={visibleLiveChatMessages}
-          translateEnabled={activeLiveChatTranslateEnabled}
-          translations={activeLiveChatTranslations}
-          translatingIds={translatingConversationMessageIds}
-        />
-        <ConversationContextRail
-          variant="rail"
-          title={language === 'zh' ? '智能体建议' : 'Agent Suggestions'}
-          description={language === 'zh'
-            ? '分析当前对话并生成回复、待跟进和内部备注操作。'
-            : 'Analyze this conversation and prepare reply, follow-up, and internal note actions.'}
-          collapsible
-        >
           <LiveChatAgentSuggestionsPanel
             language={language}
             cacheKey={activeLiveChatAgentContext.cacheKey}
@@ -220,19 +227,6 @@ export function LiveChatConversationPane({
             onDeleteItem={onDeleteConversation}
           />
         </ConversationContextRail>
-        <ConversationInternalNotesPanel
-          language={language}
-          comments={activeConversationComments}
-          commentText={commentText}
-          accent="violet"
-          isLinked={!!activeLiveChatClient}
-          linkedDescription="Linked client: notes are saved to the customer profile."
-          unlinkedDescription="Unlinked visitor: notes are saved to this conversation."
-          onCommentTextChange={onCommentTextChange}
-          onReply={onReplyComment}
-          onSubmit={onSubmitComment}
-        />
-        <div ref={liveChatEndRef} />
       </div>
       <ConversationReplyComposer
         language={language}

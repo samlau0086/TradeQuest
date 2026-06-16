@@ -536,8 +536,8 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 
 - [ ] Refactor Inbox into a HubSpot-like communication workspace.
 - [ ] Keep one unified left conversation list with channel filters, saved views, bulk actions, and assignment controls.
-- [ ] Use a consistent middle conversation/detail pane for Email, WhatsApp, Live Chat, and Telegram.
-- [ ] Add an optional right context rail for linked customer/lead, AI context evidence, RAG snippets, tasks, and recent activity.
+- [-] Use a consistent middle conversation/detail pane for Email, WhatsApp, Live Chat, and Telegram. Live Chat and Telegram are the first pilots: messages/internal notes stay in the main pane while channel context and Agent suggestions sit in a dedicated right rail on large screens.
+- [-] Add an optional right context rail for linked customer/lead, AI context evidence, RAG snippets, tasks, and recent activity. The initial Live Chat and Telegram right rails are now in place.
 - [ ] Preserve channel-specific capabilities such as email WYSIWYG, WhatsApp media, translation, scheduling, and human takeover while using shared layout patterns.
 
 ### Phase 4: Agent Operations Center
@@ -600,8 +600,8 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 
 - [ ] 将 Inbox 重构为类似 HubSpot 的统一沟通工作区。
 - [ ] 保留统一左侧会话列表，并支持渠道筛选、保存视图、批量操作和分配控制。
-- [ ] Email、WhatsApp、Live Chat、Telegram 使用一致的中间会话/详情区域。
-- [ ] 增加可选右侧上下文栏，用于展示关联客户/Lead、AI context evidence、RAG snippets、任务和最近活动。
+- [-] Email、WhatsApp、Live Chat、Telegram 使用一致的中间会话/详情区域。Live Chat 和 Telegram 已作为首批试点：消息和内部备注保留在主区域，渠道上下文和 Agent 建议在大屏进入独立右侧 rail。
+- [-] 增加可选右侧上下文栏，用于展示关联客户/Lead、AI context evidence、RAG snippets、任务和最近活动。Live Chat 和 Telegram 的初始右侧上下文 rail 已落地。
 - [ ] 保留各渠道特有能力，如邮件 WYSIWYG、WhatsApp 媒体、翻译、定时发送和人工接管，同时统一布局模式。
 
 ### 阶段 4：Agent 运营中心
