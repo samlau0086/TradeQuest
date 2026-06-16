@@ -17,11 +17,13 @@ export function ClientLeadHub({ initialTab = 'clients' }: { initialTab?: ClientL
   return (
     <CRMWorkspaceLayout
       className="min-h-0 border-t border-slate-800"
-      contentClassName="h-[calc(100%-96px)] pt-0"
+      headerClassName="bg-slate-950/40 pb-0"
+      contentClassName="pt-0"
+      bodyScroll="hidden"
       scrollable={false}
       header={(
         <PageHeader
-          className="bg-slate-950/40 px-6 py-5"
+          className="px-6 py-5"
           size="lg"
           icon={<Users className="h-5 w-5 text-cyan-400" />}
           title={language === 'zh' ? '客户与线索' : 'Clients & Leads'}

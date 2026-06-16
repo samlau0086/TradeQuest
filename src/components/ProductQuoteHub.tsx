@@ -18,6 +18,7 @@ export function ProductQuoteHub({ initialTab = 'products' }: ProductQuoteHubProp
   return (
     <CRMWorkspaceLayout
       className="p-6"
+      bodyScroll="visible"
       header={(
         <PageHeader
           icon={<Package className="h-5 w-5 text-cyan-400" />}
