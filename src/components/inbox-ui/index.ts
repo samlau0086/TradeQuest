@@ -12,6 +12,7 @@ export { InboxAuxiliaryDialogs } from './InboxAuxiliaryDialogs';
 export { InboxBulkActionsPanel } from './InboxBulkActionsPanel';
 export { InboxContactLinkingModals } from './InboxContactLinkingModals';
 export { InboxContentPanel } from './InboxContentPanel';
+export { InboxSelectedDetailPanel } from './InboxSelectedDetailPanel';
 export { InboxConversationSidebar } from './InboxConversationSidebar';
 export { InboxConversationListItem } from './InboxConversationListItem';
 export { EmailTagDialog, EmailTodoDialog, InboxConfirmDialog, InboxNotificationDialog } from './InboxDialogs';
@@ -77,3 +78,11 @@ export type {
   UnifiedCommunicationConversation,
 } from './inboxModel';
 export type { InboxConversationChannel } from './ConversationDetailHeader';
+export type {
+  AgentContextShape,
+  ComposeDefaults,
+  ConfirmDialogState,
+  InboxContentPanelProps,
+  InboxSelectedDetailPanelProps,
+  WhatsAppContactOptionView,
+} from './InboxContentPanelTypes';
