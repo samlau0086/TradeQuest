@@ -504,6 +504,8 @@ Maintenance rule: every future UI refactor step must update this roadmap in the 
 - [x] Extract Telegram and Live Chat detail glue code into dedicated containers so `InboxSelectedDetailPanel` is now a thin channel router.
 - [x] Move the long `InboxContentPanel` prop list into a typed `contentPanelProps` object so the Inbox render layout is cleaner and ready for future workspace layout changes.
 - [x] Move the long `InboxConversationSidebar` prop list into a typed `sidebarProps` object so the Inbox render tree reads like a left-list/right-detail workspace shell.
+- [x] Extract the Inbox resizable workspace shell into `InboxWorkspaceLayout`, isolating PanelGroup, resize handle, and responsive sidebar/content visibility for future HubSpot-style layout changes.
+- [x] Extract Inbox modal composition into `InboxDialogLayer`, keeping contact-linking and auxiliary dialogs out of the page shell.
 - [ ] Continue reducing `Inbox.tsx` toward a page orchestration layer before replacing its layout.
 - [ ] Apply the same gradual extraction pattern to other large record/detail pages before major redesign.
 

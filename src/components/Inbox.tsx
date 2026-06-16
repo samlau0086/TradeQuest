@@ -1,14 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore, EmailMessage } from '../store';
 import { useAuthStore } from '../authStore';
-import { cn } from '../lib/utils';
-import { Group as PanelGroup, Panel, Separator as PanelResizeHandle, useDefaultLayout } from 'react-resizable-panels';
 import {
   CONVERSATION_STAGES,
-  InboxAuxiliaryDialogs,
-  InboxContactLinkingModals,
   InboxContentPanel,
   InboxConversationSidebar,
+  InboxDialogLayer,
+  InboxWorkspaceLayout,
   useActiveConversationComments,
   useActiveConversationContext,
   useConversationFollowUp,
@@ -37,7 +35,6 @@ import type {
 
 export function Inbox() {
   const { emails, markEmailRead, clients, logs, deals, knowledgeBase, products, addEmail, addLog, addClient, editClient, editEmail, addEmailComment, addEmailReply, addQuest, selectClient, addKnowledgeItem, selectedEmailId, selectEmail, notify, language, llmConfigs, activeLLMId, llmMappings, inboxFollowUpFilterRequest, fetchEmails, fetchLiveChatSessions, fetchLiveChatMessages, sendLiveChatOperatorMessage, updateLiveChatSession, runLiveChatAgent, connectLiveChatSocket, joinLiveChatSocketSession, liveChatSessions, liveChatMessages, liveChatSocketStatus } = useStore();
-  const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'inbox-layout' });
   const currentUser = useAuthStore(state => state.profile);
   const [filter, setFilter] = useState<'inbox' | 'sent' | 'scheduled' | 'drafts'>('inbox');
   const [channelFilter, setChannelFilter] = useState<InboxChannelFilter>('all');
@@ -699,21 +696,17 @@ export function Inbox() {
     onStartWhatsApp: handleStartWhatsApp,
   };
 
+  const sidebarHidden = !!(selectedEmailId || selectedWhatsAppPhone || selectedTelegramConversation || selectedLiveChatConversation || isStartingWhatsApp);
+  const contentHidden = !selectedEmailId && !selectedWhatsAppPhone && !selectedTelegramConversation && !selectedLiveChatConversation && !isComposing && !isStartingWhatsApp;
+
   return (
-    <PanelGroup id="inbox-layout" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged} orientation="horizontal" className="flex-1 overflow-hidden bg-slate-900 border-t border-slate-800">
-      {/* Sidebar List */}
-      <Panel id="inbox-list" defaultSize={320} minSize={250} maxSize={500} className={cn("flex flex-col transition-transform relative z-10", (selectedEmailId || selectedWhatsAppPhone || selectedTelegramConversation || selectedLiveChatConversation || isStartingWhatsApp) && "hidden md:flex")}>
-        <InboxConversationSidebar {...sidebarProps} />
-      </Panel>
-
-      <PanelResizeHandle className="w-1 bg-slate-800 hover:bg-cyan-500 cursor-col-resize transition-colors hidden md:block" />
-
-      {/* Reading Pane / Compose Pane */}
-      <Panel id="inbox-content" className={cn("flex flex-col bg-slate-950/50 relative", !selectedEmailId && !selectedWhatsAppPhone && !selectedTelegramConversation && !selectedLiveChatConversation && !isComposing && !isStartingWhatsApp && "hidden md:flex")}>
-        <InboxContentPanel {...contentPanelProps} />
-      </Panel>
-
-      <InboxContactLinkingModals
+    <InboxWorkspaceLayout
+      sidebarHidden={sidebarHidden}
+      contentHidden={contentHidden}
+      sidebar={<InboxConversationSidebar {...sidebarProps} />}
+      content={<InboxContentPanel {...contentPanelProps} />}
+    >
+      <InboxDialogLayer
         isCreatingLead={isCreatingLead}
         isAddingContactToClient={isAddingContactToClient}
         filter={filter}
@@ -737,9 +730,6 @@ export function Inbox() {
         refreshUnifiedConversationData={refreshUnifiedConversationData}
         editEmail={editEmail}
         selectClient={selectClient}
-      />
-
-      <InboxAuxiliaryDialogs
         confirmDialog={confirmDialog}
         alertDialog={alertDialog}
         showCommentAttachmentModal={showCommentAttachmentModal}
@@ -763,8 +753,7 @@ export function Inbox() {
         onSubmitTodo={submitTodo}
         onCloseTodo={() => setTodoModalEmail(null)}
       />
-
-    </PanelGroup>
+    </InboxWorkspaceLayout>
   );
 }
 
