@@ -41,7 +41,7 @@ export function InboxPageShell({
         />
       </header>
 
-      <div className="min-h-0 flex-1 px-4 pb-4 pt-5">
+      <div className="flex min-h-0 flex-1 px-4 pb-4 pt-5">
         <InboxWorkspaceLayout
           sidebarHidden={sidebarHidden}
           contentHidden={contentHidden}

@@ -375,7 +375,7 @@ export function WhatsAppChatModal({
   );
 
   const chatWorkspace = (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#f3f6fb]">
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[#f3f6fb]">
       <WhatsAppChatHeader
         activeClient={activeClient}
         conversationClientName={conversation?.clientName}
@@ -520,7 +520,7 @@ export function WhatsAppChatModal({
     <div
       className={
         embedded
-          ? 'flex min-h-0 flex-1 flex-col overflow-hidden bg-[#f3f6fb]'
+          ? 'flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[#f3f6fb]'
           : 'flex h-[86vh] w-full max-w-[1380px] flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-[#f6f8fb] shadow-[0_28px_90px_rgba(15,23,42,0.28)]'
       }
     >
@@ -533,7 +533,7 @@ export function WhatsAppChatModal({
     <div
       className={
         embedded
-          ? 'flex min-h-0 flex-1 flex-col bg-[#f3f6fb]'
+          ? 'flex h-full min-h-0 flex-1 flex-col bg-[#f3f6fb]'
           : 'fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4'
       }
     >

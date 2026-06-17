@@ -25,7 +25,7 @@ export function ConversationWorkspaceShell({
   return (
     <div
       className={cn(
-        'flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,#f8fafc_0%,#eef3f8_100%)]',
+        'flex h-full min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,#f8fafc_0%,#eef3f8_100%)]',
         className,
       )}
     >

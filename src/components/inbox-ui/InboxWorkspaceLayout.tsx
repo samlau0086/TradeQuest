@@ -28,7 +28,7 @@ export function InboxWorkspaceLayout({
       orientation="horizontal"
       className={cn(
         THREE_PANE_WORKSPACE_STYLES.root,
-        'rounded-[30px] border border-slate-200/80 bg-white shadow-[0_28px_90px_rgba(15,23,42,0.08)] overflow-hidden',
+        'h-full rounded-[30px] border border-slate-200/80 bg-white shadow-[0_28px_90px_rgba(15,23,42,0.08)] overflow-hidden',
       )}
     >
       <Panel
