@@ -1,11 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { CalendarClock, ChevronDown, ChevronUp, Languages, Loader2, Paperclip, Radar, Send, Sparkles, Trash2, X } from 'lucide-react';
 import { useAuthStore } from '../../authStore';
 import { useStore } from '../../store';
 import { cn } from '../../lib/utils';
 import { getCustomerOutputLanguage } from '../../lib/language';
-import { AddressInput } from '../AddressInput';
 import { UploadAttachmentModal } from '../UploadAttachmentModal';
+import {
+  ComposeEmailAttachmentGallery,
+  ComposeEmailFooter,
+  ComposeEmailHeader,
+  ComposeEmailRecipientSection,
+} from './ComposeEmailSections';
 import {
   EmailRichTextEditor,
   emailHtmlHasContent,
@@ -226,9 +230,9 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
         body: String(parsed.body || parsed.emailBody || parsed.content || '').trim()
       };
     } catch {
-      const subjectMatch = cleaned.match(/(?:^|\n)\s*(?:Subject|主题)\s*:\s*(.+)/i);
+      const subjectMatch = cleaned.match(/(?:^|\n)\s*Subject\s*:\s*(.+)/i);
       const bodyWithoutSubject = subjectMatch
-        ? cleaned.replace(subjectMatch[0], '').replace(/^\s*(?:Body|正文)\s*:\s*/i, '').trim()
+        ? cleaned.replace(subjectMatch[0], '').replace(/^\s*Body\s*:\s*/i, '').trim()
         : cleaned;
       return {
         subject: subjectMatch?.[1]?.trim() || '',
@@ -402,7 +406,7 @@ export function ComposeEmail({ onClose, initialRecipient = '', initialSubject = 
 
   const handleOptimizeSubject = async () => {
     if (!subject.trim() && !emailHtmlHasContent(body) && !purpose.trim()) {
-      notify(language === 'zh' ? '请先输入主题、正文或邮件目的。' : 'Please enter a subject, body, or email purpose first.', 'warning');
+      notify('Please enter a subject, body, or email purpose first.', 'warning');
       return;
     }
     setLoadingSubject(true);
@@ -442,14 +446,14 @@ Rules:
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Failed to generate subject.');
-      const nextSubject = String(data.result || '').replace(/^["']|["']$/g, '').replace(/^(Subject|主题)\s*:\s*/i, '').trim();
+      const nextSubject = String(data.result || '').replace(/^["']|["']$/g, '').replace(/^Subject\s*:\s*/i, '').trim();
       if (nextSubject) {
         setSubject(nextSubject);
         incrementAgentHubTaskCount('email_draft_agent');
       }
     } catch (error) {
       console.error(error);
-      notify(error instanceof Error ? error.message : (language === 'zh' ? '生成邮件主题失败。' : 'Failed to generate email subject.'), 'error');
+      notify(error instanceof Error ? error.message : 'Failed to generate email subject.', 'error');
     } finally {
       setLoadingSubject(false);
     }
@@ -590,107 +594,29 @@ Customer-facing output language: ${outboundLanguage}. This language was resolved
 
   return (
     <div className={cn("flex-1 flex flex-col bg-slate-900 animate-in fade-in duration-200", className)}>
-      <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-800/30">
-        <h3 className="font-bold text-white text-sm">New Message</h3>
-        <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800">
-          <Trash2 className="w-5 h-5" />
-        </button>
-      </div>
-      
-      <div className="p-4 border-b border-slate-800 space-y-2">
-        <div className="flex items-start gap-3 w-full">
-          <div className="flex-1 w-full">
-            <AddressInput 
-              label="To:" 
-              value={recipient} 
-              onChange={setRecipient} 
-              placeholder="Type email or @name" 
-              autoFocus 
-            />
-          </div>
-          <div className="flex items-center gap-2 pt-1.5 shrink-0">
-            {matchedClient && (
-              <span className="text-[10px] bg-slate-800 text-cyan-400 px-2 py-1 rounded border border-slate-700 whitespace-nowrap">
-                Matched: {matchedClient.name}
-              </span>
-            )}
-            <button 
-              onClick={() => setShowCcBcc(!showCcBcc)}
-              className="text-xs text-slate-400 hover:text-white flex items-center gap-0.5"
-            >
-              Cc/Bcc {showCcBcc ? <ChevronUp className="w-3 h-3"/> : <ChevronDown className="w-3 h-3"/>}
-            </button>
-          </div>
-        </div>
-
-        {showCcBcc && (
-          <>
-            <div className="flex-1 w-full">
-              <AddressInput 
-                label="Cc:" 
-                value={cc} 
-                onChange={setCc} 
-                placeholder="Type email or @name" 
-              />
-            </div>
-            <div className="flex-1 w-full">
-              <AddressInput 
-                label="Bcc:" 
-                value={bcc} 
-                onChange={setBcc} 
-                placeholder="Type email or @name" 
-              />
-            </div>
-          </>
-        )}
-
-        <div className="flex items-center gap-3 pt-1 border-t border-transparent focus-within:border-indigo-500/30">
-          <label className="text-xs font-bold text-slate-500 w-12 text-right">From:</label>
-          <select 
-            value={selectedOutboxId}
-            onChange={(e) => setSelectedOutboxId(e.target.value)}
-            className="flex-1 bg-transparent text-sm text-slate-200 focus:outline-none focus:ring-0 pb-1 w-full truncate"
-          >
-            {outboxConfigs.map(c => (
-              <option key={c.id} value={c.id} className="bg-slate-900">{c.name} ({c.fromEmail})</option>
-            ))}
-            {outboxConfigs.length === 0 && <option value="" className="bg-slate-900">Default Backend Sender (me@soho.com)</option>}
-          </select>
-        </div>
-        <div className="flex items-center gap-3 pt-1 border-t border-transparent focus-within:border-indigo-500/30">
-          <label className="text-xs font-bold text-slate-500 w-12 text-right">Sign:</label>
-          <select 
-            value={selectedSignatureId}
-            onChange={(e) => setSelectedSignatureId(e.target.value)}
-            className="flex-1 bg-transparent text-sm text-slate-200 focus:outline-none focus:ring-0 pb-1 w-full truncate"
-          >
-            <option value="" className="bg-slate-900">None</option>
-            {signatures.map(s => (
-              <option key={s.id} value={s.id} className="bg-slate-900">{s.name}</option>
-            ))}
-          </select>
-        </div>
-        <div className="flex items-center gap-3 pt-1 border-t border-transparent focus-within:border-indigo-500/30">
-          <label className="text-xs font-bold text-slate-500 w-12 text-right">Subject:</label>
-          <input 
-            type="text" 
-            value={subject}
-            onChange={e => setSubject(e.target.value)}
-            className="flex-1 bg-transparent text-sm text-slate-200 focus:outline-none placeholder:text-slate-600 font-medium pb-1" 
-            placeholder="Enter subject here..." 
-          />
-          <button
-            type="button"
-            onClick={handleOptimizeSubject}
-            disabled={loadingSubject}
-            className="rounded-md border border-blue-500/30 bg-blue-500/10 p-1.5 text-blue-300 transition-colors hover:bg-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
-            title={language === 'zh' ? 'AI 生成/优化主题' : 'Generate or improve subject with AI'}
-          >
-            {loadingSubject ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-          </button>
-        </div>
-      </div>
-      
+      <ComposeEmailHeader onClose={onClose} />
+      <ComposeEmailRecipientSection
+        recipient={recipient}
+        onRecipientChange={setRecipient}
+        matchedClientName={matchedClient?.name}
+        showCcBcc={showCcBcc}
+        onToggleCcBcc={() => setShowCcBcc(!showCcBcc)}
+        cc={cc}
+        onCcChange={setCc}
+        bcc={bcc}
+        onBccChange={setBcc}
+        outboxConfigs={outboxConfigs}
+        selectedOutboxId={selectedOutboxId}
+        onSelectedOutboxIdChange={setSelectedOutboxId}
+        signatures={signatures}
+        selectedSignatureId={selectedSignatureId}
+        onSelectedSignatureIdChange={setSelectedSignatureId}
+        subject={subject}
+        onSubjectChange={setSubject}
+        onOptimizeSubject={handleOptimizeSubject}
+        loadingSubject={loadingSubject}
+        language={language}
+      />
       <div className="flex-1 flex flex-col p-4 relative overflow-y-auto">
         <EmailRichTextEditor
           value={body}
@@ -701,132 +627,35 @@ Customer-facing output language: ${outboundLanguage}. This language was resolved
           onOptimize={handleOptimizeBody}
           onInlineAI={handleInlineAICommand}
         />
-        {attachments.length > 0 && (
-          <div className="mt-4 flex flex-wrap gap-2">
-            {attachments.map((att, idx) => (
-              <div key={idx} className="relative group overflow-hidden border border-slate-700 rounded-md bg-slate-800 w-24 h-24 shrink-0 flex items-center justify-center">
-                {att.type.startsWith('image/') ? (
-                  <img src={URL.createObjectURL(att)} alt={att.name} className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex flex-col items-center justify-center text-xs text-slate-400 p-2 text-center break-words">
-                    <Paperclip className="w-5 h-5 mb-2 text-slate-500" />
-                    <span className="truncate w-full line-clamp-2">{att.name}</span>
-                    <span className="text-[10px] text-slate-500 mt-1">{(att.size / 1024 / 1024).toFixed(2)} MB</span>
-                  </div>
-                )}
-                <button 
-                  onClick={() => setAttachments(prev => prev.filter((_, i) => i !== idx))}
-                  className="absolute top-0 right-0 bg-red-500/80 hover:bg-red-500 text-white p-1 rounded-bl opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+        <ComposeEmailAttachmentGallery
+          attachments={attachments}
+          onRemove={(index) => setAttachments(prev => prev.filter((_, i) => i !== index))}
+        />
       </div>
-
-      <div className="px-4 py-2 bg-slate-900 border-t border-slate-800 flex flex-col gap-2">
-        <div className="flex items-center justify-between pl-14">
-          <label className="text-[10px] text-slate-500 uppercase font-bold">Follow-up Purpose</label>
-          <button onClick={handleGeneratePurpose} disabled={loadingPurpose || !matchedClient} className="text-[10px] flex items-center gap-1 text-cyan-400 hover:text-cyan-300 disabled:opacity-50">
-             {loadingPurpose ? <Loader2 className="w-3 h-3 animate-spin"/> : <Sparkles className="w-3 h-3"/>}
-             Auto-detect
-          </button>
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="text-xs font-bold text-slate-500 w-12 text-right">Draft:</label>
-          <input 
-            type="text" 
-            value={purpose}
-            onChange={e => setPurpose(e.target.value)}
-            className="flex-1 bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500" 
-            placeholder="AI follow-up purpose (e.g., 'Remind them about the sample pricing')" 
-          />
-        </div>
-        <div className="flex items-center justify-between mt-2">
-          <div className="flex items-center gap-2">
-            <button 
-              onClick={handleMagicDraft} 
-              disabled={loading || !recipient}
-              className="text-xs flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-cyan-400 px-3 py-1.5 rounded-lg border border-slate-700 transition-colors font-medium"
-            >
-              {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Sparkles className="w-3.5 h-3.5"/>}
-              AI Draft Full Email
-            </button>
-            
-            <button 
-              onClick={() => setShowAttachmentModal(true)}
-              className="text-xs flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700 transition-colors font-medium cursor-pointer"
-            >
-              <Paperclip className="w-3.5 h-3.5"/>
-              Attach
-            </button>
-
-            <button
-              onClick={() => setTrackEmail(!trackEmail)}
-              className={cn(
-                "text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg border transition-colors font-medium",
-                trackEmail 
-                  ? "bg-emerald-950/30 border-emerald-800 text-emerald-400 hover:bg-emerald-900/50" 
-                  : "bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-400 hover:bg-slate-700"
-              )}
-              title={trackEmail ? "Email tracking enabled" : "Email tracking disabled"}
-            >
-              <Radar className="w-3.5 h-3.5" />
-              Track
-            </button>
-          </div>
-
-          
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <button 
-                onClick={() => setShowSchedule(!showSchedule)}
-                disabled={!recipient || !emailHtmlHasContent(body)}
-                className="text-sm bg-slate-800 hover:bg-slate-700 disabled:bg-slate-800 disabled:text-slate-500 text-slate-300 px-3 py-2 rounded-lg flex items-center shadow-lg transition-colors"
-                title="Schedule Send"
-              >
-                <CalendarClock className="w-4 h-4" />
-              </button>
-              {showSchedule && (
-                <div className="absolute bottom-full right-0 mb-2 w-64 p-3 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-20 flex flex-col gap-2">
-                  <div className="flex justify-between items-center">
-                    <label className="text-xs font-bold text-slate-400">Select Date & Time</label>
-                    <span className="text-[10px] text-slate-500 overflow-hidden text-ellipsis whitespace-nowrap pl-2 text-right" title={timezone || Intl.DateTimeFormat().resolvedOptions().timeZone}>
-                      {timezone || Intl.DateTimeFormat().resolvedOptions().timeZone}
-                    </span>
-                  </div>
-                  <input
-                    type="datetime-local"
-                    value={scheduleDateTime}
-                    onChange={e => setScheduleDateTime(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 [color-scheme:dark]"
-                    min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)}
-                  />
-                  <div className="flex gap-2 mt-1">
-                    <button onClick={() => setShowSchedule(false)} className="flex-1 text-xs py-1 text-slate-400 hover:text-white transition-colors">Cancel</button>
-                    <button onClick={doSchedule} disabled={!scheduleDateTime} className="flex-1 text-xs py-1.5 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-700 disabled:text-slate-500 rounded text-white font-medium transition-colors">Confirm</button>
-                  </div>
-                </div>
-              )}
-            </div>
-            <button 
-              onClick={handleSaveDraft}
-              className="text-sm border border-slate-700 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 px-4 py-2 rounded-lg transition-colors"
-            >
-              Save Draft
-            </button>
-            <button 
-              onClick={handleSend}
-              disabled={!recipient || !emailHtmlHasContent(body)}
-              className="text-sm font-bold bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-700 disabled:text-slate-500 text-white px-5 py-2 rounded-lg flex items-center gap-2 shadow-lg shadow-cyan-600/20 transition-colors"
-            >
-              <Send className="w-4 h-4" /> Send
-            </button>
-          </div>
-        </div>
-      </div>
+      <ComposeEmailFooter
+        purpose={purpose}
+        onPurposeChange={setPurpose}
+        onGeneratePurpose={handleGeneratePurpose}
+        loadingPurpose={loadingPurpose}
+        hasMatchedClient={!!matchedClient}
+        onMagicDraft={handleMagicDraft}
+        loadingDraft={loading}
+        hasRecipient={!!recipient}
+        onOpenAttachmentModal={() => setShowAttachmentModal(true)}
+        trackEmail={trackEmail}
+        onToggleTrackEmail={() => setTrackEmail(!trackEmail)}
+        showSchedule={showSchedule}
+        onToggleSchedule={() => setShowSchedule(!showSchedule)}
+        canSchedule={!!recipient && emailHtmlHasContent(body)}
+        scheduleDateTime={scheduleDateTime}
+        onScheduleDateTimeChange={setScheduleDateTime}
+        timezone={timezone || Intl.DateTimeFormat().resolvedOptions().timeZone}
+        onCancelSchedule={() => setShowSchedule(false)}
+        onConfirmSchedule={doSchedule}
+        onSaveDraft={handleSaveDraft}
+        onSend={handleSend}
+        canSend={!!recipient && emailHtmlHasContent(body)}
+      />
       {showAttachmentModal && (
         <UploadAttachmentModal 
           onClose={() => setShowAttachmentModal(false)}
@@ -839,3 +668,4 @@ Customer-facing output language: ${outboundLanguage}. This language was resolved
     </div>
   );
 }
+

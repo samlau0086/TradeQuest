@@ -25,7 +25,7 @@ export function RecordPageLayout({
   gridClassName,
 }: RecordPageLayoutProps) {
   return (
-    <div className={cn('fixed inset-0 z-50 overflow-hidden bg-[#05070b] text-slate-100 pointer-events-auto', className)}>
+    <div className={cn('fixed inset-0 z-50 overflow-hidden bg-[#eef3f8] text-slate-900 pointer-events-auto', className)}>
       {header}
 
       <div className={cn('h-[calc(100dvh-93px)] overflow-y-auto px-5 py-6 lg:px-8', bodyClassName)}>
@@ -38,7 +38,7 @@ export function RecordPageLayout({
               {mainColumn}
             </div>
             {sidebarColumn && (
-              <div className="min-w-0">
+              <div className="min-w-0 xl:sticky xl:top-0 xl:self-start">
                 {sidebarColumn}
               </div>
             )}

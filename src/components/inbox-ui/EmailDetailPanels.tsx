@@ -1,7 +1,25 @@
 import React from 'react';
-import { CheckCircle2, Clock, Database, Eye, Loader2, MessageSquare, MousePointerClick, Paperclip, PenLine, Radar, Reply, User, UserPlus, X } from 'lucide-react';
+import {
+  CheckCircle2,
+  Clock,
+  Database,
+  Download,
+  Eye,
+  FileText,
+  Loader2,
+  MessageSquare,
+  MousePointerClick,
+  Paperclip,
+  PenLine,
+  Radar,
+  Reply,
+  User,
+  UserPlus,
+  X,
+} from 'lucide-react';
 import { CommentItem } from '../CommentItem';
 import { AgentContextSuggestions } from '../AgentContextSuggestions';
+import { ConversationSectionCard, ConversationSectionHeader } from './ConversationSectionCard';
 import { ConversationToolbarButton, ConversationToolbarPill } from './ConversationToolbar';
 
 interface EmailAttachment {
@@ -12,17 +30,44 @@ interface EmailAttachment {
 interface EmailBodyPanelProps {
   subject: string;
   body?: string;
+  language?: 'en' | 'zh';
 }
 
-export function EmailBodyPanel({ subject, body }: EmailBodyPanelProps) {
+export function EmailBodyPanel({ subject, body, language = 'en' }: EmailBodyPanelProps) {
+  const isZh = language === 'zh';
+  const cleanedBody = (body || '').replace(/<img[^>]*\/api\/track\/open\/[^>]*>/g, '');
+
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h2 className="mb-6 text-2xl font-bold tracking-tight text-slate-950">{subject}</h2>
-      <div
-        className="overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 p-6 text-sm leading-relaxed text-slate-900"
-        dangerouslySetInnerHTML={{ __html: (body || '').replace(/<img[^>]*\/api\/track\/open\/[^>]*>/g, '') }}
+    <ConversationSectionCard bodyClassName="p-6">
+      <ConversationSectionHeader
+        title={isZh ? '\u90ae\u4ef6\u6b63\u6587' : 'Email body'}
+        icon={<FileText className="h-4 w-4 text-slate-400" />}
+        description={
+          isZh
+            ? '\u5728\u8fd9\u91cc\u67e5\u770b\u5f53\u524d\u90ae\u4ef6\u6b63\u6587\uff0c\u786e\u8ba4\u5ba2\u6237\u8bed\u6c14\u3001\u9700\u6c42\u548c\u4e0a\u4e0b\u6587\uff0c\u518d\u51b3\u5b9a\u56de\u590d\u3001\u8f6c\u4efb\u52a1\u6216\u6c89\u6dc0\u77e5\u8bc6\u3002'
+            : 'Review the latest email content, tone, and context here before replying, creating follow-up work, or saving knowledge.'
+        }
+        actions={(
+          <ConversationToolbarPill tone="default">
+            {cleanedBody ? (isZh ? '\u6b63\u6587\u5df2\u52a0\u8f7d' : 'Body loaded') : (isZh ? '\u65e0\u6b63\u6587' : 'No body')}
+          </ConversationToolbarPill>
+        )}
       />
-    </div>
+
+      <div className="rounded-[22px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-5 shadow-sm">
+        <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+          {isZh ? '\u4e3b\u9898' : 'Subject'}
+        </div>
+        <h2 className="text-[28px] font-semibold tracking-tight text-slate-950">
+          {subject || (isZh ? '\u65e0\u4e3b\u9898' : 'No subject')}
+        </h2>
+      </div>
+
+      <div
+        className="mt-4 overflow-x-auto rounded-[22px] border border-slate-200 bg-white p-6 text-sm leading-7 text-slate-900 shadow-inner shadow-slate-100/70"
+        dangerouslySetInnerHTML={{ __html: cleanedBody }}
+      />
+    </ConversationSectionCard>
   );
 }
 
@@ -115,6 +160,7 @@ export function EmailAgentSuggestionsPanel({
 }
 
 interface EmailHeaderMetaProps {
+  language?: 'en' | 'zh';
   isLinked: boolean;
   isInbound: boolean;
   senderIp?: string;
@@ -126,6 +172,7 @@ interface EmailHeaderMetaProps {
 }
 
 export function EmailHeaderMeta({
+  language = 'en',
   isLinked,
   isInbound,
   senderIp,
@@ -135,24 +182,24 @@ export function EmailHeaderMeta({
   onCreateLead,
   onAddToExistingClient,
 }: EmailHeaderMetaProps) {
+  const isZh = language === 'zh';
+
   return (
     <>
       {!isLinked && (
         <>
           <ConversationToolbarButton tone="info" compact onClick={onCreateLead}>
-            <UserPlus className="w-3 h-3" /> New Lead
+            <UserPlus className="h-3 w-3" />
+            {isZh ? '\u65b0\u5efa\u7ebf\u7d22' : 'New Lead'}
           </ConversationToolbarButton>
           <ConversationToolbarButton tone="success" compact onClick={onAddToExistingClient}>
-            <User className="w-3 h-3" /> Add to Existing Client
+            <User className="h-3 w-3" />
+            {isZh ? '\u5173\u8054\u73b0\u6709\u5ba2\u6237' : 'Add to Existing Client'}
           </ConversationToolbarButton>
         </>
       )}
-      {isInbound && senderIp && (
-        <ConversationToolbarPill>IP: {senderIp}</ConversationToolbarPill>
-      )}
-      {isInbound && senderCountry && (
-        <ConversationToolbarPill tone="success">{senderCountry}</ConversationToolbarPill>
-      )}
+      {isInbound && senderIp && <ConversationToolbarPill>IP: {senderIp}</ConversationToolbarPill>}
+      {isInbound && senderCountry && <ConversationToolbarPill tone="success">{senderCountry}</ConversationToolbarPill>}
       {cc && <ConversationToolbarPill>Cc: {cc}</ConversationToolbarPill>}
       {bcc && <ConversationToolbarPill>Bcc: {bcc}</ConversationToolbarPill>}
     </>
@@ -160,6 +207,7 @@ export function EmailHeaderMeta({
 }
 
 interface EmailHeaderActionsProps {
+  language?: 'en' | 'zh';
   isDraft: boolean;
   hasClient: boolean;
   isAddingToRag: boolean;
@@ -170,6 +218,7 @@ interface EmailHeaderActionsProps {
 }
 
 export function EmailHeaderActions({
+  language = 'en',
   isDraft,
   hasClient,
   isAddingToRag,
@@ -178,25 +227,19 @@ export function EmailHeaderActions({
   onReply,
   onAddToRag,
 }: EmailHeaderActionsProps) {
+  const isZh = language === 'zh';
+
   return (
     <>
       {isDraft ? (
-        <ConversationToolbarButton
-          onClick={onEditDraft}
-          compact
-          title="Edit Draft"
-        >
-          <PenLine className="w-4 h-4" />
-          <span>Edit Draft</span>
+        <ConversationToolbarButton onClick={onEditDraft} compact title={isZh ? '\u7f16\u8f91\u8349\u7a3f' : 'Edit Draft'}>
+          <PenLine className="h-4 w-4" />
+          <span>{isZh ? '\u7f16\u8f91\u8349\u7a3f' : 'Edit Draft'}</span>
         </ConversationToolbarButton>
       ) : (
-        <ConversationToolbarButton
-          onClick={onReply}
-          compact
-          title="Reply"
-        >
-          <Reply className="w-4 h-4" />
-          <span>Reply</span>
+        <ConversationToolbarButton onClick={onReply} compact title={isZh ? '\u56de\u590d\u90ae\u4ef6' : 'Reply'}>
+          <Reply className="h-4 w-4" />
+          <span>{isZh ? '\u56de\u590d' : 'Reply'}</span>
         </ConversationToolbarButton>
       )}
       {hasClient && (
@@ -205,16 +248,16 @@ export function EmailHeaderActions({
           disabled={isAddingToRag}
           tone="violet"
           compact
-          title="Add to Knowledge Base (RAG)"
+          title={isZh ? '\u52a0\u5165\u77e5\u8bc6\u5e93\uff08RAG\uff09' : 'Add to Knowledge Base (RAG)'}
         >
           {isAddingToRag ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
+            <Loader2 className="h-4 w-4 animate-spin" />
           ) : isAddedToRag ? (
-            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
           ) : (
-            <Database className="w-4 h-4" />
+            <Database className="h-4 w-4" />
           )}
-          <span>{isAddedToRag ? 'Saved to RAG' : 'Add to RAG'}</span>
+          <span>{isAddedToRag ? (isZh ? '\u5df2\u4fdd\u5b58\u5230 RAG' : 'Saved to RAG') : (isZh ? '\u52a0\u5165 RAG' : 'Add to RAG')}</span>
         </ConversationToolbarButton>
       )}
     </>
@@ -223,29 +266,57 @@ export function EmailHeaderActions({
 
 interface EmailAttachmentsPanelProps {
   attachments?: EmailAttachment[];
+  language?: 'en' | 'zh';
 }
 
-export function EmailAttachmentsPanel({ attachments }: EmailAttachmentsPanelProps) {
+export function EmailAttachmentsPanel({
+  attachments,
+  language = 'en',
+}: EmailAttachmentsPanelProps) {
   if (!attachments || attachments.length === 0) return null;
+  const isZh = language === 'zh';
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
-        <Paperclip className="w-4 h-4" /> Attachments
-      </div>
-      <div className="flex flex-wrap gap-3">
+    <ConversationSectionCard>
+      <ConversationSectionHeader
+        title={isZh ? '\u9644\u4ef6' : 'Attachments'}
+        icon={<Paperclip className="h-4 w-4 text-slate-400" />}
+        description={
+          isZh
+            ? '\u67e5\u770b\u6b64\u90ae\u4ef6\u9644\u5e26\u7684\u6587\u4ef6\uff0c\u4fbf\u4e8e\u4e0b\u8f7d\u3001\u8f6c\u53d1\uff0c\u6216\u4f5c\u4e3a\u540e\u7eed\u62a5\u4ef7\u4e0e\u8ddf\u8fdb\u4f9d\u636e\u3002'
+            : 'Review attached files for download, forwarding, or use in follow-ups and quoting.'
+        }
+        actions={(
+          <ConversationToolbarPill tone="info">
+            {attachments.length} {isZh ? '\u4e2a\u6587\u4ef6' : attachments.length === 1 ? 'file' : 'files'}
+          </ConversationToolbarPill>
+        )}
+      />
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {attachments.map((attachment, index) => (
           <a
             href={attachment.url}
             key={`${attachment.url}:${index}`}
-            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100"
+            className="group rounded-[20px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-4 text-slate-700 transition hover:border-slate-300 hover:bg-white hover:shadow-sm"
           >
-            <Paperclip className="w-3.5 h-3.5 text-slate-400" />
-            <span>{attachment.name}</span>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                  {isZh ? '\u9644\u4ef6\u6587\u4ef6' : 'Attachment'}
+                </div>
+                <div className="mt-2 break-all text-sm font-semibold leading-6 text-slate-900">
+                  {attachment.name}
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500 transition group-hover:border-slate-300 group-hover:text-slate-700">
+                <Download className="h-4 w-4" />
+              </div>
+            </div>
           </a>
         ))}
       </div>
-    </div>
+    </ConversationSectionCard>
   );
 }
 
@@ -267,54 +338,98 @@ export function EmailTrackingPanel({
   onToggleExpanded,
 }: EmailTrackingPanelProps) {
   if (!enabled) return null;
+  const isZh = language === 'zh';
+  const openCount = events.filter(event => event.type === 'open').length;
+  const clickCount = events.filter(event => event.type === 'click').length;
 
   return (
-    <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
-        <Radar className="w-4 h-4 text-emerald-500" /> Interaction Tracking Activity
-      </div>
+    <ConversationSectionCard>
+      <ConversationSectionHeader
+        title={isZh ? '\u4ea4\u4e92\u8ddf\u8e2a\u6d3b\u52a8' : 'Interaction Tracking Activity'}
+        icon={<Radar className="h-4 w-4 text-emerald-500" />}
+        description={
+          isZh
+            ? '\u67e5\u770b\u6b64\u90ae\u4ef6\u7684\u6253\u5f00\u3001\u70b9\u51fb\u548c\u5730\u7406\u4f4d\u7f6e\u6d3b\u52a8\uff0c\u7528\u4e8e\u5224\u65ad\u5ba2\u6237\u53c2\u4e0e\u5ea6\u4e0e\u8ddf\u8fdb\u8282\u594f\u3002'
+            : 'See opens, clicks, and location activity for this email to understand customer engagement.'
+        }
+        actions={(
+          <div className="flex flex-wrap items-center gap-1.5">
+            <ConversationToolbarPill tone="success">
+              {isZh ? '\u6253\u5f00' : 'Opens'} {openCount}
+            </ConversationToolbarPill>
+            <ConversationToolbarPill tone="violet">
+              {isZh ? '\u70b9\u51fb' : 'Clicks'} {clickCount}
+            </ConversationToolbarPill>
+            <ConversationToolbarPill tone="default">
+              {events.length} {isZh ? '\u6761\u4e8b\u4ef6' : events.length === 1 ? 'event' : 'events'}
+            </ConversationToolbarPill>
+          </div>
+        )}
+      />
+
       {events.length === 0 ? (
-        <div className="text-sm text-slate-500 py-2">No tracking events have been recorded yet.</div>
+        <div className="rounded-[20px] border border-dashed border-slate-300 bg-slate-50 py-10 text-center text-sm text-slate-500">
+          {isZh ? '\u6682\u65f6\u8fd8\u6ca1\u6709\u8ddf\u8e2a\u8bb0\u5f55\u3002' : 'No tracking events have been recorded yet.'}
+        </div>
       ) : (
         <div className="space-y-3">
           {visibleEvents.map((event, index) => (
             <div
               key={`${event.created_at || index}-${event.type || 'event'}`}
-              className="flex flex-wrap items-center gap-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm"
+              className="rounded-[20px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-4"
             >
-              <div className="flex items-center gap-2 min-w-[100px]">
-                {event.type === 'open' ? (
-                  <Eye className="w-4 h-4 text-cyan-500" />
-                ) : (
-                  <MousePointerClick className="w-4 h-4 text-fuchsia-500" />
-                )}
-                <span className="font-medium capitalize text-slate-900">{event.type}</span>
-              </div>
-              <div className="flex items-center gap-2 text-slate-400 text-xs min-w-[140px]">
-                <Clock className="w-3.5 h-3.5" />
-                {new Date(event.created_at).toLocaleString()}
-              </div>
-              {(event.location?.country || event.location?.city) && (
-                <div className="flex items-center gap-1.5 text-xs text-slate-600">
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/50" />
-                  {event.location.city ? `${event.location.city}, ` : ''}
-                  {event.location.region ? `${event.location.region}, ` : ''}
-                  {event.location.country}
+              <div className="flex flex-wrap items-start gap-3">
+                <div className="flex min-w-[130px] items-center gap-2">
+                  {event.type === 'open' ? (
+                    <Eye className="h-4 w-4 text-cyan-500" />
+                  ) : (
+                    <MousePointerClick className="h-4 w-4 text-fuchsia-500" />
+                  )}
+                  <span className="text-sm font-semibold capitalize text-slate-900">{event.type}</span>
                 </div>
-              )}
-              <div className="ml-auto rounded border border-slate-200 bg-white px-2 py-0.5 font-mono text-xs text-slate-500" title={event.user_agent}>
-                {event.ip_address}
+
+                <div className="flex min-w-[160px] items-center gap-2 text-xs text-slate-500">
+                  <Clock className="h-3.5 w-3.5" />
+                  {new Date(event.created_at).toLocaleString()}
+                </div>
+
+                {(event.location?.country || event.location?.city) && (
+                  <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                    <div className="h-1.5 w-1.5 rounded-full bg-emerald-500/50" />
+                    {event.location.city ? `${event.location.city}, ` : ''}
+                    {event.location.region ? `${event.location.region}, ` : ''}
+                    {event.location.country}
+                  </div>
+                )}
+
+                {event.ip_address && (
+                  <div
+                    className="ml-auto rounded-lg border border-slate-200 bg-white px-2.5 py-1 font-mono text-[11px] text-slate-500"
+                    title={event.user_agent}
+                  >
+                    {event.ip_address}
+                  </div>
+                )}
               </div>
+
               {event.type === 'click' && event.url && (
-                <div className="w-full mt-1.5 text-xs">
-                  <span className="text-slate-500 mr-2">Link Clicked:</span>
-                  <a href={event.url} target="_blank" rel="noopener noreferrer" className="text-fuchsia-400 hover:text-fuchsia-300 underline break-all">
+                <div className="mt-3 rounded-2xl border border-fuchsia-100 bg-white px-3 py-3 text-xs leading-6">
+                  <span className="mr-2 font-semibold text-slate-500">
+                    {isZh ? '\u70b9\u51fb\u94fe\u63a5\uff1a' : 'Link clicked:'}
+                  </span>
+                  <a
+                    href={event.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="break-all text-fuchsia-600 underline hover:text-fuchsia-500"
+                  >
                     {event.url}
                   </a>
                 </div>
               )}
             </div>
           ))}
+
           {events.length > 3 && (
             <button
               type="button"
@@ -322,13 +437,13 @@ export function EmailTrackingPanel({
               className="text-xs font-bold text-emerald-600 transition-colors hover:text-emerald-500"
             >
               {isExpanded
-                ? (language === 'zh' ? '收起' : 'Show Less')
-                : (language === 'zh' ? `显示全部 ${events.length} 条记录` : `Show More (${events.length})`)}
+                ? (isZh ? '\u6536\u8d77' : 'Show Less')
+                : (isZh ? `\u663e\u793a\u5168\u90e8\uff08${events.length}\uff09` : `Show More (${events.length})`)}
             </button>
           )}
         </div>
       )}
-    </div>
+    </ConversationSectionCard>
   );
 }
 
@@ -336,6 +451,7 @@ interface EmailCommentsPanelProps {
   comments: any[];
   commentText: string;
   attachments: File[];
+  language?: 'en' | 'zh';
   onCommentTextChange: (value: string) => void;
   onAttachClick: () => void;
   onRemoveAttachment: (index: number) => void;
@@ -347,71 +463,112 @@ export function EmailCommentsPanel({
   comments,
   commentText,
   attachments,
+  language = 'en',
   onCommentTextChange,
   onAttachClick,
   onRemoveAttachment,
   onSubmit,
   onReply,
 }: EmailCommentsPanelProps) {
+  const isZh = language === 'zh';
+
   return (
-    <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h3 className="mb-4 flex items-center border-b border-slate-200 pb-2 text-sm font-bold text-slate-700">
-        <MessageSquare className="w-4 h-4 mr-2" /> Comments & Notes
-      </h3>
-      <div className="space-y-4 mb-4">
-        {comments.map(comment => (
-          <CommentItem
-            key={comment.id}
-            comment={comment}
-            onReply={(commentId, content, replyAttachments) => onReply(commentId, content, replyAttachments)}
-          />
-        ))}
+    <ConversationSectionCard>
+      <ConversationSectionHeader
+        title={isZh ? '\u5185\u90e8\u8bc4\u8bba\u4e0e\u5907\u6ce8' : 'Comments & Notes'}
+        icon={<MessageSquare className="h-4 w-4 text-slate-400" />}
+        description={
+          isZh
+            ? '\u628a\u5185\u90e8\u534f\u4f5c\u3001\u5224\u65ad\u548c\u4e0b\u4e00\u6b65\u5907\u6ce8\u96c6\u4e2d\u7559\u5728\u5f53\u524d\u90ae\u4ef6\u7ebf\u7a0b\u65c1\u8fb9\uff0c\u907f\u514d\u4e0a\u4e0b\u6587\u5206\u6563\u3002'
+            : 'Keep internal coordination, decisions, and next-step notes together with the email thread.'
+        }
+        actions={(
+          <ConversationToolbarPill tone={comments.length > 0 ? 'violet' : 'default'}>
+            {comments.length} {isZh ? '\u6761\u8bc4\u8bba' : comments.length === 1 ? 'comment' : 'comments'}
+          </ConversationToolbarPill>
+        )}
+      />
+
+      <div className="mb-5 space-y-4">
+        {comments.length === 0 ? (
+          <div className="rounded-[20px] border border-dashed border-slate-300 bg-slate-50 py-10 text-center text-sm text-slate-500">
+            {isZh ? '\u8fd8\u6ca1\u6709\u5185\u90e8\u8bc4\u8bba\u3002' : 'No internal comments yet.'}
+          </div>
+        ) : (
+          comments.map(comment => (
+            <CommentItem
+              key={comment.id}
+              comment={comment}
+              onReply={(commentId, content, replyAttachments) => onReply(commentId, content, replyAttachments)}
+            />
+          ))
+        )}
       </div>
-      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+
+      <div className="rounded-[22px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-4 shadow-sm">
+        <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+          {isZh ? '\u65b0\u589e\u5185\u90e8\u5907\u6ce8' : 'New internal note'}
+        </div>
+
         <textarea
           value={commentText}
           onChange={event => onCommentTextChange(event.target.value)}
-          className="min-h-[60px] w-full resize-none bg-transparent p-1 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
-          placeholder="Add a comment to this email..."
+          className="min-h-[92px] w-full resize-none rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-100"
+          placeholder={isZh ? '\u7ed9\u8fd9\u5c01\u90ae\u4ef6\u6dfb\u52a0\u5185\u90e8\u8bc4\u8bba...' : 'Add a comment to this email...'}
         />
+
         {attachments.length > 0 && (
-          <div className="flex flex-wrap gap-2 px-1 mb-2">
+          <div className="mt-3 flex flex-wrap gap-2">
             {attachments.map((file, index) => (
-              <div key={`${file.name}:${index}`} className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-white">
+              <div
+                key={`${file.name}:${index}`}
+                className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-white"
+              >
                 {file.type.startsWith('image/') ? (
-                  <img src={URL.createObjectURL(file)} alt={file.name} className="w-full h-full object-cover" />
+                  <img src={URL.createObjectURL(file)} alt={file.name} className="h-full w-full object-cover" />
                 ) : (
-                    <div className="flex h-full w-full flex-col items-center justify-center break-words p-1 text-center text-[10px] text-slate-500">
-                    <Paperclip className="w-3 h-3 mb-1" />
-                    <span className="truncate w-full line-clamp-2">{file.name}</span>
+                  <div className="flex h-full w-full flex-col items-center justify-center break-words p-1 text-center text-[10px] text-slate-500">
+                    <Paperclip className="mb-1 h-3 w-3" />
+                    <span className="line-clamp-2 w-full truncate">{file.name}</span>
                   </div>
                 )}
                 <button
+                  type="button"
                   onClick={() => onRemoveAttachment(index)}
-                  className="absolute right-0 top-0 rounded-bl bg-red-500/80 p-0.5 text-white opacity-0 transition-opacity hover:bg-red-500 group-hover:opacity-100"
+                  className="absolute right-0 top-0 rounded-bl bg-rose-500/85 p-0.5 text-white opacity-0 transition-opacity hover:bg-rose-500 group-hover:opacity-100"
                 >
-                  <X className="w-3 h-3" />
+                  <X className="h-3 w-3" />
                 </button>
               </div>
             ))}
           </div>
         )}
-        <div className="flex justify-between items-center pt-2">
-          <div className="flex items-center gap-2 shrink-0 pb-1">
-            <button onClick={onAttachClick} className="flex items-center gap-1 rounded-md border border-slate-200 p-1.5 text-slate-500 transition-colors hover:bg-white hover:text-cyan-600" title="Attach Files">
-              <Paperclip className="w-4 h-4" />
-                {attachments.length > 0 && <span className="rounded-full bg-cyan-600 px-1.5 py-0.5 text-xs text-white">{attachments.length}</span>}
-            </button>
-          </div>
+
+        <div className="mt-4 flex items-center justify-between gap-3">
           <button
+            type="button"
+            onClick={onAttachClick}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+            title={isZh ? '\u6dfb\u52a0\u9644\u4ef6' : 'Attach Files'}
+          >
+            <Paperclip className="h-4 w-4" />
+            {isZh ? '\u6dfb\u52a0\u9644\u4ef6' : 'Attach files'}
+            {attachments.length > 0 && (
+              <span className="rounded-full bg-cyan-600 px-1.5 py-0.5 text-[10px] text-white">
+                {attachments.length}
+              </span>
+            )}
+          </button>
+
+          <ConversationToolbarButton
             onClick={onSubmit}
             disabled={!commentText.trim() && attachments.length === 0}
-            className="rounded-lg bg-cyan-600 px-3 py-1 text-xs text-white disabled:bg-slate-200 disabled:text-slate-500"
+            tone="info"
           >
-            Post Comment
-          </button>
+            {isZh ? '\u53d1\u5e03\u8bc4\u8bba' : 'Post Comment'}
+          </ConversationToolbarButton>
         </div>
       </div>
-    </div>
+    </ConversationSectionCard>
   );
 }

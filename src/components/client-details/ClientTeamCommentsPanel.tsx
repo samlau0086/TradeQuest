@@ -24,7 +24,7 @@ export function ClientTeamCommentsPanel({
   onDelete,
 }: ClientTeamCommentsPanelProps) {
   return (
-    <div className="border-t border-slate-800 pt-6 pb-20">
+    <div className="rounded-3xl border border-slate-200 bg-white px-6 pb-20 pt-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)]">
       <SectionHeader icon={<MessageSquare className="w-4 h-4" />} className="mb-4">Team Comments</SectionHeader>
 
       <div className="space-y-4 mb-6">
@@ -36,13 +36,13 @@ export function ClientTeamCommentsPanel({
         )}
       </div>
 
-      <div className="sticky bottom-0 bg-slate-900 pt-2 border-t border-slate-800/50 mt-4">
-        <div className="flex items-end gap-2 bg-slate-800/50 p-2 rounded-lg border border-slate-700">
+      <div className="sticky bottom-0 mt-4 border-t border-slate-100 bg-white pt-3">
+        <div className="flex items-end gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2.5 shadow-sm">
           <textarea
             value={commentText}
             onChange={(event) => onCommentTextChange(event.target.value)}
             placeholder="Add a comment..."
-            className="w-full bg-transparent text-sm resize-none focus:outline-none text-slate-200 max-h-24 leading-snug p-1 scrollbar-thin"
+            className="scrollbar-thin max-h-24 w-full resize-none bg-transparent p-1 text-sm leading-snug text-slate-700 focus:outline-none"
             rows={1}
             onInput={(event) => {
               const target = event.target as HTMLTextAreaElement;
@@ -52,10 +52,10 @@ export function ClientTeamCommentsPanel({
           />
           <div className="flex items-center gap-1 shrink-0 pb-1">
             <input type="file" ref={fileInputRef} className="hidden" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" />
-            <button onClick={() => fileInputRef.current?.click()} className="p-1.5 text-slate-500 hover:text-cyan-400 rounded-md transition-colors" title="Attach Files">
+            <button onClick={() => fileInputRef.current?.click()} className="rounded-md p-1.5 text-slate-400 transition-colors hover:text-cyan-600" title="Attach Files">
               <Paperclip className="w-4 h-4" />
             </button>
-            <button onClick={onSubmitComment} disabled={!commentText.trim()} className="bg-cyan-600 disabled:bg-slate-700 disabled:text-slate-500 text-white p-1.5 rounded-md hover:bg-cyan-500 transition-colors shadow-sm disabled:shadow-none">
+            <button onClick={onSubmitComment} disabled={!commentText.trim()} className="rounded-md bg-cyan-600 p-1.5 text-white shadow-sm transition-colors hover:bg-cyan-500 disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none">
               <Send className="w-4 h-4" />
             </button>
           </div>

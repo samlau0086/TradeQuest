@@ -13,7 +13,7 @@ interface ClientQuotesWidgetProps {
 
 export function ClientQuotesWidget({ quotes, leadRecord, currencyRates, onOpenQuote }: ClientQuotesWidgetProps) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <SectionHeader icon={<FileText className="w-4 h-4" />} className="mb-4">Quotes</SectionHeader>
       <div className="space-y-2">
         {quotes.map(quote => {
@@ -24,17 +24,17 @@ export function ClientQuotesWidget({ quotes, leadRecord, currencyRates, onOpenQu
               key={quote.id}
               type="button"
               onClick={() => onOpenQuote(quote.id)}
-              className="w-full rounded-lg border border-slate-800 bg-slate-900/60 p-3 text-left transition-colors hover:border-indigo-500/50 hover:bg-slate-900"
+              className="w-full rounded-2xl border border-slate-200 bg-slate-50/80 p-3 text-left shadow-sm transition-colors hover:border-indigo-200 hover:bg-indigo-50/40"
             >
               <div className="flex items-center justify-between gap-3">
-                <span className="font-mono text-sm font-bold text-slate-100">{quote.quoteNumber}</span>
+                <span className="font-mono text-sm font-bold text-slate-800">{quote.quoteNumber}</span>
                 <StatusBadge>{quote.status}</StatusBadge>
               </div>
               <div className="mt-1 flex items-center justify-between gap-3 text-xs">
                 <span className="text-slate-500">
                   {quote.leadId && leadRecord ? leadRecord.name : (leadRecord ? 'Client quote' : 'Client quote')}
                 </span>
-                <span className="font-bold text-indigo-300">
+                <span className="font-bold text-indigo-700">
                   {formatCurrency(subtotal + feesTotal, quote.currency || 'USD', currencyRates)}
                 </span>
               </div>

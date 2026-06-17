@@ -1,5 +1,8 @@
-import { Client } from '../../store';
-import { InboxWhatsAppConversation, UnifiedCommunicationConversation } from './inboxModel';
+import type { Client } from '../../store';
+import type {
+  InboxWhatsAppConversation,
+  UnifiedCommunicationConversation,
+} from './inboxModel';
 
 interface UseInboxBulkActionsArgs {
   language: string;
@@ -26,12 +29,25 @@ interface UseInboxBulkActionsArgs {
   selectEmail: (id: string | null) => void;
   clearBulkSelection: () => void;
   editClient: (id: string, updates: Partial<Client>) => void;
-  notify: (message: string, type?: 'success' | 'error' | 'warning' | 'info') => void;
-  patchUnifiedConversation: (conversation: UnifiedCommunicationConversation, updates: any) => Promise<any>;
-  deleteUnifiedConversation: (conversation: UnifiedCommunicationConversation) => Promise<any>;
-  applyUnifiedConversationUpdate: (conversation: UnifiedCommunicationConversation, updates: Partial<UnifiedCommunicationConversation>) => void;
+  notify: (
+    message: string,
+    type?: 'success' | 'error' | 'warning' | 'info',
+  ) => void;
+  patchUnifiedConversation: (
+    conversation: UnifiedCommunicationConversation,
+    updates: any,
+  ) => Promise<any>;
+  deleteUnifiedConversation: (
+    conversation: UnifiedCommunicationConversation,
+  ) => Promise<any>;
+  applyUnifiedConversationUpdate: (
+    conversation: UnifiedCommunicationConversation,
+    updates: Partial<UnifiedCommunicationConversation>,
+  ) => void;
   refreshUnifiedConversationData: () => Promise<void>;
-  updateWhatsAppConversationState: (conversations: InboxWhatsAppConversation[]) => void;
+  updateWhatsAppConversationState: (
+    conversations: InboxWhatsAppConversation[],
+  ) => void;
 }
 
 export function useInboxBulkActions({
@@ -69,13 +85,30 @@ export function useInboxBulkActions({
   const handleDeleteSelected = () => {
     if (selectedCount === 0) return;
     setConfirmDialog({
-      message: `Are you sure you want to delete/archive ${selectedCount} selected conversation(s)? Emails associated with a client will be soft-deleted pending admin review; Live Chat sessions will be closed.`,
+      message:
+        'Are you sure you want to delete/archive '
+        + `${selectedCount} selected conversation(s)? `
+        + 'Emails associated with a client will be soft-deleted pending admin review; '
+        + 'Live Chat sessions will be closed.',
       onConfirm: async () => {
-        for (const conversation of selectedUnifiedConversations) await deleteUnifiedConversation(conversation);
-        updateWhatsAppConversationState(whatsappConversations.filter(conversation => !selectedWhatsAppIds.has(conversation.id)));
+        for (const conversation of selectedUnifiedConversations) {
+          await deleteUnifiedConversation(conversation);
+        }
+        updateWhatsAppConversationState(
+          whatsappConversations.filter(
+            conversation => !selectedWhatsAppIds.has(conversation.id),
+          ),
+        );
         clearBulkSelection();
-        if (selectedEmailId && selectedIds.has(selectedEmailId)) selectEmail(null);
-        if (activeWhatsAppConversation && selectedWhatsAppIds.has(activeWhatsAppConversation.id)) setSelectedWhatsAppPhone(null);
+        if (selectedEmailId && selectedIds.has(selectedEmailId)) {
+          selectEmail(null);
+        }
+        if (
+          activeWhatsAppConversation
+          && selectedWhatsAppIds.has(activeWhatsAppConversation.id)
+        ) {
+          setSelectedWhatsAppPhone(null);
+        }
         await refreshUnifiedConversationData();
         setConfirmDialog(null);
         notify('Selected conversations updated.', 'success');
@@ -89,8 +122,14 @@ export function useInboxBulkActions({
     const normalizedTag = `#${tag}`;
     for (const conversation of selectedUnifiedConversations) {
       const tagToApply = conversation.channel === 'email' ? normalizedTag : tag;
-      const tags = Array.from(new Set([...(conversation.tags || []), tagToApply]));
-      if ((conversation.channel === 'live_chat' || conversation.channel === 'telegram') && conversation.client_id) {
+      const tags = Array.from(
+        new Set([...(conversation.tags || []), tagToApply]),
+      );
+      if (
+        (conversation.channel === 'live_chat'
+          || conversation.channel === 'telegram')
+        && conversation.client_id
+      ) {
         const client = clients.find(item => item.id === conversation.client_id);
         if (client) {
           editClient(client.id, {
@@ -125,14 +164,21 @@ export function useInboxBulkActions({
         createdAt: new Date().toISOString(),
         replies: [],
       };
-      if ((conversation.channel === 'live_chat' || conversation.channel === 'telegram') && conversation.client_id) {
+      if (
+        (conversation.channel === 'live_chat'
+          || conversation.channel === 'telegram')
+        && conversation.client_id
+      ) {
         const client = clients.find(item => item.id === conversation.client_id);
         if (client) {
           editClient(client.id, {
-            comments: [...(client.comments || []), {
-              ...comment,
-              content: `[${conversation.channel === 'telegram' ? 'Telegram' : 'Live Chat'}] ${content}`,
-            }],
+            comments: [
+              ...(client.comments || []),
+              {
+                ...comment,
+                content: `[${conversation.channel === 'telegram' ? 'Telegram' : 'Live Chat'}] ${content}`,
+              },
+            ],
           });
           continue;
         }
@@ -149,8 +195,13 @@ export function useInboxBulkActions({
     if (!bulkFollowUpAt || selectedCount === 0) return;
     const dueAt = new Date(bulkFollowUpAt).toISOString();
     for (const conversation of selectedUnifiedConversations) {
-      const note = bulkNoteInput.trim() || `Follow up: ${conversation.title || conversation.subject || conversation.contact_address || conversation.source_id}`;
-      await patchUnifiedConversation(conversation, { todoAt: dueAt, todoNote: note });
+      const note =
+        bulkNoteInput.trim()
+        || `Follow up: ${conversation.title || conversation.subject || conversation.contact_address || conversation.source_id}`;
+      await patchUnifiedConversation(conversation, {
+        todoAt: dueAt,
+        todoNote: note,
+      });
     }
     await refreshUnifiedConversationData();
     setBulkFollowUpAt('');
@@ -162,11 +213,18 @@ export function useInboxBulkActions({
     const ownerId = bulkOwnerId || null;
     for (const conversation of selectedUnifiedConversations) {
       await patchUnifiedConversation(conversation, { ownerId });
-      applyUnifiedConversationUpdate(conversation, { owner_id: ownerId || undefined });
+      applyUnifiedConversationUpdate(conversation, {
+        owner_id: ownerId || undefined,
+      });
     }
     setBulkOwnerId('');
     await refreshUnifiedConversationData();
-    notify(language === 'zh' ? '负责人已批量更新。' : 'Owner updated for selected conversations.', 'success');
+    notify(
+      language === 'zh'
+        ? '负责人已批量更新。'
+        : 'Owner updated for selected conversations.',
+      'success',
+    );
   };
 
   const handleBulkSetStage = async () => {
@@ -177,7 +235,12 @@ export function useInboxBulkActions({
     }
     setBulkStage('');
     await refreshUnifiedConversationData();
-    notify(language === 'zh' ? '阶段已批量更新。' : 'Stage updated for selected conversations.', 'success');
+    notify(
+      language === 'zh'
+        ? '阶段已批量更新。'
+        : 'Stage updated for selected conversations.',
+      'success',
+    );
   };
 
   return {

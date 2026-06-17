@@ -47,6 +47,25 @@ export interface UnifiedCommunicationConversation {
 }
 
 export type InboxChannelFilter = 'all' | 'email' | 'whatsapp' | 'live_chat' | 'telegram';
+export type InboxQueueSortMode = 'recent' | 'oldest' | 'follow_up' | 'unread';
+export type InboxQueueOwnerFilter = 'all' | 'mine' | 'assigned' | 'unassigned';
+export type InboxQueueDensity = 'comfortable' | 'compact';
+
+export interface InboxSavedView {
+  id: string;
+  name: string;
+  filter: 'inbox' | 'sent' | 'scheduled' | 'drafts';
+  channelFilter: InboxChannelFilter;
+  search: string;
+  searchTags: string[];
+  followUpOnly: boolean;
+  queueSortMode: InboxQueueSortMode;
+  queueOwnerFilter: InboxQueueOwnerFilter;
+  queueDensity: InboxQueueDensity;
+  isDefault?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface ConversationMessageTranslation {
   language?: string;
@@ -63,10 +82,51 @@ export const INBOX_OPEN_REQUEST_KEY = 'tradequest:inbox-open-request:v1';
 export const WHATSAPP_CONVERSATION_POLL_MS = 20_000;
 export const WHATSAPP_FOLLOW_UP_MARKER = '__FOLLOW_UP__';
 export const CONVERSATION_AUTO_TRANSLATE_KEY = 'tradequest.conversation.autoTranslate.v1';
+export const INBOX_SAVED_VIEWS_KEY = 'tradequest.inbox.savedViews.v1';
 
 const WHATSAPP_CONVERSATION_CACHE_KEY = 'tradequest.whatsapp.conversations.cache.v1';
 
 export const normalizeTagSearchTerm = (term: string) => term.trim().replace(/^#/, '').toLowerCase();
+
+export function readInboxSavedViews(): InboxSavedView[] {
+  try {
+    const raw = localStorage.getItem(INBOX_SAVED_VIEWS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function writeInboxSavedViews(views: InboxSavedView[]) {
+  try {
+    localStorage.setItem(INBOX_SAVED_VIEWS_KEY, JSON.stringify(views));
+  } catch {
+    // Browser persistence is best-effort only.
+  }
+}
+
+export function inboxSavedViewMatches(
+  view: Pick<
+    InboxSavedView,
+    'filter' | 'channelFilter' | 'search' | 'searchTags' | 'followUpOnly' | 'queueSortMode' | 'queueOwnerFilter' | 'queueDensity'
+  >,
+  current: Pick<
+    InboxSavedView,
+    'filter' | 'channelFilter' | 'search' | 'searchTags' | 'followUpOnly' | 'queueSortMode' | 'queueOwnerFilter' | 'queueDensity'
+  >,
+) {
+  return (
+    view.filter === current.filter &&
+    view.channelFilter === current.channelFilter &&
+    view.search === current.search &&
+    view.followUpOnly === current.followUpOnly &&
+    view.queueSortMode === current.queueSortMode &&
+    view.queueOwnerFilter === current.queueOwnerFilter &&
+    view.queueDensity === current.queueDensity &&
+    JSON.stringify(view.searchTags) === JSON.stringify(current.searchTags)
+  );
+}
 
 export function simpleHash(value: string) {
   let hash = 0;
@@ -98,7 +158,11 @@ export function readConversationAutoTranslateConfig(): Record<string, boolean> {
   }
 }
 
-export function readCachedConversationTranslations(channel: 'live_chat' | 'telegram', conversationKey: string, language: string): Record<string, ConversationMessageTranslation> {
+export function readCachedConversationTranslations(
+  channel: 'live_chat' | 'telegram',
+  conversationKey: string,
+  language: string,
+): Record<string, ConversationMessageTranslation> {
   try {
     const parsed = JSON.parse(localStorage.getItem(conversationTranslationCacheKey(channel, conversationKey, language)) || '{}');
     return parsed && typeof parsed === 'object' ? parsed : {};
@@ -107,7 +171,12 @@ export function readCachedConversationTranslations(channel: 'live_chat' | 'teleg
   }
 }
 
-export function writeCachedConversationTranslations(channel: 'live_chat' | 'telegram', conversationKey: string, language: string, translations: Record<string, ConversationMessageTranslation>) {
+export function writeCachedConversationTranslations(
+  channel: 'live_chat' | 'telegram',
+  conversationKey: string,
+  language: string,
+  translations: Record<string, ConversationMessageTranslation>,
+) {
   try {
     localStorage.setItem(conversationTranslationCacheKey(channel, conversationKey, language), JSON.stringify(translations));
   } catch {
@@ -167,7 +236,7 @@ export function mapUnifiedWhatsAppConversation(row: UnifiedCommunicationConversa
     comments: Array.isArray(row.comments) ? row.comments : [],
     lastMessageAt: row.last_message_at,
     lastBody: row.last_message_preview,
-    lastDirection: row.direction
+    lastDirection: row.direction,
   };
 }
 
@@ -192,7 +261,7 @@ export function emailToUnifiedConversation(email: EmailMessage): UnifiedCommunic
     todo_note: email.todoNote,
     tags: email.tags || [],
     comments: email.comments || [],
-    metadata: { emailType: email.type, localFallback: true }
+    metadata: { emailType: email.type, localFallback: true },
   };
 }
 
@@ -217,8 +286,8 @@ export function whatsappToUnifiedConversation(conversation: InboxWhatsAppConvers
       contactPhone: conversation.contactPhone,
       rawChatId: conversation.rawChatId,
       conversationKey: conversation.conversationKey,
-      localFallback: true
-    }
+      localFallback: true,
+    },
   };
 }
 
@@ -231,25 +300,29 @@ function decodeHtmlEntities(value: string) {
 export function htmlEmailToText(html: string) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html || '', 'text/html');
-  doc.querySelectorAll([
-    'script',
-    'style',
-    'meta',
-    'link',
-    'img[src*="/api/track/open/"]',
-    'blockquote',
-    '.gmail_quote',
-    '.gmail_attr',
-    '.yahoo_quoted',
-    '.moz-cite-prefix',
-    '.protonmail_quote',
-    '.OutlookMessageHeader',
-    '[type="cite"]'
-  ].join(',')).forEach(node => node.remove());
+  doc.querySelectorAll(
+    [
+      'script',
+      'style',
+      'meta',
+      'link',
+      'img[src*="/api/track/open/"]',
+      'blockquote',
+      '.gmail_quote',
+      '.gmail_attr',
+      '.yahoo_quoted',
+      '.moz-cite-prefix',
+      '.protonmail_quote',
+      '.OutlookMessageHeader',
+      '[type="cite"]',
+    ].join(','),
+  ).forEach(node => node.remove());
+
   const htmlWithBreaks = doc.body.innerHTML
     .replace(/<\s*br\s*\/?>/gi, '\n')
     .replace(/<\/\s*(p|div|li|tr|h[1-6])\s*>/gi, '\n')
     .replace(/<\s*li[^>]*>/gi, '\n- ');
+
   return decodeHtmlEntities(htmlWithBreaks.replace(/<[^>]+>/g, ' '))
     .replace(/\r/g, '')
     .replace(/\u00a0/g, ' ')
@@ -266,12 +339,13 @@ export function extractLatestEmailText(htmlOrText: string) {
     /\n\s*On\s.+?\bwrote:\s*\n/i,
     /\n\s*-{2,}\s*Original Message\s*-{2,}\s*\n/i,
     /\n\s*From:\s.+\n\s*(Sent|Date):\s.+\n/i,
-    /\n\s*鍙戜欢浜篬:锛歖\s.+\n/i,
-    /\n\s*鍙戦€佹椂闂碵:锛歖\s.+\n/i,
-    /\n\s*De\s*:\s.+\n\s*Envoy茅\s*:\s.+\n/i,
+    /\n\s*发件人[:：]\s.+\n/i,
+    /\n\s*发送时间[:：]\s.+\n/i,
+    /\n\s*De\s*:\s.+\n\s*Envoy[ée]\s*:\s.+\n/i,
     /\n\s*Von:\s.+\n\s*Gesendet:\s.+\n/i,
-    /\n\s*_{6,}\s*\n/
+    /\n\s*_{6,}\s*\n/,
   ];
+
   const cutAt = separators
     .map(pattern => {
       const match = pattern.exec(text);
@@ -279,6 +353,7 @@ export function extractLatestEmailText(htmlOrText: string) {
     })
     .filter(index => index > 0)
     .sort((a, b) => a - b)[0];
+
   const latest = cutAt ? text.slice(0, cutAt) : text;
   return latest
     .split('\n')

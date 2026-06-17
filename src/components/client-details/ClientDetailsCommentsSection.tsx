@@ -22,14 +22,16 @@ export function ClientDetailsCommentsSection({
   onDelete,
 }: ClientDetailsCommentsSectionProps) {
   return (
-    <ClientTeamCommentsPanel
-      comments={comments}
-      commentText={commentText}
-      fileInputRef={fileInputRef}
-      onCommentTextChange={onCommentTextChange}
-      onSubmitComment={onSubmitComment}
-      onReply={onReply}
-      onDelete={onDelete}
-    />
+    <div id="client-team-comments">
+      <ClientTeamCommentsPanel
+        comments={comments}
+        commentText={commentText}
+        fileInputRef={fileInputRef}
+        onCommentTextChange={onCommentTextChange}
+        onSubmitComment={onSubmitComment}
+        onReply={onReply}
+        onDelete={onDelete}
+      />
+    </div>
   );
 }

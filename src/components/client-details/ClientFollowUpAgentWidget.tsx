@@ -22,27 +22,24 @@ export function ClientFollowUpAgentWidget({
   onRunAgent,
 }: ClientFollowUpAgentWidgetProps) {
   return (
-    <div className="bg-gradient-to-br from-indigo-950/20 to-slate-900 border border-indigo-900/50 rounded-xl p-4 relative overflow-hidden">
-      <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
-        <Settings className="w-24 h-24 text-indigo-400" />
-      </div>
-      <div className="flex items-center justify-between mb-4 relative z-10">
-        <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-wider flex items-center gap-2">
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-indigo-700">
           <Sparkles className="w-4 h-4" /> AI Follow-Up Agent
         </h3>
         <button
           onClick={onOpenSettings}
-          className="text-slate-400 hover:text-white transition-colors p-1"
+          className="rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
           title="Agent Settings"
         >
           <Settings className="w-4 h-4" />
         </button>
       </div>
 
-      <div className="space-y-4 relative z-10">
+      <div className="space-y-4">
         {!enabled ? (
-          <div className="text-center py-4">
-            <p className="text-slate-400 text-xs mb-3">Automate follow-ups and analyze client journey using AI.</p>
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-5 text-center">
+            <p className="mb-3 text-xs text-slate-500">Automate follow-ups and analyze client journey using AI.</p>
             <ActionButton
               onClick={onOpenSettings}
               tone="indigo"
@@ -54,31 +51,31 @@ export function ClientFollowUpAgentWidget({
           </div>
         ) : (
           <>
-            <div className="flex items-center justify-between border-b border-indigo-900/50 pb-3">
+            <div className="flex items-center justify-between rounded-2xl border border-indigo-100 bg-indigo-50/70 px-3 py-3">
               <div className="flex items-center gap-2">
                 <span className="flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-indigo-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+                  <span className="absolute inline-flex h-2 w-2 animate-ping rounded-full bg-indigo-400 opacity-75"></span>
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-indigo-500"></span>
                 </span>
-                <span className="text-xs font-medium text-indigo-300">Agent Active</span>
+                <span className="text-xs font-medium text-indigo-700">Agent Active</span>
               </div>
-              <span className="text-[10px] uppercase font-bold text-slate-500 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-bold uppercase text-slate-500">
                 Mode: {mode === 'auto_email' ? 'Auto Email' : 'Prompt Only'}
               </span>
             </div>
 
             <div className="space-y-3">
               {summary && (
-                <div className="bg-slate-900/80 rounded-lg p-3 border border-indigo-900/30">
-                  <h4 className="text-[10px] text-indigo-400 font-bold uppercase mb-1">Long-term summary</h4>
-                  <p className="text-xs text-slate-300 leading-relaxed">{summary}</p>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+                  <h4 className="mb-1 text-[10px] font-bold uppercase text-slate-500">Long-term summary</h4>
+                  <p className="text-xs leading-relaxed text-slate-700">{summary}</p>
                 </div>
               )}
 
               {nextStep && (
-                <div className="bg-indigo-900/20 rounded-lg p-3 border border-indigo-500/20">
-                  <h4 className="text-[10px] text-indigo-400 font-bold uppercase mb-1">Suggested Next Step</h4>
-                  <p className="text-sm font-medium text-white">{nextStep}</p>
+                <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4">
+                  <h4 className="mb-1 text-[10px] font-bold uppercase text-indigo-700">Suggested Next Step</h4>
+                  <p className="text-sm font-medium text-slate-800">{nextStep}</p>
                 </div>
               )}
 

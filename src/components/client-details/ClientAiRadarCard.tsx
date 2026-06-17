@@ -34,91 +34,103 @@ export function ClientAiRadarCard({
   onAnalyze,
   onInsertIcebreaker,
 }: ClientAiRadarCardProps) {
+  const score = Number(visibleAiData?.leadScore ?? visibleAiData?.temperature ?? leadScore ?? 0);
+
   return (
-    <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-2">
-          <Thermometer className="w-4 h-4" /> AI Radar
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-700">
+          <Thermometer className="h-4 w-4" /> AI Radar
         </h3>
         {!loading && (
-          <button onClick={() => onAnalyze(!!visibleAiData)} className="text-[10px] bg-cyan-900/40 text-cyan-400 hover:bg-cyan-900 px-2 py-1 rounded">
+          <button
+            onClick={() => onAnalyze(!!visibleAiData)}
+            className="rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-100"
+          >
             {visibleAiData ? 'Refresh' : 'Analyze'}
           </button>
         )}
-        {loading && <Loader2 className="w-3 h-3 text-cyan-400 animate-spin" />}
+        {loading && <Loader2 className="h-4 w-4 animate-spin text-cyan-600" />}
       </div>
 
       {visibleAiData ? (
-        <div className="space-y-4 animate-in fade-in zoom-in duration-300">
-          <div className="grid grid-cols-1 gap-3">
-            <div className="bg-slate-900 rounded-lg p-3 border border-cyan-500/20">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-[10px] text-cyan-400 font-bold uppercase">Lead Score</span>
-                <span className="text-lg font-bold text-white">{Number(visibleAiData.leadScore ?? visibleAiData.temperature ?? 0)}/100</span>
-              </div>
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-cyan-100 bg-[#f8fbff] p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-700">Lead score</span>
+              <span className="text-2xl font-bold text-slate-950">{score}/100</span>
             </div>
-            {(visibleAiData.leadSummary || summaryText) && (
-              <div className="bg-slate-900 rounded-lg p-3 border border-slate-700">
-                <span className="text-[10px] text-slate-500 font-bold uppercase">{hasLeadRecord ? 'Lead Summary' : 'Customer Summary'}</span>
-                <p className="text-xs text-slate-300 mt-1 leading-relaxed">{visibleAiData.leadSummary || summaryText}</p>
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs font-medium">
+                <span className={visibleAiData.sentiment === 'COLD' ? 'text-blue-600' : 'text-slate-400'}>Cold</span>
+                <span className={visibleAiData.sentiment === 'HOT' ? 'text-orange-500' : 'text-slate-400'}>Hot</span>
               </div>
-            )}
-            {(visibleAiData.leadNextStep || nextStepText) && (
-              <div className="bg-cyan-950/30 rounded-lg p-3 border border-cyan-500/20">
-                <span className="text-[10px] text-cyan-400 font-bold uppercase">Best Next Step</span>
-                <p className="text-sm text-white mt-1 font-medium">{visibleAiData.leadNextStep || nextStepText}</p>
+              <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-200">
+                <div
+                  className={cn(
+                    'h-full rounded-full transition-all duration-1000',
+                    score > 70 ? 'bg-orange-500' : score > 30 ? 'bg-amber-400' : 'bg-blue-500',
+                  )}
+                  style={{ width: `${score}%` }}
+                />
               </div>
-            )}
-          </div>
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs font-medium">
-              <span className={visibleAiData.sentiment === 'COLD' ? 'text-blue-400' : 'text-slate-400'}>Cold</span>
-              <span className={visibleAiData.sentiment === 'HOT' ? 'text-orange-400' : 'text-slate-400'}>Hot</span>
-            </div>
-            <div className="h-2 w-full bg-slate-900 rounded-full overflow-hidden flex">
-              <div
-                className={cn(
-                  "h-full rounded-full transition-all duration-1000",
-                  visibleAiData.temperature > 70 ? "bg-orange-500 shadow-[0_0_10px_orange]" :
-                  visibleAiData.temperature > 30 ? "bg-amber-400" : "bg-blue-400"
-                )}
-                style={{ width: `${visibleAiData.temperature}%` }}
-              />
             </div>
           </div>
 
+          {(visibleAiData.leadSummary || summaryText) && (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                {hasLeadRecord ? 'Lead summary' : 'Customer summary'}
+              </span>
+              <p className="mt-2 text-sm leading-7 text-slate-700">{visibleAiData.leadSummary || summaryText}</p>
+            </div>
+          )}
+
+          {(visibleAiData.leadNextStep || nextStepText) && (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700">Best next step</span>
+              <p className="mt-2 text-sm font-medium leading-7 text-slate-800">{visibleAiData.leadNextStep || nextStepText}</p>
+            </div>
+          )}
+
           {visibleAiData.icebreaker && (
-            <div className="bg-slate-900 rounded-lg p-3 relative">
-              <Sparkles className="w-4 h-4 text-amber-400 absolute top-3 left-3" />
-              <p className="text-xs text-slate-300 pl-6 leading-relaxed">
-                <span className="font-bold text-slate-500 block mb-1">Generated Icebreaker:</span>
-                "{visibleAiData.icebreaker}"
-              </p>
-              <div className="mt-2 flex justify-end">
-                <button onClick={onInsertIcebreaker} className="text-[10px] flex items-center gap-1 bg-cyan-600 text-white px-2 py-1 rounded hover:bg-cyan-500 transition-colors">
-                  <Send className="w-3 h-3" /> Insert
-                </button>
+            <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
+              <div className="flex items-start gap-3">
+                <Sparkles className="mt-0.5 h-4 w-4 text-amber-500" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-700">Suggested opener</div>
+                  <p className="mt-2 text-sm leading-7 text-slate-700">"{visibleAiData.icebreaker}"</p>
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      onClick={onInsertIcebreaker}
+                      className="inline-flex items-center gap-1 rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-100"
+                    >
+                      <Send className="h-3.5 w-3.5" />
+                      Insert
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
 
           <div>
-            <span className="font-bold text-[10px] text-slate-500 block mb-1 uppercase">AI Intelligence</span>
-            <p className="text-xs text-slate-400 leading-relaxed italic border-l-2 border-slate-700 pl-2">
+            <span className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">AI intelligence</span>
+            <p className="mt-2 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 text-sm italic leading-7 text-slate-600">
               {visibleAiData.summary}
             </p>
           </div>
         </div>
       ) : (
-        <div className="text-center py-6 text-slate-500 text-sm">
+        <div className="py-4 text-sm text-slate-500">
           {leadScore !== undefined ? (
-            <div className="space-y-3 text-left">
-              <div className="flex items-center justify-between bg-slate-900 rounded-lg p-3 border border-cyan-500/20">
-                <span className="text-[10px] text-cyan-400 font-bold uppercase">Lead Score</span>
-                <span className="text-lg font-bold text-white">{leadScore}/100</span>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between rounded-2xl border border-cyan-100 bg-[#f8fbff] p-4">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-700">Lead score</span>
+                <span className="text-2xl font-bold text-slate-950">{leadScore}/100</span>
               </div>
-              {summaryText && <p className="text-xs text-slate-300 leading-relaxed">{summaryText}</p>}
-              {nextStepText && <p className="text-sm text-white font-medium">Next: {nextStepText}</p>}
+              {summaryText && <p className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 text-sm leading-7 text-slate-700">{summaryText}</p>}
+              {nextStepText && <p className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 text-sm font-medium leading-7 text-slate-800">{nextStepText}</p>}
             </div>
           ) : 'AI analysis requires target scan.'}
         </div>

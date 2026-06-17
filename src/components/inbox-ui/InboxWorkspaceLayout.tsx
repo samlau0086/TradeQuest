@@ -28,17 +28,17 @@ export function InboxWorkspaceLayout({
       orientation="horizontal"
       className={cn(
         THREE_PANE_WORKSPACE_STYLES.root,
-        'rounded-lg border border-slate-200 bg-white shadow-sm',
+        'rounded-[30px] border border-slate-200/80 bg-white shadow-[0_28px_90px_rgba(15,23,42,0.08)] overflow-hidden',
       )}
     >
       <Panel
         id="inbox-list"
-        defaultSize={320}
-        minSize={250}
-        maxSize={500}
+        defaultSize={360}
+        minSize={280}
+        maxSize={540}
         className={cn(
           THREE_PANE_WORKSPACE_STYLES.left,
-          'relative z-10 flex flex-col border-r border-slate-200 bg-white transition-transform',
+          'relative z-10 flex flex-col border-r border-slate-200 bg-[#f8fafc] transition-transform',
           sidebarHidden && 'hidden md:flex',
         )}
       >

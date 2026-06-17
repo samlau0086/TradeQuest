@@ -17,6 +17,8 @@ import { ExecutionLogsPanel } from './agent-hub/ExecutionLogsPanel';
 import { SystemHealthPanel } from './agent-hub/SystemHealthPanel';
 import { useAgentChat, useAgentConfigActions, useAgentHubData, useAgentOperations } from './agent-hub/hooks';
 
+const AGENT_HUB_TAB_REQUEST_KEY = 'tradequest:agent-hub-open-tab:v1';
+
 export function AgentHub() {
   const {
     language,
@@ -39,6 +41,24 @@ export function AgentHub() {
   const [logDisplayLimit, setLogDisplayLimit] = useState(30);
   const [agentQueueFilter, setAgentQueueFilter] = useState<AgentQueueFilter>('system');
   const [taskStatusFilter, setTaskStatusFilter] = useState<AgentTaskQueueFilter>('active');
+
+  useEffect(() => {
+    const applyRequestedTab = () => {
+      const raw = localStorage.getItem(AGENT_HUB_TAB_REQUEST_KEY);
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw) as { tab?: AgentHubTab };
+        if (parsed?.tab) setTab(parsed.tab);
+      } catch {
+        // ignore malformed tab request
+      }
+      localStorage.removeItem(AGENT_HUB_TAB_REQUEST_KEY);
+    };
+
+    applyRequestedTab();
+    window.addEventListener('tradequest:open-agent-hub-tab', applyRequestedTab);
+    return () => window.removeEventListener('tradequest:open-agent-hub-tab', applyRequestedTab);
+  }, []);
 
   useEffect(() => {
     if (tab === 'fleet') return;

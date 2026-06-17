@@ -81,6 +81,7 @@ export function ClientDetails() {
     openQuote,
     openEmailInInbox,
     openAgentHub,
+    openAgentHubApprovals,
     openLiveChat,
     openKnowledgeBase,
     openEmailComposeInInbox,
@@ -119,6 +120,12 @@ export function ClientDetails() {
     primaryNextStep,
     primarySummary,
     contactMethodCount,
+    commentCount,
+    pendingCommentDeleteCount,
+    runningTaskCount,
+    approvalCount,
+    agentTaskCount,
+    nextFollowUpAt,
     workroomTodoItems,
   } = useClientDetailsData({
     client,
@@ -147,10 +154,20 @@ export function ClientDetails() {
 
   const mainColumn = (
     <ClientDetailsMainColumn
+      client={client}
+      leadRecord={leadRecord}
+      contacts={displayContacts}
       quoteCount={relatedQuotes.length}
       contactMethodCount={contactMethodCount}
       ragCount={clientKnowledge.length}
       todoCount={pendingFollowUps.length + relatedAgentTasks.length}
+      pendingFollowUpCount={pendingFollowUps.length}
+      agentTaskCount={agentTaskCount}
+      nextFollowUpAt={nextFollowUpAt}
+      approvalCount={approvalCount}
+      commentCount={commentCount}
+      pendingCommentDeleteCount={pendingCommentDeleteCount}
+      runningTaskCount={runningTaskCount}
       loading={loading}
       primaryNextStep={primaryNextStep}
       primarySummary={primarySummary}
@@ -175,6 +192,10 @@ export function ClientDetails() {
       onRefreshAiRecommendation={() => handleAnalyze(true)}
       onOpenCommunication={() => openEmailInInbox(relatedEmails[0]?.id)}
       onOpenAgentHub={openAgentHub}
+      onOpenApprovals={openAgentHubApprovals}
+      onOpenComments={() => {
+        document.getElementById('client-team-comments')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }}
       onOpenKnowledgeBase={openKnowledgeBase}
       onEventViewChange={setEventView}
       onToggleTimelineExpanded={() => setTimelineExpanded(prev => !prev)}

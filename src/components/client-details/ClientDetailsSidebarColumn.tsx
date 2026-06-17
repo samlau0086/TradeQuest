@@ -7,6 +7,7 @@ import { ClientConversationNotesWidget } from './ClientConversationNotesWidget';
 import { ClientFollowUpAgentWidget } from './ClientFollowUpAgentWidget';
 import { ClientProfileSidebarWidgets } from './ClientProfileSidebarWidgets';
 import { ClientQuotesWidget } from './ClientQuotesWidget';
+import { ClientSidebarSection } from './ClientSidebarSection';
 import { WidgetRail } from '../ui';
 
 interface ClientDetailsSidebarColumnProps {
@@ -55,65 +56,95 @@ export function ClientDetailsSidebarColumn({
   onRunAgent,
 }: ClientDetailsSidebarColumnProps) {
   return (
-    <WidgetRail>
-      <ClientProfileSidebarWidgets
-        client={client}
-        leadRecord={leadRecord}
-        summaryText={summaryText}
-        onStatusChange={onStatusChange}
-      />
+    <WidgetRail className="rounded-[28px] border border-slate-800 bg-[#07111f] p-5 shadow-[0_24px_80px_rgba(2,6,23,0.45)]">
+      <ClientSidebarSection
+        eyebrow="Record"
+        title="Controls & Notes"
+        description="Stage controls, pending approvals, and record-specific internal context."
+      >
+        <ClientProfileSidebarWidgets
+          client={client}
+          leadRecord={leadRecord}
+          summaryText={summaryText}
+          onStatusChange={onStatusChange}
+        />
+      </ClientSidebarSection>
 
-      <ClientQuotesWidget
-        quotes={relatedQuotes}
-        leadRecord={leadRecord}
-        currencyRates={currencyRates}
-        onOpenQuote={onOpenQuote}
-      />
+      <ClientSidebarSection
+        eyebrow="AI"
+        title="Signals & Automation"
+        description="AI analysis, follow-up automation, and next actions."
+      >
+        <ClientAiRadarCard
+          visibleAiData={visibleAiData}
+          loading={loading}
+          leadScore={leadScore}
+          summaryText={summaryText}
+          nextStepText={nextStepText}
+          hasLeadRecord={!!leadRecord}
+          onAnalyze={onAnalyze}
+          onInsertIcebreaker={onInsertIcebreaker}
+        />
 
-      <ClientAiRadarCard
-        visibleAiData={visibleAiData}
-        loading={loading}
-        leadScore={leadScore}
-        summaryText={summaryText}
-        nextStepText={nextStepText}
-        hasLeadRecord={!!leadRecord}
-        onAnalyze={onAnalyze}
-        onInsertIcebreaker={onInsertIcebreaker}
-      />
+        <ClientFollowUpAgentWidget
+          enabled={client.agentEnabled}
+          mode={client.agentMode}
+          summary={client.agentSummary}
+          nextStep={client.agentNextStep}
+          loading={agentLoading}
+          onOpenSettings={onOpenAgentSettings}
+          onRunAgent={onRunAgent}
+        />
+      </ClientSidebarSection>
 
-      <ClientContactsWidget
-        client={client}
-        contacts={contacts}
-        expandedContactIdx={expandedContactIdx}
-        onExpandedContactChange={onExpandedContactChange}
-        renderContactAction={(method, closeContactAction) => (
-          <ClientContactActionBox
-            method={method}
-            client={client}
-            onClose={closeContactAction}
-            onOpenEmailCompose={(email) => {
-              onOpenEmailCompose(email);
-              closeContactAction();
-            }}
-          />
-        )}
-      />
+      <ClientSidebarSection
+        eyebrow="Revenue"
+        title="Quotes & Commercial"
+        description="Keep pricing conversations and open commercial work visible."
+      >
+        <ClientQuotesWidget
+          quotes={relatedQuotes}
+          leadRecord={leadRecord}
+          currencyRates={currencyRates}
+          onOpenQuote={onOpenQuote}
+        />
+      </ClientSidebarSection>
 
-      <ClientFollowUpAgentWidget
-        enabled={client.agentEnabled}
-        mode={client.agentMode}
-        summary={client.agentSummary}
-        nextStep={client.agentNextStep}
-        loading={agentLoading}
-        onOpenSettings={onOpenAgentSettings}
-        onRunAgent={onRunAgent}
-      />
+      <ClientSidebarSection
+        eyebrow="Relationship"
+        title="People & Context"
+        description="Contacts, communication methods, and shared conversation cues."
+      >
+        <ClientContactsWidget
+          client={client}
+          contacts={contacts}
+          expandedContactIdx={expandedContactIdx}
+          onExpandedContactChange={onExpandedContactChange}
+          renderContactAction={(method, closeContactAction) => (
+            <ClientContactActionBox
+              method={method}
+              client={client}
+              onClose={closeContactAction}
+              onOpenEmailCompose={(email) => {
+                onOpenEmailCompose(email);
+                closeContactAction();
+              }}
+            />
+          )}
+        />
 
-      <ClientConversationNotesWidget tags={client.tags || []} />
+        <ClientConversationNotesWidget tags={client.tags || []} />
+      </ClientSidebarSection>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
-        <KnowledgeBaseManager clientId={client.id} />
-      </div>
+      <ClientSidebarSection
+        eyebrow="Knowledge"
+        title="RAG & Memory"
+        description="Customer-specific knowledge, snippets, and reusable memory."
+      >
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <KnowledgeBaseManager clientId={client.id} />
+        </div>
+      </ClientSidebarSection>
     </WidgetRail>
   );
 }

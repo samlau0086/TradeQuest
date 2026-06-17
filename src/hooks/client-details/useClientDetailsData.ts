@@ -19,6 +19,18 @@ const shortText = (value: string | undefined | null, max = 120) => {
   return text.length > max ? `${text.slice(0, max - 1)}...` : text;
 };
 
+const countComments = (items: any[] | undefined): number => {
+  if (!Array.isArray(items) || items.length === 0) return 0;
+  return items.reduce((sum, item) => sum + 1 + countComments(item?.replies), 0);
+};
+
+const countPendingDeleteComments = (items: any[] | undefined): number => {
+  if (!Array.isArray(items) || items.length === 0) return 0;
+  return items.reduce((sum, item) => (
+    sum + (item?.pendingDelete ? 1 : 0) + countPendingDeleteComments(item?.replies)
+  ), 0);
+};
+
 export function useClientDetailsData({
   client,
   leadRecord,
@@ -112,14 +124,21 @@ export function useClientDetailsData({
   const clientNextStepText = client?.agentNextStep || client?.leadNextStep || '';
   const leadSummaryText = leadRecord?.leadSummary || '';
   const leadNextStepText = leadRecord?.leadNextStep || '';
-  const primaryNextStep = leadNextStepText || clientNextStepText || '检查最近互动、确认采购背景，然后选择下一步跟进动作。';
-  const primarySummary = leadSummaryText || clientSummaryText || '暂未生成AI摘要，可运行AI Radar或等待Signal Scanner分析此客户/Lead。';
+  const primaryNextStep = leadNextStepText || clientNextStepText || 'Review the latest activity, confirm buying context, and choose the next follow-up move.';
+  const primarySummary = leadSummaryText || clientSummaryText || 'No AI summary is available yet. Run AI Radar or wait for Signal Scanner to analyze this client or lead.';
   const contactMethodCount = displayContacts.reduce((sum, contact) => sum + (contact.contactMethods || []).length, 0);
+  const recordComments = leadRecord ? (leadRecord.comments || []) : (client?.comments || []);
+  const commentCount = countComments(recordComments);
+  const pendingCommentDeleteCount = countPendingDeleteComments(recordComments);
+  const approvalRequiredTaskCount = relatedAgentTasks.filter(task => task.status === 'approval_required').length;
+  const runningTaskCount = relatedAgentTasks.filter(task => task.status === 'running').length;
+  const approvalCount = (client?.pendingEditRequest ? 1 : 0) + pendingCommentDeleteCount + approvalRequiredTaskCount;
+  const nextFollowUpAt = pendingFollowUps[0]?.todoAt || pendingFollowUps[0]?.date || null;
   const workroomTodoItems = [
     ...pendingFollowUps.slice(0, 3).map(email => ({
       id: `todo_${email.id}`,
-      label: email.todoNote || email.subject || '待跟进邮件',
-      meta: email.todoAt ? new Date(email.todoAt).toLocaleString() : '未设置时间',
+      label: email.todoNote || email.subject || 'Follow-up email',
+      meta: email.todoAt ? new Date(email.todoAt).toLocaleString() : 'No due time set',
       onClick: () => onOpenEmail(email.id)
     })),
     ...relatedAgentTasks.slice(0, 3).map(task => ({
@@ -149,6 +168,13 @@ export function useClientDetailsData({
     primaryNextStep,
     primarySummary,
     contactMethodCount,
+    commentCount,
+    pendingCommentDeleteCount,
+    approvalRequiredTaskCount,
+    runningTaskCount,
+    approvalCount,
+    agentTaskCount: relatedAgentTasks.length,
+    nextFollowUpAt,
     workroomTodoItems,
   };
 }

@@ -1,7 +1,9 @@
 import React, { type Dispatch, type SetStateAction } from 'react';
+import { Bot, MessageSquareQuote } from 'lucide-react';
 import { type AgentContextSuggestionInsight, type Client } from '../store';
 import { AgentContextSuggestions } from './AgentContextSuggestions';
 import { ConversationContextRail } from './inbox-ui/ConversationContextRail';
+import { ConversationSectionCard, ConversationSectionHeader } from './inbox-ui/ConversationSectionCard';
 import { WHATSAPP_FOLLOW_UP_MARKER } from './useWhatsAppConversationMeta';
 import { type WhatsAppConversation, type WhatsAppHubMessage } from './whatsappMessageModel';
 
@@ -14,6 +16,7 @@ interface WhatsAppAgentContextView {
 
 interface WhatsAppContextSuggestionsPanelProps {
   embedded: boolean;
+  withinConversationSplit?: boolean;
   language: 'en' | 'zh';
   conversation: WhatsAppConversation | null;
   activeClient: Client | null;
@@ -31,6 +34,8 @@ interface WhatsAppContextSuggestionsPanelProps {
 
 export function WhatsAppContextSuggestionsPanel({
   embedded,
+  withinConversationSplit = false,
+  language,
   conversation,
   activeClient,
   displayPhone,
@@ -44,6 +49,7 @@ export function WhatsAppContextSuggestionsPanel({
   onClose,
   setConversation,
 }: WhatsAppContextSuggestionsPanelProps) {
+  const isZh = language === 'zh';
   const contactName = conversation?.clientName || activeClient?.name || displayPhone;
 
   const saveAnalysis = async (key: string, insight: AgentContextSuggestionInsight) => {
@@ -74,18 +80,48 @@ export function WhatsAppContextSuggestionsPanel({
     );
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || 'Failed to delete WhatsApp conversation.');
-    notify('WhatsApp conversation deleted.', 'success');
+    notify(isZh ? 'WhatsApp 对话已删除。' : 'WhatsApp conversation deleted.', 'success');
     onClose();
   };
 
   return (
     <ConversationContextRail
       variant="rail"
-      title="Agent Suggestions"
-      description="Analyze WhatsApp, customer, product, and RAG context for reply, follow-up, and internal note actions."
-      className={embedded ? 'min-h-0 overflow-y-auto border-t border-slate-200 bg-white p-4 lg:border-l lg:border-t-0' : 'border-t border-slate-800 bg-slate-950/60 p-4'}
+      title={isZh ? 'WhatsApp 智能体上下文' : 'WhatsApp Agent Context'}
+      description={
+        isZh
+          ? '结合客户资料、产品、RAG 和记忆内容，生成下一步回复、待跟进与内部动作建议。'
+          : 'Use customer profile, products, RAG, and conversation memory to guide replies, follow-ups, and internal actions.'
+      }
+      className={
+        withinConversationSplit
+          ? 'min-h-0'
+          : embedded
+            ? 'min-h-0 overflow-y-auto border-t border-slate-200 bg-white p-4 lg:border-l lg:border-t-0'
+            : 'border-t border-slate-800 bg-slate-950/60 p-4'
+      }
       collapsible
     >
+      <ConversationSectionCard className="mb-4">
+        <ConversationSectionHeader
+          title={isZh ? '使用方式' : 'How to use this panel'}
+          icon={<Bot className="h-4 w-4" />}
+          description={
+            isZh
+              ? '这里会优先读取客户入站消息、客户摘要、最佳下一步、产品资料和知识库，再帮助你生成更合适的 WhatsApp 跟进动作。'
+              : 'This panel prioritizes inbound customer messages, CRM summary, best next step, product data, and knowledge snippets before proposing the next WhatsApp action.'
+          }
+        />
+        <div className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
+          <MessageSquareQuote className="mt-0.5 h-4 w-4 shrink-0 text-cyan-500" />
+          <div className="leading-6">
+            {isZh
+              ? '点击“起草 AI 回复”时，如果当前输入框已有内容，会把它当作指导语；如果没有，会自动基于最近客户消息和上下文生成建议。'
+              : 'When you choose Draft AI Reply, the current composer text is treated as guidance; if it is empty, the system drafts directly from the latest customer message and context.'}
+          </div>
+        </div>
+      </ConversationSectionCard>
+
       <AgentContextSuggestions
         channel="whatsapp"
         cacheKey={whatsappAgentContext.cacheKey}
@@ -101,7 +137,7 @@ export function WhatsAppContextSuggestionsPanel({
         hasClient={!!(conversation?.clientId || activeClient?.id)}
         hasKnowledge={!!activeClient}
         hasCustomerMessage={whatsappAgentContext.hasCustomerMessage}
-        autoScrollOnOpen={embedded}
+        autoScrollOnOpen={embedded || withinConversationSplit}
         onDraftReply={() => generateWhatsAppMessage(
           body.trim() || (
             latestInboundMessage
@@ -109,13 +145,17 @@ export function WhatsAppContextSuggestionsPanel({
               : `Draft a polite WhatsApp follow-up to ${contactName}. There is no inbound customer message yet, so do not answer our own outbound messages.`
           )
         )}
-        onAddComment={() => addConversationComment(`Agent suggestion: review WhatsApp conversation with ${contactName} and prepare the next best reply.`)}
+        onAddComment={() => addConversationComment(
+          isZh
+            ? `智能体建议：复核与 ${contactName} 的 WhatsApp 对话，并准备下一条最合适的回复。`
+            : `Agent suggestion: review WhatsApp conversation with ${contactName} and prepare the next best reply.`
+        )}
         followUpAt={whatsappFollowUp?.dueAt}
         followUpNote={whatsappFollowUp?.note}
         onSetFollowUp={(dueAt, note) => addConversationComment(`${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
           status: 'open',
           dueAt,
-          note: note || `Follow up WhatsApp conversation with ${contactName}.`,
+          note: note || (isZh ? `跟进与 ${contactName} 的 WhatsApp 对话。` : `Follow up WhatsApp conversation with ${contactName}.`),
         })}`)}
         onClearFollowUp={() => addConversationComment(`${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
           status: 'canceled',

@@ -22,8 +22,8 @@ export function ConversationSplitPane({
     <div
       className={cn(
         split
-          ? 'flex-1 min-h-0 bg-[#f3f6fb] lg:grid lg:grid-cols-[minmax(0,1fr)_360px]'
-          : 'flex-1 min-h-0 overflow-y-auto bg-[#f3f6fb]',
+          ? 'min-h-0 flex-1 overflow-hidden bg-transparent lg:grid lg:grid-cols-[minmax(0,1.18fr)_minmax(320px,0.55fr)] lg:items-start lg:gap-5 lg:px-5 lg:pb-5'
+          : 'min-h-0 flex-1 overflow-y-auto bg-transparent',
         className,
       )}
       data-conversation-split-pane="true"
@@ -31,8 +31,8 @@ export function ConversationSplitPane({
       <section
         className={cn(
           split
-            ? 'min-h-0 overflow-y-auto bg-[#f3f6fb] p-5 space-y-4'
-            : 'bg-[#f3f6fb] p-4 space-y-3',
+            ? 'min-h-0 overflow-y-auto rounded-[28px] border border-slate-200/80 bg-white/78 p-4 shadow-[0_18px_44px_rgba(15,23,42,0.06)] backdrop-blur-sm space-y-4 lg:p-5'
+            : 'bg-transparent p-4 space-y-4 lg:px-5 lg:pb-5',
           mainClassName,
         )}
       >
@@ -42,8 +42,8 @@ export function ConversationSplitPane({
         <div
           className={cn(
             split
-              ? 'min-h-0 overflow-y-auto border-t border-slate-200 bg-white p-4 lg:border-l lg:border-t-0'
-              : 'border-t border-slate-200 bg-white p-4',
+              ? 'min-h-0 overflow-y-auto px-4 pb-4 lg:px-0 lg:pb-0'
+              : 'border-t border-slate-200/70 bg-white/90 p-4',
             railClassName,
           )}
         >

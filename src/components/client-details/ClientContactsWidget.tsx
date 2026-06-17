@@ -38,14 +38,14 @@ export function ClientContactsWidget({
   if (contacts.length === 0) return null;
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <SectionHeader className="mb-2">Contacts</SectionHeader>
       <div className="space-y-3">
         {contacts.map((contact) => (
-          <div key={contact.id} className="bg-slate-900/50 border border-slate-800 rounded-xl p-3">
+          <div key={contact.id} className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3 shadow-sm">
             <div className="flex items-center justify-between gap-2 mb-2">
               <div className="flex min-w-0 items-center gap-3">
-                <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-700 bg-slate-800 text-xs font-bold uppercase text-slate-400">
+                <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white text-xs font-bold uppercase text-slate-500">
                   {contact.avatarUrl ? (
                     <img
                       src={contact.avatarUrl}
@@ -58,7 +58,7 @@ export function ClientContactsWidget({
                   )}
                 </div>
                 <div className="min-w-0">
-                  <div className="text-sm font-bold text-slate-200 flex items-center gap-2">
+                  <div className="flex items-center gap-2 text-sm font-bold text-slate-800">
                     {contact.name || client.name}
                     {contact.isPrimary && <StatusBadge tone="cyan">Key</StatusBadge>}
                   </div>
@@ -72,18 +72,18 @@ export function ClientContactsWidget({
                 const expandKey = `${contact.id}_${idx}`;
                 const isExpanded = expandedContactIdx === expandKey;
                 return (
-                  <div key={expandKey} className="bg-slate-800/50 border border-slate-700/50 rounded-lg overflow-hidden transition-all">
+                  <div key={expandKey} className="overflow-hidden rounded-xl border border-slate-200 bg-white transition-all">
                     <button
                       onClick={() => onExpandedContactChange(isExpanded ? null : expandKey)}
-                      className="w-full flex items-center justify-between p-2 hover:bg-slate-800 transition-colors"
+                      className="flex w-full items-center justify-between p-2.5 transition-colors hover:bg-slate-50"
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className={cn("p-1.5 rounded-md shrink-0", method.type === 'whatsapp' ? 'bg-green-500/20 text-green-400' : 'bg-slate-700 text-slate-300')}>
+                        <div className={cn("p-1.5 rounded-md shrink-0", method.type === 'whatsapp' ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-500')}>
                           <Icon className="w-4 h-4" />
                         </div>
-                        <span className="text-sm text-slate-300 font-medium truncate">{method.value}</span>
+                        <span className="truncate text-sm font-medium text-slate-700">{method.value}</span>
                       </div>
-                      <span className="text-xs font-medium text-cyan-400 shrink-0 ml-2">
+                      <span className="ml-2 shrink-0 text-xs font-medium text-cyan-700">
                         {isExpanded ? 'Close' : method.type === 'whatsapp' ? 'Chat' : 'Action'}
                       </span>
                     </button>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { BadgeDollarSign, Building2, FileText, MapPin, MessageSquare, Workflow } from 'lucide-react';
+import { FileText, MessageSquare, Workflow } from 'lucide-react';
 import { Client, ClientStatus, Deal } from '../../store';
 import { EmptyState } from '../ui';
 
@@ -20,10 +20,10 @@ export function ClientProfileSidebarWidgets({
 }: ClientProfileSidebarWidgetsProps) {
   return (
     <>
-      <div className="rounded-xl border border-amber-500/20 bg-amber-950/10 p-5">
-        <div className="text-xs font-bold text-amber-300 uppercase tracking-wider mb-3">Pending Approval</div>
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+        <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700">Pending Approval</div>
         {client.pendingEditRequest ? (
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100">
+          <div className="rounded-2xl border border-amber-200 bg-white p-4 text-sm text-amber-800">
             Client profile update is waiting for review.
           </div>
         ) : (
@@ -31,14 +31,14 @@ export function ClientProfileSidebarWidgets({
         )}
       </div>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
-        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h3 className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
           <Workflow className="w-4 h-4" /> Pipeline Stage
         </h3>
         <select
           value={leadRecord?.status || client.status}
           onChange={(event) => onStatusChange(event.target.value as ClientStatus)}
-          className="w-full bg-slate-800 border border-slate-700 text-sm text-white rounded-lg p-2 focus:ring-2 ring-cyan-500 outline-none"
+          className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm text-slate-900 outline-none ring-cyan-500 focus:ring-2"
         >
           {PIPELINE_STAGES.map(stage => (
             <option key={stage} value={stage}>{stage}</option>
@@ -46,54 +46,25 @@ export function ClientProfileSidebarWidgets({
         </select>
       </div>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
-        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Profile Notes</h3>
-        <div className="divide-y divide-slate-800">
-          <div className="py-3 flex gap-3">
-            <Building2 className="w-4 h-4 text-slate-500 mt-0.5" />
-            <div>
-              <div className="text-[11px] text-slate-500 uppercase">Company</div>
-              <div className="text-sm text-slate-200">{client.company || 'Not set'}</div>
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h3 className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Record Notes</h3>
+        <div className="space-y-3">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+            <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+              <MessageSquare className="w-4 h-4 text-slate-400" />
+              CRM Context
             </div>
-          </div>
-          <div className="py-3 flex gap-3">
-            <BadgeDollarSign className="w-4 h-4 text-slate-500 mt-0.5" />
-            <div>
-              <div className="text-[11px] text-slate-500 uppercase">Potential Value</div>
-              <div className="text-sm text-slate-200">{leadRecord ? `$${leadRecord.value.toLocaleString()}` : 'Not set'}</div>
-            </div>
-          </div>
-          <div className="py-3 flex gap-3">
-            <MapPin className="w-4 h-4 text-slate-500 mt-0.5" />
-            <div>
-              <div className="text-[11px] text-slate-500 uppercase">Address</div>
-              <div className="text-sm text-slate-200">{[client.address, client.city, client.state, client.country].filter(Boolean).join(', ') || 'Not set'}</div>
-            </div>
-          </div>
-          <div className="py-3 flex gap-3">
-            <FileText className="w-4 h-4 text-slate-500 mt-0.5" />
-            <div>
-              <div className="text-[11px] text-slate-500 uppercase">Source</div>
-              <div className="text-sm text-slate-200">{leadRecord?.sourceLabel || client.sourceLabel || 'Not set'}</div>
-              {(leadRecord?.sourceId || client.sourceId) && (
-                <div className="mt-1 font-mono text-[11px] text-slate-500">ID: {leadRecord?.sourceId || client.sourceId}</div>
-              )}
-            </div>
-          </div>
-          <div className="py-3 flex gap-3">
-            <MessageSquare className="w-4 h-4 text-slate-500 mt-0.5" />
-            <div>
-              <div className="text-[11px] text-slate-500 uppercase">Description</div>
-              <div className="text-sm text-slate-300 leading-relaxed">{client.agentContext || summaryText || 'No description yet.'}</div>
+            <div className="text-sm leading-relaxed text-slate-700">
+              {client.agentContext || summaryText || 'No internal context yet.'}
             </div>
           </div>
           {leadRecord?.leadNotes && (
-            <div className="py-3 flex gap-3">
-              <FileText className="w-4 h-4 text-slate-500 mt-0.5" />
-              <div>
-                <div className="text-[11px] text-slate-500 uppercase">Lead Notes</div>
-                <div className="whitespace-pre-wrap text-sm leading-relaxed text-slate-300">{leadRecord.leadNotes}</div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+              <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                <FileText className="w-4 h-4 text-slate-400" />
+                Lead Notes
               </div>
+              <div className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{leadRecord.leadNotes}</div>
             </div>
           )}
         </div>

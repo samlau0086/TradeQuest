@@ -42,9 +42,11 @@ export function TelegramAgentSuggestionsPanel({
       channel="telegram"
       contextLookup={{ conversationId }}
       draftReplyLabel={language === 'zh' ? '起草 Telegram 回复' : 'Draft Telegram Reply'}
-      draftReplyDescription={language === 'zh'
-        ? '使用客户资料、Telegram 记录、产品和 RAG 上下文生成回复草稿。'
-        : 'Draft a Telegram reply using customer, conversation, product, and RAG context.'}
+      draftReplyDescription={
+        language === 'zh'
+          ? '使用客户资料、Telegram 记录、产品信息和 RAG 上下文生成回复草稿。'
+          : 'Draft a Telegram reply using customer, conversation, product, and RAG context.'
+      }
       onCreateLead={onCreateLead}
       {...props}
     />
@@ -65,9 +67,11 @@ export function LiveChatAgentSuggestionsPanel({
       channel="live_chat"
       contextLookup={{ conversationId }}
       draftReplyLabel={language === 'zh' ? '运行 Agent 回复' : 'Run Agent Reply'}
-      draftReplyDescription={language === 'zh'
-        ? '使用客户资料、聊天记录、产品和 RAG 上下文生成并发送 Live Chat 回复。'
-        : 'Generate and send a Live Chat reply using customer, conversation, product, and RAG context.'}
+      draftReplyDescription={
+        language === 'zh'
+          ? '使用客户资料、聊天记录、产品信息和 RAG 上下文生成并发送 Live Chat 回复。'
+          : 'Generate and send a Live Chat reply using customer, conversation, product, and RAG context.'
+      }
       {...props}
     />
   );

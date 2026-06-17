@@ -1,6 +1,12 @@
 import { useState } from 'react';
 import type { ComposeDefaults } from './InboxContentPanelTypes';
-import type { InboxChannelFilter, UnifiedCommunicationConversation } from './inboxModel';
+import type {
+  InboxChannelFilter,
+  InboxQueueDensity,
+  InboxQueueOwnerFilter,
+  InboxQueueSortMode,
+  UnifiedCommunicationConversation,
+} from './inboxModel';
 
 type InboxMailFilter = 'inbox' | 'sent' | 'scheduled' | 'drafts';
 type EmailListMode = 'list' | 'conversation';
@@ -12,6 +18,9 @@ export function useInboxUiState() {
   const [search, setSearch] = useState('');
   const [searchTags, setSearchTags] = useState<string[]>([]);
   const [followUpOnly, setFollowUpOnly] = useState(false);
+  const [queueSortMode, setQueueSortMode] = useState<InboxQueueSortMode>('recent');
+  const [queueOwnerFilter, setQueueOwnerFilter] = useState<InboxQueueOwnerFilter>('all');
+  const [queueDensity, setQueueDensity] = useState<InboxQueueDensity>('comfortable');
   const [isComposing, setIsComposing] = useState(false);
   const [composeDefaults, setComposeDefaults] = useState<ComposeDefaults | null>(null);
   const [commentText, setCommentText] = useState('');
@@ -55,6 +64,12 @@ export function useInboxUiState() {
     setSearchTags,
     followUpOnly,
     setFollowUpOnly,
+    queueSortMode,
+    setQueueSortMode,
+    queueOwnerFilter,
+    setQueueOwnerFilter,
+    queueDensity,
+    setQueueDensity,
     isComposing,
     setIsComposing,
     composeDefaults,

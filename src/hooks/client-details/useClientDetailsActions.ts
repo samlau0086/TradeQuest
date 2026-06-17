@@ -2,10 +2,16 @@ import { useAuthStore } from '../../authStore';
 import { useStore, type Client, type Deal, type ViewMode } from '../../store';
 
 const INBOX_OPEN_REQUEST_KEY = 'tradequest:inbox-open-request:v1';
+const AGENT_HUB_TAB_REQUEST_KEY = 'tradequest:agent-hub-open-tab:v1';
 
 const requestInboxOpen = (payload: Record<string, any>) => {
   localStorage.setItem(INBOX_OPEN_REQUEST_KEY, JSON.stringify({ ...payload, requestedAt: new Date().toISOString() }));
   window.dispatchEvent(new Event('tradequest:open-inbox-request'));
+};
+
+const requestAgentHubTabOpen = (tab: string) => {
+  localStorage.setItem(AGENT_HUB_TAB_REQUEST_KEY, JSON.stringify({ tab, requestedAt: new Date().toISOString() }));
+  window.dispatchEvent(new Event('tradequest:open-agent-hub-tab'));
 };
 
 interface UseClientDetailsActionsOptions {
@@ -52,6 +58,10 @@ export function useClientDetailsActions({
   };
 
   const openAgentHub = () => setView('agent-hub');
+  const openAgentHubApprovals = () => {
+    requestAgentHubTabOpen('approvals');
+    setView('agent-hub');
+  };
   const openLiveChat = () => setView('live-chat');
   const openKnowledgeBase = () => setView('knowledge-base');
 
@@ -109,6 +119,7 @@ export function useClientDetailsActions({
     openQuote,
     openEmailInInbox,
     openAgentHub,
+    openAgentHubApprovals,
     openLiveChat,
     openKnowledgeBase,
     openEmailComposeInInbox,
