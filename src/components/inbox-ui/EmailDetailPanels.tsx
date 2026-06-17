@@ -163,7 +163,6 @@ export function EmailAgentSuggestionsPanel({
       hasClient={hasClient}
       hasKnowledge={hasKnowledge}
       hasCustomerMessage={hasCustomerMessage}
-      autoScrollOnOpen
       onDraftReply={onDraftReply}
       onAddComment={onAddComment}
       onCreateLead={onCreateLead}

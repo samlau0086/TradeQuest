@@ -138,7 +138,7 @@ export function WhatsAppContextSuggestionsPanel({
         hasClient={!!(conversation?.clientId || activeClient?.id)}
         hasKnowledge={!!activeClient}
         hasCustomerMessage={whatsappAgentContext.hasCustomerMessage}
-        autoScrollOnOpen={embedded || withinConversationSplit}
+        autoScrollOnOpen={false}
         onDraftReply={() =>
           generateWhatsAppMessage(
             body.trim()
