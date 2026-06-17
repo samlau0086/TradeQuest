@@ -58,9 +58,9 @@ const channelAccent = {
 
 function getMessageId(channel: ConversationMessageChannel, message: any, index: number) {
   return String(
-    message.id ||
-      message.sourceId ||
-      `${channel}_${message.createdAt || message.source_created_at || message.sourceCreatedAt || index}`,
+    message.id
+      || message.sourceId
+      || `${channel}_${message.createdAt || message.source_created_at || message.sourceCreatedAt || index}`,
   );
 }
 
@@ -72,19 +72,23 @@ function isOutboundMessage(channel: ConversationMessageChannel, message: any) {
 function getSenderLabel(channel: ConversationMessageChannel, message: any, outbound: boolean, language: 'en' | 'zh') {
   if (channel === 'telegram') {
     return (
-      message.sender ||
-      message.senderName ||
-      (outbound ? (language === 'zh' ? '操作员' : 'Operator') : 'Telegram')
+      message.sender
+      || message.senderName
+      || (outbound ? (language === 'zh' ? '操作员' : 'Operator') : 'Telegram')
     );
   }
+
   return (
-    message.senderName ||
-    (outbound ? (language === 'zh' ? '操作员' : 'Operator') : (language === 'zh' ? '访客' : 'Visitor'))
+    message.senderName
+    || (outbound ? (language === 'zh' ? '操作员' : 'Operator') : (language === 'zh' ? '访客' : 'Visitor'))
   );
 }
 
 function getTypeLabel(channel: ConversationMessageChannel, message: any, language: 'en' | 'zh') {
-  if (channel === 'telegram') return message.message_type || message.messageType || (language === 'zh' ? '消息' : 'message');
+  if (channel === 'telegram') {
+    return message.message_type || message.messageType || (language === 'zh' ? '消息' : 'message');
+  }
+
   return message.role || (language === 'zh' ? '消息' : 'message');
 }
 
@@ -113,7 +117,7 @@ export function ConversationMessageList({
   const outboundCount = Math.max(0, messages.length - inboundCount);
 
   return (
-    <ConversationSectionCard>
+    <ConversationSectionCard className="min-h-0 flex flex-col">
       <ConversationSectionHeader
         title={isZh ? accent.headingZh : accent.heading}
         icon={<MessageSquareText className="h-4 w-4 text-slate-400" />}
@@ -143,7 +147,7 @@ export function ConversationMessageList({
           {isZh ? accent.emptyTextZh : accent.emptyText}
         </div>
       ) : (
-        <div className="rounded-[22px] border border-slate-200 bg-[linear-gradient(180deg,#f9fbfd_0%,#f3f6fa_100%)] p-4 lg:p-5">
+        <div className="min-h-0 rounded-[22px] border border-slate-200 bg-[linear-gradient(180deg,#f9fbfd_0%,#f3f6fa_100%)] p-4 lg:p-5">
           <div className="relative pl-2">
             <div className="absolute bottom-0 left-[11px] top-2 w-px bg-slate-200" />
             <div className="space-y-4">

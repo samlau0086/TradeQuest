@@ -104,54 +104,48 @@ export function WhatsAppMessageComposer({
 }: WhatsAppMessageComposerProps) {
   const isZh = language === 'zh';
 
-  const translateTitle = isZh ? '\u53d1\u9001\u524d\u7ffb\u8bd1' : 'Translate Before Send';
+  const translateTitle = isZh ? '发送前翻译' : 'Translate Before Send';
   const translateDescription = isZh
-    ? '\u4e3a\u5f53\u524d WhatsApp \u53f7\u7801\u4fdd\u5b58\u76ee\u6807\u8bed\u8a00\u4e0e\u53d1\u9001\u524d\u7ffb\u8bd1\u8bbe\u7f6e\uff1b\u539f\u6587\u4ec5\u4fdd\u7559\u5728 CRM \u5185\u90e8\u3002'
+    ? '为当前 WhatsApp 号码保存目标语言与发送前翻译设置；原文仅保留在 CRM 内部。'
     : 'Save target language and translate-before-send for this WhatsApp number; originals remain inside CRM.';
-  const targetLabel = isZh ? '\u76ee\u6807\u8bed\u8a00' : 'Target';
+  const targetLabel = isZh ? '目标语言' : 'Target';
   const savePreferredLanguageHint = hasActiveClient
     ? isZh
-      ? '\u4fee\u6539\u8fd9\u91cc\u4f1a\u540c\u6b65\u4fdd\u5b58\u5ba2\u6237\u504f\u597d\u8bed\u8a00'
+      ? '修改这里会同步保存客户偏好语言'
       : 'Changing this saves the client preferred language'
     : isZh
-      ? '\u8bf7\u5148\u5173\u8054\u5ba2\u6237\uff0c\u518d\u4fdd\u5b58\u504f\u597d\u8bed\u8a00'
+      ? '请先关联客户，再保存偏好语言'
       : 'Link a client before saving preferred language';
 
-  const workspaceTitle = isZh ? 'WhatsApp \u56de\u590d\u5de5\u4f5c\u533a' : 'WhatsApp reply workspace';
+  const workspaceTitle = isZh ? 'WhatsApp 回复工作区' : 'WhatsApp reply workspace';
   const workspaceDescription = customerServiceAgentEnabled
     ? isZh
-      ? '\u5f53\u524d\u4e3a Agent \u6a21\u5f0f\u3002\u4f60\u53ef\u4ee5\u8f93\u5165\u6307\u5bfc\u8bed\uff0c\u6216\u7559\u7a7a\u8ba9\u7cfb\u7edf\u57fa\u4e8e\u4e0a\u4e0b\u6587\u81ea\u52a8\u56de\u590d\u3002'
+      ? '当前为 Agent 模式。你可以输入指导语，或留空让系统基于上下文自动回复。'
       : 'Agent mode is on. Add guidance, or leave it blank and let the system reply from context.'
     : isZh
-      ? '\u652f\u6301\u9644\u4ef6\u3001\u5a92\u4f53\u7d20\u6750\u3001\u8868\u60c5\u548c\u5b9a\u65f6\u53d1\u9001\uff0c\u7edf\u4e00\u4ece\u8fd9\u91cc\u5b8c\u6210 WhatsApp \u8ddf\u8fdb\u3002'
+      ? '支持附件、媒体素材、表情和定时发送，统一从这里完成 WhatsApp 跟进。'
       : 'Use attachments, media library, emoji, and scheduled send from one unified WhatsApp follow-up composer.';
 
   const placeholder = customerServiceAgentEnabled
     ? isZh
-      ? 'Agent \u6a21\u5f0f\uff1a\u53ef\u8f93\u5165\u6307\u5bfc\u8bed\uff0c\u6216\u7559\u7a7a\u8ba9\u7cfb\u7edf\u57fa\u4e8e\u4e0a\u4e0b\u6587\u81ea\u52a8\u56de\u590d\u3002'
+      ? 'Agent 模式：可输入指导语，或留空让系统基于上下文自动回复。'
       : 'Agent mode: optional guidance, or leave blank to auto-reply from context.'
     : typeMessageLabel;
 
   const helperText = customerServiceAgentEnabled
     ? isZh
-      ? 'Agent \u6a21\u5f0f\u4e0b\uff0c\u7cfb\u7edf\u4f1a\u7ed3\u5408\u5ba2\u6237\u4e0a\u4e0b\u6587\u3001\u4ea7\u54c1\u4fe1\u606f\u4e0e\u5386\u53f2\u6c9f\u901a\u6765\u51b3\u5b9a\u6700\u7ec8\u53d1\u9001\u5185\u5bb9\u3002'
+      ? 'Agent 模式下，系统会结合客户上下文、产品信息与历史沟通来决定最终发送内容。'
       : 'In Agent mode, the system uses customer context, product information, and prior communication to determine the final reply.'
     : isZh
-      ? '\u53d1\u9001\u524d\u8bf7\u786e\u8ba4\u8bed\u6c14\u3001\u8bed\u8a00\u548c\u5ba2\u6237\u4e0a\u4e0b\u6587\u5df2\u7ecf\u5bf9\u9f50\u3002'
+      ? '发送前请确认语气、语言和客户上下文已经对齐。'
       : 'Before sending, confirm tone, language, and customer context are aligned.';
 
   const sendCta = translatingOutbound
-    ? isZh
-      ? '\u7ffb\u8bd1\u4e2d'
-      : 'Translating'
+    ? (isZh ? '翻译中' : 'Translating')
     : customerServiceAgentEnabled
       ? scheduleEnabled
-        ? isZh
-          ? 'Agent \u5b9a\u65f6\u53d1\u9001'
-          : 'Agent Schedule'
-        : isZh
-          ? 'Agent \u53d1\u9001'
-          : 'Agent Send'
+        ? (isZh ? 'Agent 定时发送' : 'Agent Schedule')
+        : (isZh ? 'Agent 发送' : 'Agent Send')
       : scheduleEnabled
         ? scheduleLabel
         : sendLabel;
@@ -245,7 +239,7 @@ export function WhatsAppMessageComposer({
             className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors ${
               outboundAutoTranslateEnabled ? 'border-cyan-200 bg-cyan-100' : 'border-slate-200 bg-white'
             }`}
-            title={isZh ? `\u4e3a ${displayPhone} \u4fdd\u5b58\u53d1\u9001\u524d\u7ffb\u8bd1\u8bbe\u7f6e` : `Save translate-before-send for ${displayPhone}`}
+            title={isZh ? `为 ${displayPhone} 保存发送前翻译设置` : `Save translate-before-send for ${displayPhone}`}
           >
             <span
               className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
@@ -264,11 +258,11 @@ export function WhatsAppMessageComposer({
           actions={(
             <div className="flex flex-wrap items-center gap-1.5">
               <ConversationToolbarPill tone="success">
-                {customerServiceAgentEnabled ? (isZh ? 'Agent \u6a21\u5f0f' : 'Agent mode') : (isZh ? '\u624b\u52a8\u53d1\u9001' : 'Manual send')}
+                {customerServiceAgentEnabled ? (isZh ? 'Agent 模式' : 'Agent mode') : (isZh ? '手动发送' : 'Manual send')}
               </ConversationToolbarPill>
               <ConversationToolbarPill tone="default">
                 <Keyboard className="h-3 w-3" />
-                {isZh ? 'Enter \u53d1\u9001' : 'Enter to send'}
+                {isZh ? 'Enter 发送' : 'Enter to send'}
               </ConversationToolbarPill>
             </div>
           )}
@@ -295,7 +289,11 @@ export function WhatsAppMessageComposer({
                 <FolderOpen className="h-5 w-5" />
               </button>
 
-              <button type="button" onClick={onToggleEmoji} className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 hover:bg-slate-50">
+              <button
+                type="button"
+                onClick={onToggleEmoji}
+                className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 hover:bg-slate-50"
+              >
                 <Smile className="h-5 w-5" />
               </button>
 

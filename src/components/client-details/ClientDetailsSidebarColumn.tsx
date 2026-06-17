@@ -56,7 +56,7 @@ export function ClientDetailsSidebarColumn({
   onRunAgent,
 }: ClientDetailsSidebarColumnProps) {
   return (
-    <WidgetRail className="rounded-[28px] border border-slate-800 bg-[#07111f] p-5 shadow-[0_24px_80px_rgba(2,6,23,0.45)]">
+    <WidgetRail className="rounded-[28px] border border-slate-200 bg-[linear-gradient(180deg,#f8fbfd_0%,#f3f7fb_100%)] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
       <ClientSidebarSection
         eyebrow="Record"
         title="Controls & Notes"
@@ -141,7 +141,7 @@ export function ClientDetailsSidebarColumn({
         title="RAG & Memory"
         description="Customer-specific knowledge, snippets, and reusable memory."
       >
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
           <KnowledgeBaseManager clientId={client.id} />
         </div>
       </ClientSidebarSection>

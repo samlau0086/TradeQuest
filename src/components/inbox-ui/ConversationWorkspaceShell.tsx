@@ -30,11 +30,13 @@ export function ConversationWorkspaceShell({
       )}
     >
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        {header}
-        {summary}
-        {followUp}
-        <div className={cn('min-h-0 flex-1 bg-transparent', contentClassName)}>
-          {content}
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-4 pb-4 pt-4 lg:px-5 lg:pb-5 lg:pt-5">
+          {header}
+          {summary}
+          {followUp}
+          <div className={cn('min-h-0 flex-1 overflow-hidden', contentClassName)}>
+            {content}
+          </div>
         </div>
       </div>
       {composer && (

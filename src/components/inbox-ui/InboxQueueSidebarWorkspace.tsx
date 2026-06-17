@@ -93,29 +93,54 @@ export function InboxQueueSidebarWorkspace({
     conversation => !conversation.owner_id,
   ).length;
 
+  const statCards = [
+    {
+      label: isZh ? '可见会话' : 'Visible',
+      value: totalVisibleCount,
+      tone: 'text-slate-950',
+      surface: 'border-slate-200/80 bg-white',
+    },
+    {
+      label: isZh ? '待跟进' : 'Follow-up',
+      value: visibleFollowUpCount,
+      tone: 'text-emerald-700',
+      surface: 'border-emerald-100 bg-emerald-50/70',
+    },
+    {
+      label: isZh ? '未读' : 'Unread',
+      value: unreadVisibleCount,
+      tone: 'text-cyan-700',
+      surface: 'border-cyan-100 bg-cyan-50/70',
+    },
+    {
+      label: isZh ? '未分配' : 'Unassigned',
+      value: unassignedVisibleCount,
+      tone: 'text-violet-700',
+      surface: 'border-violet-100 bg-violet-50/70',
+    },
+  ];
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 bg-[#f3f6fb] p-4">
-      <div className="grid grid-cols-3 gap-3">
-        {[
-          {
-            label: isZh ? '可见会话' : 'Visible',
-            value: totalVisibleCount,
-            tone: 'text-slate-950',
-          },
-          {
-            label: isZh ? '待跟进' : 'Follow-up',
-            value: visibleFollowUpCount,
-            tone: 'text-emerald-700',
-          },
-          {
-            label: isZh ? '未读' : 'Unread',
-            value: unreadVisibleCount,
-            tone: 'text-cyan-700',
-          },
-        ].map(item => (
+    <div className="flex min-h-0 flex-1 flex-col gap-4 bg-[linear-gradient(180deg,#f7f9fc_0%,#eff4f9_100%)] p-4">
+      <div className="rounded-[24px] border border-slate-200/80 bg-white px-4 py-4 shadow-[0_12px_30px_rgba(15,23,42,0.05)]">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+          {isZh ? '运营视角' : 'Operator snapshot'}
+        </div>
+        <div className="mt-1 text-lg font-semibold tracking-tight text-slate-950">
+          {isZh ? '收件箱队列工作区' : 'Inbox queue workspace'}
+        </div>
+        <p className="mt-1 text-xs leading-5 text-slate-500">
+          {isZh
+            ? '先整理过滤条件和保存视图，再从统一队列进入具体会话处理。'
+            : 'Shape filters and saved views first, then move from the shared queue into execution.'}
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        {statCards.map(item => (
           <div
             key={item.label}
-            className="rounded-2xl border border-slate-200/80 bg-white px-3 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.04)]"
+            className={`rounded-[22px] border px-3 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.04)] ${item.surface}`}
           >
             <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
               {item.label}
@@ -188,7 +213,7 @@ export function InboxQueueSidebarWorkspace({
         className="min-h-0 flex-1"
         bodyClassName="min-h-0 flex flex-col"
       >
-        <div className="flex-1 overflow-y-auto bg-[#f8fafc] pb-48 scrollbar-thin">
+        <div className="flex-1 overflow-y-auto bg-white pb-48 scrollbar-thin">
           {totalVisibleCount > 0 && (
             <InboxQueueHeader
               language={language}
@@ -246,7 +271,7 @@ export function InboxQueueSidebarWorkspace({
           )}
 
           {totalVisibleCount === 0 && (
-            <div className="m-3 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
+            <div className="m-3 rounded-[22px] border border-dashed border-slate-300 bg-slate-50/80 p-8 text-center text-sm text-slate-500">
               {isUnifiedConversationLoading
                 ? (isZh ? '正在加载会话...' : 'Loading conversations...')
                 : (isZh ? '当前没有匹配的会话。' : 'No conversations found.')}

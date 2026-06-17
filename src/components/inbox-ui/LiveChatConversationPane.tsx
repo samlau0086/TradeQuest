@@ -329,7 +329,7 @@ export function LiveChatConversationPane({
           ]}
           collapsible
         >
-          <LiveChatCustomerInsightCard client={activeLiveChatClient} />
+          <LiveChatCustomerInsightCard language={language} client={activeLiveChatClient} />
           <LiveChatEvidencePanel language={language} items={activeLiveChatEvidenceItems} />
           <LiveChatAgentSuggestionsPanel
             language={language}

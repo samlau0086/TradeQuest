@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, BookOpen, Bot, CalendarClock, CornerDownRight, Loader2, MessageSquare, ShieldCheck, Sparkles, Trash2, UserPlus, Zap } from 'lucide-react';
 import { AgentContextAnalysisMode, AgentContextSuggestionInsight, useStore } from '../store';
 import { useTranslation } from '../lib/i18n';
-import { cn } from '../lib/utils';
+import { ConversationSectionCard, ConversationSectionHeader } from './inbox-ui/ConversationSectionCard';
+import { ConversationToolbarButton, ConversationToolbarField, ConversationToolbarGroup, ConversationToolbarPill } from './inbox-ui/ConversationToolbar';
 
 interface SuggestionOption {
   id: string;
@@ -148,7 +149,7 @@ export function AgentContextSuggestions({
   const [followUpDraftNote, setFollowUpDraftNote] = useState('');
   const [serverContext, setServerContext] = useState<ServerAgentContext | null>(null);
   const [loadingServerContext, setLoadingServerContext] = useState(false);
-  const panelRef = useRef<HTMLElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const agent = useMemo(() => {
     const preferredId = channel === 'whatsapp'
       ? 'whatsapp_agent'
@@ -259,10 +260,10 @@ export function AgentContextSuggestions({
   const buildNoCustomerMessageInsight = (): AgentContextSuggestionInsight => ({
     intent: language === 'zh' ? '等待客户回复' : 'Awaiting customer reply',
     customerContext: language === 'zh'
-      ? '客户尚未发送入站消息，不能基于我方已发送内容判断客户意图。'
+      ? '客户尚未发送入站消息，当前不能把我方已发送内容当作客户意图来分析。'
       : 'No inbound customer message has been received, so our outbound messages are not treated as customer intent.',
     knowledgeContext: language === 'zh'
-      ? '当前只能参考客户档案、产品和知识库；建议等待客户回复，或发送低压跟进。'
+      ? '当前只能参考 CRM、产品和知识库上下文；建议等待客户回复，或发送一次轻量跟进。'
       : 'Only CRM, product, and knowledge context are available; wait for a customer reply or send a light follow-up.',
     analyzedAt: new Date().toISOString(),
     modelId: llmConfig?.id
@@ -493,238 +494,278 @@ ${effectiveAdditionalContext || 'N/A'}`,
   };
 
   return (
-    <section ref={panelRef} className="mt-6 rounded-lg border border-blue-500/30 bg-blue-950/20 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-blue-300">
-          <Bot className="w-4 h-4" />
-          {t('Agent Context & Suggestions')} <span className="text-blue-400">&amp; {options.length} {t('Options')}</span>
-        </div>
-        <div className={cn(
-          'flex items-center gap-1.5 rounded border px-2 py-1 text-[10px] font-bold uppercase',
-          canAutoExecute ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : automationReady ? 'border-amber-500/30 bg-amber-500/10 text-amber-300' : 'border-slate-600 bg-slate-900 text-slate-400'
-        )}>
-          {canAutoExecute ? <Zap className="w-3 h-3" /> : <ShieldCheck className="w-3 h-3" />}
-          {executionLabel}
-        </div>
-      </div>
+    <div ref={panelRef} className="mt-6">
+      <ConversationSectionCard className="border-[#d7e3ff] bg-[linear-gradient(180deg,#fdfefe_0%,#f5f9ff_100%)]">
+        <ConversationSectionHeader
+          icon={<Bot className="h-4 w-4 text-[#3b82f6]" />}
+          title={
+            <>
+              {t('Agent Context & Suggestions')}
+              <span className="ml-1 text-slate-400">&amp; {options.length} {t('Options')}</span>
+            </>
+          }
+          description={label(
+            '结合客户资料、最近沟通记录、知识库和当前会话，为当前处理动作提供更稳妥的建议。',
+            'Combine customer profile, recent conversations, knowledge, and the current thread into a more confident next-action recommendation.',
+          )}
+          actions={
+            <ConversationToolbarPill tone={canAutoExecute ? 'success' : automationReady ? 'warning' : 'default'}>
+              {canAutoExecute ? <Zap className="h-3.5 w-3.5" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+              {executionLabel}
+            </ConversationToolbarPill>
+          }
+        />
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <select
-          value={resolvedAnalysisMode}
-          onChange={e => setCurrentAnalysisMode(e.target.value as AgentContextAnalysisMode)}
-          className="bg-slate-950 border border-blue-500/30 rounded-md px-2 py-1.5 text-xs text-slate-300 outline-none"
-          title={t('Analysis Mode')}
-        >
-          <option value="manual">{t('Manual analysis')}</option>
-          <option value="auto">{t('Auto analysis')}</option>
-        </select>
-        {resolvedAnalysisMode === 'manual' && (
-          <button
-            onClick={() => void runAnalysis()}
-            disabled={loadingInsight || !llmConfig}
-            className="inline-flex items-center gap-2 rounded-md border border-blue-500/40 bg-blue-600/10 px-2.5 py-1.5 text-xs font-bold text-blue-200 hover:bg-blue-600/20 disabled:border-slate-700 disabled:bg-slate-900 disabled:text-slate-500"
-          >
-            {loadingInsight ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-            {cachedInsight ? t('Analyze again') : t('Analyze')}
-          </button>
-        )}
-        {cachedInsight && (
-          <span className="text-[10px] text-slate-500">{t('Cached analysis')}: {new Date(cachedInsight.analyzedAt).toLocaleString()}</span>
-        )}
-      </div>
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,220px)_1fr]">
+          <ConversationToolbarField label={t('Analysis Mode')}>
+            <select
+              value={resolvedAnalysisMode}
+              onChange={e => setCurrentAnalysisMode(e.target.value as AgentContextAnalysisMode)}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-[#ff7a59]"
+              title={t('Analysis Mode')}
+            >
+              <option value="manual">{t('Manual analysis')}</option>
+              <option value="auto">{t('Auto analysis')}</option>
+            </select>
+          </ConversationToolbarField>
 
-      <div className="mt-4 space-y-2 text-sm text-slate-300">
-        <div className="flex items-start gap-2">
-          <CornerDownRight className="mt-0.5 w-4 h-4 text-blue-400" />
-          <span>{t('Intent analyzed as')} <span className="font-bold text-blue-200">{t(intent)}</span>. {loadingInsight && <Loader2 className="ml-1 inline w-3 h-3 animate-spin text-blue-300" />}</span>
+          <div className="rounded-2xl border border-slate-200 bg-white/85 px-4 py-3">
+            <ConversationToolbarGroup className="justify-between gap-3">
+              <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-slate-500">
+                <ConversationToolbarPill tone={customerMessageAvailable ? 'info' : 'warning'}>
+                  {customerMessageAvailable ? label('检测到客户入站消息', 'Inbound customer message detected') : label('暂无客户入站消息', 'No inbound customer message yet')}
+                </ConversationToolbarPill>
+                {cachedInsight && (
+                  <span>
+                    {t('Cached analysis')}: {new Date(cachedInsight.analyzedAt).toLocaleString()}
+                  </span>
+                )}
+                {loadingServerContext && (
+                  <span className="inline-flex items-center gap-1.5 text-slate-400">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    {label('正在加载上下文', 'Loading context')}
+                  </span>
+                )}
+              </div>
+              {resolvedAnalysisMode === 'manual' && (
+                <ConversationToolbarButton
+                  tone="primary"
+                  onClick={() => void runAnalysis()}
+                  disabled={loadingInsight || !llmConfig}
+                >
+                  {loadingInsight ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  {cachedInsight ? t('Analyze again') : t('Analyze')}
+                </ConversationToolbarButton>
+              )}
+            </ConversationToolbarGroup>
+          </div>
         </div>
-        <div className="flex items-start gap-2">
-          <CornerDownRight className="mt-0.5 w-4 h-4 text-blue-400" />
-          <span>{aiInsight?.customerContext || (clientName ? `${t('Related customer')}: ${clientName}` : t('No linked customer yet.'))}</span>
-        </div>
-        <div className="flex items-start gap-2">
-          <CornerDownRight className="mt-0.5 w-4 h-4 text-blue-400" />
-          <span>{aiInsight?.knowledgeContext || (hasKnowledge ? t('Relevant CRM/RAG context is available.') : t('No RAG snippet found yet; consider saving this context.'))}</span>
-        </div>
-      </div>
 
-      {knowledgeEvidence.length > 0 && (
-        <div className="mt-4 rounded-lg border border-slate-700/70 bg-slate-950/70 p-3">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-300">
-              <BookOpen className="h-4 w-4 text-cyan-300" />
-              {language === 'zh' ? 'RAG 引用依据' : 'RAG Evidence'}
+        <div className="mt-5 grid gap-3">
+          <div className="rounded-2xl border border-slate-200 bg-white/90 p-4">
+            <div className="mb-3 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
+              <Sparkles className="h-4 w-4 text-[#ff7a59]" />
+              {label('当前判断', 'Current Reading')}
             </div>
-            <div className="flex flex-wrap gap-1.5 text-[10px]">
-              <span className="rounded border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-blue-200">
-                {language === 'zh' ? '客户知识' : 'Client'}: {clientKnowledgeHits}
-              </span>
-              <span className="rounded border border-slate-600 bg-slate-900 px-2 py-0.5 text-slate-300">
-                {language === 'zh' ? '全局知识' : 'Global'}: {globalKnowledgeHits}
-              </span>
+            <div className="space-y-3 text-sm text-slate-600">
+              <div className="flex items-start gap-2.5">
+                <CornerDownRight className="mt-0.5 h-4 w-4 shrink-0 text-[#3b82f6]" />
+                <span>
+                  {t('Intent analyzed as')} <span className="font-semibold text-slate-900">{t(intent)}</span>.
+                  {loadingInsight && <Loader2 className="ml-1 inline h-3.5 w-3.5 animate-spin text-[#3b82f6]" />}
+                </span>
+              </div>
+              <div className="flex items-start gap-2.5">
+                <CornerDownRight className="mt-0.5 h-4 w-4 shrink-0 text-[#3b82f6]" />
+                <span>{aiInsight?.customerContext || (clientName ? `${t('Related customer')}: ${clientName}` : t('No linked customer yet.'))}</span>
+              </div>
+              <div className="flex items-start gap-2.5">
+                <CornerDownRight className="mt-0.5 h-4 w-4 shrink-0 text-[#3b82f6]" />
+                <span>{aiInsight?.knowledgeContext || (hasKnowledge ? t('Relevant CRM/RAG context is available.') : t('No RAG snippet found yet; consider saving this context.'))}</span>
+              </div>
             </div>
           </div>
-          <div className="grid gap-2 md:grid-cols-2">
-            {knowledgeEvidence.slice(0, 4).map(item => (
-              <div key={`${item.id || item.title}-${item.source}`} className="rounded-md border border-slate-800 bg-black/40 p-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="truncate text-xs font-bold text-slate-100" title={item.title}>{item.title}</div>
-                    <div className="mt-1 flex flex-wrap gap-1 text-[10px]">
-                      <span className={cn(
-                        'rounded border px-1.5 py-0.5 font-bold uppercase',
-                        item.scope === 'client' ? 'border-blue-500/30 bg-blue-500/10 text-blue-200' : 'border-slate-700 bg-slate-900 text-slate-400'
-                      )}>
-                        {item.scope === 'client' ? (language === 'zh' ? '客户' : 'Client') : (language === 'zh' ? '全局' : 'Global')}
-                      </span>
-                      {item.sourceType && <span className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-slate-400">{item.sourceType}</span>}
-                      {formatConfidence(item.confidence) && <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-emerald-200">{formatConfidence(item.confidence)}</span>}
+
+          {knowledgeEvidence.length > 0 && (
+            <div className="rounded-2xl border border-slate-200 bg-white/90 p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                  <BookOpen className="h-4 w-4 text-cyan-500" />
+                  {label('RAG 证据', 'RAG Evidence')}
+                </div>
+                <ConversationToolbarGroup>
+                  <ConversationToolbarPill tone="sky">{label('客户知识', 'Client')}: {clientKnowledgeHits}</ConversationToolbarPill>
+                  <ConversationToolbarPill tone="default">{label('全局知识', 'Global')}: {globalKnowledgeHits}</ConversationToolbarPill>
+                </ConversationToolbarGroup>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                {knowledgeEvidence.slice(0, 4).map(item => (
+                  <div key={`${item.id || item.title}-${item.source}`} className="rounded-2xl border border-slate-200 bg-slate-50/90 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-slate-900" title={item.title}>{item.title}</div>
+                        <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
+                          <ConversationToolbarPill tone={item.scope === 'client' ? 'sky' : 'default'}>
+                            {item.scope === 'client' ? label('客户', 'Client') : label('全局', 'Global')}
+                          </ConversationToolbarPill>
+                          {item.sourceType && (
+                            <ConversationToolbarPill tone="default">{item.sourceType}</ConversationToolbarPill>
+                          )}
+                          {formatConfidence(item.confidence) && (
+                            <ConversationToolbarPill tone="success">{formatConfidence(item.confidence)}</ConversationToolbarPill>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-2 truncate text-[11px] text-slate-400" title={item.source}>{item.source}</div>
+                    {item.excerpt && <p className="mt-2 line-clamp-3 text-xs leading-5 text-slate-500">{item.excerpt}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {knowledgeConflicts.length > 0 && (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50/90 p-4">
+              <div className="mb-3 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-amber-700">
+                <AlertTriangle className="h-4 w-4" />
+                {label('知识冲突提醒', 'Knowledge Conflict Warning')}
+              </div>
+              <div className="space-y-2">
+                {knowledgeConflicts.slice(0, 3).map(conflict => (
+                  <div key={`${conflict.type}-${conflict.values.join('|')}`} className="rounded-2xl border border-amber-200 bg-white/80 px-3 py-2 text-xs text-amber-800">
+                    <div className="font-semibold">{conflict.label}: {conflict.values.join(' / ')}</div>
+                    <div className="mt-1 text-[11px] text-amber-700/75">
+                      {label('来源', 'Sources')}: {conflict.sources.join(', ')}
                     </div>
                   </div>
-                </div>
-                <div className="mt-1 truncate text-[10px] text-slate-500" title={item.source}>{item.source}</div>
-                {item.excerpt && <p className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-slate-400">{item.excerpt}</p>}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {knowledgeConflicts.length > 0 && (
-        <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
-          <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-amber-200">
-            <AlertTriangle className="h-4 w-4" />
-            {language === 'zh' ? '知识冲突提示' : 'Knowledge Conflict Warning'}
-          </div>
-          <div className="space-y-2">
-            {knowledgeConflicts.slice(0, 3).map(conflict => (
-              <div key={`${conflict.type}-${conflict.values.join('|')}`} className="rounded border border-amber-500/20 bg-black/30 px-3 py-2 text-xs text-amber-100">
-                <div className="font-bold">{conflict.label}: {conflict.values.join(' / ')}</div>
-                <div className="mt-1 text-[10px] text-amber-100/70">
-                  {language === 'zh' ? '来源' : 'Sources'}: {conflict.sources.join(', ')}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {(followUpAt || followUpEditorOpen) && (
-        <div className="mt-4 rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-xs font-bold text-emerald-200">
-              <CalendarClock className="h-4 w-4" />
-              {followUpAt
-                ? `${label('待跟进时间', 'Follow-up due')}: ${new Date(followUpAt).toLocaleString()}`
-                : label('设置预期跟进时间', 'Set expected follow-up time')}
-            </div>
-            {followUpAt && !followUpEditorOpen && (
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFollowUpDraftAt(toDateTimeLocalValue(followUpAt));
-                    setFollowUpDraftNote(followUpNote || '');
-                    setFollowUpEditorOpen(true);
-                  }}
-                  className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] font-bold text-emerald-100 hover:bg-emerald-500/20"
-                >
-                  {label('修改时间', 'Reschedule')}
-                </button>
-                {onCompleteFollowUp && (
-                  <button
-                    type="button"
-                    onClick={() => recordOption('complete_follow_up', label('完成跟进', 'Complete Follow-up'), onCompleteFollowUp)}
-                    disabled={!!runningOptionId}
-                    className="rounded border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-[11px] font-bold text-blue-100 hover:bg-blue-500/20 disabled:opacity-50"
-                  >
-                    {label('标记完成', 'Mark Done')}
-                  </button>
-                )}
-                {onClearFollowUp && (
-                  <button
-                    type="button"
-                    onClick={() => recordOption('clear_follow_up', label('取消跟进', 'Cancel Follow-up'), onClearFollowUp)}
-                    disabled={!!runningOptionId}
-                    className="rounded border border-red-500/30 bg-red-500/10 px-2 py-1 text-[11px] font-bold text-red-100 hover:bg-red-500/20 disabled:opacity-50"
-                  >
-                    {label('取消', 'Cancel')}
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-          {followUpNote && !followUpEditorOpen && (
-            <div className="mt-2 text-xs text-emerald-100/80">{followUpNote}</div>
-          )}
-          {followUpEditorOpen && onSetFollowUp && (
-            <div className="mt-3 grid gap-2 md:grid-cols-[180px_1fr_auto]">
-              <input
-                type="datetime-local"
-                value={followUpDraftAt}
-                min={new Date().toISOString().slice(0, 16)}
-                onChange={event => setFollowUpDraftAt(event.target.value)}
-                className="rounded border border-emerald-500/30 bg-slate-950 px-2 py-1.5 text-xs text-slate-100 outline-none focus:border-emerald-400"
-              />
-              <input
-                value={followUpDraftNote}
-                onChange={event => setFollowUpDraftNote(event.target.value)}
-                placeholder={label('跟进备注', 'Follow-up note')}
-                className="rounded border border-emerald-500/30 bg-slate-950 px-2 py-1.5 text-xs text-slate-100 outline-none focus:border-emerald-400"
-              />
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => recordOption('save_follow_up', label('保存跟进', 'Save Follow-up'), async () => {
-                    if (!followUpDraftAt) throw new Error(label('请选择预期跟进时间。', 'Please choose an expected follow-up time.'));
-                    await onSetFollowUp(new Date(followUpDraftAt).toISOString(), followUpDraftNote);
-                    setFollowUpEditorOpen(false);
-                  })}
-                  disabled={!!runningOptionId || !followUpDraftAt}
-                  className="rounded bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500"
-                >
-                  {label('保存', 'Save')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFollowUpEditorOpen(false)}
-                  className="rounded bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-300 hover:bg-slate-700"
-                >
-                  {label('关闭', 'Close')}
-                </button>
+                ))}
               </div>
             </div>
           )}
-        </div>
-      )}
 
-      <div className="mt-4 border-t border-blue-500/20 pt-4 flex flex-wrap gap-2">
-        {options.map(option => (
-          <button
-            key={option.id}
-            onClick={option.onClick}
-            disabled={option.disabled || !!runningOptionId}
-            title={option.description}
-            className={cn(
-              "inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-bold transition-colors disabled:border-slate-700 disabled:bg-slate-900 disabled:text-slate-500",
-              option.variant === 'danger'
-                ? "border-red-500/40 bg-red-600/10 text-red-200 hover:bg-red-600/20"
-                : option.variant === 'success'
-                  ? "border-emerald-500/40 bg-emerald-600/10 text-emerald-200 hover:bg-emerald-600/20"
-                  : "border-blue-500/40 bg-blue-600/10 text-blue-200 hover:bg-blue-600/20"
-            )}
-          >
-            {runningOptionId === option.id ? <Loader2 className="w-4 h-4 animate-spin" /> : option.icon}
-            {option.label}
-          </button>
-        ))}
-      </div>
-      {optionStatus && (
-        <div className="mt-3 inline-flex items-center gap-2 rounded-md border border-blue-500/20 bg-slate-950/70 px-3 py-2 text-xs text-blue-100">
-          {runningOptionId ? <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-300" /> : <ShieldCheck className="w-3.5 h-3.5 text-emerald-300" />}
-          {optionStatus}
+          {(followUpAt || followUpEditorOpen) && (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/90 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-sm font-semibold text-emerald-800">
+                  <CalendarClock className="h-4 w-4" />
+                  {followUpAt
+                    ? `${label('待跟进时间', 'Follow-up due')}: ${new Date(followUpAt).toLocaleString()}`
+                    : label('设置预期跟进时间', 'Set expected follow-up time')}
+                </div>
+                {followUpAt && !followUpEditorOpen && (
+                  <ConversationToolbarGroup>
+                    <ConversationToolbarButton
+                      type="button"
+                      tone="success"
+                      compact
+                      onClick={() => {
+                        setFollowUpDraftAt(toDateTimeLocalValue(followUpAt));
+                        setFollowUpDraftNote(followUpNote || '');
+                        setFollowUpEditorOpen(true);
+                      }}
+                    >
+                      {label('改期', 'Reschedule')}
+                    </ConversationToolbarButton>
+                    {onCompleteFollowUp && (
+                      <ConversationToolbarButton
+                        type="button"
+                        tone="sky"
+                        compact
+                        onClick={() => recordOption('complete_follow_up', label('完成跟进', 'Complete Follow-up'), onCompleteFollowUp)}
+                        disabled={!!runningOptionId}
+                      >
+                        {label('标记完成', 'Mark Done')}
+                      </ConversationToolbarButton>
+                    )}
+                    {onClearFollowUp && (
+                      <ConversationToolbarButton
+                        type="button"
+                        tone="danger"
+                        compact
+                        onClick={() => recordOption('clear_follow_up', label('取消跟进', 'Cancel Follow-up'), onClearFollowUp)}
+                        disabled={!!runningOptionId}
+                      >
+                        {label('取消', 'Cancel')}
+                      </ConversationToolbarButton>
+                    )}
+                  </ConversationToolbarGroup>
+                )}
+              </div>
+              {followUpNote && !followUpEditorOpen && (
+                <div className="mt-2 text-sm text-emerald-800/80">{followUpNote}</div>
+              )}
+              {followUpEditorOpen && onSetFollowUp && (
+                <div className="mt-3 grid gap-2 xl:grid-cols-[200px_1fr_auto]">
+                  <input
+                    type="datetime-local"
+                    value={followUpDraftAt}
+                    min={new Date().toISOString().slice(0, 16)}
+                    onChange={event => setFollowUpDraftAt(event.target.value)}
+                    className="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-emerald-400"
+                  />
+                  <input
+                    value={followUpDraftNote}
+                    onChange={event => setFollowUpDraftNote(event.target.value)}
+                    placeholder={label('跟进备注', 'Follow-up note')}
+                    className="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-emerald-400"
+                  />
+                  <ConversationToolbarGroup>
+                    <ConversationToolbarButton
+                      type="button"
+                      tone="success"
+                      onClick={() => recordOption('save_follow_up', label('保存跟进', 'Save Follow-up'), async () => {
+                        if (!followUpDraftAt) throw new Error(label('请选择预期跟进时间。', 'Please choose an expected follow-up time.'));
+                        await onSetFollowUp(new Date(followUpDraftAt).toISOString(), followUpDraftNote);
+                        setFollowUpEditorOpen(false);
+                      })}
+                      disabled={!!runningOptionId || !followUpDraftAt}
+                    >
+                      {label('保存', 'Save')}
+                    </ConversationToolbarButton>
+                    <ConversationToolbarButton
+                      type="button"
+                      tone="default"
+                      onClick={() => setFollowUpEditorOpen(false)}
+                    >
+                      {label('关闭', 'Close')}
+                    </ConversationToolbarButton>
+                  </ConversationToolbarGroup>
+                </div>
+              )}
+            </div>
+          )}
         </div>
-      )}
-    </section>
+
+        <div className="mt-5 border-t border-slate-200 pt-4">
+          <div className="mb-3 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
+            <ShieldCheck className="h-4 w-4 text-[#3b82f6]" />
+            {label('建议动作', 'Suggested Actions')}
+          </div>
+          <ConversationToolbarGroup>
+            {options.map(option => (
+              <ConversationToolbarButton
+                key={option.id}
+                onClick={option.onClick}
+                disabled={option.disabled || !!runningOptionId}
+                title={option.description}
+                tone={option.variant === 'danger' ? 'danger' : option.variant === 'success' ? 'success' : 'primary'}
+              >
+                {runningOptionId === option.id ? <Loader2 className="h-4 w-4 animate-spin" /> : option.icon}
+                {option.label}
+              </ConversationToolbarButton>
+            ))}
+          </ConversationToolbarGroup>
+        </div>
+
+        {optionStatus && (
+          <div className="mt-4 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+            {runningOptionId ? <Loader2 className="h-4 w-4 animate-spin text-[#3b82f6]" /> : <ShieldCheck className="h-4 w-4 text-emerald-500" />}
+            {optionStatus}
+          </div>
+        )}
+      </ConversationSectionCard>
+    </div>
   );
 }
+

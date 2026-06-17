@@ -54,19 +54,39 @@ export function EmailBodyPanel({ subject, body, language = 'en' }: EmailBodyPane
         )}
       />
 
-      <div className="rounded-[22px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-5 shadow-sm">
-        <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-          {isZh ? '\u4e3b\u9898' : 'Subject'}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(240px,0.45fr)]">
+        <div className="rounded-[22px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-5 shadow-sm">
+          <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+            {isZh ? '\u4e3b\u9898' : 'Subject'}
+          </div>
+          <h2 className="text-[28px] font-semibold tracking-tight text-slate-950">
+            {subject || (isZh ? '\u65e0\u4e3b\u9898' : 'No subject')}
+          </h2>
         </div>
-        <h2 className="text-[28px] font-semibold tracking-tight text-slate-950">
-          {subject || (isZh ? '\u65e0\u4e3b\u9898' : 'No subject')}
-        </h2>
+
+        <div className="rounded-[22px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-5 shadow-sm">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+            {isZh ? '阅读建议' : 'Reading tip'}
+          </div>
+          <div className="mt-2 text-sm leading-6 text-slate-600">
+            {isZh
+              ? '先确认客户意图、语气和具体需求，再决定是直接回复、转成待跟进，还是沉淀到知识库。'
+              : 'Confirm customer intent, tone, and concrete asks before replying, creating follow-up work, or saving knowledge.'}
+          </div>
+        </div>
       </div>
 
-      <div
-        className="mt-4 overflow-x-auto rounded-[22px] border border-slate-200 bg-white p-6 text-sm leading-7 text-slate-900 shadow-inner shadow-slate-100/70"
-        dangerouslySetInnerHTML={{ __html: cleanedBody }}
-      />
+      <div className="mt-4 rounded-[24px] border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200/80 px-5 py-3">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+            {isZh ? '渲染内容' : 'Rendered message'}
+          </div>
+        </div>
+        <div
+          className="overflow-x-auto p-6 text-sm leading-7 text-slate-900 shadow-inner shadow-slate-100/70"
+          dangerouslySetInnerHTML={{ __html: cleanedBody }}
+        />
+      </div>
     </ConversationSectionCard>
   );
 }
@@ -298,7 +318,7 @@ export function EmailAttachmentsPanel({
           <a
             href={attachment.url}
             key={`${attachment.url}:${index}`}
-            className="group rounded-[20px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-4 text-slate-700 transition hover:border-slate-300 hover:bg-white hover:shadow-sm"
+            className="group rounded-[22px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-4 text-slate-700 transition hover:border-slate-300 hover:bg-white hover:shadow-sm"
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
@@ -372,11 +392,33 @@ export function EmailTrackingPanel({
           {isZh ? '\u6682\u65f6\u8fd8\u6ca1\u6709\u8ddf\u8e2a\u8bb0\u5f55\u3002' : 'No tracking events have been recorded yet.'}
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-[20px] border border-cyan-200 bg-cyan-50 px-4 py-3 text-cyan-900 shadow-sm">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] opacity-70">
+                {isZh ? '总打开次数' : 'Total opens'}
+              </div>
+              <div className="mt-1 text-xl font-semibold">{openCount}</div>
+            </div>
+            <div className="rounded-[20px] border border-violet-200 bg-violet-50 px-4 py-3 text-violet-900 shadow-sm">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] opacity-70">
+                {isZh ? '总点击次数' : 'Total clicks'}
+              </div>
+              <div className="mt-1 text-xl font-semibold">{clickCount}</div>
+            </div>
+            <div className="rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 shadow-sm">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] opacity-70">
+                {isZh ? '跟踪事件' : 'Tracked events'}
+              </div>
+              <div className="mt-1 text-xl font-semibold">{events.length}</div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
           {visibleEvents.map((event, index) => (
             <div
               key={`${event.created_at || index}-${event.type || 'event'}`}
-              className="rounded-[20px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-4"
+              className="rounded-[22px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-4"
             >
               <div className="flex flex-wrap items-start gap-3">
                 <div className="flex min-w-[130px] items-center gap-2">
@@ -429,6 +471,7 @@ export function EmailTrackingPanel({
               )}
             </div>
           ))}
+          </div>
 
           {events.length > 3 && (
             <button
@@ -505,9 +548,23 @@ export function EmailCommentsPanel({
         )}
       </div>
 
-      <div className="rounded-[22px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-4 shadow-sm">
-        <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-          {isZh ? '\u65b0\u589e\u5185\u90e8\u5907\u6ce8' : 'New internal note'}
+      <div className="rounded-[24px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-4 shadow-sm">
+        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+              {isZh ? '\u65b0\u589e\u5185\u90e8\u5907\u6ce8' : 'New internal note'}
+            </div>
+            <div className="mt-1 text-sm leading-6 text-slate-500">
+              {isZh
+                ? '记录团队判断、风险提醒或下一步建议，方便销售和支持接手。'
+                : 'Capture team judgement, risks, and next-step guidance so handoff stays clean.'}
+            </div>
+          </div>
+          <ConversationToolbarPill tone="info">
+            {attachments.length > 0
+              ? (isZh ? `${attachments.length} 个附件待提交` : `${attachments.length} attachments pending`)
+              : (isZh ? '仅文本备注' : 'Text note only')}
+          </ConversationToolbarPill>
         </div>
 
         <textarea

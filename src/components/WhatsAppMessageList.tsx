@@ -44,23 +44,23 @@ export function WhatsAppMessageList({
     <ConversationSectionCard bodyClassName={useWorkroomSurface ? 'p-5 lg:p-6' : undefined}>
       {useWorkroomSurface && (
         <ConversationSectionHeader
-          title={isZh ? 'WhatsApp \u5bf9\u8bdd\u65f6\u95f4\u7ebf' : 'WhatsApp timeline'}
+          title={isZh ? 'WhatsApp 对话时间线' : 'WhatsApp timeline'}
           icon={<MessageCircle className="h-4 w-4 text-emerald-500" />}
           description={
             isZh
-              ? '\u96c6\u4e2d\u67e5\u770b\u5ba2\u6237\u6765\u4fe1\u3001\u6211\u65b9\u56de\u590d\u3001\u5a92\u4f53\u6d88\u606f\u4e0e\u7ffb\u8bd1\u5185\u5bb9\uff0c\u4fdd\u6301 WhatsApp \u8ddf\u8fdb\u4e0a\u4e0b\u6587\u8fde\u7eed\u3002'
+              ? '集中查看客户来信、我方回复、媒体消息与翻译内容，保持 WhatsApp 跟进上下文连续。'
               : 'Review inbound messages, outbound replies, media, and translations in one continuous WhatsApp follow-up timeline.'
           }
           actions={(
             <div className="flex flex-wrap items-center gap-1.5">
               <ConversationToolbarPill tone="success">
-                {messages.length} {isZh ? '\u6761\u6d88\u606f' : messages.length === 1 ? 'message' : 'messages'}
+                {messages.length} {isZh ? '条消息' : messages.length === 1 ? 'message' : 'messages'}
               </ConversationToolbarPill>
               <ConversationToolbarPill tone="default">
-                {isZh ? '\u5165\u7ad9' : 'Inbound'} {inboundCount}
+                {isZh ? '入站' : 'Inbound'} {inboundCount}
               </ConversationToolbarPill>
               <ConversationToolbarPill tone="default">
-                {isZh ? '\u51fa\u7ad9' : 'Outbound'} {outboundCount}
+                {isZh ? '出站' : 'Outbound'} {outboundCount}
               </ConversationToolbarPill>
             </div>
           )}
@@ -70,7 +70,7 @@ export function WhatsAppMessageList({
       {loading && (
         <div className="mb-4 flex items-center justify-center rounded-[20px] border border-slate-200 bg-slate-50 py-12 text-sm text-slate-500">
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          {isZh ? '\u6b63\u5728\u52a0\u8f7d WhatsApp \u6d88\u606f...' : 'Loading WhatsApp messages...'}
+          {isZh ? '正在加载 WhatsApp 消息...' : 'Loading WhatsApp messages...'}
         </div>
       )}
 
@@ -124,27 +124,27 @@ export function WhatsAppMessageList({
                   >
                     <div className="mb-2 flex flex-wrap items-center gap-2">
                       <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                        {outbound ? (isZh ? '\u6211\u65b9\u53d1\u9001' : 'Outbound') : (isZh ? '\u5ba2\u6237\u6d88\u606f' : 'Inbound')}
+                        {outbound ? (isZh ? '我方发送' : 'Outbound') : (isZh ? '客户消息' : 'Inbound')}
                       </div>
                       <ConversationToolbarPill tone={outbound ? 'success' : 'default'}>
-                        {message.message_type || (isZh ? '\u6d88\u606f' : 'message')}
+                        {message.message_type || (isZh ? '消息' : 'message')}
                       </ConversationToolbarPill>
                       {media.hasMedia && (
                         <ConversationToolbarPill tone="info">
                           {media.isImage ? (
                             <>
                               <ImageIcon className="h-3 w-3" />
-                              {isZh ? '\u56fe\u7247' : 'Image'}
+                              {isZh ? '图片' : 'Image'}
                             </>
                           ) : media.isVideo ? (
                             <>
                               <Video className="h-3 w-3" />
-                              {isZh ? '\u89c6\u9891' : 'Video'}
+                              {isZh ? '视频' : 'Video'}
                             </>
                           ) : (
                             <>
                               <FileText className="h-3 w-3" />
-                              {isZh ? '\u6587\u4ef6' : 'File'}
+                              {isZh ? '文件' : 'File'}
                             </>
                           )}
                         </ConversationToolbarPill>
@@ -205,13 +205,13 @@ export function WhatsAppMessageList({
                       <div className="mt-4 rounded-2xl border border-cyan-200 bg-cyan-50/70 px-3 py-3 text-xs leading-6 text-slate-700">
                         <div className="mb-1 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-cyan-700">
                           {isTranslating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Languages className="h-3 w-3" />}
-                          {isZh ? '\u81ea\u52a8\u7ffb\u8bd1' : 'Translation'}
+                          {isZh ? '自动翻译' : 'Translation'}
                           {inboundTranslation?.sourceLanguage && (
                             <span className="font-normal normal-case text-slate-400">({inboundTranslation.sourceLanguage})</span>
                           )}
                         </div>
                         <div className="whitespace-pre-wrap break-words">
-                          {inboundTranslation?.text || (isZh ? '\u6b63\u5728\u7ffb\u8bd1...' : 'Translating...')}
+                          {inboundTranslation?.text || (isZh ? '正在翻译...' : 'Translating...')}
                         </div>
                       </div>
                     )}
@@ -220,7 +220,7 @@ export function WhatsAppMessageList({
                       <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-100/50 px-3 py-3 text-xs leading-6 text-emerald-900">
                         <div className="mb-1 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
                           <Languages className="h-3 w-3" />
-                          {isZh ? '\u539f\u6587' : 'Original'}
+                          {isZh ? '原文' : 'Original'}
                           {outboundOriginal.targetLanguage && (
                             <span className="font-normal normal-case text-emerald-600">&gt; {outboundOriginal.targetLanguage}</span>
                           )}

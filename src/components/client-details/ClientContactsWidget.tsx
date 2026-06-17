@@ -1,8 +1,9 @@
 import React from 'react';
 import { Globe2, Mail, MessageCircle, Phone, Send } from 'lucide-react';
-import { Client, ClientContact, ContactMethod } from '../../store';
+import { Client, ClientContact, ContactMethod, useStore } from '../../store';
 import { cn } from '../../lib/utils';
-import { SectionHeader, StatusBadge } from '../ui';
+import { ConversationSectionHeader, ConversationSectionCard } from '../inbox-ui/ConversationSectionCard';
+import { ConversationToolbarPill } from '../inbox-ui/ConversationToolbar';
 
 const CONTACT_ICONS = {
   email: Mail,
@@ -35,15 +36,21 @@ export function ClientContactsWidget({
   onExpandedContactChange,
   renderContactAction
 }: ClientContactsWidgetProps) {
+  const { language } = useStore();
+  const label = (zh: string, en: string) => (language === 'zh' ? zh : en);
+
   if (contacts.length === 0) return null;
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <SectionHeader className="mb-2">Contacts</SectionHeader>
+    <ConversationSectionCard className="shadow-sm">
+      <ConversationSectionHeader
+        title={label('联系人', 'Contacts')}
+        className="mb-2"
+      />
       <div className="space-y-3">
         {contacts.map((contact) => (
-          <div key={contact.id} className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3 shadow-sm">
-            <div className="flex items-center justify-between gap-2 mb-2">
+          <div key={contact.id} className="rounded-[20px] border border-slate-200 bg-slate-50/80 p-3 shadow-sm">
+            <div className="mb-2 flex items-center justify-between gap-2">
               <div className="flex min-w-0 items-center gap-3">
                 <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white text-xs font-bold uppercase text-slate-500">
                   {contact.avatarUrl ? (
@@ -60,9 +67,9 @@ export function ClientContactsWidget({
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 text-sm font-bold text-slate-800">
                     {contact.name || client.name}
-                    {contact.isPrimary && <StatusBadge tone="cyan">Key</StatusBadge>}
+                    {contact.isPrimary && <ConversationToolbarPill tone="sky">{label('关键联系人', 'Key')}</ConversationToolbarPill>}
                   </div>
-                  {contact.title && <div className="text-[11px] text-slate-500 mt-0.5">{contact.title}</div>}
+                  {contact.title && <div className="mt-0.5 text-[11px] text-slate-500">{contact.title}</div>}
                 </div>
               </div>
             </div>
@@ -77,14 +84,14 @@ export function ClientContactsWidget({
                       onClick={() => onExpandedContactChange(isExpanded ? null : expandKey)}
                       className="flex w-full items-center justify-between p-2.5 transition-colors hover:bg-slate-50"
                     >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className={cn("p-1.5 rounded-md shrink-0", method.type === 'whatsapp' ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-500')}>
-                          <Icon className="w-4 h-4" />
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className={cn('shrink-0 rounded-md p-1.5', method.type === 'whatsapp' ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-500')}>
+                          <Icon className="h-4 w-4" />
                         </div>
                         <span className="truncate text-sm font-medium text-slate-700">{method.value}</span>
                       </div>
                       <span className="ml-2 shrink-0 text-xs font-medium text-cyan-700">
-                        {isExpanded ? 'Close' : method.type === 'whatsapp' ? 'Chat' : 'Action'}
+                        {isExpanded ? label('关闭', 'Close') : method.type === 'whatsapp' ? label('聊天', 'Chat') : label('操作', 'Action')}
                       </span>
                     </button>
                     {isExpanded && (
@@ -99,6 +106,6 @@ export function ClientContactsWidget({
           </div>
         ))}
       </div>
-    </div>
+    </ConversationSectionCard>
   );
 }

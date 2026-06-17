@@ -74,7 +74,7 @@ export function InboxQueueHeader({
   if (queueOwnerFilter !== 'all') pills.push(queueOwnerFilter);
   if (queueSortMode !== 'recent') pills.push(queueSortMode);
   if (followUpOnly) pills.push(isZh ? '待跟进' : 'Follow-up');
-  if (search.trim()) pills.push(isZh ? `搜索：${search}` : `Search: ${search}`);
+  if (search.trim()) pills.push(isZh ? `搜索: ${search}` : `Search: ${search}`);
   searchTags.forEach(tag => pills.push(`#${tag}`));
   if (currentQueueViewDirty) pills.push(isZh ? '未保存' : 'Unsaved');
 
@@ -120,7 +120,7 @@ export function InboxQueueHeader({
   ] as const;
 
   return (
-    <div className="sticky top-0 z-10 border-b border-slate-100 bg-white/96 px-4 py-3 backdrop-blur">
+    <div className="sticky top-0 z-10 border-b border-slate-200/80 bg-white/96 px-4 py-3 backdrop-blur">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">

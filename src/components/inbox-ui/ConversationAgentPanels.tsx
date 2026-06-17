@@ -41,10 +41,10 @@ export function TelegramAgentSuggestionsPanel({
     <AgentContextSuggestions
       channel="telegram"
       contextLookup={{ conversationId }}
-      draftReplyLabel={language === 'zh' ? '起草 Telegram 回复' : 'Draft Telegram Reply'}
+      draftReplyLabel={language === 'zh' ? '\u8d77\u8349 Telegram \u56de\u590d' : 'Draft Telegram Reply'}
       draftReplyDescription={
         language === 'zh'
-          ? '使用客户资料、Telegram 记录、产品信息和 RAG 上下文生成回复草稿。'
+          ? '\u7ed3\u5408\u5ba2\u6237\u8d44\u6599\u3001Telegram \u5bf9\u8bdd\u3001\u4ea7\u54c1\u4fe1\u606f\u548c RAG \u4e0a\u4e0b\u6587\u751f\u6210\u66f4\u5408\u9002\u7684\u56de\u590d\u8349\u7a3f\u3002'
           : 'Draft a Telegram reply using customer, conversation, product, and RAG context.'
       }
       onCreateLead={onCreateLead}
@@ -66,10 +66,10 @@ export function LiveChatAgentSuggestionsPanel({
     <AgentContextSuggestions
       channel="live_chat"
       contextLookup={{ conversationId }}
-      draftReplyLabel={language === 'zh' ? '运行 Agent 回复' : 'Run Agent Reply'}
+      draftReplyLabel={language === 'zh' ? '\u8fd0\u884c Agent \u56de\u590d' : 'Run Agent Reply'}
       draftReplyDescription={
         language === 'zh'
-          ? '使用客户资料、聊天记录、产品信息和 RAG 上下文生成并发送 Live Chat 回复。'
+          ? '\u7ed3\u5408\u5ba2\u6237\u8d44\u6599\u3001\u8bbf\u5ba2\u5bf9\u8bdd\u3001\u4ea7\u54c1\u4fe1\u606f\u548c RAG \u4e0a\u4e0b\u6587\u751f\u6210\u5e76\u53d1\u9001 Live Chat \u56de\u590d\u3002'
           : 'Generate and send a Live Chat reply using customer, conversation, product, and RAG context.'
       }
       {...props}

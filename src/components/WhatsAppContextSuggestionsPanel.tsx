@@ -64,7 +64,7 @@ export function WhatsAppContextSuggestionsPanel({
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || 'Failed to save WhatsApp analysis');
-    setConversation(prev => prev ? { ...prev, agentContextAnalysis: insight, agentContextAnalysisKey: key } : prev);
+    setConversation(prev => (prev ? { ...prev, agentContextAnalysis: insight, agentContextAnalysisKey: key } : prev));
   };
 
   const deleteConversation = async () => {
@@ -76,7 +76,7 @@ export function WhatsAppContextSuggestionsPanel({
       {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-      }
+      },
     );
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || 'Failed to delete WhatsApp conversation.');
@@ -112,11 +112,12 @@ export function WhatsAppContextSuggestionsPanel({
               : 'This panel prioritizes inbound customer messages, CRM summary, best next step, product data, and knowledge snippets before proposing the next WhatsApp action.'
           }
         />
+
         <div className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
           <MessageSquareQuote className="mt-0.5 h-4 w-4 shrink-0 text-cyan-500" />
           <div className="leading-6">
             {isZh
-              ? '点击“起草 AI 回复”时，如果当前输入框已有内容，会把它当作指导语；如果没有，会自动基于最近客户消息和上下文生成建议。'
+              ? '点击“起草 AI 回复”时，如果当前输入框已有内容，会把它当作指导语；如果没有，则自动基于最近客户消息和上下文生成建议。'
               : 'When you choose Draft AI Reply, the current composer text is treated as guidance; if it is empty, the system drafts directly from the latest customer message and context.'}
           </div>
         </div>
@@ -138,33 +139,45 @@ export function WhatsAppContextSuggestionsPanel({
         hasKnowledge={!!activeClient}
         hasCustomerMessage={whatsappAgentContext.hasCustomerMessage}
         autoScrollOnOpen={embedded || withinConversationSplit}
-        onDraftReply={() => generateWhatsAppMessage(
-          body.trim() || (
-            latestInboundMessage
-              ? `Reply to the latest inbound customer WhatsApp message from ${contactName}: ${latestInboundMessage.body}`
-              : `Draft a polite WhatsApp follow-up to ${contactName}. There is no inbound customer message yet, so do not answer our own outbound messages.`
-          )
-        )}
-        onAddComment={() => addConversationComment(
-          isZh
-            ? `智能体建议：复核与 ${contactName} 的 WhatsApp 对话，并准备下一条最合适的回复。`
-            : `Agent suggestion: review WhatsApp conversation with ${contactName} and prepare the next best reply.`
-        )}
+        onDraftReply={() =>
+          generateWhatsAppMessage(
+            body.trim()
+            || (
+              latestInboundMessage
+                ? `Reply to the latest inbound customer WhatsApp message from ${contactName}: ${latestInboundMessage.body}`
+                : `Draft a polite WhatsApp follow-up to ${contactName}. There is no inbound customer message yet, so do not answer our own outbound messages.`
+            )
+          )}
+        onAddComment={() =>
+          addConversationComment(
+            isZh
+              ? `智能体建议：复核与 ${contactName} 的 WhatsApp 对话，并准备下一条最合适的回复。`
+              : `Agent suggestion: review WhatsApp conversation with ${contactName} and prepare the next best reply.`,
+          )}
         followUpAt={whatsappFollowUp?.dueAt}
         followUpNote={whatsappFollowUp?.note}
-        onSetFollowUp={(dueAt, note) => addConversationComment(`${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
-          status: 'open',
-          dueAt,
-          note: note || (isZh ? `跟进与 ${contactName} 的 WhatsApp 对话。` : `Follow up WhatsApp conversation with ${contactName}.`),
-        })}`)}
-        onClearFollowUp={() => addConversationComment(`${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
-          status: 'canceled',
-          canceledAt: new Date().toISOString(),
-        })}`)}
-        onCompleteFollowUp={() => addConversationComment(`${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
-          status: 'completed',
-          completedAt: new Date().toISOString(),
-        })}`)}
+        onSetFollowUp={(dueAt, note) =>
+          addConversationComment(
+            `${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
+              status: 'open',
+              dueAt,
+              note: note || (isZh ? `跟进与 ${contactName} 的 WhatsApp 对话。` : `Follow up WhatsApp conversation with ${contactName}.`),
+            })}`,
+          )}
+        onClearFollowUp={() =>
+          addConversationComment(
+            `${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
+              status: 'canceled',
+              canceledAt: new Date().toISOString(),
+            })}`,
+          )}
+        onCompleteFollowUp={() =>
+          addConversationComment(
+            `${WHATSAPP_FOLLOW_UP_MARKER}${JSON.stringify({
+              status: 'completed',
+              completedAt: new Date().toISOString(),
+            })}`,
+          )}
         onDeleteItem={deleteConversation}
         onSaveAnalysis={saveAnalysis}
       />

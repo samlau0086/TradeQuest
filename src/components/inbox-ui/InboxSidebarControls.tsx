@@ -119,7 +119,7 @@ export function InboxSidebarControls({
     ownerLabel: isZh ? '负责人' : 'Owner',
     densityLabel: isZh ? '密度' : 'Density',
     followUpOnly: isZh ? '仅看待跟进' : 'Follow-up only',
-    followUpOpen: isZh ? '待跟进中' : 'Follow-up active',
+    followUpOpen: isZh ? '待跟进进行中' : 'Follow-up active',
     queueStatus: isZh ? '队列状态' : 'Queue status',
     searchPlaceholder: isZh
       ? '搜索会话、客户或关键词'
@@ -186,7 +186,7 @@ export function InboxSidebarControls({
     : isWhatsAppBackgroundSyncing
       ? (isZh ? '正在刷新 WhatsApp...' : 'Refreshing WhatsApp...')
       : syncError
-        ? (isZh ? `后台同步暂停：${syncError}` : `Background sync paused: ${syncError}`)
+        ? (isZh ? `后台同步已暂停：${syncError}` : `Background sync paused: ${syncError}`)
         : (isZh ? '后台自动同步已启用' : 'Background auto sync is enabled');
 
   const currentViewTokens = useMemo(() => {
@@ -199,7 +199,7 @@ export function InboxSidebarControls({
     ];
     if (followUpOnly) tokens.push(copy.followUpOpen);
     if (search.trim()) {
-      tokens.push(isZh ? `搜索：${search}` : `Search: ${search}`);
+      tokens.push(isZh ? `搜索: ${search}` : `Search: ${search}`);
     }
     if (searchTags.length > 0) {
       tokens.push(`${searchTags.length} ${copy.searchTagsCount}`);

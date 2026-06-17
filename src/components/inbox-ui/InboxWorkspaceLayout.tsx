@@ -51,7 +51,7 @@ export function InboxWorkspaceLayout({
         id="inbox-content"
         className={cn(
           THREE_PANE_WORKSPACE_STYLES.middle,
-          'relative flex flex-col bg-slate-950',
+          'relative flex flex-col bg-[linear-gradient(180deg,#f8fafc_0%,#eef3f8_100%)]',
           contentHidden && 'hidden md:flex',
         )}
       >
